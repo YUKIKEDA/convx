@@ -1,0 +1,37 @@
+---
+description: Illegal states are unrepresentable
+globs: "**/*.rs"
+alwaysApply: false
+---
+
+# Types
+
+Illegal states are types. They are not a rustdoc note, not a README caveat, and not an error returned when two options are combined.
+
+The concrete types and error variants live in `docs/design.ja.md`. Do not copy them here.
+
+## Runtime validation is the boundary only
+
+A check that returns `Result` is allowed where a value enters the type system: a public entry point that receives raw coordinates, a length, or a dimension from the caller. Past that boundary, code trusts the type.
+
+A lifecycle precondition is not an exception. Split the type. Do not keep a flag and reject the wrong state at runtime.
+
+```rust
+// BAD
+struct Hull {
+    built: bool,
+}
+
+// GOOD
+struct HullBuilder { /* accepts points */ }
+struct ConvexHull { /* only exists after a successful build */ }
+```
+
+## Do not ship
+
+- A field that is ignored when another field is set
+- "If both are set, return an error"
+- A flag that turns the rest of the struct off
+- A public method that panics because the caller used the wrong phase of the same type
+
+Input rejection the design already names (non-finite coordinates, the wrong length, an empty dimension) stays a boundary `Result`. That is not a license to encode mutually exclusive modes as booleans.

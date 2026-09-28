@@ -1,0 +1,42 @@
+name: Task
+description: Tooling, conventions, CI, or other documentation
+title: "[task] "
+labels: ["type:chore"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What changes in the workflow or the tooling. English.
+    validations:
+      required: true
+  - type: input
+    id: roadmap
+    attributes:
+      label: Roadmap ID
+      description: Example - P1. Use N/A only when the work is not a phase row.
+      placeholder: P1
+    validations:
+      required: true
+  - type: input
+    id: design
+    attributes:
+      label: Design section
+      placeholder: "docs/design.ja.md §11"
+  - type: textarea
+    id: depends
+    attributes:
+      label: Depends on
+      placeholder: "#12"
+  - type: textarea
+    id: dod
+    attributes:
+      label: Definition of done
+      description: Checkable outcomes.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Optional. Work left outside this Issue, and the roadmap row that names when.

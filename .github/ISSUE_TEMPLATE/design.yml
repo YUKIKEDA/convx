@@ -1,0 +1,41 @@
+name: Design
+description: A change to docs/design.ja.md only
+title: "[design] "
+labels: ["type:docs"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Which meaning changes, and which requirement forces it. English.
+    validations:
+      required: true
+  - type: input
+    id: roadmap
+    attributes:
+      label: Roadmap ID
+      description: Leave empty when this change is the specification itself. Otherwise the roadmap ID, for example P1.
+  - type: input
+    id: design
+    attributes:
+      label: Design section
+      placeholder: "docs/design.ja.md §11"
+    validations:
+      required: true
+  - type: textarea
+    id: depends
+    attributes:
+      label: Depends on
+      placeholder: "#12"
+  - type: textarea
+    id: dod
+    attributes:
+      label: Definition of done
+      description: The Japanese spec is updated. Acceptance text stays here, not on the roadmap.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Optional. Work left outside this Issue, and the roadmap row that names when.

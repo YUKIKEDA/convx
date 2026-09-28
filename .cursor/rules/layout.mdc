@@ -1,0 +1,27 @@
+---
+description: Single crate; the public surface is not copied into rules
+alwaysApply: true
+---
+
+# Layout
+
+Single crate `convx`. Not a Cargo workspace. Do not create empty files ahead of the Issue that needs them.
+
+`docs/conventions.md` is created when modules exist. Until then, this file is the layout rule. The public surface lives in `docs/design.ja.md` and `docs/design.md`. Both carry the full specification. The Japanese file is canonical when they differ. Do not copy either into this rule. Do not replace `docs/design.md` with a pointer to the Japanese file.
+
+`docs/roadmap.md` lists work to do: ID, title, Issue, and status. `docs/verification.md` is how a result is checked. Do not write that procedure into the design or the roadmap.
+
+Name the flows that can exist before writing the operation of a flow. A fixture set is not complete before the phase that produces the result. The operation is the judgment and the criteria inside a flow that already has a name.
+
+```text
+BAD:  a roadmap section that specifies seeds, generators, and golden commits
+GOOD: a roadmap row "Deterministic hull simulations and frozen fixtures"
+      and the procedure in docs/verification.md
+
+BAD:  "just gen-fixtures rewrites the files" before any flow exists
+GOOD: name the flow (add, extend, revise, retire), then the judgment inside it
+```
+
+Do not add a dependency the design does not name. A new dependency is a design change first (`.cursor/rules/workflow.mdc`).
+
+Combinations that would be ignored or rejected at runtime must not be representable (`.cursor/rules/types.mdc`).

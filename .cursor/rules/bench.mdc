@@ -1,0 +1,12 @@
+---
+description: No speedup target before Qhull is measured; no speed work without a number
+alwaysApply: true
+---
+
+# Benchmarks
+
+Do not write a speedup target before the sequential core exists and Qhull has been measured. The comparison is the one named in the design: no joggling, no input perturbation, the same dimension, logical facets against logical facets. Timing points come from `docs/verification.md`.
+
+Do not start speed work without a measurement. A phase-wide optimization that the design already places after a correct sequential result stays on its roadmap row (`.cursor/rules/defer.mdc`). It is not a reason to tune one path early.
+
+`just bench` is not a gate until a measurement tool exists. Do not add a bench checkbox to the PR template before that.

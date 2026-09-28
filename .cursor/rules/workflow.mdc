@@ -1,0 +1,64 @@
+---
+description: Issue, branch, PR, human squash merge, then retrospective
+alwaysApply: true
+---
+
+# Workflow
+
+Human procedure: `CONTRIBUTING.md`. Current row: `docs/roadmap.md`. Do not name that ID in this rule.
+
+## Order
+
+```text
+Grill (when the design branches) → Issue → branch → work → PR → human review → squash merge → retrospective
+```
+
+1. Grill when the API, the meaning, or a phase boundary branches. Skill: `.agents/skills/grilling/SKILL.md`. Skip it when the Issue already has acceptance text and that text agrees with `docs/design.ja.md`.
+2. Open a GitHub Issue from a template. Blank issues are disabled. One Issue, one PR.
+3. A change to the meaning of the spec is a `design` Issue that updates `docs/design.ja.md` and `docs/design.md` together, before any implementation Issue. `docs/design.md` carries the full English text. It is not a pointer page.
+4. Branch: `type/<issue-number>-<slug>`.
+5. Work that Issue only. Do not start a row whose status is `Set after Grill on #n`.
+6. Open a PR with `.github/pull_request_template.md`. `Closes #N` on its own line under `## Related`.
+7. A human reviews and squash-merges. Agents do not merge.
+8. Retrospective, below, before the next feature branch.
+
+「進めなさい」 is work on an Issue that already exists. It is not a substitute for creating an Issue or deciding scope. History rewrites: `.cursor/rules/git.mdc`.
+
+## Forbidden
+
+- Starting implementation without an Issue number and a branch
+- Copying acceptance text onto the roadmap. The roadmap keeps ID, title, Issue, and status. Acceptance text stays on the Issue and in the design
+- Writing pass/fail numbers, formats, or file layouts into the roadmap before Grill on that row finishes
+- Adding or removing a roadmap row, or editing **Intentionally out of scope**, without Grill → Issue (`.cursor/rules/consent.mdc`)
+
+When a row is recorded before Grill, and the user has named the ID and the Issue:
+
+- ID, kind, title, and dependencies that the Issue already states
+- Status is `Set after Grill on #n` only. Do not put the acceptance text on the roadmap
+
+## Retrospective
+
+After the squash merge, write three points on the merged PR. Write "none" when a point is empty.
+
+1. A lesson for `.cursor/rules/`, both design files, or one ADR under `docs/adr/`
+2. The Issue that will carry it, if any
+3. Whether to refactor. Yes opens a `refactor` Issue that is next, before the next feature. Postponing it needs a roadmap row that names when (`.cursor/rules/defer.mdc`)
+
+Draft the three points and stop. Do not file the Issue or edit rules in that same turn. The next feature branch waits until the three points are written.
+
+A correction the user gives during the work, as an ongoing constraint, is still a rule edit in that change (`.cursor/rules/record-corrections.mdc`). A lesson first noticed here waits for the ask.
+
+ADR files use Status, Date, Issue, Context, and Decision. Create `docs/adr/` with the first ADR. Do not keep a retrospective log.
+
+## Gates
+
+The `justfile` arrives with the crate. The names are fixed now.
+
+- `just lint` = `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`
+- `just test` = `cargo test`
+
+Cloud CI is not the definition of done until a workflow exists. Do not treat a missing Actions run as a pass.
+
+## Language
+
+Identifiers, rustdoc, Issue bodies, and commit subjects are English. Japanese in the repository is `docs/design.ja.md` and `README.ja.md`. `docs/design.md` is the full English specification, not a pointer. When the two design files differ, follow `docs/design.ja.md`.

@@ -1,0 +1,30 @@
+---
+description: Safety, Clippy, floats, and no unsafe in convx's own code
+globs: "**/*.rs"
+alwaysApply: false
+---
+
+# Rust
+
+Sources: Clippy restriction lints; Rust API Guidelines C-VALIDATE, C-GOOD-ERR. Behavior of the predicates and the error variants lives in `docs/design.ja.md`. Do not copy that text here.
+
+- Library paths: no `unwrap`, `expect`, `panic`, or `dbg`. Return the error type the design names. Tests may use `unwrap` and `expect`.
+- When `Cargo.toml` exists, deny `clippy::unwrap_used`, `clippy::expect_used`, `clippy::panic`, and `clippy::dbg_macro`. `clippy.toml` allows them in tests.
+- `just lint` uses `-D warnings`. Do not deny `clippy::pedantic` as a group. Allow one pedantic lint only with a comment that cites the requirement.
+- No `unsafe` in convx's own code. Dependencies may use it. Lifting the ban is a design change that records the invariant in `docs/design.ja.md` first. After that, every `unsafe` block has a `# Safety` section and a next-line invariant comment.
+- No logging. Failures use the error types in the design. Do not add a log facade.
+- `debug_assert!` only for an internal invariant that means a convx bug. Not for caller input.
+- Validate caller input at the public boundary. Do not panic on bad data. Illegal combinations are types, not runtime errors (`.cursor/rules/types.mdc`).
+- Do not use `==` on computed `f32` or `f64` to decide a geometric sign (Clippy `float_cmp`). The exception is point identity where the design says to use `==`. Allow `float_cmp` only on that line, and comment the design section.
+- MSRV is the value written in `docs/design.ja.md` (1.80). The crate edition is 2021. Do not set edition 2024.
+- Do not add a dependency the design does not name.
+
+```rust
+// BAD — unwrap on a library path, and == used to decide a sign
+let hull = build(points).unwrap();
+let coplanar = (a - b).abs() == 0.0;
+
+// GOOD — Result at the boundary, sign from the predicate
+let hull = build(points)?;
+let coplanar = orientation_sign(points) == Sign::Zero;
+```

@@ -1,0 +1,44 @@
+name: Spike
+description: A question to answer, without keeping the experiment as the library
+title: "[spike] "
+labels: ["type:spike"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: The one question this spike answers. English.
+    validations:
+      required: true
+  - type: input
+    id: roadmap
+    attributes:
+      label: Roadmap ID
+      description: Example - P1
+      placeholder: P1
+    validations:
+      required: true
+  - type: input
+    id: design
+    attributes:
+      label: Design section
+      placeholder: "docs/design.ja.md §1"
+  - type: textarea
+    id: depends
+    attributes:
+      label: Depends on
+      placeholder: "P1 or #12"
+  - type: textarea
+    id: dod
+    attributes:
+      label: Definition of done
+      description: The question is answered. The answer is recorded on this Issue.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: What will not be kept. Code from a spike is not the public API unless a later feat Issue says so.
+    validations:
+      required: true

@@ -1,0 +1,31 @@
+---
+description: PR title and body must follow the repo pull request template
+alwaysApply: true
+---
+
+# Pull requests
+
+## Title
+
+Same as Conventional Commits: `type(optional-scope): subject`.
+
+Type, scope, and subject are English.
+
+## Body
+
+Follow `.github/pull_request_template.md`. Same section headings, in this order:
+
+1. `## Summary`
+2. `## Related`
+3. `## Test plan`
+4. `## Verification`
+5. `## Risk / Rollback`
+6. `## Checklist`
+
+- Headings and body text are English.
+- Empty optional fields: write `N/A`. Do not delete the section.
+- `Closes #N` is on its own line under `## Related` when the PR finishes that Issue.
+- When using `gh pr create`, pass a body that matches this template. Use a PowerShell here-string (`.cursor/rules/powershell-shell.mdc`).
+- Do not invent alternate section names.
+
+Agents do not merge. A human squash-merges.

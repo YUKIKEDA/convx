@@ -1,0 +1,42 @@
+name: Feat
+description: A new capability callers can use
+title: "[feat] "
+labels: ["type:feat"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What to add, and which requirement it meets. English.
+    validations:
+      required: true
+  - type: input
+    id: roadmap
+    attributes:
+      label: Roadmap ID
+      description: Example - P1
+      placeholder: P1
+    validations:
+      required: true
+  - type: input
+    id: design
+    attributes:
+      label: Design section
+      placeholder: "docs/design.ja.md §1"
+  - type: textarea
+    id: depends
+    attributes:
+      label: Depends on
+      placeholder: "P1 or #12"
+  - type: textarea
+    id: dod
+    attributes:
+      label: Definition of done
+      description: Checkable outcomes. Tests and rustdoc as needed.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Optional. Work left outside this Issue, and the roadmap row that names when.

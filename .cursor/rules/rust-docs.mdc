@@ -1,0 +1,31 @@
+---
+description: English rustdoc for public convx items
+globs: "**/*.rs"
+alwaysApply: false
+---
+
+# rustdoc
+
+Sources: [rustdoc book](https://doc.rust-lang.org/stable/rustdoc/how-to-write-documentation.html), API Guidelines C-EXAMPLE, C-FAILURE, C-LINK.
+
+- English. `//!` only for crate and module docs. `///` on items. Line comments, not `/** */`.
+- Do not copy Japanese `///` text from `docs/design.ja.md` into the implementation. Restate the behavior in English.
+- First line: one punctuated sentence, third-person singular ("Returns…", not "Return…").
+- Then why or when, then sections. Common headings, with plural `Examples` even for one: `# Examples`, `# Errors`, `# Panics`, `# Safety`.
+- `# Errors` on every public `Result`. `# Panics` only if it can panic. Library paths should not panic (`.cursor/rules/rust.mdc`). `# Safety` is required if a later design change allows `unsafe`.
+- Public user-facing types and methods need an example, or a link to one, within reason. Getters that only return a field can skip a code block.
+- Doc tests compile. Use `?`, not `unwrap`. Hide setup with `# ` lines. Fence with ` ```rust `.
+- Link types with intra-doc links. Do not restate the signature.
+- Do not document "this field is ignored when…". If that sentence seems needed, the types are wrong (`.cursor/rules/types.mdc`).
+- When `Cargo.toml` exists, `missing_docs` is deny on the library crate. `pub(crate)` items do not need rustdoc.
+- Tests do not require a fixed Preconditions / Steps / Expected comment. The test's name and body should show which design invariant failed.
+
+```rust
+/// Returns the sign of the orientation of `points`.
+///
+/// The sign is the exact sign of the predicate in the design, not a rounded `f64`.
+///
+/// # Errors
+///
+/// Returns an error when exact evaluation cannot obtain a work buffer.
+```

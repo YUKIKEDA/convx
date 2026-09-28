@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Design spec
+    url: https://github.com/YUKIKEDA/convx/blob/main/docs/design.ja.md
+    about: The canonical spec is docs/design.ja.md. Open an Issue from a template.

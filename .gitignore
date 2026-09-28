@@ -1,0 +1,6 @@
+.dev/*
+!.dev/reviews/
+!.dev/reviews/**
+
+/target
+__pycache__/

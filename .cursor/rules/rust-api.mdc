@@ -1,0 +1,15 @@
+---
+description: English identifiers and Rust API Guidelines naming
+globs: "**/*.rs"
+alwaysApply: false
+---
+
+# API naming
+
+Identifiers are English. Follow the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/) for case, abbreviations, and conversion names (`as_`, `to_`, `into_`).
+
+Names describe convx concepts: hulls, facets, predicates, signs. Do not name an item after an unrelated product.
+
+The public surface lives in `docs/design.ja.md` and `docs/design.md`. Do not copy the type list, the function list, or the error variants into this rule. When the design and the code disagree, change the code or open a `design` Issue. Do not silently widen the API.
+
+Japanese `///` comments in the design are notes for the spec. Implementation rustdoc is English (`.cursor/rules/rust-docs.mdc`).

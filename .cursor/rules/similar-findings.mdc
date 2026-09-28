@@ -1,0 +1,15 @@
+---
+description: When a problem is pointed out, check for the same kind of gap elsewhere too
+alwaysApply: true
+---
+
+# Fix similar findings together
+
+When a problem is pointed out, do not fix only the cited spot and stop. Before fixing, check whether the same kind of gap exists elsewhere.
+
+- Look in the same file, in callees with the same contract, and in the paired code
+- Examples: one predicate uses the exact sign and a paired predicate compares floats; one build path classifies coplanar points and the paired path does not; one public error names the point index and the paired error does not
+- If you find the same kind of problem, fix it together with the cited spot
+- If you find none, say what you checked and that nothing remains
+
+A half-fixed pair is the same failure as a half-built capability (`.cursor/rules/scope.mdc`).

@@ -1,0 +1,56 @@
+---
+description: Conventional Commits format for all git commits in this repo
+alwaysApply: true
+---
+
+# Conventional Commits
+
+All commit messages MUST follow Conventional Commits.
+
+## Format
+
+```text
+type(optional-scope): subject
+
+optional body
+
+optional footer
+```
+
+## Types (English)
+
+Use one of: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `build`, `ci`.
+
+## Scope
+
+- English, kebab-case or a short noun.
+- Recommended when the change targets a clear area. Not mandatory for a tiny chore.
+- New scopes are allowed. The examples are not a closed list.
+
+## Subject
+
+- English, including the body.
+- Type and scope stay in English.
+- Imperative and concise. No trailing period required.
+- Focus on why when that helps. Do not dump file lists.
+
+## Breaking changes
+
+Use `type(scope)!: subject` and/or a footer:
+
+```text
+BREAKING CHANGE: description
+```
+
+## Examples
+
+```text
+feat(predicates): add the exact sign fallback
+fix(hull): classify coplanar points after the merge
+docs(roadmap): mark P1 in progress
+chore(ci): add the fmt and clippy job
+```
+
+## Agent behavior
+
+When creating commits in this repository, draft messages in this format. Do not use a free-form subject without a type prefix. Commit only when the user asks (`.cursor/rules/git.mdc`).

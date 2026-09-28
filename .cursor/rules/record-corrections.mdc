@@ -1,27 +1,39 @@
 ---
-description: 今後も使う指摘は .cursor/rules にルールとして残す
+description: Corrections that should hold in later sessions become a rule under .cursor/rules
 alwaysApply: true
 ---
 
-# 指摘は Rules に残す
+# Keep corrections as rules
 
-ユーザーが、今回の編集だけでなく今後も守るものとして指摘した規約は、その場の修正だけで終わらせない。`.cursor/rules/` に `.mdc` を追加する。
+When the user states a constraint that later sessions must follow, do not stop at the local edit. Add or update an `.mdc` file under `.cursor/rules/`.
 
-## 残す
+A correction given in the conversation lands in the same change. A lesson first noticed at the post-merge retrospective waits until the user asks for the Issue (`.cursor/rules/workflow.mdc`).
 
-- 次の会話でも同じ指摘が起きる書き方、手順、禁止
-- 「今後も」「ルールにして」と明示されたもの
+## Record
 
-## 残さない
+- A way of writing, a procedure, or a prohibition that would be corrected again next time
+- Anything the user marks as ongoing, including 「今後も」 and "make this a rule"
 
-- そのファイルの一箇所だけの直し
-- 設計仕様の本文。仕様は仕様書に書き、ルールには「仕様書に従う」とだけ書く
-- 外部レビューの原文の転記
+## Do not record here
 
-## 形式
+- A one-off fix in a single file
+- The design specification. Write that in `docs/design.ja.md` and `docs/design.md` together. A rule only says to follow the spec
+- A transcript of an external review
 
-- 1ファイルに1つの関心。短く、直す前と後の例を付ける
-- 毎回の会話で要るものは `alwaysApply: true`
-- 特定の種類のファイルだけなら `globs` を書き、`alwaysApply: false`
+## Shape
 
-図と数式の指摘は `.dev/**/*.md` 向けの `dev-docs.mdc` に分けてある。この「指摘を Rules にする」こと自体は、常時適用する。
+- One concern per file. Keep it short. Include a before and after example
+- `alwaysApply: true` when every session needs it
+- `globs` and `alwaysApply: false` when it applies to specific files
+
+Figures and formulas in the design spec belong in `dev-docs.mdc` (`docs/design.md`, `docs/design.ja.md`). This file stays `alwaysApply: true`.
+
+```text
+# BAD — fix the sentence and move on
+User: この手の後回しは、次からも時期を書きなさい
+Agent: edits the one paragraph
+
+# GOOD — the ongoing constraint becomes a rule in the same change
+User: この手の後回しは、次からも時期を書きなさい
+Agent: edits the paragraph and updates .cursor/rules/defer.mdc
+```

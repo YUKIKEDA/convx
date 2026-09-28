@@ -1,0 +1,38 @@
+---
+description: Questions are not decisions; do not settle scope, issues, or roadmap without an imperative
+alwaysApply: true
+---
+
+# Consent (planning)
+
+A question is not a decision. Do not close a design choice, GitHub Issue, or PR in the same turn as a question. The development cycle is `.cursor/rules/workflow.mdc`.
+
+## Stop. Reply only
+
+These are questions. Do not create, edit, close, or retitle Issues or PRs. Do not rewrite `docs/roadmap.md`, `docs/design.ja.md`, or `docs/design.md` to settle them:
+
+- 「必須ですよね？」「これでいい？」「載せていないの？」
+- Any yes/no about scope, a phase, or whether a row exists
+
+The reply lists options, then stops. A short preference is not an imperative. Wait for a later message that names the artifact and the action.
+
+```text
+# BAD — do not run gh / edit the roadmap
+必須機能ですよね？
+これで閉じていい？
+
+# GOOD — may change that artifact
+#54 の対象を設計第11節の P1 に合わせて、roadmap の P1 に Issue 番号を書いて
+Issue は切るな。先に選択肢と推奨と利点と欠点を書いて
+```
+
+When listing options:
+
+1. Mark one as the recommendation and say why
+2. Give every option a short pro and a short con
+3. Do not implement, file Issues, or edit the roadmap until the user names the artifact and the action
+4. Do not append to **Intentionally out of scope**, or delete from it, as a way to settle scope. That list changes only through Grill → Issue
+5. A recommended pick is not acceptance text. Do not write formats, pass/fail numbers, or file layouts into `docs/roadmap.md`. Acceptance text stays on the Issue. The roadmap keeps ID, title, Issue, and status
+6. The reason for the recommendation is the library concept, its goal, or a requirement that realizes them. Implementation ease and code volume are not reasons (`.cursor/rules/scope.mdc`)
+
+「次に進んで」 and 「進めなさい」 are the current roadmap row only. They are not consent to add rows, file extra Issues, or expand an open design question. The current row's ID lives only in `docs/roadmap.md`.

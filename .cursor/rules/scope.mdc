@@ -1,0 +1,30 @@
+---
+description: Concept and requirements decide; ease and size do not; a half build is worse than not building
+alwaysApply: true
+---
+
+# Scope
+
+The reason for a design choice is the library concept, its goal, and the requirements that realize them. Implementation volume and ease of implementation are not reasons.
+
+If those requirements cannot be met, do not ship a smaller substitute. Recommend not building the capability. Not building is recorded under **Intentionally out of scope** only after Grill → Issue (`.cursor/rules/workflow.mdc`). A question is not that decision (`.cursor/rules/consent.mdc`).
+
+Do not merge a public capability where one path is optimized or supported and another path of that same capability is not. That result is the failure mode to avoid. Maintainability is part of every recommendation.
+
+These splits stay allowed:
+
+- A later phase applies one optimization to every path, and the roadmap row names it. Wider SIMD, caches, and search cutoffs that the design already places after a correct sequential core are this kind.
+- An entire capability stays unshipped until the phase where its requirements are met.
+
+```text
+# BAD — the reason is the size of the change
+Ship Voronoi without the cocircular merge. The merge can be a follow-up.
+
+# GOOD — the requirement decides
+The dual is part of the Voronoi goal. Do not ship Voronoi until that merge exists.
+If the whole capability waits, say so and leave it on its roadmap row.
+```
+
+When a task is split, the same decision names when the rest happens (`.cursor/rules/defer.mdc`). A split with neither a roadmap row nor an out-of-scope entry is done entirely in the current Issue.
+
+Do not recommend a partial slice because the PR would be smaller. If you split, plan the rest in the same decision. Acceptance text stays on the Issue. The roadmap keeps ID, title, Issue, and status.

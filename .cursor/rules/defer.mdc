@@ -1,0 +1,32 @@
+---
+description: A postponement names when; do not leave one path finished and its pair unfinished
+alwaysApply: true
+---
+
+# Deferral
+
+Deferral is exceptional. Be slow to postpone. A follow-up without a time is not a plan.
+
+Do not ship a gap as "temporary", 「暫定」, 「今はやらない」, or "later issue" unless `docs/roadmap.md` already has a named row that owns the follow-up (ID, and an Issue once one exists), or the item is already listed under **Intentionally out of scope**.
+
+The row names when the work happens. Status before Grill is `Set after Grill on #n`. Acceptance text stays on the Issue. Do not copy it onto the roadmap.
+
+Do not postpone in a way that leaves one path optimized or supported and another path of the same capability not. That intermediate state is not made acceptable by a follow-up row (`.cursor/rules/scope.mdc`). Maintainability is the check on every deferral.
+
+Do not recommend a gap because the slice is smaller or easier.
+
+Do not grow **Intentionally out of scope** in the same change that notices a gap. Adding or removing a bullet is Grill → Issue. An ungrilled dump into that list is not a plan.
+
+If there is no row and the item is not in that list:
+
+- do the work in the current Issue, or
+- add the row in the same change that introduces the gap: ID, title, Issue. If it is not grilled, status is `Set after Grill on #n`. Do not write the acceptance text on the roadmap. Do not invent the acceptance text in order to fill the row.
+
+Forbidden:
+
+- "Temporary until the next phase" when that phase's acceptance text does not name the split
+- "File an issue later" with no roadmap ID
+- Closing a phase while a temporary gap is still in the code
+- One optimized path merged beside an unoptimized path of the same capability
+
+A question about whether something can wait is not consent to leave it unplanned (`.cursor/rules/consent.mdc`).
