@@ -1,0 +1,36 @@
+---
+description: .dev の設計文書では図を Mermaid、数式を LaTeX で書く
+globs: .dev/**/*.md
+alwaysApply: false
+---
+
+# 設計文書の図と数式
+
+`.dev/` の設計文書を書く・直すときは、次に従う。外部レビューの原文を残すファイル（`.dev/reviews/`）は、引用をこの形式へ書き換えない。
+
+## 図
+
+図は Mermaid のコードブロックで書く。ASCII アートの箱や矢印は使わない。ノード内では LaTeX が描画されないので、不等号は `<=` のように書く。
+
+```markdown
+```mermaid
+flowchart TD
+    pred["幾何述語: 符号を確定する"]
+    topo["トポロジー: 符号に従って変異する"]
+    pred --> topo
+```
+```
+
+## 数式
+
+数式は LaTeX とする。文中は `$...$`、単独で置く式は `$$...$$` とする。`\( \)` や `\[ \]` は使わない。
+
+```markdown
+平面は $x \cdot n + \mathrm{offset} = 0$ である。外側は $x \cdot n + \mathrm{offset} > 0$ である。
+
+$$
+x_{D+1} = \|x\|^2
+$$
+```
+
+Rust などのコードブロックの中には `$` を書かない。式はコードの外に置く。
