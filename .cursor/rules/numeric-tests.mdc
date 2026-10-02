@@ -1,0 +1,24 @@
+---
+description: Tests of floating-point results use an independent exact reference, a fixed tolerance, and a mutation check
+alwaysApply: true
+---
+
+# Numeric tests
+
+A test of a floating-point geometric result must be able to fail when the result is wrong.
+
+- Compare with an independent reference computed exactly (integers, `i128`, or the exact predicate path), not with the code under test or its own reference.
+- Use a fixed tolerance written in the test. Do not derive it from the constant the test is guarding.
+- Show that a soundness test bites: mutate the guarded term (loosen a bound, drop a term, set τ to 0) and confirm the test fails, then restore it. Say in the PR which mutation you tried.
+- A test over a family of inputs states the expected result of every case. An exception is named in the test with its reason. Do not weaken the assertion for the whole family.
+
+```text
+# BAD — passes with a 45° wrong normal and with τ = 0
+assert!(dot(normal, edge).abs() < 1e-12);         // shares the QR's own rounding
+assert!(plane.is_some() || family == "mixed");    // any family may skip
+
+# GOOD
+assert!(distance(normal, exact_cofactor_unit(&facet)) <= 1e-8);  // fixed, independent
+if mixed && k >= 4 { assert!(plane.is_none()); continue; }       // named exception
+// PR: "setting tau = 0 makes tilted_normal_is_not_culled fail"
+```
