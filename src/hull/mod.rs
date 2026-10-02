@@ -1,13 +1,14 @@
-//! The convex hull: input acceptance, construction, and (later) the
-//! published surface.
-
-// The public builder (P2-4, #11) is the first caller outside tests.
-#![cfg_attr(not(test), allow(dead_code))]
+//! The convex hull: input acceptance, construction, classification, and the
+//! published result.
 
 pub(crate) mod classify;
 mod error;
 pub(crate) mod input;
 pub(crate) mod merge;
+mod publish;
 pub(crate) mod simplicial;
 
 pub use error::ConvexHullError;
+pub use publish::{
+    BoundarySimplex, ConvexHull, ConvexHullBuilder, FacetPlane, LogicalFacet, TriangulationView,
+};

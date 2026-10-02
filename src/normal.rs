@@ -17,11 +17,10 @@
 //! plus `QR_TOLERANCE`, the cofactor direction is returned instead.
 //!
 //! Coordinates are first multiplied by one power of two so that the largest
-//! magnitude lies in [1, 2). The scaling is exact except for components that
-//! underflow, and it keeps the edge vectors finite for any finite input.
-
-// The public builder (P2-4, #11) is the first caller outside tests.
-#![cfg_attr(not(test), allow(dead_code))]
+//! magnitude lies in [1, 2), which keeps the edge vectors finite for any
+//! finite input. The edges, taken relative to the first point, are then
+//! scaled by the power of two that brings their width into [1, 2). Both
+//! scalings are exact except for components that underflow.
 
 use faer::Mat;
 
@@ -166,8 +165,25 @@ fn qr_normal(facet: &[&[f64]]) -> Option<Vec<f64>> {
         .iter()
         .map(|p| p.iter().map(|&x| scale_by_power_of_two(x, shift)).collect())
         .collect();
+    // Translate to the first point, then scale uniformly by the coordinate
+    // width (design §5), again by an exact power of two.
     let origin = &scaled[0];
-    let edges = Mat::from_fn(d, d - 1, |i, j| scaled[j + 1][i] - origin[i]);
+    let differences: Vec<Vec<f64>> = scaled[1..]
+        .iter()
+        .map(|p| p.iter().zip(origin).map(|(x, o)| x - o).collect())
+        .collect();
+    let width = differences
+        .iter()
+        .flat_map(|e| e.iter())
+        .map(|x| x.abs())
+        .fold(0.0_f64, f64::max);
+    if width == 0.0 {
+        return None;
+    }
+    let width_shift = -binary_exponent(width);
+    let edges = Mat::from_fn(d, d - 1, |i, j| {
+        scale_by_power_of_two(differences[j][i], width_shift)
+    });
     let q = edges.qr().compute_Q();
     let column: Vec<f64> = (0..d).map(|i| q[(i, d - 1)]).collect();
     let norm = column.iter().map(|x| x * x).sum::<f64>().sqrt();

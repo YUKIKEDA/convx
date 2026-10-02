@@ -38,11 +38,9 @@ use super::ConvexHullError;
 use crate::predicates::{orient, orient_direction, Sign};
 
 /// A simplex of the boundary complex.
-pub(crate) struct BoundarySimplex {
-    /// D vertices. The orientation of these followed by a point outside has
-    /// the sign `outward`.
+pub(crate) struct ComplexSimplex {
+    /// D vertices.
     pub(crate) vertices: Vec<u32>,
-    pub(crate) outward: Sign,
     /// The face that contains this simplex.
     pub(crate) face: u32,
     /// `neighbors[i]` is the simplex across the ridge opposite
@@ -65,7 +63,7 @@ pub(crate) struct Face {
 pub(crate) struct Classified<'a> {
     pub(crate) input: Input<'a>,
     pub(crate) faces: Vec<Face>,
-    pub(crate) simplices: Vec<BoundarySimplex>,
+    pub(crate) simplices: Vec<ComplexSimplex>,
     pub(crate) vertices: Vec<u32>,
     pub(crate) coplanar_points: Vec<u32>,
     pub(crate) interior_points: Vec<u32>,
@@ -79,7 +77,7 @@ pub(crate) fn classify(input: Input<'_>) -> Result<Classified<'_>, ConvexHullErr
 
     // Simplicial vertices, and each group's member simplices in outward order.
     let mut on_complex = vec![false; hull.input.representative.len()];
-    let mut group_simplices: Vec<Vec<(Vec<u32>, Sign)>> = Vec::with_capacity(groups.groups.len());
+    let mut group_simplices: Vec<Vec<Vec<u32>>> = Vec::with_capacity(groups.groups.len());
     for group in &groups.groups {
         let mut members = Vec::with_capacity(group.simplices.len());
         for id in &group.simplices {
@@ -87,7 +85,7 @@ pub(crate) fn classify(input: Input<'_>) -> Result<Classified<'_>, ConvexHullErr
                 for &v in &s.vertices {
                     on_complex[v as usize] = true;
                 }
-                members.push((s.vertices.clone(), s.outward));
+                members.push(s.vertices.clone());
             }
         }
         group_simplices.push(members);
@@ -140,7 +138,7 @@ pub(crate) fn classify(input: Input<'_>) -> Result<Classified<'_>, ConvexHullErr
         candidates.extend_from_slice(&zero_points[g]);
         candidates.sort_unstable();
         candidates.dedup();
-        let plane = &group_simplices[g][0].0;
+        let plane = &group_simplices[g][0];
         extremes.push(face_extremes(&hull.input, plane, &candidates)?);
     }
 
@@ -180,32 +178,27 @@ pub(crate) fn classify(input: Input<'_>) -> Result<Classified<'_>, ConvexHullErr
         .collect();
 
     // Boundary simplices: kept as built, or re-triangulated by placing.
-    let mut simplices: Vec<BoundarySimplex> = Vec::new();
+    let mut simplices: Vec<ComplexSimplex> = Vec::new();
     let mut faces: Vec<Face> = Vec::with_capacity(extremes.len());
     for (g, extreme) in extremes.into_iter().enumerate() {
         let original = &groups.groups[g].vertices;
         // A single simplex whose vertices are all extreme is kept; every
         // other facet is re-triangulated by placing, so facets that share a
         // lower face split it the same way.
-        let members: Vec<(Vec<u32>, Sign)> =
-            if &extreme == original && group_simplices[g].len() == 1 {
-                group_simplices[g].clone()
-            } else {
-                let q = vertices
-                    .iter()
-                    .copied()
-                    .find(|v| extreme.binary_search(v).is_err())
-                    .unwrap_or(extreme[0]);
-                place(&hull.input, &extreme, q)?
-                    .into_iter()
-                    .map(|s| (s, Sign::Positive))
-                    .collect()
-            };
+        let members: Vec<Vec<u32>> = if &extreme == original && group_simplices[g].len() == 1 {
+            group_simplices[g].clone()
+        } else {
+            let q = vertices
+                .iter()
+                .copied()
+                .find(|v| extreme.binary_search(v).is_err())
+                .unwrap_or(extreme[0]);
+            place(&hull.input, &extreme, q)?
+        };
         let first = simplices.len() as u32;
-        for (vertices, outward) in members {
-            simplices.push(BoundarySimplex {
+        for vertices in members {
+            simplices.push(ComplexSimplex {
                 vertices,
-                outward,
                 face: g as u32,
                 neighbors: Vec::new(),
             });
@@ -395,7 +388,7 @@ fn oriented(
 }
 
 /// Recomputes simplex neighbors from shared ridges, then face neighbors.
-fn link_neighbors(d: usize, simplices: &mut [BoundarySimplex], faces: &mut [Face]) {
+fn link_neighbors(d: usize, simplices: &mut [ComplexSimplex], faces: &mut [Face]) {
     if d == 1 {
         return;
     }
@@ -494,19 +487,20 @@ pub(crate) mod tests {
                 b.sort_unstable();
                 assert_eq!(a, b);
             }
-            // Every representative is on the inner side or on the plane.
-            for &p in &c.input.representatives {
-                let mut points: Vec<&[f64]> =
-                    simplex.vertices.iter().map(|&v| c.input.point(v)).collect();
-                points.push(c.input.point(p));
-                let sign = orient(&points).unwrap();
-                let sign = if simplex.outward == Sign::Positive {
-                    sign
-                } else {
-                    sign.reversed()
-                };
-                assert_ne!(sign, Sign::Positive);
-            }
+            // The simplex spans a supporting hyperplane: no two
+            // representatives lie strictly on opposite sides.
+            let signs: Vec<Sign> = c
+                .input
+                .representatives
+                .iter()
+                .map(|&p| {
+                    let mut points: Vec<&[f64]> =
+                        simplex.vertices.iter().map(|&v| c.input.point(v)).collect();
+                    points.push(c.input.point(p));
+                    orient(&points).unwrap()
+                })
+                .collect();
+            assert!(!(signs.contains(&Sign::Positive) && signs.contains(&Sign::Negative)));
             assert!(c.faces[simplex.face as usize]
                 .simplices
                 .contains(&(s as u32)));

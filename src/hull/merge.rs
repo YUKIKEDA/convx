@@ -28,8 +28,6 @@ pub(crate) struct Group {
 
 pub(crate) struct LogicalFacets {
     pub(crate) groups: Vec<Group>,
-    /// The group of each live simplex.
-    pub(crate) group_of: HashMap<FacetId, u32>,
 }
 
 struct UnionFind {
@@ -152,7 +150,7 @@ pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, ConvexHu
         group.neighbors = neighbors;
     }
 
-    Ok(LogicalFacets { groups, group_of })
+    Ok(LogicalFacets { groups })
 }
 
 #[cfg(test)]
@@ -164,13 +162,17 @@ mod tests {
     fn groups_of(dim: usize, points: &[f64]) -> LogicalFacets {
         let hull = SimplicialHull::build(accept(dim, points).unwrap()).unwrap();
         let facets = merge(&hull).unwrap();
-        // Every simplex belongs to the group that lists it.
-        for (g, group) in facets.groups.iter().enumerate() {
-            for id in &group.simplices {
-                assert_eq!(facets.group_of[id], g as u32);
-            }
-        }
-        assert_eq!(facets.group_of.len(), hull.facets.len());
+        // Every simplex belongs to exactly one group.
+        let mut members: Vec<FacetId> = facets
+            .groups
+            .iter()
+            .flat_map(|g| g.simplices.clone())
+            .collect();
+        let total = members.len();
+        members.sort_unstable();
+        members.dedup();
+        assert_eq!(members.len(), total);
+        assert_eq!(total, hull.facets.len());
         // Neighbor sets are symmetric.
         for (g, group) in facets.groups.iter().enumerate() {
             for &n in &group.neighbors {

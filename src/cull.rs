@@ -39,9 +39,6 @@
 //! both paths return bitwise identical `w` and `l` and the same cull set on
 //! every CPU.
 
-// The public builder (P2-4, #11) is the first caller outside tests.
-#![cfg_attr(not(test), allow(dead_code))]
-
 use pulp::{Arch, Simd, WithSimd};
 
 use crate::normal::exact_unit_scaling;

@@ -11,7 +11,10 @@ mod hull;
 mod normal;
 mod predicates;
 
-pub use hull::ConvexHullError;
+pub use hull::{
+    BoundarySimplex, ConvexHull, ConvexHullBuilder, ConvexHullError, FacetPlane, LogicalFacet,
+    TriangulationView,
+};
 pub use predicates::Sign;
 
 #[cfg(test)]
