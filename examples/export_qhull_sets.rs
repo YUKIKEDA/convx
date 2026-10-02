@@ -9,7 +9,9 @@
 //! input format: the dimension, the point count, then one point per line.
 //! Coordinates use Rust's shortest round-trip `f64` formatting, so Qhull reads
 //! the same bit patterns convx is given. Existing files are kept. The
-//! optional filter keeps only sets whose file name contains it.
+//! optional filter is split at `-` into tokens, and a set is kept only when
+//! every token equals one `-`-separated token of its name: `d3-n10000` keeps
+//! `cube-d3-n10000-s1` and `sphere-d3-n10000-s1`, not `cube-d3-n100000-s1`.
 //!
 //! These files are never read by a correctness test.
 
@@ -62,23 +64,31 @@ fn read_sets(text: &str) -> Result<Vec<Set>, String> {
     }
 }
 
+/// Whether every filter token is a whole `-`-separated token of `stem`.
+fn matches(stem: &str, wanted: &[&str]) -> bool {
+    let tokens: Vec<&str> = stem.split('-').collect();
+    wanted.iter().all(|w| tokens.contains(w))
+}
+
 fn run() -> Result<(), String> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let text = fs::read_to_string(root.join("benches/sets.txt")).map_err(|e| e.to_string())?;
     let filter = std::env::args().nth(1).unwrap_or_default();
+    let wanted: Vec<&str> = filter.split('-').filter(|t| !t.is_empty()).collect();
     let out = root.join(".dev/perf");
     fs::create_dir_all(&out).map_err(|e| e.to_string())?;
     for set in read_sets(&text)? {
-        let name = format!(
-            "{}-d{}-n{}-s{}.txt",
+        let stem = format!(
+            "{}-d{}-n{}-s{}",
             set.family.name(),
             set.dim,
             set.count,
             set.seed
         );
-        if !name.contains(&filter) {
+        if !matches(&stem, &wanted) {
             continue;
         }
+        let name = format!("{stem}.txt");
         let path = out.join(&name);
         if path.exists() {
             println!("kept    {}", path.display());
