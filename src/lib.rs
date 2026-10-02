@@ -11,3 +11,6 @@ mod normal;
 mod predicates;
 
 pub use predicates::Sign;
+
+#[cfg(test)]
+mod phase1;
