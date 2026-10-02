@@ -51,6 +51,7 @@ name = "convx"
 version = "0.0.0"
 dependencies = [
  "faer",
+ "pulp",
 ]
 
 [[package]]

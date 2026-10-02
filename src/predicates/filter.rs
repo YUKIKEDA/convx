@@ -86,6 +86,14 @@ impl Approx {
         Some(Self { value, error })
     }
 
+    pub(super) fn value(self) -> f64 {
+        self.value
+    }
+
+    pub(super) fn error(self) -> f64 {
+        self.error
+    }
+
     /// The sign of the value when the bound certifies it.
     pub(super) fn certified_sign(self) -> Option<Sign> {
         if !self.value.is_finite() || !self.error.is_finite() {
