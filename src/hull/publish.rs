@@ -42,7 +42,12 @@ impl<'a> ConvexHullBuilder<'a> {
     /// plane is not finite, and [`ConvexHullError::ExactEvaluationExhausted`].
     pub fn build(self) -> Result<ConvexHull, ConvexHullError> {
         let input = accept(self.dim, self.points)?;
-        publish(classify(input)?)
+        let hull = publish(classify(input)?)?;
+        #[cfg(debug_assertions)]
+        if let Err(violation) = super::invariants::check(&hull, self.points) {
+            debug_assert!(false, "convx hull invariant violated: {violation}");
+        }
+        Ok(hull)
     }
 }
 
