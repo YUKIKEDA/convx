@@ -1,0 +1,25 @@
+---
+description: Checks and tests implement the design's full statement, including fixed orders and documented rules
+alwaysApply: true
+---
+
+# Checking the design's statements
+
+A check or a test that stands for a statement in `docs/design.ja.md` or `docs/verification.md` implements the whole statement.
+
+- Check the full statement, not a necessary condition of it. Its self-test includes a case that passes the weaker condition and fails the full one.
+- When the design fixes an order (input checks, errors, sort keys), test it with one input that fails two adjacent steps and assert the first.
+- Every rule written in the docs has a code path, and a test that fails when that path is skipped. A sentence with no code behind it is a gap, not documentation.
+
+```text
+# BAD
+facet neighbors are symmetric                    // a ridge dropped on both sides passes
+transform keeps the sorted vertex sets           // a flipped orientation passes
+docs: "near zero is written unchecked"           // nothing writes it
+
+# GOOD
+neighbors == facets meeting in a ridge (affine dim D - 2); tamper: drop it on both sides
+oriented simplices == originals renormalized on the moved coordinates
+Record::of writes unchecked below the threshold; steady run fails on a mismatch
+input with NaN and > u32::MAX points → NonFiniteCoordinate
+```
