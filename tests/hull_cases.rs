@@ -156,6 +156,89 @@ fn sample(dim: usize, count: usize, seed: u64) -> Vec<f64> {
         .collect()
 }
 
+/// Exact determinant by cofactor expansion. Entries stay below 2^18 here, so
+/// a 4 x 4 determinant fits in `i128`.
+fn determinant(m: &[Vec<i128>]) -> i128 {
+    if m.len() == 1 {
+        return m[0][0];
+    }
+    (0..m.len())
+        .map(|j| {
+            let minor: Vec<Vec<i128>> = m[1..]
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .enumerate()
+                        .filter(|&(c, _)| c != j)
+                        .map(|(_, &x)| x)
+                        .collect()
+                })
+                .collect();
+            let term = m[0][j] * determinant(&minor);
+            if j % 2 == 0 {
+                term
+            } else {
+                -term
+            }
+        })
+        .sum()
+}
+
+/// Exact orientation sign of `simplex` followed by `apex`. The transformed
+/// coordinates are multiples of 1/32, so scaling by 64 makes them integers.
+fn orientation(dim: usize, points: &[f64], simplex: &[u32], apex: u32) -> i128 {
+    let at = |i: u32| -> Vec<i128> {
+        points[i as usize * dim..(i as usize + 1) * dim]
+            .iter()
+            .map(|&x| {
+                let scaled = x * 64.0;
+                assert_eq!(scaled.fract(), 0.0);
+                scaled as i128
+            })
+            .collect()
+    };
+    let origin = at(simplex[0]);
+    let rows: Vec<Vec<i128>> = simplex[1..]
+        .iter()
+        .chain(core::iter::once(&apex))
+        .map(|&v| at(v).iter().zip(&origin).map(|(x, o)| x - o).collect())
+        .collect();
+    determinant(&rows).signum()
+}
+
+/// The oriented simplices of `hull`, renormalized on `points`: each ascending
+/// vertex list, with the last two swapped when a hull vertex off its facet is
+/// not on the negative side (design §5, §10). The diagonals chosen inside
+/// non-simplex facets stay as they are.
+fn renormalized(hull: &ConvexHull, dim: usize, points: &[f64]) -> Vec<(u32, Vec<u32>)> {
+    hull.triangulation()
+        .iter()
+        .map(|simplex| {
+            let mut vertices = simplex.vertices.to_vec();
+            vertices.sort_unstable();
+            if dim >= 2 {
+                let facet = &hull.facets[simplex.facet as usize];
+                let apex = *hull
+                    .vertices
+                    .iter()
+                    .find(|v| facet.vertices.binary_search(v).is_err())
+                    .unwrap();
+                if orientation(dim, points, &vertices, apex) > 0 {
+                    vertices.swap(dim - 2, dim - 1);
+                }
+            }
+            (simplex.facet, vertices)
+        })
+        .collect()
+}
+
+fn oriented(hull: &ConvexHull) -> Vec<(u32, Vec<u32>)> {
+    hull.triangulation()
+        .iter()
+        .map(|s| (s.facet, s.vertices.to_vec()))
+        .collect()
+}
+
 fn check_transform(dim: usize, points: &[f64], map: impl Fn(&[f64]) -> Vec<f64>) {
     let original = build(dim, points);
     let moved: Vec<f64> = points.chunks_exact(dim).flat_map(map).collect();
@@ -164,15 +247,24 @@ fn check_transform(dim: usize, points: &[f64], map: impl Fn(&[f64]) -> Vec<f64>)
     assert_eq!(original.vertices, transformed.vertices);
     assert_eq!(original.coplanar_points, transformed.coplanar_points);
     assert_eq!(original.interior_points, transformed.interior_points);
+    // In D = 2 every facet is a segment of two vertices.
+    assert!(
+        dim < 3 || original.facets.iter().any(|f| f.vertices.len() > dim),
+        "no non-simplex facet, so no diagonal is compared"
+    );
+    // The oriented simplices, diagonals included, agree once the original
+    // ones are renormalized on the transformed coordinates.
+    assert_eq!(oriented(&transformed), renormalized(&original, dim, &moved));
 }
 
 #[test]
 fn translation_and_scale_keep_facets() {
     for dim in 2..=4 {
         let mut points = sample(dim, 40, dim as u64);
-        // Include a grid corner region for exact coplanarities.
+        // Grid corners at 8 lie past every sample (below 8), so the faces
+        // x_a = 8 are non-simplex facets and their diagonals are compared.
         points.extend(
-            (0..1 << dim).flat_map(|i: u32| (0..dim).map(move |a| f64::from((i >> a) & 1) * 4.0)),
+            (0..1 << dim).flat_map(|i: u32| (0..dim).map(move |a| f64::from((i >> a) & 1) * 8.0)),
         );
         check_transform(dim, &points, |p| p.iter().map(|x| x + 1024.0).collect());
         check_transform(dim, &points, |p| p.iter().map(|x| x * 0.25).collect());
@@ -184,7 +276,11 @@ fn translation_and_scale_keep_facets() {
 #[test]
 fn axis_swap_keeps_facets() {
     for dim in 2..=4 {
-        let points = sample(dim, 40, 100 + dim as u64);
+        let mut points = sample(dim, 40, 100 + dim as u64);
+        // Grid corners at 8, past every sample: non-simplex facets.
+        points.extend(
+            (0..1 << dim).flat_map(|i: u32| (0..dim).map(move |a| f64::from((i >> a) & 1) * 8.0)),
+        );
         check_transform(dim, &points, |p| {
             let mut q = p.to_vec();
             q.swap(0, dim - 1);
