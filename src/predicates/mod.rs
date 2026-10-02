@@ -1,0 +1,315 @@
+//! Geometric predicates. They decide every topological sign.
+//!
+//! The orientation of k + 1 points of dimension k is the sign of the
+//! determinant whose rows are `p_i - p_0` for `i` in `1..=k`. The geometric
+//! degree k is independent of the hull dimension. Input coordinates are taken
+//! as the exact values their bit patterns name; nothing is translated or
+//! scaled first.
+//!
+//! Each predicate first evaluates in `f64` with a running absolute error
+//! bound (see [`filter`]). When the bound certifies the sign, that sign is
+//! returned. Otherwise the sign of the same polynomial is computed exactly
+//! (see [`exact`]). Degree 1 compares the two coordinates directly; degrees 2
+//! to 4 use dedicated expansions; larger degrees use a filtered determinant.
+
+// The hull build (P2-1, #8) is the first caller outside tests.
+#![cfg_attr(not(test), allow(dead_code))]
+
+mod exact;
+mod filter;
+
+use filter::Approx;
+
+/// The sign of a predicate.
+///
+/// Predicates return a sign, never a floating-point value. Coplanar means an
+/// orientation of [`Sign::Zero`]. A point is outside a facet when the
+/// orientation of the facet's points, in outward order, followed by the point
+/// is [`Sign::Positive`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Sign {
+    /// The determinant is negative.
+    Negative,
+    /// The determinant is exactly zero.
+    Zero,
+    /// The determinant is positive.
+    Positive,
+}
+
+impl Sign {
+    /// The opposite sign. [`Sign::Zero`] stays zero.
+    #[must_use]
+    pub fn reversed(self) -> Self {
+        match self {
+            Self::Negative => Self::Positive,
+            Self::Zero => Self::Zero,
+            Self::Positive => Self::Negative,
+        }
+    }
+}
+
+/// The work space for exact evaluation could not be reserved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ExactEvaluationExhausted;
+
+/// Orientation of `points`: k + 1 points, each of dimension k, with k >= 1.
+///
+/// Every coordinate must be finite. The result is the exact sign of the
+/// determinant of `points[i] - points[0]`, `i = 1..=k`.
+pub(crate) fn orient(points: &[&[f64]]) -> Result<Sign, ExactEvaluationExhausted> {
+    let k = points.len().saturating_sub(1);
+    debug_assert!(k >= 1, "orientation needs at least two points");
+    debug_assert!(
+        points.iter().all(|p| p.len() == k),
+        "orientation of k + 1 points needs dimension k"
+    );
+    debug_assert!(
+        points.iter().all(|p| p.iter().all(|x| x.is_finite())),
+        "predicate input must be finite"
+    );
+    if let Some(sign) = filtered(points, k) {
+        return Ok(sign);
+    }
+    exact::orient_exact(points)
+}
+
+/// Side of `query` relative to the hyperplane through `facet` (k points of
+/// dimension k, in outward order): [`Sign::Positive`] is outside.
+pub(crate) fn distance_sign(
+    facet: &[&[f64]],
+    query: &[f64],
+) -> Result<Sign, ExactEvaluationExhausted> {
+    let mut points: Vec<&[f64]> = Vec::with_capacity(facet.len() + 1);
+    points.extend_from_slice(facet);
+    points.push(query);
+    orient(&points)
+}
+
+/// Whether `points` (k + 1 points of dimension k) lie on one hyperplane.
+pub(crate) fn is_coplanar(points: &[&[f64]]) -> Result<bool, ExactEvaluationExhausted> {
+    Ok(orient(points)? == Sign::Zero)
+}
+
+fn filtered(points: &[&[f64]], k: usize) -> Option<Sign> {
+    let origin = points[0];
+    if k == 1 {
+        // Degree 1: the sign of b - a is the order of two finite values.
+        return match points[1][0].partial_cmp(&origin[0])? {
+            core::cmp::Ordering::Less => Some(Sign::Negative),
+            core::cmp::Ordering::Equal => Some(Sign::Zero),
+            core::cmp::Ordering::Greater => Some(Sign::Positive),
+        };
+    }
+    let entry = |i: usize, j: usize| Approx::exact(points[i + 1][j]).sub(Approx::exact(origin[j]));
+    let value = match k {
+        2 => filter::orient2(&core::array::from_fn(|i| {
+            core::array::from_fn(|j| entry(i, j))
+        })),
+        3 => filter::orient3(&core::array::from_fn(|i| {
+            core::array::from_fn(|j| entry(i, j))
+        })),
+        4 => filter::orient4(&core::array::from_fn(|i| {
+            core::array::from_fn(|j| entry(i, j))
+        })),
+        _ => filter::determinant(
+            (0..k)
+                .map(|i| (0..k).map(|j| entry(i, j)).collect())
+                .collect(),
+        )?,
+    };
+    value.certified_sign()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn orient_of(points: &[Vec<f64>]) -> Sign {
+        let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+        orient(&refs).unwrap()
+    }
+
+    fn exact_of(points: &[Vec<f64>]) -> Sign {
+        let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+        exact::orient_exact(&refs).unwrap()
+    }
+
+    /// The standard simplex: origin and the unit vectors, positively oriented.
+    fn unit_simplex(k: usize) -> Vec<Vec<f64>> {
+        let mut points = vec![vec![0.0; k]];
+        for i in 0..k {
+            let mut p = vec![0.0; k];
+            p[i] = 1.0;
+            points.push(p);
+        }
+        points
+    }
+
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            let mut z = self.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            z ^ (z >> 31)
+        }
+
+        fn unit(&mut self) -> f64 {
+            (self.next() >> 11) as f64 / (1_u64 << 53) as f64 * 2.0 - 1.0
+        }
+    }
+
+    #[test]
+    fn unit_simplex_is_positive_for_every_degree() {
+        for k in 1..=8 {
+            assert_eq!(orient_of(&unit_simplex(k)), Sign::Positive, "k = {k}");
+        }
+    }
+
+    #[test]
+    fn swapping_two_points_reverses_the_sign() {
+        for k in 1..=7 {
+            let mut points = unit_simplex(k);
+            let s = orient_of(&points);
+            points.swap(k - 1, k);
+            assert_eq!(orient_of(&points), s.reversed(), "k = {k}");
+        }
+    }
+
+    #[test]
+    fn repeated_point_is_zero() {
+        for k in 1..=7 {
+            let mut points = unit_simplex(k);
+            points[k] = points[0].clone();
+            assert_eq!(orient_of(&points), Sign::Zero, "k = {k}");
+        }
+    }
+
+    #[test]
+    fn overflowing_filter_falls_back_to_exact() {
+        for k in 2..=6 {
+            let mut points = unit_simplex(k);
+            for p in &mut points {
+                for x in p.iter_mut() {
+                    *x *= f64::MAX / 2.0;
+                }
+            }
+            points[0] = vec![-f64::MAX / 2.0; k];
+            assert_eq!(orient_of(&points), exact_of(&points), "k = {k}");
+            assert_ne!(orient_of(&points), Sign::Zero, "k = {k}");
+        }
+    }
+
+    #[test]
+    fn collinear_and_one_ulp_off() {
+        let a = vec![0.1, 0.1];
+        let b = vec![0.3, 0.3];
+        let c = vec![0.7, 0.7];
+        assert_eq!(orient_of(&[a.clone(), b.clone(), c.clone()]), Sign::Zero);
+        let up = vec![0.7, f64::from_bits(0.7_f64.to_bits() + 1)];
+        let down = vec![0.7, f64::from_bits(0.7_f64.to_bits() - 1)];
+        assert_eq!(orient_of(&[a.clone(), b.clone(), up]), Sign::Positive);
+        assert_eq!(orient_of(&[a, b, down]), Sign::Negative);
+    }
+
+    #[test]
+    fn subnormal_product_is_not_taken_as_zero() {
+        // det = (2^-600)(2^-600) - 0, which underflows to zero in f64.
+        let tiny = 2.0_f64.powi(-600);
+        let points = [vec![0.0, 0.0], vec![tiny, 0.0], vec![0.0, tiny]];
+        assert_eq!(orient_of(&points), Sign::Positive);
+    }
+
+    #[test]
+    fn filter_agrees_with_exact_on_random_and_nearly_flat_inputs() {
+        let mut rng = Rng(7);
+        for k in 2..=7 {
+            for trial in 0..300 {
+                let mut points: Vec<Vec<f64>> = (0..=k)
+                    .map(|_| (0..k).map(|_| rng.unit()).collect())
+                    .collect();
+                if trial % 2 == 0 {
+                    // Put the last point on the affine hull of the first k
+                    // points (up to rounding), so many cases are near zero.
+                    let weights: Vec<f64> = (0..k).map(|_| rng.unit()).collect();
+                    let sum: f64 = weights.iter().sum();
+                    let last: Vec<f64> = (0..k)
+                        .map(|j| (0..k).map(|i| weights[i] / sum * points[i][j]).sum())
+                        .collect();
+                    points[k] = last;
+                }
+                assert_eq!(
+                    orient_of(&points),
+                    exact_of(&points),
+                    "k = {k}, trial = {trial}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn filter_certifies_general_position() {
+        let mut rng = Rng(11);
+        for k in 2..=7 {
+            let certified = (0..200)
+                .filter(|_| {
+                    let points: Vec<Vec<f64>> = (0..=k)
+                        .map(|_| (0..k).map(|_| rng.unit()).collect())
+                        .collect();
+                    let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+                    filtered(&refs, k).is_some()
+                })
+                .count();
+            assert!(
+                certified >= 195,
+                "k = {k}: only {certified} of 200 certified"
+            );
+        }
+    }
+
+    #[test]
+    fn integer_lattice_coplanar_is_zero() {
+        // Points on the plane x + y + z = 3 with integer coordinates.
+        let points = [
+            vec![1.0, 1.0, 1.0],
+            vec![3.0, 0.0, 0.0],
+            vec![0.0, 3.0, 0.0],
+            vec![2.0, 2.0, -1.0],
+        ];
+        let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+        assert!(is_coplanar(&refs).unwrap());
+    }
+
+    #[test]
+    fn distance_sign_follows_the_outward_convention() {
+        // Facet x = 1 in 2D, oriented so the origin side is inside.
+        let a = [1.0, 0.0];
+        let b = [1.0, 1.0];
+        let facet: [&[f64]; 2] = [&b, &a];
+        assert_eq!(distance_sign(&facet, &[0.0, 0.5]).unwrap(), Sign::Negative);
+        assert_eq!(distance_sign(&facet, &[2.0, 0.5]).unwrap(), Sign::Positive);
+        assert_eq!(distance_sign(&facet, &[1.0, 7.0]).unwrap(), Sign::Zero);
+    }
+
+    #[test]
+    fn huge_and_tiny_mixed() {
+        let big = 2.0_f64.powi(1000);
+        let small = 2.0_f64.powi(-1000);
+        let points = [
+            vec![0.0, 0.0, 0.0],
+            vec![big, 0.0, 0.0],
+            vec![0.0, small, 0.0],
+            vec![0.0, 0.0, 1.0],
+        ];
+        assert_eq!(orient_of(&points), Sign::Positive);
+        let flat = [
+            vec![0.0, 0.0, 0.0],
+            vec![big, 0.0, 0.0],
+            vec![0.0, small, 0.0],
+            vec![big, small, 0.0],
+        ];
+        assert_eq!(orient_of(&flat), Sign::Zero);
+    }
+}
