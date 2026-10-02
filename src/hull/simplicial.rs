@@ -7,8 +7,18 @@
 //! sign is always [`Sign::Positive`], and only the two endpoints of D = 1
 //! need a stored sign. Visibility is decided by that exact orientation alone.
 //! No facets are merged during insertion.
+//!
+//! Points are absorbed in rounds by the batch extraction of design §6, which
+//! the sequential and the parallel builds share:
+//!
+//! 1. Each facet with outside points proposes its farthest one.
+//! 2. Candidates are packed by working distance, largest first, ties by the
+//!    smaller index. A candidate whose region T = V ∪ N (visible facets and
+//!    the facets across its horizon) meets the region of a candidate already
+//!    in the batch waits for the next round, staying in its outside set.
+//! 3. The batch is applied in ascending input index.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 use super::input::Input;
 use super::ConvexHullError;
@@ -71,7 +81,7 @@ impl<'a> SimplicialHull<'a> {
                 .filter(|p| !hull.input.spanning_points.contains(p))
                 .collect();
             hull.assign(candidates, &initial)?;
-            hull.absorb(initial)?;
+            hull.absorb()?;
         }
         Ok(hull)
     }
@@ -209,69 +219,108 @@ impl<'a> SimplicialHull<'a> {
         Ok(())
     }
 
-    /// The point of `facet.outside` farthest by working distance; ties and a
-    /// missing working normal fall back to the smallest index.
-    fn farthest(&self, facet: &Simplex) -> Option<u32> {
-        let Some(normal) = &facet.normal else {
-            return facet.outside.iter().copied().min();
-        };
+    /// The working distance of `point` from `facet`, or `None` without a
+    /// certified working normal.
+    fn working_distance(&self, facet: &Simplex, point: u32) -> Option<f64> {
+        let normal = facet.normal.as_ref()?;
         let origin = self.input.point(facet.vertices[0]);
-        let distance = |p: u32| -> f64 {
+        Some(
             self.input
-                .point(p)
+                .point(point)
                 .iter()
                 .zip(origin)
                 .zip(normal)
                 .map(|((x, o), n)| (x - o) * n)
-                .sum()
-        };
-        facet
-            .outside
-            .iter()
-            .copied()
-            .fold(None, |best: Option<(u32, f64)>, p| {
-                let d = distance(p);
-                match best {
-                    Some((b, bd)) if bd > d || (bd == d && b < p) || d.is_nan() => Some((b, bd)),
-                    _ => Some((p, d)),
-                }
-            })
-            .map(|(p, _)| p)
+                .sum(),
+        )
     }
 
-    /// Absorbs every outside point, one point per step.
-    fn absorb(&mut self, initial: Vec<FacetId>) -> Result<(), ConvexHullError> {
-        let mut queue: VecDeque<FacetId> = initial.into_iter().collect();
-        while let Some(id) = queue.pop_front() {
-            let Some(facet) = self.facets.get(id) else {
-                continue;
+    /// The point of `facet.outside` farthest by working distance, ties by
+    /// the smaller index, with its distance. Without a working normal (or
+    /// with a NaN distance) the smallest index is taken, and its distance is
+    /// `None`, which packs after every finite distance.
+    fn farthest(&self, facet: &Simplex) -> Option<(u32, Option<f64>)> {
+        let mut best: Option<(u32, Option<f64>)> = None;
+        for &p in &facet.outside {
+            let d = self.working_distance(facet, p).filter(|d| !d.is_nan());
+            best = match best {
+                Some((b, bd)) if !packs_before((p, d), (b, bd)) => Some((b, bd)),
+                _ => Some((p, d)),
             };
-            let Some(apex) = self.farthest(facet) else {
-                continue;
-            };
-            let new_facets = self.insert_point(id, apex)?;
-            queue.extend(new_facets);
         }
-        Ok(())
+        best
     }
 
-    /// Replaces the facets visible from `apex`, starting at `start`, with the
-    /// cone from `apex` over the horizon. Returns the new facets that have
-    /// outside points.
-    fn insert_point(&mut self, start: FacetId, apex: u32) -> Result<Vec<FacetId>, ConvexHullError> {
-        // Visible region by breadth-first search over neighbors.
+    /// One candidate per facet with outside points, in packing order.
+    fn candidates(&self) -> Vec<(u32, FacetId, Option<f64>)> {
+        let mut candidates: Vec<(u32, FacetId, Option<f64>)> = self
+            .facets
+            .iter()
+            .filter_map(|(id, facet)| self.farthest(facet).map(|(p, d)| (p, id, d)))
+            .collect();
+        // Outside sets are disjoint, so a point is the candidate of at most
+        // one facet.
+        candidates.sort_by(|&(p, _, dp), &(q, _, dq)| {
+            if packs_before((p, dp), (q, dq)) {
+                core::cmp::Ordering::Less
+            } else {
+                core::cmp::Ordering::Greater
+            }
+        });
+        candidates
+    }
+
+    /// Absorbs every outside point in rounds of batches (design §6).
+    fn absorb(&mut self) -> Result<(), ConvexHullError> {
+        loop {
+            let batch = self.next_batch()?;
+            if batch.is_empty() {
+                return Ok(());
+            }
+            // Regions are disjoint, so each start facet is still live when
+            // its point is applied.
+            for (point, start) in batch {
+                self.insert_point(start, point)?;
+            }
+        }
+    }
+
+    /// The next batch, as (point, facet it is outside) in ascending input
+    /// index. Candidates are packed by [`packs_before`]; one whose region
+    /// T = V ∪ N meets a region already packed is left for a later round.
+    /// The first candidate always fits, so a round with candidates is never
+    /// empty.
+    fn next_batch(&self) -> Result<Vec<(u32, FacetId)>, ConvexHullError> {
+        let mut reserved: HashSet<FacetId> = HashSet::new();
+        let mut batch: Vec<(u32, FacetId)> = Vec::new();
+        for (point, start, _) in self.candidates() {
+            let region = self.visible_region(start, point)?;
+            let touched: Vec<FacetId> = region.touched().collect();
+            if touched.iter().any(|f| reserved.contains(f)) {
+                continue;
+            }
+            reserved.extend(touched);
+            batch.push((point, start));
+        }
+        batch.sort_unstable_by_key(|&(point, _)| point);
+        Ok(batch)
+    }
+
+    /// The facets visible from `apex`, found by breadth-first search over
+    /// neighbors from `start`, and the horizon ridges as (visible facet,
+    /// slot) pairs.
+    fn visible_region(&self, start: FacetId, apex: u32) -> Result<Region, ConvexHullError> {
         let mut visible = vec![start];
         let mut is_visible: HashMap<FacetId, bool> = HashMap::from([(start, true)]);
-        let mut horizon: Vec<(FacetId, usize)> = Vec::new();
+        let mut horizon: Vec<(FacetId, usize, FacetId)> = Vec::new();
         let mut cursor = 0;
         while cursor < visible.len() {
             let id = visible[cursor];
             cursor += 1;
-            let neighbors = match self.facets.get(id) {
-                Some(f) => f.neighbors.clone(),
-                None => continue,
+            let Some(facet) = self.facets.get(id) else {
+                continue;
             };
-            for (slot, neighbor) in neighbors.into_iter().enumerate() {
+            for (slot, &neighbor) in facet.neighbors.iter().enumerate() {
                 let seen = match is_visible.get(&neighbor) {
                     Some(&v) => v,
                     None => {
@@ -287,21 +336,28 @@ impl<'a> SimplicialHull<'a> {
                     }
                 };
                 if !seen {
-                    horizon.push((id, slot));
+                    horizon.push((id, slot, neighbor));
                 }
             }
         }
+        Ok(Region { visible, horizon })
+    }
+
+    /// Replaces the facets visible from `apex`, starting at `start`, with the
+    /// cone from `apex` over the horizon, and reassigns the outside points of
+    /// the deleted facets to the new ones.
+    fn insert_point(&mut self, start: FacetId, apex: u32) -> Result<(), ConvexHullError> {
+        let Region { visible, horizon } = self.visible_region(start, apex)?;
 
         // One new facet per horizon ridge: the visible facet's vertex order
         // with the vertex opposite the ridge replaced by the apex keeps the
         // outward orientation.
         let mut created = Vec::with_capacity(horizon.len());
         let mut ridges: HashMap<Vec<u32>, (FacetId, usize)> = HashMap::new();
-        for &(visible_id, slot) in &horizon {
+        for &(visible_id, slot, across) in &horizon {
             let Some(old) = self.facets.get(visible_id) else {
                 continue;
             };
-            let across = old.neighbors[slot];
             let mut vertices = old.vertices.clone();
             vertices[slot] = apex;
             let d = vertices.len();
@@ -348,11 +404,36 @@ impl<'a> SimplicialHull<'a> {
             }
         }
         orphans.sort_unstable();
-        self.assign(orphans, &created)?;
-        Ok(created
-            .into_iter()
-            .filter(|&id| self.facets.get(id).is_some_and(|f| !f.outside.is_empty()))
-            .collect())
+        self.assign(orphans, &created)
+    }
+}
+
+/// The region a point would replace: its visible facets V and its horizon
+/// ridges, each with the facet across it (N).
+struct Region {
+    visible: Vec<FacetId>,
+    /// (visible facet, slot of the ridge in it, facet across the ridge).
+    horizon: Vec<(FacetId, usize, FacetId)>,
+}
+
+impl Region {
+    /// T = V ∪ N, with repeats.
+    fn touched(&self) -> impl Iterator<Item = FacetId> + '_ {
+        self.visible
+            .iter()
+            .copied()
+            .chain(self.horizon.iter().map(|&(_, _, n)| n))
+    }
+}
+
+/// Packing order of design §6: a larger working distance first, ties by the
+/// smaller index; a missing distance packs after every present one.
+fn packs_before(a: (u32, Option<f64>), b: (u32, Option<f64>)) -> bool {
+    match (a.1, b.1) {
+        (Some(x), Some(y)) if x != y => x > y,
+        (Some(_), None) => true,
+        (None, Some(_)) => false,
+        _ => a.0 < b.0,
     }
 }
 
@@ -360,6 +441,7 @@ impl<'a> SimplicialHull<'a> {
 pub(crate) mod tests {
     use super::*;
     use crate::hull::input::accept;
+    use std::collections::HashSet;
 
     pub(crate) struct Rng(pub(crate) u64);
 
@@ -430,6 +512,112 @@ pub(crate) mod tests {
         v.sort_unstable();
         v.dedup();
         v
+    }
+
+    /// The hull after the initial simplex and the first assignment, before
+    /// any point is absorbed.
+    fn initial(dim: usize, points: &[f64]) -> SimplicialHull<'_> {
+        let mut hull = SimplicialHull {
+            input: accept(dim, points).unwrap(),
+            facets: Arena::new(),
+        };
+        let initial = hull.initial_simplex().unwrap();
+        let candidates: Vec<u32> = hull
+            .input
+            .representatives
+            .iter()
+            .copied()
+            .filter(|p| !hull.input.spanning_points.contains(p))
+            .collect();
+        hull.assign(candidates, &initial).unwrap();
+        hull
+    }
+
+    #[test]
+    fn packing_order_is_distance_then_index() {
+        assert!(packs_before((7, Some(2.0)), (3, Some(1.0))));
+        assert!(!packs_before((3, Some(1.0)), (7, Some(2.0))));
+        // Ties by the smaller index.
+        assert!(packs_before((3, Some(1.0)), (7, Some(1.0))));
+        assert!(!packs_before((7, Some(1.0)), (3, Some(1.0))));
+        // A missing distance packs after any present one, then by index.
+        assert!(packs_before((9, Some(-1.0)), (2, None)));
+        assert!(packs_before((2, None), (9, None)));
+    }
+
+    #[test]
+    fn candidate_is_the_farthest_with_ties_by_index() {
+        // Triangle (0,0), (4,0), (0,4). Facet y = 0 sees 3 (0.5, -1),
+        // 4 (2, -3), and 5 (3, -3); 4 and 5 tie at distance 3, so 4 wins.
+        let points = [
+            0.0, 0.0, 4.0, 0.0, 0.0, 4.0, 0.5, -1.0, 2.0, -3.0, 3.0, -3.0,
+        ];
+        let hull = initial(2, &points);
+        let candidates = hull.candidates();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].0, 4);
+        assert_eq!(candidates[0].2, Some(3.0));
+    }
+
+    #[test]
+    fn overlapping_regions_wait_for_a_later_round() {
+        // In a triangle every region T is the whole hull. Point 3 is far
+        // below the bottom edge, point 4 just left of the left edge, so 3
+        // packs first and 4 waits in its outside set.
+        let points = [0.0, 0.0, 4.0, 0.0, 0.0, 4.0, 2.0, -10.0, -1.0, 2.0];
+        let mut hull = initial(2, &points);
+        let batch = hull.next_batch().unwrap();
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].0, 3);
+        hull.insert_point(batch[0].1, 3).unwrap();
+        let next: Vec<u32> = hull.candidates().iter().map(|c| c.0).collect();
+        assert_eq!(next, vec![4], "the deferred point is proposed again");
+    }
+
+    /// Every batch has pairwise disjoint regions, is in ascending index, and
+    /// every candidate left out meets a region packed before it.
+    fn check_rounds(dim: usize, points: &[f64]) -> usize {
+        let mut hull = initial(dim, points);
+        let mut largest = 0;
+        loop {
+            let candidates = hull.candidates();
+            let batch = hull.next_batch().unwrap();
+            if batch.is_empty() {
+                assert!(candidates.is_empty());
+                break;
+            }
+            largest = largest.max(batch.len());
+            assert!(batch.windows(2).all(|w| w[0].0 < w[1].0));
+            let region = |p: u32, f: FacetId| -> HashSet<FacetId> {
+                hull.visible_region(f, p).unwrap().touched().collect()
+            };
+            let mut packed: Vec<HashSet<FacetId>> = Vec::new();
+            for &(p, f, _) in &candidates {
+                let t = region(p, f);
+                let taken = batch.contains(&(p, f));
+                let meets = packed.iter().any(|r| !r.is_disjoint(&t));
+                assert_eq!(taken, !meets, "candidate {p}");
+                if taken {
+                    packed.push(t);
+                }
+            }
+            for (p, f) in batch {
+                hull.insert_point(f, p).unwrap();
+            }
+        }
+        check_invariants(&hull);
+        largest
+    }
+
+    #[test]
+    fn rounds_pack_disjoint_regions() {
+        let mut rng = Rng(21);
+        let mut largest = 0;
+        for (dim, count) in [(2, 400), (3, 300), (4, 120)] {
+            let points: Vec<f64> = (0..count * dim).map(|_| rng.unit()).collect();
+            largest = largest.max(check_rounds(dim, &points));
+        }
+        assert!(largest >= 2, "some round packs more than one point");
     }
 
     #[test]
