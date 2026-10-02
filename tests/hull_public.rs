@@ -125,7 +125,25 @@ fn planes_contain_their_vertices() {
     };
     let points: Vec<f64> = (0..300).map(|_| unit()).collect();
     let hull = ConvexHullBuilder::new(3, &points).build().unwrap();
+    let centroid: Vec<f64> = (0..3)
+        .map(|a| {
+            hull.vertices
+                .iter()
+                .map(|&v| points[v as usize * 3 + a])
+                .sum::<f64>()
+                / hull.vertices.len() as f64
+        })
+        .collect();
     for facet in &hull.facets {
+        // A residual check alone passes a wrong normal (review of #39); the
+        // centroid of the vertices must be strictly inside every plane.
+        let inside: f64 = centroid
+            .iter()
+            .zip(&facet.plane.normal)
+            .map(|(a, n)| a * n)
+            .sum::<f64>()
+            + facet.plane.offset;
+        assert!(inside < 0.0);
         let length: f64 = facet.plane.normal.iter().map(|x| x * x).sum::<f64>().sqrt();
         assert!((length - 1.0).abs() < 1e-14);
         for &v in &facet.vertices {
@@ -176,4 +194,51 @@ fn offset_overflow_is_a_non_finite_plane() {
         ConvexHullBuilder::new(2, &points).build().err(),
         Some(ConvexHullError::NonFiniteFacetPlane)
     );
+}
+
+#[test]
+fn nearly_parallel_edges_keep_the_true_public_plane() {
+    // Review of #39: the facet [0, 1, 2] has edges (0, 0, 1) and
+    // (2^-48, 2^-48, 1). Its plane contains the direction (1, 1, 0), so the
+    // normal is +-(1, -1, 0) / sqrt(2), pointing away from point 3. QR alone
+    // gave x = 1, which puts the centroid outside.
+    let t = 2f64.powi(-48);
+    let points = [
+        1.0,
+        2.0,
+        3.0,
+        1.0,
+        2.0,
+        4.0,
+        1.0 + t,
+        2.0 + t,
+        4.0,
+        1.0,
+        3.0,
+        3.5,
+    ];
+    let hull = ConvexHullBuilder::new(3, &points).build().unwrap();
+    let facet = hull
+        .facets
+        .iter()
+        .find(|f| f.vertices == vec![0, 1, 2])
+        .unwrap();
+    let expected = [0.5_f64.sqrt(), -(0.5_f64.sqrt()), 0.0];
+    for (n, e) in facet.plane.normal.iter().zip(expected) {
+        assert!((n - e).abs() < 1e-12, "{:?}", facet.plane.normal);
+    }
+    let value = |p: &[f64]| -> f64 {
+        p.iter()
+            .zip(&facet.plane.normal)
+            .map(|(a, n)| a * n)
+            .sum::<f64>()
+            + facet.plane.offset
+    };
+    let centroid: Vec<f64> = (0..3)
+        .map(|a| (0..4).map(|i| points[i * 3 + a]).sum::<f64>() / 4.0)
+        .collect();
+    assert!(value(&centroid) < -0.1, "the centroid must be inside");
+    for i in 0..3 {
+        assert!(value(&points[i * 3..i * 3 + 3]).abs() < 1e-14);
+    }
 }
