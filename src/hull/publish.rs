@@ -2,6 +2,7 @@
 
 use super::classify::{classify, Classified};
 use super::input::{accept, minimum_basis, Input};
+use super::simplicial::Execution;
 use super::ConvexHullError;
 use crate::normal::unit_normal;
 use crate::predicates::{orient, Sign};
@@ -24,13 +25,37 @@ use crate::predicates::{orient, Sign};
 pub struct ConvexHullBuilder<'a> {
     dim: usize,
     points: &'a [f64],
+    execution: Execution,
 }
 
 impl<'a> ConvexHullBuilder<'a> {
     /// A builder for points of dimension `dim`, stored row-major in `points`.
     #[must_use]
     pub fn new(dim: usize, points: &'a [f64]) -> Self {
-        Self { dim, points }
+        Self {
+            dim,
+            points,
+            execution: Execution::Sequential,
+        }
+    }
+
+    /// Plans the points of each batch on rayon's global pool when `enable`
+    /// is true. Off by default.
+    ///
+    /// The batches and the commit order are the same either way, so the
+    /// result is identical to the sequential build: the same logical facets,
+    /// the same triangulation, and the same planes. The number of threads is
+    /// rayon's, configured by the caller through rayon.
+    #[must_use]
+    pub fn parallel(self, enable: bool) -> Self {
+        Self {
+            execution: if enable {
+                Execution::Parallel
+            } else {
+                Execution::Sequential
+            },
+            ..self
+        }
     }
 
     /// Builds the hull.
@@ -42,7 +67,7 @@ impl<'a> ConvexHullBuilder<'a> {
     /// plane is not finite, and [`ConvexHullError::ExactEvaluationExhausted`].
     pub fn build(self) -> Result<ConvexHull, ConvexHullError> {
         let input = accept(self.dim, self.points)?;
-        let hull = publish(classify(input)?)?;
+        let hull = publish(classify(input, self.execution)?)?;
         #[cfg(debug_assertions)]
         if let Err(violation) = super::invariants::check(&hull, self.points) {
             debug_assert!(false, "convx hull invariant violated: {violation}");

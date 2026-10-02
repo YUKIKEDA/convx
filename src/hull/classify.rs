@@ -33,7 +33,7 @@ use std::collections::HashMap;
 
 use super::input::{accept, Input};
 use super::merge::merge;
-use super::simplicial::SimplicialHull;
+use super::simplicial::{Execution, SimplicialHull};
 use super::ConvexHullError;
 use crate::predicates::{orient, orient_direction, Sign};
 
@@ -70,8 +70,11 @@ pub(crate) struct Classified<'a> {
 }
 
 /// Builds and classifies the hull of an accepted input.
-pub(crate) fn classify(input: Input<'_>) -> Result<Classified<'_>, ConvexHullError> {
-    let hull = SimplicialHull::build(input)?;
+pub(crate) fn classify(
+    input: Input<'_>,
+    execution: Execution,
+) -> Result<Classified<'_>, ConvexHullError> {
+    let hull = SimplicialHull::build(input, execution)?;
     let groups = merge(&hull)?;
     let d = hull.input.dim();
 
@@ -139,7 +142,7 @@ pub(crate) fn classify(input: Input<'_>) -> Result<Classified<'_>, ConvexHullErr
         candidates.sort_unstable();
         candidates.dedup();
         let plane = &group_simplices[g][0];
-        extremes.push(face_extremes(&hull.input, plane, &candidates)?);
+        extremes.push(face_extremes(&hull.input, plane, &candidates, execution)?);
     }
 
     let mut is_vertex = vec![false; hull.input.representative.len()];
@@ -227,6 +230,7 @@ fn face_extremes(
     input: &Input<'_>,
     plane: &[u32],
     candidates: &[u32],
+    execution: Execution,
 ) -> Result<Vec<u32>, ConvexHullError> {
     let d = input.dim();
     if d == 1 {
@@ -261,7 +265,7 @@ fn face_extremes(
                 .map(|(_, &x)| x)
         })
         .collect();
-    let sub = classify(accept(d - 1, &projected)?)?;
+    let sub = classify(accept(d - 1, &projected)?, execution)?;
     Ok(sub
         .vertices
         .iter()
@@ -442,7 +446,7 @@ pub(crate) mod tests {
     use crate::hull::simplicial::tests::Rng;
 
     pub(crate) fn classified(dim: usize, points: &[f64]) -> Classified<'_> {
-        let c = classify(accept(dim, points).unwrap()).unwrap();
+        let c = classify(accept(dim, points).unwrap(), Execution::Sequential).unwrap();
         check(&c);
         c
     }
