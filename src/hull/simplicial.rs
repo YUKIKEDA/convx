@@ -30,6 +30,13 @@ pub(crate) struct Simplex {
     outside: Vec<u32>,
 }
 
+impl Simplex {
+    /// The cull plane of this simplex, when one could be certified.
+    pub(crate) fn cull(&self) -> Option<&CullPlane> {
+        self.cull.as_ref()
+    }
+}
+
 /// The simplicial hull after every point has been absorbed.
 pub(crate) struct SimplicialHull<'a> {
     pub(crate) input: Input<'a>,

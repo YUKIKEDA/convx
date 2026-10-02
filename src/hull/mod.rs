@@ -4,6 +4,7 @@
 // The public builder (P2-4, #11) is the first caller outside tests.
 #![cfg_attr(not(test), allow(dead_code))]
 
+pub(crate) mod classify;
 mod error;
 pub(crate) mod input;
 pub(crate) mod merge;
