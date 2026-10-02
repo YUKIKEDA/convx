@@ -35,8 +35,8 @@ impl<'a> Input<'a> {
     }
 }
 
-/// Checks the dimension, the length, and the count before any coordinate is
-/// read. Returns the number of points.
+/// Checks the dimension and the length before any coordinate is read.
+/// Returns the number of points.
 pub(crate) fn check_shape(dim: usize, len: usize) -> Result<usize, ConvexHullError> {
     if dim == 0 {
         return Err(ConvexHullError::NonPositiveDimension);
@@ -44,7 +44,7 @@ pub(crate) fn check_shape(dim: usize, len: usize) -> Result<usize, ConvexHullErr
     if len % dim != 0 {
         return Err(ConvexHullError::LengthMismatch { len, dim });
     }
-    check_count(len / dim)
+    Ok(len / dim)
 }
 
 /// Point numbers are `u32` below `u32::MAX`, which stays free as the missing
@@ -59,12 +59,15 @@ pub(crate) fn check_count(count: usize) -> Result<usize, ConvexHullError> {
 /// Runs every input check of design §3 and returns the accepted input.
 pub(crate) fn accept(dim: usize, points: &[f64]) -> Result<Input<'_>, ConvexHullError> {
     let count = check_shape(dim, points.len())?;
+    // §3: non-finite coordinates are rejected first, then the count, before
+    // duplicate removal.
     if let Some(index) = points
         .chunks_exact(dim)
         .position(|p| p.iter().any(|x| !x.is_finite()))
     {
         return Err(ConvexHullError::NonFiniteCoordinate { index });
     }
+    let count = check_count(count)?;
     let point = |i: u32| &points[i as usize * dim..(i as usize + 1) * dim];
 
     let representative = representatives_of(count, point);

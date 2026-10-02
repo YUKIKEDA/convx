@@ -447,6 +447,21 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_basis_point_on_a_collinear_edge_stays_a_simplicial_vertex() {
+        // Review of #36: (1, 0) belongs to the minimum basis; (2, 0) is on
+        // the line of the edge (0,0)-(1,0), not strictly outside it, so that
+        // facet is not visible and (1, 0) stays a vertex of the simplicial
+        // complex. Insertion does not merge (§5); P2-3 (#10) classifies
+        // (1, 0) as a non-extreme boundary point after the merge.
+        let points = [0.0, 0.0, 1.0, 0.0, 2.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+        let hull = build(2, &points);
+        check_invariants(&hull);
+        assert_eq!(hull.input.spanning_points, vec![0, 1, 3]);
+        assert_eq!(vertex_set(&hull), vec![0, 1, 2, 3, 4]);
+        assert_eq!(reference_2d(&points), vec![0, 2, 3, 4]);
+    }
+
+    #[test]
     fn cube_is_closed() {
         let mut points = Vec::new();
         for i in 0..8 {
