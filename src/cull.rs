@@ -41,6 +41,7 @@
 
 use pulp::{Arch, Simd, WithSimd};
 
+use crate::normal::{binary_exponent, scale_by_power_of_two};
 use crate::predicates::{direction_cofactors, Sign};
 
 const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
@@ -133,7 +134,18 @@ impl CullPlane {
 /// Certified upper bound on `|normal - side * c / |c||`.
 fn plane_error(facet: &[&[f64]], normal: &[f64], side: f64) -> Option<f64> {
     let d = facet.len() as f64;
-    let cofactors = direction_cofactors(facet)?;
+    // Scaling every coordinate by one power of two scales the cofactors by a
+    // positive factor and leaves their direction unchanged. Use it only when
+    // it is exact for every coordinate, so the cofactors stay those of the
+    // facet's own points.
+    let scaled = exact_unit_scaling(facet);
+    let cofactors = match &scaled {
+        Some(points) => {
+            let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+            direction_cofactors(&refs)?
+        }
+        None => direction_cofactors(facet)?,
+    };
     let bound: f64 = cofactors.iter().map(|&(_, e)| e).sum::<f64>() * (1.0 + d * UNIT_ROUNDOFF);
     let length = cofactors.iter().map(|&(c, _)| c * c).sum::<f64>().sqrt();
     let length_low = length * (1.0 - (d + 3.0) * UNIT_ROUNDOFF);
@@ -152,6 +164,32 @@ fn plane_error(facet: &[&[f64]], normal: &[f64], side: f64) -> Option<f64> {
     let tau = (deviation + 2.0 * bound / length_low + 4.0 * (d + 4.0) * UNIT_ROUNDOFF)
         * (1.0 + 8.0 * UNIT_ROUNDOFF);
     tau.is_finite().then_some(tau)
+}
+
+/// The facet scaled by the power of two that brings its largest magnitude
+/// into [1, 2), when that scaling is exact for every coordinate.
+fn exact_unit_scaling(facet: &[&[f64]]) -> Option<Vec<Vec<f64>>> {
+    let largest = facet
+        .iter()
+        .flat_map(|p| p.iter())
+        .map(|x| x.abs())
+        .fold(0.0_f64, f64::max);
+    if largest == 0.0 {
+        return None;
+    }
+    let shift = -binary_exponent(largest);
+    let scaled: Vec<Vec<f64>> = facet
+        .iter()
+        .map(|p| p.iter().map(|&x| scale_by_power_of_two(x, shift)).collect())
+        .collect();
+    // Bit equality after the round trip is the test for an exact scaling; it
+    // does not decide a geometric sign.
+    let exact = facet.iter().zip(&scaled).all(|(p, q)| {
+        p.iter()
+            .zip(q)
+            .all(|(&x, &y)| scale_by_power_of_two(y, -shift) == x)
+    });
+    exact.then_some(scaled)
 }
 
 /// One lane per point; the per-lane sequence matches [`CullPlane::scalar_terms`].
