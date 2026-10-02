@@ -17,6 +17,15 @@ use super::input::minimum_basis;
 use super::publish::ConvexHull;
 use crate::predicates::{orient, Sign};
 
+/// The smallest hull vertex that is not on a facet with `facet_vertices`.
+fn off_facet(hull: &ConvexHull, facet_vertices: &[u32]) -> Result<u32, String> {
+    hull.vertices
+        .iter()
+        .copied()
+        .find(|v| facet_vertices.binary_search(v).is_err())
+        .ok_or_else(|| format!("facet {facet_vertices:?} contains every vertex"))
+}
+
 /// Returns a description of the first violated invariant.
 pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
     let d = hull.dim;
@@ -166,13 +175,7 @@ pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
             .into_iter()
             .take(d)
             .collect();
-        let Some(&inner) = hull
-            .vertices
-            .iter()
-            .find(|v| facet.vertices.binary_search(v).is_err())
-        else {
-            return Err(format!("facet {f} contains every vertex"));
-        };
+        let inner = off_facet(hull, &facet.vertices)?;
         let side = |q: u32| -> Result<Sign, String> {
             let mut pts: Vec<&[f64]> = basis.iter().map(|&v| point(v)).collect();
             pts.push(point(q));
@@ -193,13 +196,7 @@ pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
     if d >= 2 {
         for simplex in hull.triangulation().iter() {
             let facet = &hull.facets[simplex.facet as usize];
-            let Some(&inner) = hull
-                .vertices
-                .iter()
-                .find(|v| facet.vertices.binary_search(v).is_err())
-            else {
-                return Err("a facet contains every vertex".into());
-            };
+            let inner = off_facet(hull, &facet.vertices)?;
             let mut pts: Vec<&[f64]> = simplex.vertices.iter().map(|&v| point(v)).collect();
             pts.push(point(inner));
             if orient(&pts).map_err(|_| "exact evaluation exhausted".to_string())? != Sign::Negative
