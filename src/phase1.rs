@@ -149,6 +149,33 @@ fn degree_one_zero_and_one_ulp() {
 }
 
 #[test]
+fn degree_one_huge_and_tiny_in_one_call() {
+    // k = 1 has no cancelling determinant: the sign is the order of the two
+    // coordinates, here 2^1000 against 2^-1000 in the same orientation.
+    let huge = 2f64.powi(1000);
+    let tiny = 2f64.powi(-1000);
+    assert_eq!(sign_of(&[vec![huge], vec![tiny]]), Sign::Negative);
+    assert_eq!(sign_of(&[vec![tiny], vec![huge]]), Sign::Positive);
+    assert_eq!(sign_of(&[vec![-huge], vec![tiny]]), Sign::Positive);
+    assert_eq!(sign_of(&[vec![tiny], vec![-tiny]]), Sign::Negative);
+}
+
+#[test]
+fn degree_one_exact_translation_keeps_the_sign() {
+    // Integers below 2^52 plus an integer translation stay exact.
+    for (a, b) in [(3.0, 5.0), (-7.0, -8.0), (12345.0, 12345.0)] {
+        let expected = sign_of(&[vec![a], vec![b]]);
+        for t in [2f64.powi(40), -(2f64.powi(45)), 1.0] {
+            assert_eq!(
+                sign_of(&[vec![a + t], vec![b + t]]),
+                expected,
+                "{a}, {b}, t = {t}"
+            );
+        }
+    }
+}
+
+#[test]
 fn exact_zero_and_one_ulp_for_every_family() {
     for k in 2..=6 {
         for family in families() {
@@ -260,54 +287,63 @@ fn overflowing_intermediate_does_not_fail() {
 
 #[test]
 fn normal_and_cull_on_the_same_extreme_inputs() {
-    let (mut normals, mut planes, mut culled) = (0, 0, 0);
     for k in 2..=6 {
         for family in families() {
             let facet = hyperplane_points(k, &family);
             let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
             for outward in [Sign::Positive, Sign::Negative] {
-                let Some(normal) = unit_normal(&refs, outward).unwrap() else {
+                let case = format!("k = {k}, {}, outward {outward:?}", family.name);
+                let normal = unit_normal(&refs, outward)
+                    .unwrap()
+                    .unwrap_or_else(|| panic!("{case}: no normal"));
+                assert_eq!(orient_direction(&refs, &normal).unwrap(), outward, "{case}");
+
+                // The mixed family in k >= 4: its cofactors cannot be
+                // certified (the filter's bound is too wide and the facet
+                // does not scale exactly), so no cull plane is built. Every
+                // other facet has one, on both sides.
+                let mixed = family.name == "huge and tiny mixed";
+                let plane = CullPlane::new(&refs, &normal, outward);
+                if mixed && k >= 4 {
+                    assert!(plane.is_none(), "{case}: expected no plane");
                     continue;
-                };
-                normals += 1;
-                assert_eq!(
-                    orient_direction(&refs, &normal).unwrap(),
-                    outward,
-                    "k = {k}, {}",
-                    family.name
-                );
-                let Some(plane) = CullPlane::new(&refs, &normal, outward) else {
-                    continue;
-                };
-                planes += 1;
-                let lasts: [Adjust; 5] = [|x| x, next_up, next_down, |x| -x, |x| x * 0.5];
-                let queries: Vec<Vec<f64>> = lasts
-                    .iter()
-                    .map(|&last| query_point(k, &family, last))
-                    .chain(facet.iter().cloned())
-                    .collect();
-                let flat: Vec<f64> = queries.iter().flatten().copied().collect();
-                let indices: Vec<u32> = (0..queries.len() as u32).collect();
-                let mut inside = vec![false; queries.len()];
-                plane.mark_inside(&flat, &indices, &mut inside);
-                for (q, &is_culled) in queries.iter().zip(&inside) {
-                    if is_culled {
-                        culled += 1;
-                        assert_eq!(
-                            distance_sign(&refs, q).unwrap(),
-                            outward.reversed(),
-                            "k = {k}, {}: culled a point that is not strictly inside",
-                            family.name
-                        );
-                    }
                 }
+                let plane = plane.unwrap_or_else(|| panic!("{case}: no plane"));
+
+                // orient = sign(f), f = x_k - x_1 of the query. With the
+                // outward sign positive, f > 0 is outside; with it negative,
+                // f < 0 is outside.
+                let on = query_point(k, &family, |x| x);
+                let (just_outside, deep_inside) = if outward == Sign::Positive {
+                    (
+                        query_point(k, &family, next_up),
+                        query_point(k, &family, |x| x * 0.5),
+                    )
+                } else {
+                    (
+                        query_point(k, &family, next_down),
+                        query_point(k, &family, |x| x * 1.25),
+                    )
+                };
+                let queries = [on, just_outside, deep_inside];
+                let flat: Vec<f64> = queries.iter().flatten().copied().collect();
+                let mut inside = [false; 3];
+                plane.mark_inside(&flat, &[0, 1, 2], &mut inside);
+                assert!(!inside[0], "{case}: culled a point on the plane");
+                assert!(!inside[1], "{case}: culled a point 1 ulp outside");
+                // Near the largest exponent the L1 distance l sums to
+                // infinity for k >= 5, and for k = 4 on the side whose deep
+                // point lies above the facet, so no finite threshold exists:
+                // the plane is built but culls nothing.
+                let overflowing = family.name == "near max exponent"
+                    && (k >= 5 || (k == 4 && outward == Sign::Negative));
+                assert_eq!(inside[2], !overflowing, "{case}: deep inside point");
+                assert_eq!(
+                    distance_sign(&refs, &queries[2]).unwrap(),
+                    outward.reversed(),
+                    "{case}"
+                );
             }
         }
     }
-    // Every family yields a certified normal for both sides, and nearly all
-    // also certify a cull plane (64 of 70 when this was written; the
-    // mixed-scale family cannot be scaled exactly).
-    assert_eq!(normals, 5 * families().len() * 2);
-    assert!(planes >= 60, "only {planes} of 70 cull planes certified");
-    assert!(culled > 0);
 }
