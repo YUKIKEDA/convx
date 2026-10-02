@@ -363,10 +363,30 @@ impl ConvexHull {
     pub fn volume(&self) -> f64;
     /// 共面の切り方は、版をまたいだ安定性の約束に入らない。
     pub fn triangulation(&self) -> TriangulationView<'_>;
-    /// D が 1, 2, 3 のときだけ定義される。facet は公開ファセット番号。
+    /// D が 1, 2, 3 のときだけ定義される。facet は公開ファセット番号。範囲外の番号には None を返す。
     pub fn boundary_cycle(&self, facet: u32) -> Option<Vec<u32>>;
 }
 ```
+
+`ConvexHull` は境界の単体複体を非公開のフィールドに持つ。そのため、クレートの外では構造体リテラルで作れない。`triangulation()` は、この複体を借用するビューを返す。
+
+```rust
+pub struct TriangulationView<'a> { /* ConvexHull を借用する */ }
+
+pub struct BoundarySimplex<'a> {
+    pub vertices: &'a [u32], // 長さ D。第5節のとおり末尾二点を入れ替えた外向きの順
+    pub facet: u32,          // この単体を含む論理ファセットの公開番号
+}
+
+impl<'a> TriangulationView<'a> {
+    pub fn len(&self) -> usize;
+    pub fn is_empty(&self) -> bool;
+    pub fn get(&self, index: usize) -> Option<BoundarySimplex<'a>>;
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = BoundarySimplex<'a>> + 'a;
+}
+```
+
+単体の順序は、入れ替える前の昇順頂点列の辞書順である。第5節で `volume()` が項を足す順序と同じにする。`boundary_cycle(facet)` は、`facet` が公開ファセット番号でないとき、次元によらず `None` を返す。パニックはしない。
 
 静的 API は、スタック上の配列と単相化のためのラッパーである。ソルバーの切り替えとは別軸にする。向きの専用式は幾何次数 $k \le 4$ で、引数は $k + 1$ 個である。それを超える向きはフィルタ付き行列式である。QR が作るのは単位法線だけである。
 
@@ -382,7 +402,7 @@ impl StaticConvexHull<D> {
 
 `StaticConvexHull` は $1 \le D \le 8$ である。`StaticDelaunay` と `StaticVoronoi` は $1 \le D \le 7$ とし、`build` の形は同じである。返す型は、それぞれ `ConvexHull`、`DelaunayTriangulation`、`VoronoiDiagram` である。Delaunay の内部凸包が $D+1$ 次元になり、静的凸包の上限 $8$ に収まる範囲が $7$ だからである。`build` は `&[[f64; D]]` を受け、`as_flattened()` をコアへ渡す。並列は動的 Builder が受け持つ。
 
-`[[f64; D]]` から `&[f64]` への変換は `as_flattened()` だけを使う。`unsafe` は置かない。MSRV は 1.80 である。D の範囲は、単一の `impl` に定数境界を書けない安定版の制約に合わせ、マクロか個別実装で 1 から上限までを出す。
+`[[f64; D]]` から `&[f64]` への変換は `as_flattened()` だけを使う。`unsafe` は置かない。MSRV は 1.84 である。QR に使う `faer` は 0.21 以降が `rust-version` 1.84 を宣言しており、1.80 で使える最後の版は保守されていない 0.19 系だからである。D の範囲は、単一の `impl` に定数境界を書けない安定版の制約に合わせ、マクロか個別実装で 1 から上限までを出す。
 
 依存は `faer`、`rayon`、`pulp`、`thiserror` で、実装言語は Rust である。並列は実行時の `parallel` フラグで切り替える。ビルドは `std` を前提にする。
 

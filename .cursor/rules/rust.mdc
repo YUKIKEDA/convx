@@ -16,7 +16,7 @@ Sources: Clippy restriction lints; Rust API Guidelines C-VALIDATE, C-GOOD-ERR. B
 - `debug_assert!` only for an internal invariant that means a convx bug. Not for caller input.
 - Validate caller input at the public boundary. Do not panic on bad data. Illegal combinations are types, not runtime errors (`.cursor/rules/types.mdc`).
 - Do not use `==` on computed `f32` or `f64` to decide a geometric sign (Clippy `float_cmp`). The exception is point identity where the design says to use `==`. Allow `float_cmp` only on that line, and comment the design section.
-- MSRV is the value written in `docs/design.ja.md` (1.80). The crate edition is 2021. Do not set edition 2024.
+- MSRV is the value written in `docs/design.ja.md` (1.84). The crate edition is 2021. Do not set edition 2024.
 - Do not add a dependency the design does not name.
 
 ```rust
