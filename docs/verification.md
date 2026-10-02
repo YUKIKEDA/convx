@@ -120,3 +120,11 @@ A frozen volume carries a relative tolerance of `1e-12`. A record whose volume i
 ### Revise
 
 A record is revised only by editing the file in a change under review, under "Revise because the design changed" or "Revise because the lock stored a wrong result". The diff of the record is part of that review. Deleting the file and freezing again is the same revision and is reviewed the same way.
+
+## Performance sets
+
+The judgment inside "Open a performance set".
+
+`benches/sets.txt` lists each set as `set <family> <dim> <count> <seed>` under the generator id it was written for: the `cube` and `sphere` families of `tests/common/generator.rs`, D = 2..=8, 10^4, 10^5, and 10^6 points, seed 1. The list stores no expected topology. `cargo run --release --example export_qhull_sets [-- <filter>]` writes each set to `.dev/perf/` (not in git) in Qhull's input format: the dimension, the count, then one point per line in shortest round-trip `f64` decimal, so Qhull reads the same bit patterns convx is given. Existing files are kept.
+
+The Qhull reference is run as `qconvex s TI <file>`: no `QJ` (no joggle), no `Qt` (logical facets, not a triangulated output), no other option that perturbs the input, in the same dimension as the set. Timings compare logical facets with logical facets. A correctness test never reads these files, and a timing run never writes a correctness record. Measured numbers, and any speedup target, are written only in the change that first measures them (`.cursor/rules/bench.mdc`).
