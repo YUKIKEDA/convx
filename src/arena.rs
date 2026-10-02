@@ -10,9 +10,6 @@
 //! commit belong to the parallel build (P3-3, #17); lock-free allocation is
 //! P5-2 (#26).
 
-// The public builder (P2-4, #11) is the first caller outside tests.
-#![cfg_attr(not(test), allow(dead_code))]
-
 /// Number of slots in one chunk. Not tuned before measurement.
 const CHUNK_SIZE: usize = 1024;
 
@@ -25,6 +22,7 @@ pub(crate) struct FacetId {
 
 impl FacetId {
     /// The slot index. Stable for the lifetime of the entry.
+    #[cfg(test)]
     pub(crate) fn index(self) -> u32 {
         self.index
     }
@@ -72,10 +70,12 @@ impl<T> Arena<T> {
     }
 
     /// Number of live entries.
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.len
     }
 
+    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.len == 0
     }
@@ -161,6 +161,7 @@ impl<T> Arena<T> {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn contains(&self, id: FacetId) -> bool {
         self.get(id).is_some()
     }

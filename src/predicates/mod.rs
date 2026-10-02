@@ -12,9 +12,6 @@
 //! (see [`exact`]). Degree 1 compares the two coordinates directly; degrees 2
 //! to 4 use dedicated expansions; larger degrees use a filtered determinant.
 
-// The public builder (P2-4, #11) is the first caller outside tests.
-#![cfg_attr(not(test), allow(dead_code))]
-
 mod exact;
 mod filter;
 
@@ -67,6 +64,7 @@ pub(crate) fn orient(points: &[&[f64]]) -> Result<Sign, ExactEvaluationExhausted
 
 /// Side of `query` relative to the hyperplane through `facet` (k points of
 /// dimension k, in outward order): [`Sign::Positive`] is outside.
+#[cfg(test)]
 pub(crate) fn distance_sign(
     facet: &[&[f64]],
     query: &[f64],
@@ -78,6 +76,7 @@ pub(crate) fn distance_sign(
 }
 
 /// Whether `points` (k + 1 points of dimension k) lie on one hyperplane.
+#[cfg(test)]
 pub(crate) fn is_coplanar(points: &[&[f64]]) -> Result<bool, ExactEvaluationExhausted> {
     Ok(orient(points)? == Sign::Zero)
 }
