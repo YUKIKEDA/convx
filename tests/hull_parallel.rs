@@ -1,5 +1,7 @@
 //! The parallel build agrees with the sequential one (design §6): the same
-//! batches, committed in the same order, give an identical hull.
+//! batches, committed in the same order, give an identical hull. Debug
+//! builds also check every parallel round against sequential application
+//! inside the build. No record is written for the parallel path.
 
 // The record loader and the builds unwrap inputs that are valid by
 // construction.
@@ -11,7 +13,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use common::record::Record;
-use convx::ConvexHullBuilder;
+use convx::{ConvexHull, ConvexHullBuilder};
+use rayon::ThreadPoolBuilder;
 
 fn agree(dim: usize, points: &[f64], case: &str) {
     let sequential = ConvexHullBuilder::new(dim, points).build();
@@ -100,5 +103,47 @@ fn integer_grids_agree() {
             })
             .collect();
         agree(dim, &points, &format!("grid {side}^{dim}"));
+    }
+}
+
+/// Points on the unit sphere of dimension `dim` (every point extreme), so
+/// rounds carry many points per batch.
+fn dense_sphere(dim: usize, count: usize, seed: u64) -> Vec<f64> {
+    let mut state = seed;
+    let mut next = move || {
+        state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        ((z ^ (z >> 31)) >> 11) as f64 / (1_u64 << 53) as f64 * 2.0 - 1.0
+    };
+    (0..count)
+        .flat_map(|_| {
+            let v: Vec<f64> = (0..dim).map(|_| next()).collect();
+            let norm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
+            v.into_iter().map(move |x| x / norm)
+        })
+        .collect()
+}
+
+#[test]
+fn dense_spheres_agree_under_several_thread_counts() {
+    let default_threads = rayon::current_num_threads();
+    for (dim, count) in [(3, 200), (4, 80), (5, 40)] {
+        let points = dense_sphere(dim, count, dim as u64);
+        let sequential: ConvexHull = ConvexHullBuilder::new(dim, &points).build().unwrap();
+        for threads in [1, 2, 4, default_threads] {
+            let pool = ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .unwrap();
+            let parallel = pool.install(|| {
+                ConvexHullBuilder::new(dim, &points)
+                    .parallel(true)
+                    .build()
+                    .unwrap()
+            });
+            assert_eq!(sequential, parallel, "D = {dim}, {threads} threads");
+        }
     }
 }
