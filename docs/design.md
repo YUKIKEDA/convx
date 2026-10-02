@@ -32,7 +32,7 @@ The orientation of the sign is fixed as follows.
 - The plane is $x \cdot n + \mathrm{offset} = 0$. $n$ is the outward unit normal.
 - Orientation is the exact sign of a determinant. `FacetPlane`'s $x \cdot n + \mathrm{offset}$ is not used for this decision.
 - Geometric degree $k$ is one less than the number of argument points. It is independent of the hull dimension $D$. $k \le 4$, that is up to five points, is computed with a dedicated formula. How the formula is expanded is left to the implementation. When $k$ exceeds 4, the predicate evaluates a filtered floating-point determinant and falls back to the exact sign only when the value lies inside the bound.
-- Householder QR (`faer`) produces the public unit normal and the working normal used by distance scans.
+- Householder QR (`faer`) produces the public unit normal and the working normal used by distance scans. When an edge is nearly parallel to the span of the others, QR skips a reflector whose remaining column norm is at rounding level. The last column of Q is then orthogonal to the edges only up to rounding, and it can be far from the true normal while still on the correct side. So the QR normal is compared with the unit direction of the facet's cofactor vector, whose entry $c_j$ is the determinant of the edges followed by the unit row $e_j$. That direction is certified with an error bound by the predicate filter, or computed exactly when the bound is loose. When the two differ by more than the certified error plus a small fixed tolerance, the cofactor direction is used.
 
 A SIMD distance scan is used only to cull points the error bound proves strictly inside, removing them from the predicate's inputs. Visibility and outsideness are decided only by the orientation of the facet's vertices and the point. The scan's sign is not used for topology.
 
@@ -181,7 +181,7 @@ The plane is built from that facet's vertices. Walking index tuples in lexicogra
 
 1. Translate to a representative point
 2. Scale uniformly by the coordinate width
-3. Form the normal in `f64`
+3. Form the normal in `f64`, including the check against the cofactor direction of §1
 4. Make it unit length
 5. Match the sign to the exact orientation, with inside negative
 6. Compute the offset in the translated coordinates, then map it back to the original coordinates
