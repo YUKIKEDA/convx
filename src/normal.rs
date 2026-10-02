@@ -7,6 +7,15 @@
 //! [`orient_direction`] against the computed vector, never by a
 //! floating-point comparison.
 //!
+//! QR can lose a direction: when an edge is nearly parallel to the span of
+//! the others, a Householder step whose remaining column norm is at rounding
+//! level is skipped, and the last column of Q is orthogonal to the edges only
+//! up to that rounding, possibly far from the true normal while still on the
+//! correct side. So the QR result is checked against the unit direction of
+//! the facet's cofactor vector, which is certified by the predicate filter or
+//! computed exactly. When the two differ by more than the certified error
+//! plus `QR_TOLERANCE`, the cofactor direction is returned instead.
+//!
 //! Coordinates are first multiplied by one power of two so that the largest
 //! magnitude lies in [1, 2). The scaling is exact except for components that
 //! underflow, and it keeps the edge vectors finite for any finite input.
@@ -16,7 +25,7 @@
 
 use faer::Mat;
 
-use crate::predicates::{orient_direction, ExactEvaluationExhausted, Sign};
+use crate::predicates::{cofactor_direction, orient_direction, ExactEvaluationExhausted, Sign};
 
 /// `2^k` for `-1022 <= k <= 1023`.
 fn power_of_two(k: i32) -> f64 {
@@ -74,9 +83,23 @@ pub(crate) fn unit_normal(
     let candidate = if d == 1 {
         vec![1.0]
     } else {
+        // The certified direction of the cofactor vector checks the QR
+        // result (see the module documentation).
+        let scaled = exact_unit_scaling(facet);
+        let reference = match &scaled {
+            Some(points) => {
+                let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+                cofactor_direction(&refs)?
+            }
+            None => cofactor_direction(facet)?,
+        };
+        let Some((direction, err)) = reference else {
+            // Every cofactor is zero: the points are affinely dependent.
+            return Ok(None);
+        };
         match qr_normal(facet) {
-            Some(n) => n,
-            None => return Ok(None),
+            Some(n) if distance_up_to_sign(&n, &direction) <= err + QR_TOLERANCE => n,
+            _ => direction,
         }
     };
 
@@ -88,6 +111,43 @@ pub(crate) fn unit_normal(
     } else {
         None
     })
+}
+
+/// How far the QR normal may lie from the certified cofactor direction,
+/// beyond that direction's own error bound, before it is rejected.
+const QR_TOLERANCE: f64 = 1e-8;
+
+/// `min(|a - b|, |a + b|)`.
+fn distance_up_to_sign(a: &[f64], b: &[f64]) -> f64 {
+    let minus: f64 = a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum();
+    let plus: f64 = a.iter().zip(b).map(|(x, y)| (x + y) * (x + y)).sum();
+    minus.min(plus).sqrt()
+}
+
+/// The facet scaled by the power of two that brings its largest magnitude
+/// into [1, 2), when that scaling is exact for every coordinate.
+pub(crate) fn exact_unit_scaling(facet: &[&[f64]]) -> Option<Vec<Vec<f64>>> {
+    let largest = facet
+        .iter()
+        .flat_map(|p| p.iter())
+        .map(|x| x.abs())
+        .fold(0.0_f64, f64::max);
+    if largest == 0.0 {
+        return None;
+    }
+    let shift = -binary_exponent(largest);
+    let scaled: Vec<Vec<f64>> = facet
+        .iter()
+        .map(|p| p.iter().map(|&x| scale_by_power_of_two(x, shift)).collect())
+        .collect();
+    // Bit equality after the round trip is the test for an exact scaling; it
+    // does not decide a geometric sign.
+    let exact = facet.iter().zip(&scaled).all(|(p, q)| {
+        p.iter()
+            .zip(q)
+            .all(|(&x, &y)| scale_by_power_of_two(y, -shift) == x)
+    });
+    exact.then_some(scaled)
 }
 
 /// The null direction of the edge matrix, unit length, of either sign.
@@ -229,6 +289,84 @@ mod tests {
             assert!(n.iter().all(|x| x.is_finite()));
             let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
             assert_eq!(orient_direction(&refs, &n).unwrap(), Sign::Negative);
+        }
+    }
+
+    #[test]
+    fn nearly_parallel_edges_keep_the_true_normal() {
+        // Review of #33: edges (0, 0, 1) and (t, t, 1). The normal is
+        // (-1, 1, 0) / sqrt(2) for every t > 0 for which both 1 + t and
+        // 2 + t are exact; QR alone returned (-1, 0, 0) for t = 2^-48 ..
+        // 2^-51. Below that the rounded points have other normals, which the
+        // exact cofactors give.
+        let diagonal = [-0.5_f64.sqrt(), 0.5_f64.sqrt(), 0.0];
+        for e in 40..=60 {
+            let t = 2f64.powi(-e);
+            let points = vec![
+                vec![1.0, 2.0, 3.0],
+                vec![1.0, 2.0, 4.0],
+                vec![1.0 + t, 2.0 + t, 4.0],
+            ];
+            let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+            let exact = crate::predicates::cofactor_direction(&refs).unwrap();
+            let Some(n) = normal_of(&points, Sign::Positive) else {
+                assert!(
+                    exact.is_none(),
+                    "t = 2^-{e}: dependent only if every cofactor is zero"
+                );
+                continue;
+            };
+            if e <= 51 {
+                assert!(
+                    distance_up_to_sign(&n, &diagonal) < 1e-12,
+                    "t = 2^-{e}: {n:?}"
+                );
+            }
+            let (direction, _) = exact.unwrap();
+            assert!(
+                distance_up_to_sign(&n, &direction) < 1e-12,
+                "t = 2^-{e}: {n:?}"
+            );
+            assert_eq!(orient_direction(&refs, &n).unwrap(), Sign::Positive);
+            // The point A + (1, 2, 0) is on the side the normal points to
+            // exactly when its exact orientation is positive.
+            let dot = n[0] * 1.0 + n[1] * 2.0;
+            let side = orient_direction(&refs, &[1.0, 2.0, 0.0]).unwrap();
+            assert_eq!(dot > 0.0, side == Sign::Positive, "t = 2^-{e}");
+        }
+    }
+
+    #[test]
+    fn random_near_degenerate_facets_match_the_exact_cofactors() {
+        let mut state = 0x1234_5678_9abc_def0_u64;
+        let mut unit = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 11) as f64 / (1_u64 << 53) as f64 * 2.0 - 1.0
+        };
+        for d in 3..=6 {
+            for trial in 0..40 {
+                let mut points: Vec<Vec<f64>> =
+                    (0..d).map(|_| (0..d).map(|_| unit()).collect()).collect();
+                // Make the last point nearly a copy of the previous one plus
+                // a tiny step, so one direction is short.
+                let tiny = 2f64.powi(-30 - (trial % 20));
+                let last: Vec<f64> = points[d - 2].iter().map(|x| x + tiny * unit()).collect();
+                points[d - 1] = last;
+                let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+                let Some(n) = normal_of(&points, Sign::Positive) else {
+                    continue;
+                };
+                let exact = crate::predicates::cofactor_direction(&refs)
+                    .unwrap()
+                    .unwrap()
+                    .0;
+                assert!(
+                    distance_up_to_sign(&n, &exact) < 1e-7,
+                    "d = {d}, trial {trial}"
+                );
+            }
         }
     }
 
