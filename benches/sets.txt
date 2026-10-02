@@ -1,0 +1,46 @@
+# Deterministic point sets for the Qhull timing comparison (docs/verification.md).
+# One set per line: family dim count seed. The generator is tests/common/generator.rs;
+# every set uses the generator id on the next line.
+generator xoshiro256starstar-v1
+set cube 2 10000 1
+set cube 2 100000 1
+set cube 2 1000000 1
+set cube 3 10000 1
+set cube 3 100000 1
+set cube 3 1000000 1
+set cube 4 10000 1
+set cube 4 100000 1
+set cube 4 1000000 1
+set cube 5 10000 1
+set cube 5 100000 1
+set cube 5 1000000 1
+set cube 6 10000 1
+set cube 6 100000 1
+set cube 6 1000000 1
+set cube 7 10000 1
+set cube 7 100000 1
+set cube 7 1000000 1
+set cube 8 10000 1
+set cube 8 100000 1
+set cube 8 1000000 1
+set sphere 2 10000 1
+set sphere 2 100000 1
+set sphere 2 1000000 1
+set sphere 3 10000 1
+set sphere 3 100000 1
+set sphere 3 1000000 1
+set sphere 4 10000 1
+set sphere 4 100000 1
+set sphere 4 1000000 1
+set sphere 5 10000 1
+set sphere 5 100000 1
+set sphere 5 1000000 1
+set sphere 6 10000 1
+set sphere 6 100000 1
+set sphere 6 1000000 1
+set sphere 7 10000 1
+set sphere 7 100000 1
+set sphere 7 1000000 1
+set sphere 8 10000 1
+set sphere 8 100000 1
+set sphere 8 1000000 1
