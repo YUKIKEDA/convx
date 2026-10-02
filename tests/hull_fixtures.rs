@@ -52,6 +52,23 @@ fn frozen_hulls_match() {
         for error in record.compare(&hull) {
             failures.push(format!("{}: {error}", path.display()));
         }
+        // The volume is stored `unchecked` exactly when freezing would write
+        // it so, so the near-zero rule is not bypassed by hand.
+        let fresh = Record::of(
+            &record.generator,
+            record.family,
+            record.dim,
+            record.count,
+            record.seed,
+            &points,
+            &hull,
+        );
+        if fresh.volume.is_none() != record.volume.is_none() {
+            failures.push(format!(
+                "{}: the volume mode differs from the freeze rule",
+                path.display()
+            ));
+        }
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }

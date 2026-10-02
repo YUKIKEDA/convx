@@ -56,7 +56,7 @@ fn freeze(family: Family, dim: usize, count: usize, seed: u64) -> Result<(), Str
     let hull = ConvexHullBuilder::new(dim, &points)
         .build()
         .map_err(|e| format!("{} d{dim} n{count} s{seed}: {e}", family.name()))?;
-    let record = Record::of(GENERATOR, family, dim, count, seed, &hull);
+    let record = Record::of(GENERATOR, family, dim, count, seed, &points, &hull);
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/hull")
         .join(record.file_name());

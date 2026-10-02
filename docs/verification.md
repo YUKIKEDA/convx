@@ -111,7 +111,7 @@ One plain-text file per record under `tests/fixtures/hull/`, named `<family>-d<d
 
 ### Volume tolerance
 
-A frozen volume carries a relative tolerance of `1e-12`. A record whose volume is near zero relative to its extent is written `volume unchecked`, and only its topology is compared (§10).
+A frozen volume carries a relative tolerance of `1e-12`. A record whose volume is near zero relative to its extent is written `volume unchecked`, and only its topology is compared (§10). Near zero means below `f64::EPSILON / 1e-12` (about `2.2e-4`) times `w^D`, where `w` is the largest side of the bounding box: one rounding of a term at that scale already exceeds the tolerance. `Record::of` applies the rule when it freezes. In the standard set it marks `cluster-d6-n18-s1` (volume `3.07e-11`, `w` about 1.93); the next smallest record is above `3e-3` times `w^D`.
 
 ### Steady run
 

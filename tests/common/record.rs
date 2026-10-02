@@ -24,6 +24,28 @@ use super::generator::Family;
 /// Relative volume tolerance used when a record is frozen.
 pub const VOLUME_TOLERANCE: f64 = 1e-12;
 
+/// The volume is written `unchecked` below this fraction of `w^D`, where `w`
+/// is the largest side of the bounding box. One rounding of a term at the
+/// extent scale, about `f64::EPSILON * w^D`, then exceeds the tolerance, so
+/// only the topology is compared (design §10).
+pub const NEAR_ZERO_VOLUME: f64 = f64::EPSILON / VOLUME_TOLERANCE;
+
+/// The largest side of the bounding box of `points`.
+fn extent(dim: usize, points: &[f64]) -> f64 {
+    (0..dim)
+        .map(|axis| {
+            let (low, high) = points
+                .iter()
+                .skip(axis)
+                .step_by(dim)
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), &x| {
+                    (l.min(x), h.max(x))
+                });
+            high - low
+        })
+        .fold(0.0, f64::max)
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Record {
     pub generator: String,
@@ -56,24 +78,27 @@ fn line(key: &str, values: &[u32]) -> String {
 }
 
 impl Record {
-    /// The record of a freshly built hull.
+    /// The record of a hull freshly built from `points`.
     pub fn of(
         generator: &str,
         family: Family,
         dim: usize,
         count: usize,
         seed: u64,
+        points: &[f64],
         hull: &ConvexHull,
     ) -> Self {
         let mut facets: Vec<Vec<u32>> = hull.facets.iter().map(|f| f.vertices.clone()).collect();
         facets.sort();
+        let volume = hull.volume();
+        let near_zero = volume < NEAR_ZERO_VOLUME * extent(dim, points).powi(dim as i32);
         Self {
             generator: generator.to_string(),
             family,
             dim,
             count,
             seed,
-            volume: Some((hull.volume(), VOLUME_TOLERANCE)),
+            volume: (!near_zero).then_some((volume, VOLUME_TOLERANCE)),
             vertices: hull.vertices.clone(),
             coplanar_points: hull.coplanar_points.clone(),
             interior_points: hull.interior_points.clone(),
