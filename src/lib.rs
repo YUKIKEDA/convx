@@ -4,3 +4,5 @@
 //! The specification is `docs/design.md` (canonical: `docs/design.ja.md`).
 
 #![forbid(unsafe_code)]
+
+mod arena;
