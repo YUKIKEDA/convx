@@ -22,6 +22,10 @@ Grill (when the design branches) → Issue → branch → work → PR → human 
 7. A human reviews and squash-merges. Agents do not merge.
 8. Retrospective, below, before the next feature branch.
 
+When a decision on an Issue changes (a Grill choice refined in review, a definition of done that moved), edit the Issue body. A comment alone leaves the acceptance text stale.
+
+Each PR sets its own roadmap row's status to `Done` and updates **Current work** to the next row, in the same change. A row is never left `Not started` after its PR merges.
+
 「進めなさい」 is work on an Issue that already exists. It is not a substitute for creating an Issue or deciding scope. History rewrites: `.cursor/rules/git.mdc`.
 
 ## Forbidden
@@ -35,6 +39,21 @@ When a row is recorded before Grill, and the user has named the ID and the Issue
 
 - ID, kind, title, and dependencies that the Issue already states
 - Status is `Set after Grill on #n` only. Do not put the acceptance text on the roadmap
+
+## Stacked PRs
+
+When a PR is opened on top of another, its base is the earlier branch. After any squash merge into main:
+
+1. Merge main into the next branch at once. Do not wait for a review on the old head.
+2. A conflicted file the branch did not change takes main's version. A file the branch changed keeps the branch's edits on top of main.
+3. Check that `git diff main` lists only the branch's own files.
+4. Before pushing, fetch and confirm the PR is still open. Pushing a branch whose PR already merged and was deleted recreates it.
+5. Push, and post the new head on its PR so review runs on it.
+
+```text
+# BAD — #38 reviewed on a head that still reverted #36's input order
+# GOOD — merge origin/main, diff lists classify.rs, mod.rs, simplicial.rs only, post the head
+```
 
 ## Retrospective
 

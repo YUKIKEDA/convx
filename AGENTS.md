@@ -34,6 +34,8 @@ The current row's ID lives only in [docs/roadmap.md](docs/roadmap.md).
 | `.cursor/rules/rust-api.mdc`             | English identifiers, API Guidelines naming                                                     |
 | `.cursor/rules/rust-docs.mdc`            | English rustdoc                                                                                |
 | `.cursor/rules/types.mdc`                | Illegal states are types                                                                       |
+| `.cursor/rules/numeric-tests.mdc`        | Exact independent reference, fixed tolerance, mutation check, per-case expectations            |
+| `.cursor/rules/spec-checks.mdc`          | Check the full statement and fixed orders; every documented rule has a code path               |
 | `.cursor/rules/dev-docs.mdc`             | Mermaid and LaTeX in the design spec                                                           |
 
 Grill, when the design branches: [`.agents/skills/grilling/SKILL.md`](.agents/skills/grilling/SKILL.md).
