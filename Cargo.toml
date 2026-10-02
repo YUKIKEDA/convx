@@ -19,3 +19,4 @@ dbg_macro = "deny"
 [dependencies]
 faer = { version = "0.24", default-features = false, features = ["std"] }
 pulp = "0.22"
+thiserror = "2"

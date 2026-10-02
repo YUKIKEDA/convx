@@ -11,7 +11,7 @@
 //! magnitude lies in [1, 2). The scaling is exact except for components that
 //! underflow, and it keeps the edge vectors finite for any finite input.
 
-// The hull build (P2-1, #8) is the first caller outside tests.
+// The public builder (P2-4, #11) is the first caller outside tests.
 #![cfg_attr(not(test), allow(dead_code))]
 
 use faer::Mat;

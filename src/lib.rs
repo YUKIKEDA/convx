@@ -7,9 +7,11 @@
 
 mod arena;
 mod cull;
+mod hull;
 mod normal;
 mod predicates;
 
+pub use hull::ConvexHullError;
 pub use predicates::Sign;
 
 #[cfg(test)]

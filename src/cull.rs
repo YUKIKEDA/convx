@@ -36,7 +36,7 @@
 //! both paths return bitwise identical `w` and `l` and the same cull set on
 //! every CPU.
 
-// The hull build (P2-1, #8) is the first caller outside tests.
+// The public builder (P2-4, #11) is the first caller outside tests.
 #![cfg_attr(not(test), allow(dead_code))]
 
 use pulp::{Arch, Simd, WithSimd};
