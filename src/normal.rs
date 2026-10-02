@@ -371,16 +371,123 @@ mod tests {
                 let last: Vec<f64> = points[d - 2].iter().map(|x| x + tiny * unit()).collect();
                 points[d - 1] = last;
                 let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
-                let Some(n) = normal_of(&points, Sign::Positive) else {
+                let reference = crate::predicates::cofactor_direction(&refs).unwrap();
+                let n = normal_of(&points, Sign::Positive);
+                // None only for dependent points: every cofactor zero.
+                let (Some(n), Some((direction, err))) = (n.clone(), reference.clone()) else {
+                    assert!(n.is_none() && reference.is_none(), "d = {d}, trial {trial}");
                     continue;
                 };
-                let exact = crate::predicates::cofactor_direction(&refs)
-                    .unwrap()
-                    .unwrap()
-                    .0;
+                // The contract: within the certified error plus the check's
+                // tolerance of the cofactor direction.
                 assert!(
-                    distance_up_to_sign(&n, &exact) < 1e-7,
+                    distance_up_to_sign(&n, &direction) <= err + QR_TOLERANCE,
                     "d = {d}, trial {trial}"
+                );
+            }
+        }
+    }
+
+    /// Cofactors of an integer edge matrix by Laplace expansion in `i128`, an
+    /// implementation independent of the predicate module.
+    fn integer_cofactors(points: &[Vec<i64>]) -> Vec<i128> {
+        fn det(m: &[Vec<i128>]) -> i128 {
+            if m.is_empty() {
+                return 1;
+            }
+            (0..m.len())
+                .map(|c| {
+                    let minor: Vec<Vec<i128>> = m[1..]
+                        .iter()
+                        .map(|row| {
+                            row.iter()
+                                .enumerate()
+                                .filter(|&(j, _)| j != c)
+                                .map(|(_, &v)| v)
+                                .collect()
+                        })
+                        .collect();
+                    let term = m[0][c] * det(&minor);
+                    if c % 2 == 0 {
+                        term
+                    } else {
+                        -term
+                    }
+                })
+                .sum()
+        }
+        let d = points.len();
+        let edges: Vec<Vec<i128>> = points[1..]
+            .iter()
+            .map(|p| {
+                p.iter()
+                    .zip(&points[0])
+                    .map(|(a, b)| i128::from(a - b))
+                    .collect()
+            })
+            .collect();
+        (0..d)
+            .map(|j| {
+                let mut m = edges.clone();
+                let mut unit = vec![0_i128; d];
+                unit[j] = 1;
+                m.push(unit);
+                det(&m)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn near_degenerate_integer_facets_match_an_independent_reference() {
+        // Large integer coordinates with one edge of length about 1: the
+        // reference normal comes from i128 Laplace cofactors.
+        let mut state = 0x0f0f_1234_5678_9abc_u64;
+        let mut next = |bound: i64| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % (2 * bound as u64 + 1)) as i64 - bound
+        };
+        for d in 3..=6 {
+            for _ in 0..30 {
+                // As large as the i128 Laplace expansion allows, so that the
+                // facet is badly conditioned and QR alone loses accuracy.
+                let bound: i64 = match d {
+                    3 => 1 << 40,
+                    4 => 1 << 38,
+                    5 => 1 << 30,
+                    _ => 1 << 23,
+                };
+                let mut points: Vec<Vec<i64>> = (0..d)
+                    .map(|_| (0..d).map(|_| next(bound)).collect())
+                    .collect();
+                let step: Vec<i64> = (0..d).map(|_| next(1)).collect();
+                let last: Vec<i64> = points[d - 2]
+                    .iter()
+                    .zip(&step)
+                    .map(|(a, b)| a + b)
+                    .collect();
+                points[d - 1] = last;
+                let cofactors = integer_cofactors(&points);
+                let floats: Vec<Vec<f64>> = points
+                    .iter()
+                    .map(|p| p.iter().map(|&x| x as f64).collect())
+                    .collect();
+                let n = normal_of(&floats, Sign::Positive);
+                if cofactors.iter().all(|&c| c == 0) {
+                    assert!(n.is_none());
+                    continue;
+                }
+                let n = n.unwrap();
+                let length = cofactors
+                    .iter()
+                    .map(|&c| (c as f64) * (c as f64))
+                    .sum::<f64>()
+                    .sqrt();
+                let reference: Vec<f64> = cofactors.iter().map(|&c| c as f64 / length).collect();
+                assert!(
+                    distance_up_to_sign(&n, &reference) <= 2e-8,
+                    "d = {d}: {n:?} vs {reference:?}"
                 );
             }
         }

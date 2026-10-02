@@ -6,8 +6,8 @@ use crate::predicates::ExactEvaluationExhausted;
 /// Why a build failed.
 ///
 /// Input checks run in this order: [`NonPositiveDimension`](Self::NonPositiveDimension),
-/// [`LengthMismatch`](Self::LengthMismatch), [`TooManyPoints`](Self::TooManyPoints),
-/// [`NonFiniteCoordinate`](Self::NonFiniteCoordinate), then duplicate removal,
+/// [`LengthMismatch`](Self::LengthMismatch), [`NonFiniteCoordinate`](Self::NonFiniteCoordinate),
+/// [`TooManyPoints`](Self::TooManyPoints), then duplicate removal,
 /// [`InsufficientPoints`](Self::InsufficientPoints), and
 /// [`DegenerateDimension`](Self::DegenerateDimension).
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
