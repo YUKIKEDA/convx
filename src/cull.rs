@@ -19,8 +19,11 @@
 //! rounding of `w` is at most `gamma_{d+1} sum |x_j - o_j| |n_j|`, plus
 //! `d * 2^-1074` for products that underflow. With `|n_j| <= 1 + d u` and
 //! `l >= (1 - gamma_d) sum |x_j - o_j|`, both terms are covered by
-//! `slope = 4 (d + 1) u + 2 tau` and `floor = (d + 1) 2^-1073`; the final
-//! factor covers the rounding of the right-hand side itself.
+//! `slope = (4 (d + 1) u + 2 tau) (1 + 4u)` and `floor = (d + 1) 2^-1073`.
+//! The factor `(1 + 4u)` in `slope` covers the rounding of evaluating
+//! `slope` itself; the factor `(1 + 4u)` in the comparison covers the
+//! rounding of `slope * l + floor`. Both round the threshold up, toward
+//! culling less.
 //!
 //! `tau` is certified once per facet from the cofactor vector `c` of the
 //! facet's edges (see [`crate::predicates::direction_cofactors`]): with
@@ -320,6 +323,87 @@ mod tests {
                     assert_eq!(sign, Sign::Negative, "scale {scale}, point {i}");
                 }
             }
+        }
+    }
+
+    /// Culls `points` against `facet` with the given working `normal`, and
+    /// checks that no point outside or on the exact plane is culled. Returns
+    /// the cull flags.
+    fn cull_with(facet: &[Vec<f64>], normal: &[f64], points: &[Vec<f64>]) -> Vec<bool> {
+        let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
+        let outward = crate::predicates::orient_direction(&refs, normal).unwrap();
+        let plane = CullPlane::new(&refs, normal, outward).expect("certified");
+        let flat: Vec<f64> = points.iter().flatten().copied().collect();
+        let indices: Vec<u32> = (0..points.len() as u32).collect();
+        let mut inside = vec![false; points.len()];
+        plane.mark_inside(&flat, &indices, &mut inside);
+        for (p, &culled) in points.iter().zip(&inside) {
+            if culled {
+                assert_eq!(
+                    distance_sign(&refs, p).unwrap(),
+                    outward.reversed(),
+                    "culled {p:?}"
+                );
+            }
+        }
+        inside
+    }
+
+    #[test]
+    fn a_tilted_working_normal_keeps_outside_points() {
+        // Review of #34: the facet y = 0 with outward (0, 1), scanned with a
+        // working normal tilted by 0.1 rad. The outside point (-1, 0.01) has
+        // a negative working distance; tau must keep it.
+        let facet = [vec![0.0, 0.0], vec![1.0, 0.0]];
+        let normal = [0.1_f64.sin(), 0.1_f64.cos()];
+        let points = [vec![-1.0, 0.01], vec![0.5, -10.0]];
+        let inside = cull_with(&facet, &normal, &points);
+        assert_eq!(inside, [false, true]);
+    }
+
+    #[test]
+    fn a_45_degree_working_normal_keeps_outside_points() {
+        // Review of #34: the facet of #33 with the 45-degree-off normal
+        // (-1, 0, 0) that QR alone returned. (2, 4, 3) is outside the exact
+        // plane and must be kept. With tau near 0.77 the slope exceeds 1, and
+        // |w| <= |x - o| <= l for every point, so nothing can be proved inside:
+        // even a point far on the inner side is kept. That is sound, and the
+        // checked normal of #33 never hands such a tilt to the cull.
+        let t = 2f64.powi(-48);
+        let facet = [
+            vec![1.0, 2.0, 3.0],
+            vec![1.0, 2.0, 4.0],
+            vec![1.0 + t, 2.0 + t, 4.0],
+        ];
+        let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
+        let outward = crate::predicates::orient_direction(&refs, &[-1.0, 0.0, 0.0]).unwrap();
+        let outside = vec![2.0, 4.0, 3.0];
+        assert_eq!(distance_sign(&refs, &outside).unwrap(), outward);
+        let deep: Vec<f64> = [-100.0, 100.0]
+            .iter()
+            .map(|&k| vec![1.0 + k, 2.0 - k, 3.0])
+            .find(|p| distance_sign(&refs, p).unwrap() == outward.reversed())
+            .unwrap();
+        let inside = cull_with(&facet, &[-1.0, 0.0, 0.0], &[outside, deep.clone()]);
+        assert_eq!(inside, [false, false]);
+        // With the checked normal the same deep point is culled.
+        let normal = unit_normal(&refs, outward).unwrap().unwrap();
+        let inside = cull_with(&facet, &normal, &[vec![2.0, 4.0, 3.0], deep]);
+        assert_eq!(inside, [false, true]);
+    }
+
+    #[test]
+    fn huge_horizontal_facets_keep_points_just_outside() {
+        for s in [1e16, 1e50, 1e100, 1e200] {
+            let facet = [vec![s, s, s], vec![2.0 * s, s, s], vec![s, 2.0 * s, s]];
+            let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
+            let up = f64::from_bits(s.to_bits() + 1);
+            let above = vec![1.5 * s, 1.5 * s, up];
+            let outward = distance_sign(&refs, &above).unwrap();
+            let normal = unit_normal(&refs, outward).unwrap().unwrap();
+            let below = vec![1.5 * s, 1.5 * s, 0.0];
+            let inside = cull_with(&facet, &normal, &[above, below]);
+            assert_eq!(inside, [false, true], "s = {s}");
         }
     }
 
