@@ -19,17 +19,19 @@
 //! the relative interior of a face or an edge is not extreme, so it moves to
 //! `coplanar_points`. `vertices` is then exactly the set of extreme points.
 //!
-//! A facet whose extreme set differs from its simplicial vertex set is
-//! re-triangulated as §3 states: the initial simplex is the lexicographically
-//! minimum affinely independent D points, the remaining extreme points are
-//! placed in index order, and a point is outside ridge `R` when
-//! `orient(R, p, q)` and `orient(R, a, q)` are nonzero and opposite, with `a`
-//! the simplex vertex off the ridge and `q` the smallest-index extreme point
-//! not on the facet. Neighbors are then recomputed from the updated simplices.
+//! Every facet other than a single simplex with extreme vertices is then
+//! triangulated by placing its extreme points in index order (see [`place`]).
+//! §3 asks for a re-triangulation only of a facet that gained a vertex, from
+//! the lexicographically minimum basis; but two facets that share a lower
+//! face must split it the same way, or the boundary does not close. A facet
+//! kept as built and a re-triangulated neighbor can disagree there, and so
+//! can two neighbors triangulated basis-first. The placing triangulation
+//! restricts to the placing triangulation of every face in the same order, so
+//! all facets agree. Neighbors are then recomputed from the updated simplices.
 
 use std::collections::HashMap;
 
-use super::input::{accept, minimum_basis, Input};
+use super::input::{accept, Input};
 use super::merge::merge;
 use super::simplicial::SimplicialHull;
 use super::ConvexHullError;
@@ -182,19 +184,23 @@ pub(crate) fn classify(input: Input<'_>) -> Result<Classified<'_>, ConvexHullErr
     let mut faces: Vec<Face> = Vec::with_capacity(extremes.len());
     for (g, extreme) in extremes.into_iter().enumerate() {
         let original = &groups.groups[g].vertices;
-        let members: Vec<(Vec<u32>, Sign)> = if &extreme == original {
-            group_simplices[g].clone()
-        } else {
-            let q = vertices
-                .iter()
-                .copied()
-                .find(|v| extreme.binary_search(v).is_err())
-                .unwrap_or(extreme[0]);
-            place(&hull.input, &extreme, q)?
-                .into_iter()
-                .map(|s| (s, Sign::Positive))
-                .collect()
-        };
+        // A single simplex whose vertices are all extreme is kept; every
+        // other facet is re-triangulated by placing, so facets that share a
+        // lower face split it the same way.
+        let members: Vec<(Vec<u32>, Sign)> =
+            if &extreme == original && group_simplices[g].len() == 1 {
+                group_simplices[g].clone()
+            } else {
+                let q = vertices
+                    .iter()
+                    .copied()
+                    .find(|v| extreme.binary_search(v).is_err())
+                    .unwrap_or(extreme[0]);
+                place(&hull.input, &extreme, q)?
+                    .into_iter()
+                    .map(|s| (s, Sign::Positive))
+                    .collect()
+            };
         let first = simplices.len() as u32;
         for (vertices, outward) in members {
             simplices.push(BoundarySimplex {
@@ -272,19 +278,62 @@ fn face_extremes(
 
 /// Placing triangulation of the extreme points `extreme` (ascending) of one
 /// facet, oriented so that `q`, a hull vertex off the facet, is inside.
+///
+/// Points are placed one at a time in index order. A point that raises the
+/// affine dimension of the points placed so far is joined to every current
+/// simplex. Otherwise it lies outside their hull, since it is extreme, and it
+/// is joined to every boundary ridge it is beyond: the ridge's other vertex
+/// and the point are strictly on opposite sides of the ridge, judged by exact
+/// orientation within the current affine span.
+///
+/// The placing triangulation restricts to the placing triangulation of each
+/// face in the same order, so two facets that share a lower face split it
+/// the same way, and the boundary complex closes up.
 fn place(input: &Input<'_>, extreme: &[u32], q: u32) -> Result<Vec<Vec<u32>>, ConvexHullError> {
     let d = input.dim();
     let point = |i: u32| input.point(i);
-    // The lexicographically minimum affinely independent D points: on the
-    // hyperplane they are the minimum basis of the facet's own affine span.
-    let basis = minimum_basis(d, extreme, point)?;
-    let basis: Vec<u32> = basis.into_iter().take(d).collect();
-    let mut simplices = vec![oriented(input, basis.clone(), q)?];
-    for &p in extreme.iter().filter(|p| !basis.contains(p)) {
-        let mut count: HashMap<Vec<u32>, (usize, usize)> = HashMap::new();
-        let mut seen: HashMap<Vec<u32>, usize> = HashMap::new();
+    let Some((&first, rest)) = extreme.split_first() else {
+        return Ok(Vec::new());
+    };
+    let mut simplices: Vec<Vec<u32>> = vec![vec![first]];
+    // Coordinates on which the points placed so far project to an affinely
+    // independent basis; their count is the current affine dimension.
+    let mut axes: Vec<usize> = Vec::with_capacity(d);
+    let mut basis: Vec<u32> = vec![first];
+    let project = |v: u32, axes: &[usize], extra: Option<usize>| -> Vec<f64> {
+        let x = point(v);
+        axes.iter()
+            .map(|&a| x[a])
+            .chain(extra.map(|j| x[j]))
+            .collect()
+    };
+    for &p in rest {
+        // Does p raise the affine dimension?
+        let mut raised = None;
+        for j in (0..d).filter(|j| !axes.contains(j)) {
+            let projected: Vec<Vec<f64>> = basis
+                .iter()
+                .chain(core::iter::once(&p))
+                .map(|&v| project(v, &axes, Some(j)))
+                .collect();
+            let refs: Vec<&[f64]> = projected.iter().map(Vec::as_slice).collect();
+            if orient(&refs)? != Sign::Zero {
+                raised = Some(j);
+                break;
+            }
+        }
+        if let Some(j) = raised {
+            axes.push(j);
+            basis.push(p);
+            for simplex in &mut simplices {
+                simplex.push(p);
+            }
+            continue;
+        }
+        // Beyond which boundary ridges of the current complex is p?
+        let mut sides: HashMap<Vec<u32>, (usize, usize, usize)> = HashMap::new();
         for (s, simplex) in simplices.iter().enumerate() {
-            for slot in 0..d {
+            for slot in 0..simplex.len() {
                 let mut ridge: Vec<u32> = simplex
                     .iter()
                     .enumerate()
@@ -292,32 +341,43 @@ fn place(input: &Input<'_>, extreme: &[u32], q: u32) -> Result<Vec<Vec<u32>>, Co
                     .map(|(_, &v)| v)
                     .collect();
                 ridge.sort_unstable();
-                *seen.entry(ridge.clone()).or_insert(0) += 1;
-                count.insert(ridge, (s, slot));
+                let entry = sides.entry(ridge).or_insert((0, s, slot));
+                entry.0 += 1;
             }
         }
         let mut added = Vec::new();
-        for (ridge, (s, slot)) in count {
-            if seen.get(&ridge) != Some(&1) {
+        for (ridge, (count, s, slot)) in sides {
+            if count != 1 {
                 continue;
             }
             let a = simplices[s][slot];
-            let mut with_p: Vec<&[f64]> = ridge.iter().map(|&v| point(v)).collect();
-            let mut with_a = with_p.clone();
-            with_p.extend([point(p), point(q)]);
-            with_a.extend([point(a), point(q)]);
-            let sp = orient(&with_p)?;
-            let sa = orient(&with_a)?;
+            let side_of = |v: u32| -> Result<Sign, ConvexHullError> {
+                let projected: Vec<Vec<f64>> = ridge
+                    .iter()
+                    .chain(core::iter::once(&v))
+                    .map(|&u| project(u, &axes, None))
+                    .collect();
+                let refs: Vec<&[f64]> = projected.iter().map(Vec::as_slice).collect();
+                Ok(orient(&refs)?)
+            };
+            let (sp, sa) = (side_of(p)?, side_of(a)?);
             if sp != Sign::Zero && sa != Sign::Zero && sp != sa {
                 let mut vertices = ridge;
                 vertices.push(p);
-                added.push(oriented(input, vertices, q)?);
+                added.push(vertices);
             }
         }
         added.sort_unstable();
         simplices.extend(added);
     }
-    Ok(simplices)
+    debug_assert!(
+        simplices.iter().all(|s| s.len() == d),
+        "a facet spans D - 1 dimensions"
+    );
+    simplices
+        .into_iter()
+        .map(|s| oriented(input, s, q))
+        .collect()
 }
 
 /// Orders `vertices` so that `q` is on the negative side.
@@ -560,5 +620,23 @@ pub(crate) mod tests {
             }
         }
         classified(3, &points);
+    }
+}
+#[cfg(test)]
+mod grid_regression {
+    use super::tests::classified;
+    use crate::hull::simplicial::tests::Rng;
+
+    #[test]
+    fn random_integer_grids_in_high_dimensions() {
+        for dim in 4..=6 {
+            // Seed 3 in 6D was the first failure: two facets split a shared
+            // lower face differently before every facet used placing.
+            for seed in [0, 3] {
+                let mut rng = Rng(seed * 31 + dim as u64);
+                let points: Vec<f64> = (0..35 * dim).map(|_| (rng.next() % 4) as f64).collect();
+                classified(dim, &points);
+            }
+        }
     }
 }
