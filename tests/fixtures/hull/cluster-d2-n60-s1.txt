@@ -1,0 +1,17 @@
+generator xoshiro256starstar-v1
+family cluster
+dim 2
+count 60
+seed 1
+volume 1.5350731901623222 1e-12
+vertices 4 7 13 14 16 32 41 58
+coplanar_points 17
+interior_points 0 1 2 3 5 6 9 10 11 15 18 19 22 23 24 25 26 27 30 31 33 34 36 37 38 42 43 46 47 50 51 52 53 54 55 57
+facet 4 7
+facet 4 14
+facet 7 13
+facet 13 32
+facet 14 58
+facet 16 32
+facet 16 41
+facet 41 58

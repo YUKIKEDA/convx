@@ -1,0 +1,20 @@
+generator xoshiro256starstar-v1
+family grid
+dim 3
+count 60
+seed 1
+volume 23.5 1e-12
+vertices 1 5 6 11 12 15 19 22 25 30 38 55 58
+coplanar_points 0 3 4 8 9 10 13 14 20 21 23 26 29 32 34 36 37 40 41
+interior_points 2 7 24 35 49 50
+facet 1 5 6 22 55
+facet 1 5 25
+facet 1 11 15 25 30
+facet 1 30 55
+facet 5 12 15 25 38
+facet 5 12 22
+facet 6 12 19 22 38 58
+facet 6 19 55
+facet 11 15 38 58
+facet 11 30 58
+facet 19 30 55 58

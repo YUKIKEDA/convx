@@ -1,0 +1,53 @@
+generator xoshiro256starstar-v1
+family cube
+dim 3
+count 60
+seed 2
+volume 4.573886849850444 1e-12
+vertices 0 4 6 11 12 16 20 22 23 27 30 31 32 33 36 44 45 46 48 49 51 52 57 59
+coplanar_points
+interior_points 1 2 3 5 7 8 9 10 13 14 15 17 18 19 21 24 25 26 28 29 34 35 37 38 39 40 41 42 43 47 50 53 54 55 56 58
+facet 0 12 23
+facet 0 12 51
+facet 0 16 23
+facet 0 16 51
+facet 4 22 32
+facet 4 22 52
+facet 4 32 49
+facet 4 33 46
+facet 4 33 51
+facet 4 46 49
+facet 4 51 52
+facet 6 16 23
+facet 6 16 49
+facet 6 23 36
+facet 6 36 44
+facet 6 44 49
+facet 11 36 44
+facet 11 36 57
+facet 11 44 59
+facet 11 57 59
+facet 12 23 57
+facet 12 51 57
+facet 16 20 46
+facet 16 20 51
+facet 16 46 49
+facet 20 33 46
+facet 20 33 51
+facet 22 30 31
+facet 22 30 32
+facet 22 31 52
+facet 23 36 57
+facet 27 51 52
+facet 27 51 57
+facet 27 52 57
+facet 30 31 45
+facet 30 32 45
+facet 31 44 45
+facet 31 44 59
+facet 31 52 59
+facet 32 44 48
+facet 32 44 49
+facet 32 45 48
+facet 44 45 48
+facet 52 57 59
