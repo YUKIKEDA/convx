@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod arena;
 mod predicates;
 
 pub use predicates::Sign;
