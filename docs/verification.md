@@ -92,3 +92,31 @@ Two records name the same generator, seed, dimension, point count, family, and o
 ## Situations with no flow
 
 Refreshing every expectation because a run was inconvenient. Taking Qhull's triangulation as the expected logical facets. Loading a performance file as a correctness oracle. Deleting a record because a later phase is not implemented yet. Writing a Delaunay or Voronoi expectation before that phase can produce it.
+
+## Hull records
+
+The judgment inside the flows above, for the hull check armed in Phase 2.
+
+### Record format
+
+One plain-text file per record under `tests/fixtures/hull/`, named `<family>-d<dim>-n<count>-s<seed>.txt`. The header names the generator, family, dimension, point count, and seed. The observables are `vertices`, `coplanar_points`, `interior_points`, one `facet` line per logical facet (ascending vertex set, facets in lexicographic order), and `volume` with its relative tolerance or `volume unchecked`. Plain text keeps a revision readable line by line. The parser and the writer live in `tests/common/record.rs`.
+
+### Generator
+
+`tests/common/generator.rs`: xoshiro256\*\* seeded through SplitMix64, with the families `cube`, `sphere`, `grid` (integers in [0, 3], exact coplanarities and duplicates), and `cluster` (near-duplicates a few 2^-30 apart). Every record stores the generator id. Any change to the generator bumps the id, and the steady run then fails on every record of the old id until they are reviewed together (Change the generator).
+
+### Freeze
+
+`cargo run --example freeze_hull_fixture -- <family> <dim> <count> <seed>`, or `-- --standard` for the standard set (each family in D = 2..=6 with seed 1, plus seed 2 for `cube` and `grid`). The tool runs only with debug assertions, so the §10 invariant checker runs inside the build it records. It never overwrites an existing file. Point counts stay small enough that a debug steady run, with the checker active, finishes in seconds.
+
+### Volume tolerance
+
+A frozen volume carries a relative tolerance of `1e-12`. A record whose volume is near zero relative to its extent is written `volume unchecked`, and only its topology is compared (§10).
+
+### Steady run
+
+`tests/hull_fixtures.rs` reads every record, rebuilds the points from the seed, and compares all stored observables. It never writes. A mismatch fails the test, and the record stays as it is (Disagreement).
+
+### Revise
+
+A record is revised only by editing the file in a change under review, under "Revise because the design changed" or "Revise because the lock stored a wrong result". The diff of the record is part of that review. Deleting the file and freezing again is the same revision and is reviewed the same way.
