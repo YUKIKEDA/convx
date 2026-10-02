@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod arena;
 mod normal;
 mod predicates;
 
