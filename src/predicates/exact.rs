@@ -12,7 +12,7 @@
 
 use core::cmp::Ordering;
 
-use super::{ExactEvaluationExhausted, Sign};
+use super::{ExactEvaluationExhausted, Row, Rows, Sign};
 
 /// Reserves an empty vector with room for `capacity` elements.
 fn try_vec<T>(capacity: usize) -> Result<Vec<T>, ExactEvaluationExhausted> {
@@ -222,31 +222,31 @@ fn mul_magnitude(a: &[u32], b: &[u32]) -> Result<Vec<u32>, ExactEvaluationExhaus
     Ok(out)
 }
 
-/// Exact sign of the orientation of `points` (k + 1 points of dimension k).
-///
-/// This is the sign of the determinant whose rows are `points[i] - points[0]`
-/// for `i` in `1..=k`.
-pub(super) fn orient_exact(points: &[&[f64]]) -> Result<Sign, ExactEvaluationExhausted> {
-    let k = points.len() - 1;
-    // Every coordinate is a multiple of 2^(base - 1074). Dividing all of them
-    // by that power of two keeps the integers small and multiplies the
+/// Exact sign of the determinant described by `rows`.
+pub(super) fn sign_exact(rows: Rows<'_>) -> Result<Sign, ExactEvaluationExhausted> {
+    let k = rows.k();
+    // Every value is a multiple of 2^(base - 1074). Dividing all of them by
+    // that power of two keeps the integers small and multiplies the
     // determinant by a positive factor, so the sign is unchanged.
-    let base = points
-        .iter()
-        .flat_map(|p| p.iter())
-        .filter_map(|&x| exponent_shift(x))
-        .min()
-        .unwrap_or(0);
-    let origin = points[0];
+    let base = rows.values().filter_map(exponent_shift).min().unwrap_or(0);
     let mut scaled_origin = try_vec(k)?;
-    for &x in origin {
+    for &x in rows.origin {
         scaled_origin.push(BigInt::from_f64_scaled(x, base)?);
     }
     let mut matrix: Vec<Vec<BigInt>> = try_vec(k)?;
-    for point in &points[1..] {
+    for i in 0..k {
         let mut row = try_vec(k)?;
-        for (&x, o) in point.iter().zip(&scaled_origin) {
-            row.push(BigInt::from_f64_scaled(x, base)?.sub(o)?);
+        match rows.row(i) {
+            Row::Difference(point) => {
+                for (&x, o) in point.iter().zip(&scaled_origin) {
+                    row.push(BigInt::from_f64_scaled(x, base)?.sub(o)?);
+                }
+            }
+            Row::Direction(direction) => {
+                for &x in direction {
+                    row.push(BigInt::from_f64_scaled(x, base)?);
+                }
+            }
         }
         matrix.push(row);
     }

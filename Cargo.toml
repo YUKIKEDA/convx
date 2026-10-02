@@ -7,8 +7,6 @@ description = "N-dimensional convex hull, Delaunay triangulation, and Voronoi di
 repository = "https://github.com/YUKIKEDA/convx"
 publish = false
 
-[dependencies]
-
 [lints.rust]
 unsafe_code = "forbid"
 
@@ -17,3 +15,6 @@ unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
 dbg_macro = "deny"
+
+[dependencies]
+faer = { version = "0.24", default-features = false, features = ["std"] }
