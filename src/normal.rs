@@ -36,13 +36,13 @@ fn power_of_two(k: i32) -> f64 {
 }
 
 /// `x * 2^k` for `|k| <= 2 * 1022`, in two exact steps.
-pub(crate) fn scale_by_power_of_two(x: f64, k: i32) -> f64 {
+fn scale_by_power_of_two(x: f64, k: i32) -> f64 {
     let half = k / 2;
     x * power_of_two(half) * power_of_two(k - half)
 }
 
 /// The exponent `e` with `2^e <= |x| < 2^(e + 1)` for a nonzero finite `x`.
-pub(crate) fn binary_exponent(x: f64) -> i32 {
+fn binary_exponent(x: f64) -> i32 {
     let bits = x.abs().to_bits();
     let biased = (bits >> 52) as i32;
     if biased == 0 {
