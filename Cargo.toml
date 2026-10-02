@@ -1,0 +1,19 @@
+[package]
+name = "convx"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.84"
+description = "N-dimensional convex hull, Delaunay triangulation, and Voronoi diagram with exact predicates"
+repository = "https://github.com/YUKIKEDA/convx"
+publish = false
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+dbg_macro = "deny"
