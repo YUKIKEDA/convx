@@ -105,6 +105,40 @@ impl BigInt {
         Ok(Self::from_parts(negative, magnitude))
     }
 
+    /// Number of significant bits of the magnitude.
+    fn bit_length(&self) -> u64 {
+        match self.magnitude.last() {
+            Some(&top) => {
+                (self.magnitude.len() as u64 - 1) * 32 + u64::from(32 - top.leading_zeros())
+            }
+            None => 0,
+        }
+    }
+
+    /// `self / 2^shift`, truncated to the 64 bits from position `shift` and
+    /// then rounded to `f64`. Exact enough for a direction when `shift` is
+    /// the bit length of the largest value of a vector minus 64.
+    fn to_f64_shifted(&self, shift: u64) -> f64 {
+        let mut bits = 0_u64;
+        for (offset, slot) in (0..64_u64).enumerate() {
+            let position = shift + slot;
+            let limb = self
+                .magnitude
+                .get((position / 32) as usize)
+                .copied()
+                .unwrap_or(0);
+            if (limb >> (position % 32)) & 1 == 1 {
+                bits |= 1 << offset;
+            }
+        }
+        let value = bits as f64;
+        if self.negative {
+            -value
+        } else {
+            value
+        }
+    }
+
     pub(super) fn sign(&self) -> Sign {
         if self.magnitude.is_empty() {
             Sign::Zero
@@ -224,6 +258,12 @@ fn mul_magnitude(a: &[u32], b: &[u32]) -> Result<Vec<u32>, ExactEvaluationExhaus
 
 /// Exact sign of the determinant described by `rows`.
 pub(super) fn sign_exact(rows: Rows<'_>) -> Result<Sign, ExactEvaluationExhausted> {
+    Ok(determinant_of(rows)?.sign())
+}
+
+/// The determinant described by `rows`, scaled by a positive power of two
+/// that depends only on the multiset of values in `rows`.
+fn determinant_of(rows: Rows<'_>) -> Result<BigInt, ExactEvaluationExhausted> {
     let k = rows.k();
     // Every value is a multiple of 2^(base - 1074). Dividing all of them by
     // that power of two keeps the integers small and multiplies the
@@ -250,7 +290,38 @@ pub(super) fn sign_exact(rows: Rows<'_>) -> Result<Sign, ExactEvaluationExhauste
         }
         matrix.push(row);
     }
-    Ok(determinant(&matrix)?.sign())
+    determinant(&matrix)
+}
+
+/// The unit direction of the exact cofactor vector of the hyperplane through
+/// `facet` (k points of dimension k), rounded to `f64`: each component is
+/// within `2^-50` of the exact unit vector's. `None` when every cofactor is
+/// zero, that is, when the points are affinely dependent.
+pub(super) fn cofactor_direction_exact(
+    facet: &[&[f64]],
+) -> Result<Option<Vec<f64>>, ExactEvaluationExhausted> {
+    let k = facet.len();
+    let mut unit = vec![0.0; k];
+    let mut cofactors = try_vec(k)?;
+    for j in 0..k {
+        unit[j] = 1.0;
+        // Every row set holds the same values (the facet, one 1, and zeros),
+        // so every cofactor carries the same power-of-two scale.
+        cofactors.push(determinant_of(Rows {
+            origin: facet[0],
+            points: &facet[1..],
+            direction: Some(&unit),
+        })?);
+        unit[j] = 0.0;
+    }
+    let longest = cofactors.iter().map(BigInt::bit_length).max().unwrap_or(0);
+    if longest == 0 {
+        return Ok(None);
+    }
+    let shift = longest.saturating_sub(64);
+    let values: Vec<f64> = cofactors.iter().map(|c| c.to_f64_shifted(shift)).collect();
+    let norm = values.iter().map(|x| x * x).sum::<f64>().sqrt();
+    Ok(Some(values.iter().map(|x| x / norm).collect()))
 }
 
 /// Determinant of a square integer matrix by the Berkowitz algorithm.

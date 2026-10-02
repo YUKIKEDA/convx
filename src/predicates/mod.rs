@@ -236,6 +236,46 @@ pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Vec<(f64, f64)>> {
     Some(cofactors)
 }
 
+const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
+
+/// The largest error bound at which a filtered cofactor direction is used.
+const FILTERED_DIRECTION_LIMIT: f64 = 1e-10;
+
+/// The unit direction of the cofactor vector of the hyperplane through
+/// `facet` (k points of dimension k), with a bound `err` such that the
+/// returned vector is within `err` (Euclidean) of the exact unit direction
+/// `c / |c|`. Its sign follows `c`: `orient_direction(facet, v)` is the sign
+/// of `v . c`.
+///
+/// The filtered cofactors are used when their bounds certify the direction;
+/// otherwise the cofactors are computed exactly. Returns `None` only when
+/// every cofactor is exactly zero, that is, when the points are affinely
+/// dependent.
+pub(crate) fn cofactor_direction(
+    facet: &[&[f64]],
+) -> Result<Option<(Vec<f64>, f64)>, ExactEvaluationExhausted> {
+    let k = facet.len() as f64;
+    if let Some(cofactors) = direction_cofactors(facet) {
+        let bound: f64 = cofactors.iter().map(|&(_, e)| e).sum::<f64>() * (1.0 + k * UNIT_ROUNDOFF);
+        let length = cofactors.iter().map(|&(c, _)| c * c).sum::<f64>().sqrt();
+        let length_low = length * (1.0 - (k + 3.0) * UNIT_ROUNDOFF);
+        if length_low.is_finite() && length_low > 0.0 {
+            // |c/|c| - c^/|c^|| <= 2|c - c^| / |c^|, plus the rounding of
+            // the normalization.
+            let err = (2.0 * bound / length_low + 4.0 * (k + 4.0) * UNIT_ROUNDOFF)
+                * (1.0 + 8.0 * UNIT_ROUNDOFF);
+            // A loose certificate is not a useful reference; the exact
+            // cofactors are.
+            if err <= FILTERED_DIRECTION_LIMIT {
+                let direction = cofactors.iter().map(|&(c, _)| c / length).collect();
+                return Ok(Some((direction, err)));
+            }
+        }
+    }
+    let err = k * 2f64.powi(-49);
+    Ok(exact::cofactor_direction_exact(facet)?.map(|d| (d, err)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
