@@ -365,10 +365,30 @@ impl ConvexHull {
     pub fn volume(&self) -> f64;
     /// The coplanar split is not part of the stability promise across versions.
     pub fn triangulation(&self) -> TriangulationView<'_>;
-    /// Defined only when D is 1, 2, or 3. facet is the public facet number.
+    /// Defined only when D is 1, 2, or 3. facet is the public facet number. An out-of-range number returns None.
     pub fn boundary_cycle(&self, facet: u32) -> Option<Vec<u32>>;
 }
 ```
+
+`ConvexHull` keeps the boundary simplicial complex in a private field, so it cannot be built by a struct literal outside the crate. `triangulation()` returns a view that borrows that complex.
+
+```rust
+pub struct TriangulationView<'a> { /* borrows the ConvexHull */ }
+
+pub struct BoundarySimplex<'a> {
+    pub vertices: &'a [u32], // length D. Outward order, last two swapped as in §5
+    pub facet: u32,          // public number of the logical facet that contains this simplex
+}
+
+impl<'a> TriangulationView<'a> {
+    pub fn len(&self) -> usize;
+    pub fn is_empty(&self) -> bool;
+    pub fn get(&self, index: usize) -> Option<BoundarySimplex<'a>>;
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = BoundarySimplex<'a>> + 'a;
+}
+```
+
+Simplex order is the lexicographic order of the ascending vertex lists before the swap. It is the same order in which §5 adds the terms of `volume()`. `boundary_cycle(facet)` returns `None` when `facet` is not a public facet number, in every dimension. It does not panic.
 
 The static API is a wrapper for stack arrays and monomorphization. It is a separate axis from swapping a solver. Dedicated orientation formulas are for geometric degree $k \le 4$, with $k + 1$ arguments. Orientations beyond that are filtered determinants. QR produces only the unit normal.
 
@@ -384,7 +404,7 @@ impl StaticConvexHull<D> {
 
 `StaticConvexHull` covers $1 \le D \le 8$. `StaticDelaunay` and `StaticVoronoi` cover $1 \le D \le 7$, and `build` has the same shape. The return types are `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram` respectively. The range is 7 because the internal Delaunay hull has dimension $D+1$ and must fit inside the static hull's limit of 8. `build` takes `&[[f64; D]]` and passes `as_flattened()` to the core. Parallelism is the dynamic builder's responsibility.
 
-The only conversion from `[[f64; D]]` to `&[f64]` is `as_flattened()`. There is no `unsafe`. The MSRV is 1.80. The range of $D$ is emitted by a macro or by separate implementations, matching the stable-Rust constraint that a single `impl` cannot carry a constant bound.
+The only conversion from `[[f64; D]]` to `&[f64]` is `as_flattened()`. There is no `unsafe`. The MSRV is 1.84. `faer`, which provides the QR, declares `rust-version` 1.84 from 0.21 on, and the last release usable on 1.80 is the unmaintained 0.19 series. The range of $D$ is emitted by a macro or by separate implementations, matching the stable-Rust constraint that a single `impl` cannot carry a constant bound.
 
 Dependencies are `faer`, `rayon`, `pulp`, and `thiserror`. The implementation language is Rust. Parallelism is switched by the runtime `parallel` flag. The build assumes `std`.
 
