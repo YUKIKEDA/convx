@@ -5,7 +5,8 @@
 //!    nonempty intersections of facet vertex sets of affine dimension k.
 //! 3. No input point is strictly outside any logical facet.
 //! 4. Neighbor symmetry on the simplex graph (every ridge lies in exactly two
-//!    simplices) and on the logical-facet graph.
+//!    simplices), and on the logical-facet graph, whose lists are exactly the
+//!    facets met in a ridge (a shared vertex set of affine dimension D - 2).
 //! 5. The index partition.
 //!
 //! A violation is a convx bug, never a caller error.
@@ -123,16 +124,36 @@ pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
         ));
     }
 
-    // 4 on the logical-facet graph.
+    // 4 on the logical-facet graph: two facets are neighbors exactly when
+    // they meet in a ridge, a vertex set of affine dimension D - 2. In D = 1
+    // there are no ridges and every list is empty.
     for (f, facet) in hull.facets.iter().enumerate() {
-        for &n in &facet.neighbors {
-            let back = hull
-                .facets
-                .get(n as usize)
-                .is_some_and(|g| g.neighbors.contains(&(f as u32)));
-            if !back {
-                return Err(format!("facet {f} lists {n}, which does not list it back"));
+        let mut expected = Vec::new();
+        if d >= 2 {
+            for (g, other) in hull.facets.iter().enumerate() {
+                if g == f {
+                    continue;
+                }
+                let meet: Vec<u32> = facet
+                    .vertices
+                    .iter()
+                    .copied()
+                    .filter(|v| other.vertices.binary_search(v).is_ok())
+                    .collect();
+                if meet.len() < d - 1 {
+                    continue;
+                }
+                let basis = minimum_basis(d, &meet, point).map_err(|e| e.to_string())?;
+                if basis.len() == d - 1 {
+                    expected.push(g as u32);
+                }
             }
+        }
+        if facet.neighbors != expected {
+            return Err(format!(
+                "facet {f} lists neighbors {:?}, its ridges give {expected:?}",
+                facet.neighbors
+            ));
         }
     }
 
@@ -211,6 +232,26 @@ mod tests {
         let mut one_sided = hull.clone();
         one_sided.facets[0].neighbors.pop();
         assert!(check(&one_sided, &points).is_err());
+
+        // Dropping a shared ridge from both sides keeps the lists symmetric.
+        let mut both_sides = hull.clone();
+        let n = both_sides.facets[0].neighbors.remove(0);
+        both_sides.facets[n as usize].neighbors.retain(|&m| m != 0);
+        assert!(check(&both_sides, &points).is_err());
+
+        // A facet listed as its own neighbor is not a ridge neighbor.
+        let mut extra = hull.clone();
+        extra.facets[0].neighbors.push(0);
+        assert!(check(&extra, &points).is_err());
+
+        // In D = 1 the lists are empty.
+        let line = [0.0, 2.0, 1.0];
+        let segment = ConvexHullBuilder::new(1, &line).build().unwrap();
+        assert_eq!(check(&segment, &line), Ok(()));
+        let mut linked = segment.clone();
+        linked.facets[0].neighbors.push(1);
+        linked.facets[1].neighbors.push(0);
+        assert!(check(&linked, &line).is_err());
 
         let mut moved = points;
         moved[8] = 3.0;
