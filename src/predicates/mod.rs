@@ -57,20 +57,12 @@ pub(crate) struct ExactEvaluationExhausted;
 /// Every coordinate must be finite. The result is the exact sign of the
 /// determinant of `points[i] - points[0]`, `i = 1..=k`.
 pub(crate) fn orient(points: &[&[f64]]) -> Result<Sign, ExactEvaluationExhausted> {
-    let k = points.len().saturating_sub(1);
-    debug_assert!(k >= 1, "orientation needs at least two points");
-    debug_assert!(
-        points.iter().all(|p| p.len() == k),
-        "orientation of k + 1 points needs dimension k"
-    );
-    debug_assert!(
-        points.iter().all(|p| p.iter().all(|x| x.is_finite())),
-        "predicate input must be finite"
-    );
-    if let Some(sign) = filtered(points, k) {
-        return Ok(sign);
-    }
-    exact::orient_exact(points)
+    debug_assert!(points.len() >= 2, "orientation needs at least two points");
+    sign_of(Rows {
+        origin: points[0],
+        points: &points[1..],
+        direction: None,
+    })
 }
 
 /// Side of `query` relative to the hyperplane through `facet` (k points of
@@ -90,18 +82,111 @@ pub(crate) fn is_coplanar(points: &[&[f64]]) -> Result<bool, ExactEvaluationExha
     Ok(orient(points)? == Sign::Zero)
 }
 
-fn filtered(points: &[&[f64]], k: usize) -> Option<Sign> {
-    let origin = points[0];
+/// Orientation of a direction against a hyperplane: the exact sign of the
+/// determinant of `facet[i] - facet[0]`, `i = 1..k`, followed by the row
+/// `direction` as it is. `facet` holds k points of dimension k.
+///
+/// A direction pointing to the side where [`distance_sign`] is positive has
+/// a positive sign here.
+pub(crate) fn orient_direction(
+    facet: &[&[f64]],
+    direction: &[f64],
+) -> Result<Sign, ExactEvaluationExhausted> {
+    debug_assert!(!facet.is_empty(), "a hyperplane needs at least one point");
+    sign_of(Rows {
+        origin: facet[0],
+        points: &facet[1..],
+        direction: Some(direction),
+    })
+}
+
+/// The rows of an orientation determinant: `p - origin` for each point,
+/// then, when present, a direction row taken as it is.
+#[derive(Clone, Copy)]
+struct Rows<'a> {
+    origin: &'a [f64],
+    points: &'a [&'a [f64]],
+    direction: Option<&'a [f64]>,
+}
+
+enum Row<'a> {
+    Difference(&'a [f64]),
+    Direction(&'a [f64]),
+}
+
+impl<'a> Rows<'a> {
+    /// Size of the square determinant.
+    fn k(self) -> usize {
+        self.origin.len()
+    }
+
+    fn row(self, i: usize) -> Row<'a> {
+        match self.points.get(i) {
+            Some(p) => Row::Difference(p),
+            None => Row::Direction(self.direction.unwrap_or(self.origin)),
+        }
+    }
+
+    fn values(self) -> impl Iterator<Item = f64> + 'a {
+        self.origin
+            .iter()
+            .chain(self.points.iter().flat_map(|p| p.iter()))
+            .chain(self.direction.into_iter().flatten())
+            .copied()
+    }
+}
+
+fn sign_of(rows: Rows<'_>) -> Result<Sign, ExactEvaluationExhausted> {
+    let k = rows.k();
+    debug_assert!(k >= 1, "orientation needs dimension at least 1");
+    debug_assert_eq!(
+        rows.points.len() + usize::from(rows.direction.is_some()),
+        k,
+        "a determinant of size k needs k rows"
+    );
+    debug_assert!(
+        rows.points.iter().all(|p| p.len() == k) && rows.direction.is_none_or(|d| d.len() == k),
+        "every row needs dimension k"
+    );
+    debug_assert!(
+        rows.values().all(f64::is_finite),
+        "predicate input must be finite"
+    );
+    if let Some(sign) = filtered(rows) {
+        return Ok(sign);
+    }
+    exact::sign_exact(rows)
+}
+
+fn from_ordering(ordering: core::cmp::Ordering) -> Sign {
+    match ordering {
+        core::cmp::Ordering::Less => Sign::Negative,
+        core::cmp::Ordering::Equal => Sign::Zero,
+        core::cmp::Ordering::Greater => Sign::Positive,
+    }
+}
+
+fn filtered(rows: Rows<'_>) -> Option<Sign> {
+    let k = rows.k();
     if k == 1 {
         // Degree 1: the sign of b - a is the order of two finite values.
-        return match points[1][0].partial_cmp(&origin[0])? {
-            core::cmp::Ordering::Less => Some(Sign::Negative),
-            core::cmp::Ordering::Equal => Some(Sign::Zero),
-            core::cmp::Ordering::Greater => Some(Sign::Positive),
+        return match rows.row(0) {
+            Row::Difference(p) => p[0].partial_cmp(&rows.origin[0]).map(from_ordering),
+            Row::Direction(d) => d[0].partial_cmp(&0.0).map(from_ordering),
         };
     }
-    let entry = |i: usize, j: usize| Approx::exact(points[i + 1][j]).sub(Approx::exact(origin[j]));
-    let value = match k {
+    filtered_value(rows)?.certified_sign()
+}
+
+/// The filtered determinant with its error bound, for k >= 2.
+fn filtered_value(rows: Rows<'_>) -> Option<Approx> {
+    let k = rows.k();
+    let origin = rows.origin;
+    let entry = |i: usize, j: usize| match rows.row(i) {
+        Row::Difference(p) => Approx::exact(p[j]).sub(Approx::exact(origin[j])),
+        Row::Direction(d) => Approx::exact(d[j]),
+    };
+    Some(match k {
         2 => filter::orient2(&core::array::from_fn(|i| {
             core::array::from_fn(|j| entry(i, j))
         })),
@@ -116,8 +201,80 @@ fn filtered(points: &[&[f64]], k: usize) -> Option<Sign> {
                 .map(|i| (0..k).map(|j| entry(i, j)).collect())
                 .collect(),
         )?,
-    };
-    value.certified_sign()
+    })
+}
+
+/// The cofactor vector `c` of the hyperplane through `facet` (k points of
+/// dimension k): `c_j` is the determinant of the edges `facet[i] - facet[0]`
+/// followed by the unit row `e_j`, so `orient_direction(facet, v)` is the sign
+/// of `c . v`. Each entry is returned as `(value, bound)` with
+/// `|c_j - value| <= bound`.
+///
+/// Returns `None` when a bound is not finite or a filtered elimination could
+/// not certify a pivot.
+pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Vec<(f64, f64)>> {
+    let k = facet.len();
+    debug_assert!(k >= 1, "a hyperplane needs at least one point");
+    if k == 1 {
+        return Some(vec![(1.0, 0.0)]);
+    }
+    let mut unit = vec![0.0; k];
+    let mut cofactors = Vec::with_capacity(k);
+    for j in 0..k {
+        unit[j] = 1.0;
+        let value = filtered_value(Rows {
+            origin: facet[0],
+            points: &facet[1..],
+            direction: Some(&unit),
+        });
+        unit[j] = 0.0;
+        let value = value?;
+        if !value.value().is_finite() || !value.error().is_finite() {
+            return None;
+        }
+        cofactors.push((value.value(), value.error()));
+    }
+    Some(cofactors)
+}
+
+const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
+
+/// The largest error bound at which a filtered cofactor direction is used.
+const FILTERED_DIRECTION_LIMIT: f64 = 1e-10;
+
+/// The unit direction of the cofactor vector of the hyperplane through
+/// `facet` (k points of dimension k), with a bound `err` such that the
+/// returned vector is within `err` (Euclidean) of the exact unit direction
+/// `c / |c|`. Its sign follows `c`: `orient_direction(facet, v)` is the sign
+/// of `v . c`.
+///
+/// The filtered cofactors are used when their bounds certify the direction;
+/// otherwise the cofactors are computed exactly. Returns `None` only when
+/// every cofactor is exactly zero, that is, when the points are affinely
+/// dependent.
+pub(crate) fn cofactor_direction(
+    facet: &[&[f64]],
+) -> Result<Option<(Vec<f64>, f64)>, ExactEvaluationExhausted> {
+    let k = facet.len() as f64;
+    if let Some(cofactors) = direction_cofactors(facet) {
+        let bound: f64 = cofactors.iter().map(|&(_, e)| e).sum::<f64>() * (1.0 + k * UNIT_ROUNDOFF);
+        let length = cofactors.iter().map(|&(c, _)| c * c).sum::<f64>().sqrt();
+        let length_low = length * (1.0 - (k + 3.0) * UNIT_ROUNDOFF);
+        if length_low.is_finite() && length_low > 0.0 {
+            // |c/|c| - c^/|c^|| <= 2|c - c^| / |c^|, plus the rounding of
+            // the normalization.
+            let err = (2.0 * bound / length_low + 4.0 * (k + 4.0) * UNIT_ROUNDOFF)
+                * (1.0 + 8.0 * UNIT_ROUNDOFF);
+            // A loose certificate is not a useful reference; the exact
+            // cofactors are.
+            if err <= FILTERED_DIRECTION_LIMIT {
+                let direction = cofactors.iter().map(|&(c, _)| c / length).collect();
+                return Ok(Some((direction, err)));
+            }
+        }
+    }
+    let err = k * 2f64.powi(-49);
+    Ok(exact::cofactor_direction_exact(facet)?.map(|d| (d, err)))
 }
 
 #[cfg(test)]
@@ -131,7 +288,12 @@ mod tests {
 
     fn exact_of(points: &[Vec<f64>]) -> Sign {
         let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
-        exact::orient_exact(&refs).unwrap()
+        exact::sign_exact(Rows {
+            origin: refs[0],
+            points: &refs[1..],
+            direction: None,
+        })
+        .unwrap()
     }
 
     /// The standard simplex: origin and the unit vectors, positively oriented.
@@ -259,7 +421,12 @@ mod tests {
                         .map(|_| (0..k).map(|_| rng.unit()).collect())
                         .collect();
                     let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
-                    filtered(&refs, k).is_some()
+                    filtered(Rows {
+                        origin: refs[0],
+                        points: &refs[1..],
+                        direction: None,
+                    })
+                    .is_some()
                 })
                 .count();
             assert!(
@@ -291,6 +458,30 @@ mod tests {
         assert_eq!(distance_sign(&facet, &[0.0, 0.5]).unwrap(), Sign::Negative);
         assert_eq!(distance_sign(&facet, &[2.0, 0.5]).unwrap(), Sign::Positive);
         assert_eq!(distance_sign(&facet, &[1.0, 7.0]).unwrap(), Sign::Zero);
+    }
+
+    #[test]
+    fn direction_agrees_with_the_distance_sign() {
+        let a = [1.0, 0.0];
+        let b = [1.0, 1.0];
+        let facet: [&[f64]; 2] = [&b, &a];
+        assert_eq!(
+            orient_direction(&facet, &[1.0, 0.0]).unwrap(),
+            Sign::Positive
+        );
+        assert_eq!(
+            orient_direction(&facet, &[-1.0, 3.0]).unwrap(),
+            Sign::Negative
+        );
+        assert_eq!(orient_direction(&facet, &[0.0, 5.0]).unwrap(), Sign::Zero);
+        let point: [&[f64]; 1] = [&[4.0]];
+        assert_eq!(orient_direction(&point, &[-2.0]).unwrap(), Sign::Negative);
+        // A tiny direction whose filtered determinant underflows.
+        let tiny = f64::from_bits(1);
+        assert_eq!(
+            orient_direction(&facet, &[tiny, 0.0]).unwrap(),
+            Sign::Positive
+        );
     }
 
     #[test]
