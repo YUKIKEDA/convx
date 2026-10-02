@@ -12,7 +12,7 @@
 //! (see [`exact`]). Degree 1 compares the two coordinates directly; degrees 2
 //! to 4 use dedicated expansions; larger degrees use a filtered determinant.
 
-// The hull build (P2-1, #8) is the first caller outside tests.
+// The public builder (P2-4, #11) is the first caller outside tests.
 #![cfg_attr(not(test), allow(dead_code))]
 
 mod exact;

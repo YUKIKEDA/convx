@@ -10,7 +10,7 @@
 //! commit belong to the parallel build (P3-3, #17); lock-free allocation is
 //! P5-2 (#26).
 
-// The hull build (P2-1, #8) is the first caller outside tests.
+// The public builder (P2-4, #11) is the first caller outside tests.
 #![cfg_attr(not(test), allow(dead_code))]
 
 /// Number of slots in one chunk. Not tuned before measurement.
