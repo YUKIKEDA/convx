@@ -242,3 +242,216 @@ fn nearly_parallel_edges_keep_the_true_public_plane() {
         assert!(value(&points[i * 3..i * 3 + 3]).abs() < 1e-14);
     }
 }
+
+// The tilt bound of the public normal (design §5, #50): within
+// 1e-8 + 2e-10 (Euclidean) of the exact unit cofactor direction of the
+// facet, oriented so that the inside is negative. The reference is computed
+// in i128 from the input coordinates, independently of the library.
+
+/// The promised bound, written here as a fixed number.
+const TILT_BOUND: f64 = 1e-8 + 2e-10;
+
+fn exact_determinant(m: &[Vec<i128>]) -> i128 {
+    if m.len() == 1 {
+        return m[0][0];
+    }
+    (0..m.len())
+        .map(|j| {
+            let minor: Vec<Vec<i128>> = m[1..]
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .enumerate()
+                        .filter(|&(c, _)| c != j)
+                        .map(|(_, &x)| x)
+                        .collect()
+                })
+                .collect();
+            let term = m[0][j] * exact_determinant(&minor);
+            if j % 2 == 0 {
+                term
+            } else {
+                -term
+            }
+        })
+        .sum()
+}
+
+/// `x * 2^shift` as an integer; panics if that is not exact.
+fn as_integer(x: f64, shift: i32) -> i128 {
+    let scaled = x * 2f64.powi(shift);
+    assert_eq!(scaled.fract(), 0.0, "{x} is not a multiple of 2^-{shift}");
+    scaled as i128
+}
+
+/// The exact cofactor vector of the hyperplane through `facet` (D points),
+/// entry j being the determinant of the edges followed by the unit row e_j.
+fn exact_cofactors(facet: &[Vec<i128>]) -> Vec<i128> {
+    let d = facet.len();
+    let edges: Vec<Vec<i128>> = facet[1..]
+        .iter()
+        .map(|p| p.iter().zip(&facet[0]).map(|(x, o)| x - o).collect())
+        .collect();
+    (0..d)
+        .map(|j| {
+            let mut m = edges.clone();
+            m.push((0..d).map(|i| i128::from(i == j)).collect());
+            exact_determinant(&m)
+        })
+        .collect()
+}
+
+/// Checks every facet of the hull of `points` against the exact direction.
+/// Coordinates must be multiples of 2^-shift. Returns the largest distance.
+// The inputs are valid by construction, so a failed build is a test failure.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+fn check_tilt(dim: usize, points: &[f64], shift: i32) -> f64 {
+    let hull = ConvexHullBuilder::new(dim, points).build().unwrap();
+    let at = |v: u32| -> Vec<i128> {
+        points[v as usize * dim..(v as usize + 1) * dim]
+            .iter()
+            .map(|&x| as_integer(x, shift))
+            .collect()
+    };
+    let mut worst = 0.0_f64;
+    for facet in &hull.facets {
+        // Any D affinely independent facet vertices span the same
+        // hyperplane; take the first D-subset with a nonzero cofactor vector.
+        let vertices = &facet.vertices;
+        let mut cofactors = None;
+        let mut chosen = (0..dim).collect::<Vec<usize>>();
+        loop {
+            let pts: Vec<Vec<i128>> = chosen.iter().map(|&i| at(vertices[i])).collect();
+            let c = exact_cofactors(&pts);
+            if c.iter().any(|&x| x != 0) {
+                cofactors = Some((c, pts[0].clone()));
+                break;
+            }
+            // Next combination in lexicographic order.
+            let n = vertices.len();
+            let Some(i) = (0..dim).rev().find(|&i| chosen[i] < n - dim + i) else {
+                break;
+            };
+            chosen[i] += 1;
+            for k in i + 1..dim {
+                chosen[k] = chosen[k - 1] + 1;
+            }
+        }
+        let (mut c, origin) = cofactors.expect("a facet spans a hyperplane");
+        // Divide by the gcd: same direction, and the products below stay in
+        // range.
+        let gcd = c.iter().fold(0_i128, |a, &b| {
+            let (mut x, mut y) = (a.abs(), b.abs());
+            while y != 0 {
+                (x, y) = (y, x % y);
+            }
+            x
+        });
+        c.iter_mut().for_each(|x| *x /= gcd);
+        // Orient: a hull vertex off the facet is on the negative side.
+        let inner = *hull
+            .vertices
+            .iter()
+            .find(|v| vertices.binary_search(v).is_err())
+            .unwrap();
+        let side: i128 = at(inner)
+            .iter()
+            .zip(&origin)
+            .zip(&c)
+            .map(|((x, o), ci)| (x - o) * ci)
+            .sum();
+        assert_ne!(side, 0);
+        if side > 0 {
+            c.iter_mut().for_each(|x| *x = -*x);
+        }
+        let length = c
+            .iter()
+            .map(|&x| (x as f64) * (x as f64))
+            .sum::<f64>()
+            .sqrt();
+        let distance = facet
+            .plane
+            .normal
+            .iter()
+            .zip(&c)
+            .map(|(n, &x)| (n - x as f64 / length).powi(2))
+            .sum::<f64>()
+            .sqrt();
+        assert!(
+            distance <= TILT_BOUND,
+            "facet {vertices:?}: normal {:?} is {distance:e} from the exact direction",
+            facet.plane.normal
+        );
+        worst = worst.max(distance);
+    }
+    worst
+}
+
+#[test]
+fn nearly_parallel_edges_keep_the_tilt_bound() {
+    // The #33 facet with the short offset t swept from 2^-12 to 2^-52. QR
+    // stays at rounding level until t = 2^-48, then loses the direction
+    // outright; the cofactor direction is published from there on.
+    for e in 12..=52 {
+        let t = 2f64.powi(-e);
+        let points = [
+            1.0,
+            2.0,
+            3.0,
+            1.0,
+            2.0,
+            4.0,
+            1.0 + t,
+            2.0 + t,
+            4.0,
+            1.0,
+            3.0,
+            3.5,
+        ];
+        check_tilt(3, &points, e);
+    }
+}
+
+#[test]
+fn random_facets_keep_the_tilt_bound() {
+    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+    for dim in 2..=4 {
+        for _ in 0..20 {
+            let points: Vec<f64> = (0..dim * 12)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    ((state >> 40) % 256) as f64 / 8.0 - 16.0
+                })
+                .collect();
+            check_tilt(dim, &points, 3);
+        }
+    }
+}
+
+#[test]
+fn nearly_collinear_edges_keep_the_tilt_bound() {
+    // A generic facet whose second edge is twice the first plus t times a
+    // skew direction. QR loses accuracy gradually as t shrinks (about
+    // 1e-8 near t = 2^-23, more below), so the validation must replace
+    // every QR normal beyond the bound with the cofactor direction.
+    for e in 8..=50 {
+        let t = 2f64.powi(-e);
+        let points = [
+            1.0,
+            2.0,
+            3.0,
+            2.0,
+            4.25,
+            5.5,
+            3.0 + 0.375 * t,
+            6.5 - 0.625 * t,
+            8.0 + 0.5 * t,
+            0.0,
+            5.0,
+            1.0,
+        ];
+        check_tilt(3, &points, e + 3);
+    }
+}

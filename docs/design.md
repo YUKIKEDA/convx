@@ -188,6 +188,14 @@ The plane is built from that facet's vertices. Walking index tuples in lexicogra
 5. Match the sign to the exact orientation, with inside negative
 6. Compute the offset in the translated coordinates, then map it back to the original coordinates
 
+The published unit normal $n$ lies within Euclidean distance $10^{-8} + 2 \cdot 10^{-10}$ of $\hat c = c / \lVert c \rVert$, the unit direction of the cofactor vector $c$ of the $D$ points the plane is built from, oriented so that the inside is negative (for $D \le 56294$).
+
+$$
+\lVert n - \hat c \rVert_2 \le 10^{-8} + 2 \cdot 10^{-10}
+$$
+
+The bound follows from the check of §1. The direction used for the check is within its error bound $\varepsilon$ of the true $\hat c$. $\varepsilon$ is at most $10^{-10}$ for a direction certified by the filter, and $D \cdot 2^{-49}$ when it is computed exactly. Both are at most $10^{-10}$ when $D \le 56294$. The QR normal is kept only when it is within $\varepsilon + 10^{-8}$ of that direction, and otherwise that direction itself is used. So the distance is at most $2\varepsilon + 10^{-8}$. The bound does not affect topology, and values across versions are still not promised to agree.
+
 If the normal or the offset is then non-finite, the build fails with `NonFiniteFacetPlane`. That failure means the hull topology was already decided and the public plane could not be made a finite `f64`. This plane is not used for the topology decision. The same binary decides the plane by this procedure. Bit-identical floats across versions are not promised.
 
 For $D \le 3$, the boundary cycle is derived from the stored vertex set and the outward normal. The start vertex is the minimum index. The direction agrees with the outward normal. The cycle is not the stored form itself. For $D = 1$, `boundary_cycle` is `Some` and contains that single endpoint. For $D = 2$ it is the two endpoints. For $D = 3$ its length is at least 3. A logical facet for $D \ge 4$ is a $(D-1)$-dimensional polyhedron, so a cycle is not defined. `boundary_cycle` returns `None` for $D \ge 4$.
