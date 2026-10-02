@@ -6,6 +6,7 @@
 
 mod error;
 pub(crate) mod input;
+pub(crate) mod merge;
 pub(crate) mod simplicial;
 
 pub use error::ConvexHullError;
