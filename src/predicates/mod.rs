@@ -168,19 +168,25 @@ fn from_ordering(ordering: core::cmp::Ordering) -> Sign {
 
 fn filtered(rows: Rows<'_>) -> Option<Sign> {
     let k = rows.k();
-    let origin = rows.origin;
     if k == 1 {
         // Degree 1: the sign of b - a is the order of two finite values.
         return match rows.row(0) {
-            Row::Difference(p) => p[0].partial_cmp(&origin[0]).map(from_ordering),
+            Row::Difference(p) => p[0].partial_cmp(&rows.origin[0]).map(from_ordering),
             Row::Direction(d) => d[0].partial_cmp(&0.0).map(from_ordering),
         };
     }
+    filtered_value(rows)?.certified_sign()
+}
+
+/// The filtered determinant with its error bound, for k >= 2.
+fn filtered_value(rows: Rows<'_>) -> Option<Approx> {
+    let k = rows.k();
+    let origin = rows.origin;
     let entry = |i: usize, j: usize| match rows.row(i) {
         Row::Difference(p) => Approx::exact(p[j]).sub(Approx::exact(origin[j])),
         Row::Direction(d) => Approx::exact(d[j]),
     };
-    let value = match k {
+    Some(match k {
         2 => filter::orient2(&core::array::from_fn(|i| {
             core::array::from_fn(|j| entry(i, j))
         })),
@@ -195,8 +201,80 @@ fn filtered(rows: Rows<'_>) -> Option<Sign> {
                 .map(|i| (0..k).map(|j| entry(i, j)).collect())
                 .collect(),
         )?,
-    };
-    value.certified_sign()
+    })
+}
+
+/// The cofactor vector `c` of the hyperplane through `facet` (k points of
+/// dimension k): `c_j` is the determinant of the edges `facet[i] - facet[0]`
+/// followed by the unit row `e_j`, so `orient_direction(facet, v)` is the sign
+/// of `c . v`. Each entry is returned as `(value, bound)` with
+/// `|c_j - value| <= bound`.
+///
+/// Returns `None` when a bound is not finite or a filtered elimination could
+/// not certify a pivot.
+pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Vec<(f64, f64)>> {
+    let k = facet.len();
+    debug_assert!(k >= 1, "a hyperplane needs at least one point");
+    if k == 1 {
+        return Some(vec![(1.0, 0.0)]);
+    }
+    let mut unit = vec![0.0; k];
+    let mut cofactors = Vec::with_capacity(k);
+    for j in 0..k {
+        unit[j] = 1.0;
+        let value = filtered_value(Rows {
+            origin: facet[0],
+            points: &facet[1..],
+            direction: Some(&unit),
+        });
+        unit[j] = 0.0;
+        let value = value?;
+        if !value.value().is_finite() || !value.error().is_finite() {
+            return None;
+        }
+        cofactors.push((value.value(), value.error()));
+    }
+    Some(cofactors)
+}
+
+const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
+
+/// The largest error bound at which a filtered cofactor direction is used.
+const FILTERED_DIRECTION_LIMIT: f64 = 1e-10;
+
+/// The unit direction of the cofactor vector of the hyperplane through
+/// `facet` (k points of dimension k), with a bound `err` such that the
+/// returned vector is within `err` (Euclidean) of the exact unit direction
+/// `c / |c|`. Its sign follows `c`: `orient_direction(facet, v)` is the sign
+/// of `v . c`.
+///
+/// The filtered cofactors are used when their bounds certify the direction;
+/// otherwise the cofactors are computed exactly. Returns `None` only when
+/// every cofactor is exactly zero, that is, when the points are affinely
+/// dependent.
+pub(crate) fn cofactor_direction(
+    facet: &[&[f64]],
+) -> Result<Option<(Vec<f64>, f64)>, ExactEvaluationExhausted> {
+    let k = facet.len() as f64;
+    if let Some(cofactors) = direction_cofactors(facet) {
+        let bound: f64 = cofactors.iter().map(|&(_, e)| e).sum::<f64>() * (1.0 + k * UNIT_ROUNDOFF);
+        let length = cofactors.iter().map(|&(c, _)| c * c).sum::<f64>().sqrt();
+        let length_low = length * (1.0 - (k + 3.0) * UNIT_ROUNDOFF);
+        if length_low.is_finite() && length_low > 0.0 {
+            // |c/|c| - c^/|c^|| <= 2|c - c^| / |c^|, plus the rounding of
+            // the normalization.
+            let err = (2.0 * bound / length_low + 4.0 * (k + 4.0) * UNIT_ROUNDOFF)
+                * (1.0 + 8.0 * UNIT_ROUNDOFF);
+            // A loose certificate is not a useful reference; the exact
+            // cofactors are.
+            if err <= FILTERED_DIRECTION_LIMIT {
+                let direction = cofactors.iter().map(|&(c, _)| c / length).collect();
+                return Ok(Some((direction, err)));
+            }
+        }
+    }
+    let err = k * 2f64.powi(-49);
+    Ok(exact::cofactor_direction_exact(facet)?.map(|d| (d, err)))
 }
 
 #[cfg(test)]
