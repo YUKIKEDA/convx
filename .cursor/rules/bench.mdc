@@ -10,3 +10,5 @@ Do not write a speedup target before the sequential core exists and Qhull has be
 Do not start speed work without a measurement. A phase-wide optimization that the design already places after a correct sequential result stays on its roadmap row (`.cursor/rules/defer.mdc`). It is not a reason to tune one path early.
 
 `just bench` is not a gate until a measurement tool exists. Do not add a bench checkbox to the PR template before that.
+
+Write an external reference command (Qhull's `qconvex` and its options) only after checking each option against the tool's documentation of what it outputs. A summary option is not a facet list: `qconvex i s TI <file>` lists facet vertices, `qconvex s` does not. A selector over set names matches whole tokens, not substrings.
