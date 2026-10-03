@@ -17,6 +17,8 @@ A speed PR reports the wall time on the exact input its Issue names, next to tha
 
 Build both sides of a comparison with the same profile and the same flags (debug info included). Pin them to one core and alternate them. A difference inside the spread of repeated runs is not a result.
 
+When instruction counts drop but wall time stays inside the spread, the PR reports both and claims no speedup. Whether to merge is the owner's call on those numbers (#92).
+
 A timing names what its timed section contains. Reuse buffers across repetitions. Keep work common to every variant outside the section. Name the inputs: set, seed, repetitions, toolchain, and cores. Timers or profiling hooks added to measure are not committed; the PR records the method instead.
 
 ```text
