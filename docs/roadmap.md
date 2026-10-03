@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P4-6 (#24).
+P5-1 (#25).
 
 ## Dependencies
 
@@ -65,14 +65,14 @@ Parallel commit. The initial simplex is the same function as in P2.
 
 Static API, Delaunay, Voronoi, and oracles. Pulling triangulation and the cospherical merge are internal to this phase.
 
-| ID   | Kind | Title                                                              | Issue | Status      |
-| ---- | ---- | ------------------------------------------------------------------ | ----- | ----------- |
-| P4-1 | Feat | Delaunay as the lower hull of the lift                             | #19   | Done        |
-| P4-2 | Feat | Pulling triangulation when the lift is flat                        | #20   | Done        |
-| P4-3 | Feat | Voronoi dual, merging cospherical simplices into one vertex        | #21   | Done        |
-| P4-4 | Feat | Static API                                                         | #22   | Done        |
-| P4-5 | Test | Oracles and the Phase 4 Delaunay inputs                            | #23   | Done        |
-| P4-6 | Test | Deterministic Delaunay and Voronoi simulations and frozen fixtures | #24   | Not started |
+| ID   | Kind | Title                                                              | Issue | Status |
+| ---- | ---- | ------------------------------------------------------------------ | ----- | ------ |
+| P4-1 | Feat | Delaunay as the lower hull of the lift                             | #19   | Done   |
+| P4-2 | Feat | Pulling triangulation when the lift is flat                        | #20   | Done   |
+| P4-3 | Feat | Voronoi dual, merging cospherical simplices into one vertex        | #21   | Done   |
+| P4-4 | Feat | Static API                                                         | #22   | Done   |
+| P4-5 | Test | Oracles and the Phase 4 Delaunay inputs                            | #23   | Done   |
+| P4-6 | Test | Deterministic Delaunay and Voronoi simulations and frozen fixtures | #24   | Done   |
 
 ## P5
 

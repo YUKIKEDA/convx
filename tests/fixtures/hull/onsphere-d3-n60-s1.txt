@@ -1,0 +1,327 @@
+generator xoshiro256starstar-v1
+family onsphere
+dim 3
+count 60
+seed 1
+volume 88.66666666666666 1e-12
+vertices 0 1 2 3 4 6 7 8 9 11 12 15 16 20 22 24 25 27 28 29 31 34 35 36 40 41 42 59
+coplanar_points
+interior_points
+facet 0 4 16
+facet 0 4 35
+facet 0 16 25
+facet 0 25 42
+facet 0 35 42
+facet 1 12 29
+facet 1 12 41
+facet 1 27 41
+facet 1 27 59
+facet 1 29 59
+facet 2 6 9
+facet 2 6 20
+facet 2 9 35
+facet 2 20 36
+facet 2 35 36
+facet 3 7 12
+facet 3 7 34
+facet 3 12 29
+facet 3 28 29
+facet 3 28 34
+facet 4 15 34
+facet 4 15 35
+facet 4 16 34
+facet 6 9 29
+facet 6 20 59
+facet 6 29 59
+facet 7 8 16
+facet 7 8 41
+facet 7 12 41
+facet 7 16 34
+facet 8 16 25
+facet 8 25 40
+facet 8 40 41
+facet 9 22 29
+facet 9 22 35
+facet 11 20 24
+facet 11 20 27
+facet 11 24 40
+facet 11 27 41
+facet 11 40 41
+facet 15 22 28
+facet 15 22 35
+facet 15 28 34
+facet 20 24 31
+facet 20 27 59
+facet 20 31 36
+facet 22 28 29
+facet 24 25 31
+facet 24 25 40
+facet 25 31 42
+facet 31 36 42
+facet 35 36 42
+delaunay_sites 0 1 2 3 4 6 7 8 9 11 12 15 16 20 22 24 25 27 28 29 31 34 35 36 40 41 42 59
+voronoi_vertex 0 1 2 3 4 6 7 8 9 11 12 15 16 20 22 24 25 27 28 29 31 34 35 36 40 41 42 59
+voronoi_ray 0 0 4 16
+voronoi_ray 0 0 4 35
+voronoi_ray 0 0 16 25
+voronoi_ray 0 0 25 42
+voronoi_ray 0 0 35 42
+voronoi_ray 0 1 12 29
+voronoi_ray 0 1 12 41
+voronoi_ray 0 1 27 41
+voronoi_ray 0 1 27 59
+voronoi_ray 0 1 29 59
+voronoi_ray 0 2 6 9
+voronoi_ray 0 2 6 20
+voronoi_ray 0 2 9 35
+voronoi_ray 0 2 20 36
+voronoi_ray 0 2 35 36
+voronoi_ray 0 3 7 12
+voronoi_ray 0 3 7 34
+voronoi_ray 0 3 12 29
+voronoi_ray 0 3 28 29
+voronoi_ray 0 3 28 34
+voronoi_ray 0 4 15 34
+voronoi_ray 0 4 15 35
+voronoi_ray 0 4 16 34
+voronoi_ray 0 6 9 29
+voronoi_ray 0 6 20 59
+voronoi_ray 0 6 29 59
+voronoi_ray 0 7 8 16
+voronoi_ray 0 7 8 41
+voronoi_ray 0 7 12 41
+voronoi_ray 0 7 16 34
+voronoi_ray 0 8 16 25
+voronoi_ray 0 8 25 40
+voronoi_ray 0 8 40 41
+voronoi_ray 0 9 22 29
+voronoi_ray 0 9 22 35
+voronoi_ray 0 11 20 24
+voronoi_ray 0 11 20 27
+voronoi_ray 0 11 24 40
+voronoi_ray 0 11 27 41
+voronoi_ray 0 11 40 41
+voronoi_ray 0 15 22 28
+voronoi_ray 0 15 22 35
+voronoi_ray 0 15 28 34
+voronoi_ray 0 20 24 31
+voronoi_ray 0 20 27 59
+voronoi_ray 0 20 31 36
+voronoi_ray 0 22 28 29
+voronoi_ray 0 24 25 31
+voronoi_ray 0 24 25 40
+voronoi_ray 0 25 31 42
+voronoi_ray 0 31 36 42
+voronoi_ray 0 35 36 42
+voronoi_cell 0 0
+voronoi_cell 1 0
+voronoi_cell 2 0
+voronoi_cell 3 0
+voronoi_cell 4 0
+voronoi_cell 6 0
+voronoi_cell 7 0
+voronoi_cell 8 0
+voronoi_cell 9 0
+voronoi_cell 11 0
+voronoi_cell 12 0
+voronoi_cell 15 0
+voronoi_cell 16 0
+voronoi_cell 20 0
+voronoi_cell 22 0
+voronoi_cell 24 0
+voronoi_cell 25 0
+voronoi_cell 27 0
+voronoi_cell 28 0
+voronoi_cell 29 0
+voronoi_cell 31 0
+voronoi_cell 34 0
+voronoi_cell 35 0
+voronoi_cell 36 0
+voronoi_cell 40 0
+voronoi_cell 41 0
+voronoi_cell 42 0
+voronoi_cell 59 0
+voronoi_cell_rays 0 0 1 2 3 4
+voronoi_cell_rays 1 5 6 7 8 9
+voronoi_cell_rays 2 10 11 12 13 14
+voronoi_cell_rays 3 15 16 17 18 19
+voronoi_cell_rays 4 0 1 20 21 22
+voronoi_cell_rays 6 10 11 23 24 25
+voronoi_cell_rays 7 15 16 26 27 28 29
+voronoi_cell_rays 8 26 27 30 31 32
+voronoi_cell_rays 9 10 12 23 33 34
+voronoi_cell_rays 11 35 36 37 38 39
+voronoi_cell_rays 12 5 6 15 17 28
+voronoi_cell_rays 15 20 21 40 41 42
+voronoi_cell_rays 16 0 2 22 26 29 30
+voronoi_cell_rays 20 11 13 24 35 36 43 44 45
+voronoi_cell_rays 22 33 34 40 41 46
+voronoi_cell_rays 24 35 37 43 47 48
+voronoi_cell_rays 25 2 3 30 31 47 48 49
+voronoi_cell_rays 27 7 8 36 38 44
+voronoi_cell_rays 28 18 19 40 42 46
+voronoi_cell_rays 29 5 9 17 18 23 25 33 46
+voronoi_cell_rays 31 43 45 47 49 50
+voronoi_cell_rays 34 16 19 20 22 29 42
+voronoi_cell_rays 35 1 4 12 14 21 34 41 51
+voronoi_cell_rays 36 13 14 45 50 51
+voronoi_cell_rays 40 31 32 37 39 48
+voronoi_cell_rays 41 6 7 27 28 32 38 39
+voronoi_cell_rays 42 3 4 49 50 51
+voronoi_cell_rays 59 8 9 24 25 44
+voronoi_interface 0 4 0
+voronoi_interface 0 16 0
+voronoi_interface 0 25 0
+voronoi_interface 0 35 0
+voronoi_interface 0 42 0
+voronoi_interface 1 12 0
+voronoi_interface 1 27 0
+voronoi_interface 1 29 0
+voronoi_interface 1 41 0
+voronoi_interface 1 59 0
+voronoi_interface 2 6 0
+voronoi_interface 2 9 0
+voronoi_interface 2 20 0
+voronoi_interface 2 35 0
+voronoi_interface 2 36 0
+voronoi_interface 3 7 0
+voronoi_interface 3 12 0
+voronoi_interface 3 28 0
+voronoi_interface 3 29 0
+voronoi_interface 3 34 0
+voronoi_interface 4 15 0
+voronoi_interface 4 16 0
+voronoi_interface 4 34 0
+voronoi_interface 4 35 0
+voronoi_interface 6 9 0
+voronoi_interface 6 20 0
+voronoi_interface 6 29 0
+voronoi_interface 6 59 0
+voronoi_interface 7 8 0
+voronoi_interface 7 12 0
+voronoi_interface 7 16 0
+voronoi_interface 7 34 0
+voronoi_interface 7 41 0
+voronoi_interface 8 16 0
+voronoi_interface 8 25 0
+voronoi_interface 8 40 0
+voronoi_interface 8 41 0
+voronoi_interface 9 22 0
+voronoi_interface 9 29 0
+voronoi_interface 9 35 0
+voronoi_interface 11 20 0
+voronoi_interface 11 24 0
+voronoi_interface 11 27 0
+voronoi_interface 11 40 0
+voronoi_interface 11 41 0
+voronoi_interface 12 29 0
+voronoi_interface 12 41 0
+voronoi_interface 15 22 0
+voronoi_interface 15 28 0
+voronoi_interface 15 34 0
+voronoi_interface 15 35 0
+voronoi_interface 16 25 0
+voronoi_interface 16 34 0
+voronoi_interface 20 24 0
+voronoi_interface 20 27 0
+voronoi_interface 20 31 0
+voronoi_interface 20 36 0
+voronoi_interface 20 59 0
+voronoi_interface 22 28 0
+voronoi_interface 22 29 0
+voronoi_interface 22 35 0
+voronoi_interface 24 25 0
+voronoi_interface 24 31 0
+voronoi_interface 24 40 0
+voronoi_interface 25 31 0
+voronoi_interface 25 40 0
+voronoi_interface 25 42 0
+voronoi_interface 27 41 0
+voronoi_interface 27 59 0
+voronoi_interface 28 29 0
+voronoi_interface 28 34 0
+voronoi_interface 29 59 0
+voronoi_interface 31 36 0
+voronoi_interface 31 42 0
+voronoi_interface 35 36 0
+voronoi_interface 35 42 0
+voronoi_interface 36 42 0
+voronoi_interface 40 41 0
+voronoi_interface_rays 0 4 0 1
+voronoi_interface_rays 0 16 0 2
+voronoi_interface_rays 0 25 2 3
+voronoi_interface_rays 0 35 1 4
+voronoi_interface_rays 0 42 3 4
+voronoi_interface_rays 1 12 5 6
+voronoi_interface_rays 1 27 7 8
+voronoi_interface_rays 1 29 5 9
+voronoi_interface_rays 1 41 6 7
+voronoi_interface_rays 1 59 8 9
+voronoi_interface_rays 2 6 10 11
+voronoi_interface_rays 2 9 10 12
+voronoi_interface_rays 2 20 11 13
+voronoi_interface_rays 2 35 12 14
+voronoi_interface_rays 2 36 13 14
+voronoi_interface_rays 3 7 15 16
+voronoi_interface_rays 3 12 15 17
+voronoi_interface_rays 3 28 18 19
+voronoi_interface_rays 3 29 17 18
+voronoi_interface_rays 3 34 16 19
+voronoi_interface_rays 4 15 20 21
+voronoi_interface_rays 4 16 0 22
+voronoi_interface_rays 4 34 20 22
+voronoi_interface_rays 4 35 1 21
+voronoi_interface_rays 6 9 10 23
+voronoi_interface_rays 6 20 11 24
+voronoi_interface_rays 6 29 23 25
+voronoi_interface_rays 6 59 24 25
+voronoi_interface_rays 7 8 26 27
+voronoi_interface_rays 7 12 15 28
+voronoi_interface_rays 7 16 26 29
+voronoi_interface_rays 7 34 16 29
+voronoi_interface_rays 7 41 27 28
+voronoi_interface_rays 8 16 26 30
+voronoi_interface_rays 8 25 30 31
+voronoi_interface_rays 8 40 31 32
+voronoi_interface_rays 8 41 27 32
+voronoi_interface_rays 9 22 33 34
+voronoi_interface_rays 9 29 23 33
+voronoi_interface_rays 9 35 12 34
+voronoi_interface_rays 11 20 35 36
+voronoi_interface_rays 11 24 35 37
+voronoi_interface_rays 11 27 36 38
+voronoi_interface_rays 11 40 37 39
+voronoi_interface_rays 11 41 38 39
+voronoi_interface_rays 12 29 5 17
+voronoi_interface_rays 12 41 6 28
+voronoi_interface_rays 15 22 40 41
+voronoi_interface_rays 15 28 40 42
+voronoi_interface_rays 15 34 20 42
+voronoi_interface_rays 15 35 21 41
+voronoi_interface_rays 16 25 2 30
+voronoi_interface_rays 16 34 22 29
+voronoi_interface_rays 20 24 35 43
+voronoi_interface_rays 20 27 36 44
+voronoi_interface_rays 20 31 43 45
+voronoi_interface_rays 20 36 13 45
+voronoi_interface_rays 20 59 24 44
+voronoi_interface_rays 22 28 40 46
+voronoi_interface_rays 22 29 33 46
+voronoi_interface_rays 22 35 34 41
+voronoi_interface_rays 24 25 47 48
+voronoi_interface_rays 24 31 43 47
+voronoi_interface_rays 24 40 37 48
+voronoi_interface_rays 25 31 47 49
+voronoi_interface_rays 25 40 31 48
+voronoi_interface_rays 25 42 3 49
+voronoi_interface_rays 27 41 7 38
+voronoi_interface_rays 27 59 8 44
+voronoi_interface_rays 28 29 18 46
+voronoi_interface_rays 28 34 19 42
+voronoi_interface_rays 29 59 9 25
+voronoi_interface_rays 31 36 45 50
+voronoi_interface_rays 31 42 49 50
+voronoi_interface_rays 35 36 14 51
+voronoi_interface_rays 35 42 4 51
+voronoi_interface_rays 36 42 50 51
+voronoi_interface_rays 40 41 32 39

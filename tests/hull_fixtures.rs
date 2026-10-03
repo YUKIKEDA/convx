@@ -8,10 +8,12 @@
 mod common;
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use rayon::prelude::*;
 
 use common::generator::GENERATOR;
-use common::record::Record;
+use common::record::{DelaunayRecord, Record, DELAUNAY_MAX_DIM};
 use convx::ConvexHullBuilder;
 
 fn records() -> Vec<(PathBuf, Record)> {
@@ -34,9 +36,20 @@ fn records() -> Vec<(PathBuf, Record)> {
 #[test]
 fn frozen_hulls_match() {
     let records = records();
-    assert!(records.len() >= 30, "only {} hull records", records.len());
+    assert!(records.len() >= 45, "only {} hull records", records.len());
+    // Records are independent; they run on rayon's pool to keep the debug
+    // steady run short.
+    let failures: Vec<String> = records
+        .par_iter()
+        .flat_map_iter(|(path, record)| check_record(path, record))
+        .collect();
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Every mismatch of one record against a rebuild from its seed.
+fn check_record(path: &Path, record: &Record) -> Vec<String> {
     let mut failures = Vec::new();
-    for (path, record) in &records {
+    {
         assert_eq!(
             record.generator,
             GENERATOR,
@@ -63,6 +76,26 @@ fn frozen_hulls_match() {
             &points,
             &hull,
         );
+        // Delaunay and Voronoi observables are armed for D <= 5.
+        match (&record.delaunay, record.dim <= DELAUNAY_MAX_DIM) {
+            (Some(stored), true) => match DelaunayRecord::of(record.dim, &points) {
+                Ok(now) => {
+                    for error in stored.compare(&now) {
+                        failures.push(format!("{}: {error}", path.display()));
+                    }
+                }
+                Err(e) => failures.push(format!("{}: {e}", path.display())),
+            },
+            (None, true) => failures.push(format!(
+                "{}: no Delaunay observables for D <= {DELAUNAY_MAX_DIM}",
+                path.display()
+            )),
+            (Some(_), false) => failures.push(format!(
+                "{}: Delaunay observables beyond D = {DELAUNAY_MAX_DIM}",
+                path.display()
+            )),
+            (None, false) => {}
+        }
         if fresh.volume.is_none() != record.volume.is_none() {
             failures.push(format!(
                 "{}: the volume mode differs from the freeze rule",
@@ -70,7 +103,7 @@ fn frozen_hulls_match() {
             ));
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    failures
 }
 
 #[test]

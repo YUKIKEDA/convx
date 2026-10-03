@@ -15,6 +15,8 @@
 //!
 //! These files are never read by a correctness test.
 
+// The freeze tool and the tests use the rest of the generator.
+#[allow(dead_code)]
 #[path = "../tests/common/generator.rs"]
 mod generator;
 
