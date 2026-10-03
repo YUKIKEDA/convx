@@ -19,6 +19,32 @@
 //!
 //! let _ = StaticDelaunay::<8>::build(&[[0.0; 8]; 9]);
 //! ```
+//!
+//! ```compile_fail
+//! use convx::StaticVoronoi;
+//!
+//! let _ = StaticVoronoi::<8>::build(&[[0.0; 8]; 9]);
+//! ```
+//!
+//! Nor does `D = 0`:
+//!
+//! ```compile_fail
+//! use convx::StaticConvexHull;
+//!
+//! let _ = StaticConvexHull::<0>::build(&[[0.0; 0]; 1]);
+//! ```
+//!
+//! ```compile_fail
+//! use convx::StaticDelaunay;
+//!
+//! let _ = StaticDelaunay::<0>::build(&[[0.0; 0]; 1]);
+//! ```
+//!
+//! ```compile_fail
+//! use convx::StaticVoronoi;
+//!
+//! let _ = StaticVoronoi::<0>::build(&[[0.0; 0]; 1]);
+//! ```
 
 use crate::{
     ConvexHull, ConvexHullBuilder, ConvexHullError, DelaunayBuilder, DelaunayTriangulation,
