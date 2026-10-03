@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P5-7 (#73), then P5-4 (#28): the owner asked to take the remaining measured costs in turn, and the distance-zero classification is the largest measured cost of a large low-dimensional hull build.
+P5-7 (#73, in review), then P5-4 (#28): the owner asked to take the remaining measured costs in turn. The measurement on #28 bounds its gain on the `cube` sets.
 
 ## Dependencies
 
@@ -90,6 +90,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-9  | Feat | Certified distance proves a strict side                       | #79   | Done                   |
 | P5-10 | Feat | Visibility search without SipHash                             | #85   | Done                   |
 | P5-11 | Feat | Cheaper certification of a new facet's working normal         | #86   | Done                   |
+| P5-12 | Feat | Faster exact stage for predicates the filter cannot decide    | #96   | Done                   |
 
 ## Intentionally out of scope
 
