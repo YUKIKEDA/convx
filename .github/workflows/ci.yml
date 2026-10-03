@@ -22,9 +22,9 @@ jobs:
       - run: just test
 
   msrv:
-    name: test (MSRV 1.84)
+    name: test (MSRV 1.89)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.84
+      - uses: dtolnay/rust-toolchain@1.89
       - run: cargo test --locked

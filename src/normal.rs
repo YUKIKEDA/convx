@@ -408,7 +408,7 @@ mod tests {
                         })
                         .collect();
                     let term = m[0][c] * det(&minor);
-                    if c % 2 == 0 {
+                    if c.is_multiple_of(2) {
                         term
                     } else {
                         -term

@@ -45,7 +45,7 @@ pub fn det(m: &[Vec<i128>]) -> i128 {
                 })
                 .collect();
             let t = m[0][j] * det(&minor);
-            if j % 2 == 0 {
+            if j.is_multiple_of(2) {
                 t
             } else {
                 -t
@@ -213,7 +213,7 @@ pub fn check_delaunay(t: &DelaunayTriangulation, points: &[f64]) {
             .sum();
         assert_eq!(
             euler,
-            if d % 2 == 0 { 0 } else { 2 },
+            if d.is_multiple_of(2) { 0 } else { 2 },
             "boundary Euler characteristic"
         );
     }

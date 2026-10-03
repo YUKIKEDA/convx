@@ -92,9 +92,9 @@ let hull = ConvexHullBuilder::new(2, points)
 
 `points` is row-major and its length is a multiple of the dimension. The static API is a wrapper for stack arrays and monomorphization. It is a separate axis from swapping a solver. `StaticConvexHull` covers $1 \le D \le 8$. `StaticDelaunay` and `StaticVoronoi` cover $1 \le D \le 7$. They return `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram`. `build` takes `&[[f64; D]]` and passes `as_flattened()` to the core. That is the only conversion from `[[f64; D]]` to `&[f64]`. There is no `unsafe`. Parallelism stays on the dynamic builder.
 
-Dependencies are `faer`, `rayon`, `pulp`, and `thiserror`. The implementation language is Rust. Parallelism is the runtime `parallel` flag. The build assumes `std`. The MSRV is 1.84. The distance kernel is runtime CPU detection through `pulp`.
+Dependencies are `faer`, `rayon`, `pulp`, and `thiserror`. The implementation language is Rust. Parallelism is the runtime `parallel` flag. The build assumes `std`. The MSRV is 1.89. The distance kernel is runtime CPU detection through `pulp`, up to AVX-512.
 
-What may wait until a correct sequential result exists: lock-free allocation, wider SIMD including AVX-512, a cache of lifted coordinates, and cutting off the search of the upper hull and of faces already decided. The sign convention and the lift-as-formula are part of the Delaunay specification from the start.
+What may wait until a correct sequential result exists: lock-free allocation, a cache of lifted coordinates, and cutting off the search of the upper hull and of faces already decided. The sign convention and the lift-as-formula are part of the Delaunay specification from the start.
 
 ## Verification
 
