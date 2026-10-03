@@ -92,7 +92,7 @@ let hull = ConvexHullBuilder::new(2, points)
 
 `points` は行優先で、長さは次元の倍数である。静的 API は、スタック上の配列と単相化のためのラッパーであり、ソルバーの切り替えとは別軸である。`StaticConvexHull` は $1 \le D \le 8$、`StaticDelaunay` と `StaticVoronoi` は $1 \le D \le 7$ である。返す型は、それぞれ `ConvexHull`、`DelaunayTriangulation`、`VoronoiDiagram` である。`build` は `&[[f64; D]]` を受け、`as_flattened()` をコアへ渡す。`[[f64; D]]` から `&[f64]` への変換は `as_flattened()` だけを使う。`unsafe` は置かない。並列は動的 Builder が受け持つ。
 
-依存は `faer`、`rayon`、`pulp`、`thiserror` で、実装言語は Rust である。並列は実行時の `parallel` フラグで切り替える。ビルドは `std` を前提にする。MSRV は 1.84 である。距離カーネルは `pulp` による実行時 CPU 検出である。
+依存は `faer`、`rayon`、`pulp`、`thiserror` で、実装言語は Rust である。並列は実行時の `parallel` フラグで切り替える。ビルドは `std` を前提にする。MSRV は 1.89 である。距離カーネルは `pulp` による実行時 CPU 検出で、AVX-512 まで使う。
 
 正しい逐次結果のあとでよいものは、lock-free な確保、AVX-512 を含むより広い SIMD、持ち上げ座標のキャッシュ、上側包と確定した面の探索打ち切りである。符号規約と、持ち上げを式で定義することは、Delaunay の仕様に最初から含める。
 

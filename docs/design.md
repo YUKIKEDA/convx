@@ -414,11 +414,11 @@ impl StaticConvexHull<D> {
 
 `StaticConvexHull` covers $1 \le D \le 8$. `StaticDelaunay` and `StaticVoronoi` cover $1 \le D \le 7$, and `build` has the same shape. The return types are `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram` respectively. The range is 7 because the internal Delaunay hull has dimension $D+1$ and must fit inside the static hull's limit of 8. `build` takes `&[[f64; D]]` and passes `as_flattened()` to the core. Parallelism is the dynamic builder's responsibility.
 
-The only conversion from `[[f64; D]]` to `&[f64]` is `as_flattened()`. There is no `unsafe`. The MSRV is 1.84. `faer`, which provides the QR, declares `rust-version` 1.84 from 0.21 on, and the last release usable on 1.80 is the unmaintained 0.19 series. The range of $D$ is emitted by a macro or by separate implementations, matching the stable-Rust constraint that a single `impl` cannot carry a constant bound.
+The only conversion from `[[f64; D]]` to `&[f64]` is `as_flattened()`. There is no `unsafe`. The MSRV is 1.89. The AVX-512 level of `pulp` (its `x86-v4` feature) uses the AVX-512 intrinsics, which are stable from 1.89. `faer`, which provides the QR, declares `rust-version` 1.84 from 0.21 on, and the last release usable on 1.80 is the unmaintained 0.19 series. The range of $D$ is emitted by a macro or by separate implementations, matching the stable-Rust constraint that a single `impl` cannot carry a constant bound.
 
 Dependencies are `faer`, `rayon`, `pulp`, and `thiserror`. The implementation language is Rust. Parallelism is switched by the runtime `parallel` flag. The build assumes `std`.
 
-The distance kernel is runtime CPU detection through `pulp`. Widening the instruction set further is done after the sequential result is correct.
+The distance kernel is runtime CPU detection through `pulp`, up to AVX-512 (`x86-v4`). Every instruction-set level returns the same cull set. Widening the instruction set further is done after the sequential result is correct.
 
 ---
 
