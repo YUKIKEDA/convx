@@ -4,4 +4,5 @@
 #![allow(dead_code)]
 
 pub mod generator;
+pub mod oracle;
 pub mod record;
