@@ -24,30 +24,48 @@ pub(crate) struct Input<'a> {
     lifted: Option<Lifted>,
 }
 
-/// The lift of every input point, by index.
+/// The lift of every input point, by index: one row `(p, |p|^2, bound)` of
+/// length D + 2 per point, so a predicate reads a site's coordinates and its
+/// cached height from one place.
 struct Lifted {
-    /// Rounded lifted coordinates `(p, |p|^2)`, row-major. They feed only
-    /// working normals and distances; every sign comes from
-    /// [`Input::orient`].
-    coords: Vec<f64>,
-    /// The filtered height of each point, which the lifted orientation reads
-    /// in place of the squares (#27). Its value is the last coordinate of
-    /// the point's row in `coords`.
-    heights: Vec<LiftedHeight>,
+    dim: usize,
+    rows: Vec<f64>,
 }
 
 impl Lifted {
     fn of(dim: usize, points: &[f64]) -> Self {
-        let count = points.len() / dim;
-        let mut coords = Vec::with_capacity(count * (dim + 1));
-        let mut heights = Vec::with_capacity(count);
+        let mut rows = Vec::with_capacity(points.len() / dim * (dim + 2));
         for p in points.chunks_exact(dim) {
             let height = LiftedHeight::of(p);
-            coords.extend_from_slice(p);
-            coords.push(height.value());
-            heights.push(height);
+            rows.extend_from_slice(p);
+            rows.push(height.value());
+            rows.push(height.error());
         }
-        Self { coords, heights }
+        Self { dim, rows }
+    }
+
+    fn row(&self, index: u32) -> &[f64] {
+        let stride = self.dim + 2;
+        let start = index as usize * stride;
+        &self.rows[start..start + stride]
+    }
+
+    /// The site's input coordinates, copied bit for bit.
+    fn site(&self, index: u32) -> &[f64] {
+        &self.row(index)[..self.dim]
+    }
+
+    /// Rounded lifted coordinates `(p, |p|^2)`. They feed only working
+    /// normals and distances; every sign comes from [`Input::orient`].
+    fn coords(&self, index: u32) -> &[f64] {
+        &self.row(index)[..self.dim + 1]
+    }
+
+    /// The filtered height the lifted orientation reads in place of the
+    /// squares (#27).
+    fn height(&self, index: u32) -> LiftedHeight {
+        let row = self.row(index);
+        LiftedHeight::stored(row[self.dim], row[self.dim + 1])
     }
 }
 
@@ -91,17 +109,15 @@ impl<'a> Input<'a> {
                 let mut points: [&[f64]; INLINE] = [&[]; INLINE];
                 let mut heights = [LiftedHeight::of(&[]); INLINE];
                 for ((slot, height), &i) in points.iter_mut().zip(&mut heights).zip(indices) {
-                    *slot = self.point(i);
-                    *height = lifted.heights[i as usize];
+                    *slot = lifted.site(i);
+                    *height = lifted.height(i);
                 }
                 orient_lifted_with(&points[..n], &heights[..n])
             }
             Some(lifted) => {
-                let points: Vec<&[f64]> = indices.iter().map(|&i| self.point(i)).collect();
-                let heights: Vec<LiftedHeight> = indices
-                    .iter()
-                    .map(|&i| lifted.heights[i as usize])
-                    .collect();
+                let points: Vec<&[f64]> = indices.iter().map(|&i| lifted.site(i)).collect();
+                let heights: Vec<LiftedHeight> =
+                    indices.iter().map(|&i| lifted.height(i)).collect();
                 orient_lifted_with(&points, &heights)
             }
         }
@@ -111,11 +127,7 @@ impl<'a> Input<'a> {
     /// distances only. Lifted coordinates are rounded and may be infinite.
     pub(crate) fn coords(&self, index: u32) -> &[f64] {
         match &self.lifted {
-            Some(lifted) => {
-                let d = self.dim + 1;
-                let start = index as usize * d;
-                &lifted.coords[start..start + d]
-            }
+            Some(lifted) => lifted.coords(index),
             None => self.point(index),
         }
     }
@@ -135,10 +147,7 @@ impl<'a> Input<'a> {
             let mut indices = spanning.clone();
             indices.push(p);
             let points: Vec<&[f64]> = indices.iter().map(|&i| self.point(i)).collect();
-            let heights: Vec<LiftedHeight> = indices
-                .iter()
-                .map(|&i| lifted.heights[i as usize])
-                .collect();
+            let heights: Vec<LiftedHeight> = indices.iter().map(|&i| lifted.height(i)).collect();
             if orient_lifted_with(&points, &heights)? != Sign::Zero {
                 apex = Some(p);
                 break;

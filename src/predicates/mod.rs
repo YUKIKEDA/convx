@@ -85,6 +85,18 @@ impl LiftedHeight {
         self.0.value()
     }
 
+    /// The error bound of [`Self::value`].
+    pub(crate) fn error(self) -> f64 {
+        self.0.error()
+    }
+
+    /// A height stored as its [`Self::value`] and [`Self::error`], read back
+    /// from a cache. Debug builds check every height a predicate reads
+    /// against [`Self::of`] its point.
+    pub(crate) fn stored(value: f64, error: f64) -> Self {
+        Self(Approx::stored(value, error))
+    }
+
     /// The value and bound as bits, to check a cache against its source.
     fn bits(self) -> (u64, u64) {
         (self.0.value().to_bits(), self.0.error().to_bits())
