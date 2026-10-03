@@ -673,17 +673,18 @@ mod tests {
         // exact one, and both directions are proved often.
         let mut rng = Rng(79);
         for d in 1..=6 {
-            for scale in [1.0, 1e-150, 1e150, 3.0] {
+            // 1e±45 keeps the cofactors of a D = 6 facet within f64, so the
+            // huge and tiny magnitudes reach the assertions.
+            for scale in [1.0, 1e-45, 1e45, 3.0] {
                 let facet: Vec<Vec<f64>> = (0..d)
                     .map(|_| (0..d).map(|_| rng.unit() * scale).collect())
                     .collect();
                 let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
-                let Some(normal) = unit_normal(&refs, Sign::Positive).unwrap() else {
-                    continue;
-                };
-                let Some(plane) = CullPlane::new(&refs, &normal, Sign::Positive) else {
-                    continue;
-                };
+                let normal = unit_normal(&refs, Sign::Positive)
+                    .unwrap()
+                    .unwrap_or_else(|| panic!("d = {d}, scale {scale}: no normal"));
+                let plane = CullPlane::new(&refs, &normal, Sign::Positive)
+                    .unwrap_or_else(|| panic!("d = {d}, scale {scale}: no certified plane"));
                 let mut points: Vec<Vec<f64>> = (0..400)
                     .map(|_| (0..d).map(|_| rng.unit() * 4.0 * scale).collect())
                     .collect();
@@ -723,7 +724,7 @@ mod tests {
     fn a_tilted_working_normal_proves_neither_side_wrongly() {
         // The facet y = 0 with outward (0, 1), scanned with a working normal
         // tilted by 0.1 rad (review of #34). (-1, 0.01) is outside and
-        // (-1, -0.01) inside, but the tilted distance has the opposite sign
+        // (1, -0.01) inside, but the tilted distance has the opposite sign
         // for both; tau must keep either from being proved.
         let facet = [vec![0.0, 0.0], vec![1.0, 0.0]];
         let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
@@ -738,5 +739,37 @@ mod tests {
         ];
         let (outside, inside) = check_proved(&refs, outward, &plane, &points);
         assert_eq!((outside, inside), (1, 1), "only the far points are proved");
+    }
+
+    #[test]
+    fn a_45_degree_working_normal_proves_no_side() {
+        // The facet of #33 with the 45-degree-off normal (-1, 0, 0) that QR
+        // alone returned. tau near 0.77 makes the slope exceed 1, so no
+        // distance can prove a side: the outside point (2, 4, 3) and a point
+        // far on the inner side both go to the orientation.
+        let t = 2f64.powi(-48);
+        let facet = [
+            vec![1.0, 2.0, 3.0],
+            vec![1.0, 2.0, 4.0],
+            vec![1.0 + t, 2.0 + t, 4.0],
+        ];
+        let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
+        let normal = [-1.0, 0.0, 0.0];
+        let outward = crate::predicates::orient_direction(&refs, &normal).unwrap();
+        let plane = CullPlane::new(&refs, &normal, outward).expect("certified");
+        let outside = vec![2.0, 4.0, 3.0];
+        assert_eq!(distance_sign(&refs, &outside).unwrap(), outward);
+        let deep: Vec<f64> = [-100.0, 100.0]
+            .iter()
+            .map(|&k| vec![1.0 + k, 2.0 - k, 3.0])
+            .find(|p| distance_sign(&refs, p).unwrap() == outward.reversed())
+            .unwrap();
+        let far_outside: Vec<f64> = [-100.0, 100.0]
+            .iter()
+            .map(|&k| vec![1.0 + k, 2.0 - k, 3.0])
+            .find(|p| distance_sign(&refs, p).unwrap() == outward)
+            .unwrap();
+        let points = vec![outside, deep, far_outside];
+        assert_eq!(check_proved(&refs, outward, &plane, &points), (0, 0));
     }
 }

@@ -210,7 +210,7 @@ Which points form the initial simplex is not fixed by the specification in gener
 
 ## 6. Construction and the parallel commit
 
-Points are absorbed by Quickhull. If a point is strictly outside a facet, that facet is visible. Outsideness is decided by orientation alone. The boundary ridges of the visible region are the horizon. The face across the horizon whose neighbor slot is rewritten is called $N$.
+Points are absorbed by Quickhull. If a point is strictly outside a facet, that facet is visible. Outsideness is the strict sign of the orientation. The certified working distance may prove that sign first (§1); otherwise the orientation is evaluated. The boundary ridges of the visible region are the horizon. The face across the horizon whose neighbor slot is rewritten is called $N$.
 
 ```mermaid
 flowchart TD
