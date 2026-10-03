@@ -366,3 +366,127 @@ fn cospherical_groups_sharing_a_face_split_it_alike() {
         .sum();
     assert_eq!(six_volume, 6.0 * 8.0 + 40.0);
 }
+
+// Flat lift: the pulling triangulation (P4-2).
+
+fn built(dim: usize, points: &[f64]) -> DelaunayTriangulation {
+    let t = DelaunayBuilder::new(dim, points).build().unwrap();
+    let parallel = DelaunayBuilder::new(dim, points)
+        .parallel(true)
+        .build()
+        .unwrap();
+    assert_eq!(t, parallel, "the parallel build differs");
+    check(&t, points);
+    t
+}
+
+#[test]
+fn square_is_pulled_from_its_smallest_site() {
+    // Facets of the square without site 0: edges {1, 2} and {2, 3}.
+    let points = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+    let t = built(2, &points);
+    let m = NO_NEIGHBOR;
+    assert_eq!(
+        t.simplices,
+        vec![
+            DelaunaySimplex {
+                vertices: vec![0, 1, 2],
+                neighbors: vec![m, 1, m],
+            },
+            DelaunaySimplex {
+                vertices: vec![0, 2, 3],
+                neighbors: vec![m, m, 0],
+            },
+        ]
+    );
+}
+
+#[test]
+fn cocircular_pentagon_is_a_fan_from_site_0() {
+    // Five sites on the circle of radius 5 with exact rational coordinates
+    // (a regular pentagon is not representable exactly). The edges without
+    // site 0 are {1, 2}, {2, 3}, {3, 4}.
+    let points = [5.0, 0.0, 3.0, 4.0, -3.0, 4.0, -5.0, 0.0, 0.0, -5.0];
+    let t = built(2, &points);
+    assert_eq!(cells(&t), vec![vec![0, 1, 2], vec![0, 2, 3], vec![0, 3, 4]]);
+}
+
+#[test]
+fn cube_corners_are_six_tetrahedra_from_corner_0() {
+    // The three squares away from corner 0 are each split from their own
+    // smallest corner, and 0 joins every triangle: 6 tetrahedra, volume 8,
+    // 12 boundary triangles.
+    let points: Vec<f64> = (0..8)
+        .flat_map(|i: u32| (0..3).map(move |a| f64::from((i >> a) & 1) * 2.0))
+        .collect();
+    let t = built(3, &points);
+    assert_eq!(t.simplices.len(), 6);
+    assert!(t.simplices.iter().all(|s| s.vertices.contains(&0)));
+    let boundary: usize = t
+        .simplices
+        .iter()
+        .map(|s| s.neighbors.iter().filter(|&&n| n == NO_NEIGHBOR).count())
+        .sum();
+    assert_eq!(boundary, 12);
+    // Squares x = 2 (corners 1, 3, 5, 7), y = 2 (2, 3, 6, 7), z = 2 (4, 5,
+    // 6, 7), each pulled from its smallest corner.
+    assert_eq!(
+        cells(&t),
+        vec![
+            vec![0, 1, 3, 7],
+            vec![0, 1, 5, 7],
+            vec![0, 2, 3, 7],
+            vec![0, 2, 6, 7],
+            vec![0, 4, 5, 7],
+            vec![0, 4, 6, 7],
+        ]
+    );
+}
+
+#[test]
+fn d_plus_one_sites_are_one_simplex() {
+    let triangle = [0.0, 0.0, 3.0, 0.0, 0.0, 2.0];
+    let t = built(2, &triangle);
+    assert_eq!(cells(&t), vec![vec![0, 1, 2]]);
+    assert_eq!(t.simplices[0].neighbors, vec![NO_NEIGHBOR; 3]);
+    let tetrahedron = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+    assert_eq!(cells(&built(3, &tetrahedron)), vec![vec![0, 1, 2, 3]]);
+}
+
+#[test]
+fn one_dimension() {
+    // Two sites: a flat lift. More sites: the lower hull of the parabola,
+    // one segment between consecutive sites.
+    let two = [3.0, -1.0];
+    let t = built(1, &two);
+    // Ascending [0, 1] runs from 3 to -1, negative, so the two swap.
+    assert_eq!(t.simplices[0].vertices, vec![1, 0]);
+    let line = [0.0, 3.0, 1.0, 7.0];
+    assert_eq!(
+        cells(&built(1, &line)),
+        vec![vec![0, 2], vec![1, 2], vec![1, 3]]
+    );
+}
+
+#[test]
+fn pulled_simplices_have_empty_circumspheres() {
+    // Every pulled simplex of a cospherical set has the common sphere as its
+    // circumsphere, with every site on it and none inside: the lifted
+    // orientation of each simplex with any other site is zero.
+    let points = [
+        5.0, 0.0, 3.0, 4.0, -3.0, 4.0, -5.0, 0.0, 0.0, -5.0, 4.0, -3.0,
+    ];
+    let t = built(2, &points);
+    for s in &t.simplices {
+        for q in 0..6_u32 {
+            let mut p: Vec<&[f64]> = s
+                .vertices
+                .iter()
+                .map(|&v| &points[v as usize * 2..v as usize * 2 + 2])
+                .collect();
+            p.push(&points[q as usize * 2..q as usize * 2 + 2]);
+            assert_eq!(crate::predicates::orient_lifted(&p).unwrap(), Sign::Zero);
+        }
+    }
+    assert_eq!(t.simplices.len(), 4);
+}

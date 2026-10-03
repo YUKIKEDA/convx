@@ -12,6 +12,7 @@ mod hull;
 mod normal;
 mod predicates;
 
+pub use delaunay::{DelaunayBuilder, DelaunaySimplex, DelaunayTriangulation};
 pub use hull::{
     BoundarySimplex, ConvexHull, ConvexHullBuilder, ConvexHullError, FacetPlane, LogicalFacet,
     TriangulationView,
