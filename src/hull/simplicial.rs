@@ -13,9 +13,12 @@
 //!
 //! 1. Each facet with outside points proposes its farthest one.
 //! 2. Candidates are packed by working distance, largest first, ties by the
-//!    smaller index. A candidate whose region T = V ∪ N (visible facets and
-//!    the facets across its horizon) meets the region of a candidate already
-//!    in the batch waits for the next round, staying in its outside set.
+//!    smaller index. A candidate is taken when its facets T = V ∪ N (visible
+//!    facets and the facets across its horizon) and its horizon ridges H are
+//!    not yet reserved, and when neither it nor a taken candidate is strictly
+//!    outside a prospective simplex (a horizon ridge joined with the point)
+//!    of the other. Otherwise it waits for the next round in its outside
+//!    set.
 //! 3. The batch is applied in ascending input index.
 
 use std::collections::{HashMap, HashSet};
@@ -286,24 +289,108 @@ impl<'a> SimplicialHull<'a> {
     }
 
     /// The next batch, as (point, facet it is outside) in ascending input
-    /// index. Candidates are packed by [`packs_before`]; one whose region
-    /// T = V ∪ N meets a region already packed is left for a later round.
-    /// The first candidate always fits, so a round with candidates is never
-    /// empty.
+    /// index (design §6). The first candidate always fits, so a round with
+    /// candidates is never empty.
+    ///
+    /// Candidates are packed in [`packs_before`] order. A candidate is taken
+    /// when none of its facets T = V ∪ N and none of its horizon ridges H is
+    /// already reserved, and when neither it nor a taken candidate is
+    /// strictly outside a prospective simplex of the other. A skipped
+    /// candidate stays in its outside set for a later round.
     fn next_batch(&self) -> Result<Vec<(u32, FacetId)>, ConvexHullError> {
-        let mut reserved: HashSet<FacetId> = HashSet::new();
-        let mut batch: Vec<(u32, FacetId)> = Vec::new();
+        let mut facets: HashSet<FacetId> = HashSet::new();
+        let mut ridges: HashSet<Vec<u32>> = HashSet::new();
+        let mut taken: Vec<(u32, FacetId, Vec<Vec<u32>>)> = Vec::new();
         for (point, start, _) in self.candidates() {
             let region = self.visible_region(start, point)?;
             let touched: Vec<FacetId> = region.touched().collect();
-            if touched.iter().any(|f| reserved.contains(f)) {
+            let horizon = self.horizon_ridges(&region);
+            if touched.iter().any(|f| facets.contains(f))
+                || horizon.iter().any(|r| ridges.contains(r))
+            {
                 continue;
             }
-            reserved.extend(touched);
-            batch.push((point, start));
+            let prospective = self.prospective(&region, point);
+            let mut conflict = false;
+            for (other, _, other_prospective) in &taken {
+                if self.conflicts((point, &prospective), (*other, other_prospective))? {
+                    conflict = true;
+                    break;
+                }
+            }
+            if conflict {
+                continue;
+            }
+            facets.extend(touched);
+            ridges.extend(horizon);
+            taken.push((point, start, prospective));
         }
+        let mut batch: Vec<(u32, FacetId)> = taken.into_iter().map(|(p, f, _)| (p, f)).collect();
         batch.sort_unstable_by_key(|&(point, _)| point);
         Ok(batch)
+    }
+
+    /// The horizon ridges H of `region`, each as its sorted vertex list.
+    fn horizon_ridges(&self, region: &Region) -> Vec<Vec<u32>> {
+        region
+            .horizon
+            .iter()
+            .filter_map(|&(id, slot, _)| {
+                let facet = self.facets.get(id)?;
+                let mut ridge: Vec<u32> = facet
+                    .vertices
+                    .iter()
+                    .enumerate()
+                    .filter(|&(m, _)| m != slot)
+                    .map(|(_, &v)| v)
+                    .collect();
+                ridge.sort_unstable();
+                Some(ridge)
+            })
+            .collect()
+    }
+
+    /// The prospective simplices of `apex`: each horizon ridge joined with
+    /// the apex, in the outward vertex order the insertion will give them.
+    fn prospective(&self, region: &Region, apex: u32) -> Vec<Vec<u32>> {
+        region
+            .horizon
+            .iter()
+            .filter_map(|&(id, slot, _)| {
+                let mut vertices = self.facets.get(id)?.vertices.clone();
+                vertices[slot] = apex;
+                Some(vertices)
+            })
+            .collect()
+    }
+
+    /// Whether two candidates conflict on their prospective simplices: one
+    /// is strictly outside a prospective simplex of the other.
+    ///
+    /// After the T and H test this never holds in exact arithmetic: the
+    /// facets strictly visible from a point form a connected region, and
+    /// the only old facets next to the prospective simplices of P are N(P),
+    /// so a Q outside one of them would also see a facet of T(P). The design
+    /// keeps it as the sufficient condition (§6), and it is checked here.
+    fn conflicts(
+        &self,
+        (p, p_prospective): (u32, &[Vec<u32>]),
+        (q, q_prospective): (u32, &[Vec<u32>]),
+    ) -> Result<bool, ConvexHullError> {
+        Ok(self.outside_any(p_prospective, q)? || self.outside_any(q_prospective, p)?)
+    }
+
+    /// Whether `point` is strictly outside any of `simplices`, each in
+    /// outward order (orientation positive outside).
+    fn outside_any(&self, simplices: &[Vec<u32>], point: u32) -> Result<bool, ConvexHullError> {
+        for vertices in simplices {
+            let mut points = self.points_of(vertices);
+            points.push(self.input.point(point));
+            if orient(&points)? == Sign::Positive {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// The facets visible from `apex`, found by breadth-first search over
@@ -574,11 +661,27 @@ pub(crate) mod tests {
         assert_eq!(next, vec![4], "the deferred point is proposed again");
     }
 
-    /// Every batch has pairwise disjoint regions, is in ascending index, and
-    /// every candidate left out meets a region packed before it.
-    fn check_rounds(dim: usize, points: &[f64]) -> usize {
+    /// A taken candidate in the replay: point, T, H, prospective simplices.
+    type Taken = (u32, HashSet<FacetId>, HashSet<Vec<u32>>, Vec<Vec<u32>>);
+
+    /// Statistics of the rounds of one build.
+    #[derive(Default)]
+    struct Rounds {
+        /// The largest batch.
+        largest: usize,
+        /// Candidates whose T and H were free but that were dropped for a
+        /// prospective-simplex conflict.
+        prospective_drops: usize,
+    }
+
+    /// Replays every round against an independent statement of the §6
+    /// packing: in packing order, a candidate is taken exactly when its T
+    /// and H miss every taken candidate's T and H and neither it nor a taken
+    /// candidate is strictly outside a prospective simplex of the other.
+    /// Batches are in ascending index, and the final hull is valid.
+    fn check_rounds(dim: usize, points: &[f64]) -> Rounds {
         let mut hull = initial(dim, points);
-        let mut largest = 0;
+        let mut stats = Rounds::default();
         loop {
             let candidates = hull.candidates();
             let batch = hull.next_batch().unwrap();
@@ -586,19 +689,27 @@ pub(crate) mod tests {
                 assert!(candidates.is_empty());
                 break;
             }
-            largest = largest.max(batch.len());
+            stats.largest = stats.largest.max(batch.len());
             assert!(batch.windows(2).all(|w| w[0].0 < w[1].0));
-            let region = |p: u32, f: FacetId| -> HashSet<FacetId> {
-                hull.visible_region(f, p).unwrap().touched().collect()
-            };
-            let mut packed: Vec<HashSet<FacetId>> = Vec::new();
+            let mut taken: Vec<Taken> = Vec::new();
             for &(p, f, _) in &candidates {
-                let t = region(p, f);
-                let taken = batch.contains(&(p, f));
-                let meets = packed.iter().any(|r| !r.is_disjoint(&t));
-                assert_eq!(taken, !meets, "candidate {p}");
-                if taken {
-                    packed.push(t);
+                let region = hull.visible_region(f, p).unwrap();
+                let t: HashSet<FacetId> = region.touched().collect();
+                let h: HashSet<Vec<u32>> = hull.horizon_ridges(&region).into_iter().collect();
+                let prospective = hull.prospective(&region, p);
+                let free = taken
+                    .iter()
+                    .all(|(_, tt, th, _)| tt.is_disjoint(&t) && th.is_disjoint(&h));
+                let conflict = taken.iter().any(|(q, _, _, qp)| {
+                    hull.outside_any(qp, p).unwrap() || hull.outside_any(&prospective, *q).unwrap()
+                });
+                let expected = free && !conflict;
+                assert_eq!(batch.contains(&(p, f)), expected, "candidate {p}");
+                if free && conflict {
+                    stats.prospective_drops += 1;
+                }
+                if expected {
+                    taken.push((p, t, h, prospective));
                 }
             }
             for (p, f) in batch {
@@ -606,18 +717,106 @@ pub(crate) mod tests {
             }
         }
         check_invariants(&hull);
-        largest
+        stats
     }
 
     #[test]
-    fn rounds_pack_disjoint_regions() {
+    fn rounds_follow_the_reservation_and_the_prospective_test() {
         let mut rng = Rng(21);
         let mut largest = 0;
+        let mut drops = 0;
         for (dim, count) in [(2, 400), (3, 300), (4, 120)] {
-            let points: Vec<f64> = (0..count * dim).map(|_| rng.unit()).collect();
-            largest = largest.max(check_rounds(dim, &points));
+            for _ in 0..3 {
+                let points: Vec<f64> = (0..count * dim).map(|_| rng.unit()).collect();
+                let stats = check_rounds(dim, &points);
+                largest = largest.max(stats.largest);
+                drops += stats.prospective_drops;
+            }
         }
         assert!(largest >= 2, "some round packs more than one point");
+        // With T and H free, a prospective conflict cannot occur (see
+        // `conflicts`); the replay above would have counted one.
+        assert_eq!(drops, 0);
+    }
+
+    #[test]
+    fn prospective_conflicts_in_either_direction() {
+        // Triangle (0,0), (4,0), (0,4). P = 3 = (2, -10) sees the bottom
+        // edge; its prospective edges join (0,0) and (4,0) to P. Q = 4 =
+        // (30, -5) is outside the edge from P to (4, 0). R = 5 = (1, 1) is
+        // inside the triangle and outside nothing.
+        let points = [
+            0.0, 0.0, 4.0, 0.0, 0.0, 4.0, 2.0, -10.0, 30.0, -5.0, 1.0, 1.0,
+        ];
+        let hull = initial(2, &points);
+        let start = hull
+            .facets
+            .iter()
+            .find(|(_, f)| f.outside.contains(&3))
+            .map(|(id, _)| id)
+            .unwrap();
+        let p = hull.prospective(&hull.visible_region(start, 3).unwrap(), 3);
+        assert_eq!(p.len(), 2);
+        let none: Vec<Vec<u32>> = Vec::new();
+        // Q outside a prospective simplex of P, in either argument order.
+        assert!(hull.conflicts((3, &p), (4, &none)).unwrap());
+        assert!(hull.conflicts((4, &none), (3, &p)).unwrap());
+        // R outside none of them.
+        assert!(!hull.conflicts((3, &p), (5, &none)).unwrap());
+        assert!(!hull.conflicts((5, &none), (3, &p)).unwrap());
+    }
+
+    #[test]
+    fn far_apart_points_share_a_batch() {
+        // An octagon, then 8 and 9 just outside two opposite edges. Once the
+        // octagon is built, their regions (one edge and its two neighbors)
+        // are disjoint and neither sees the other's new edges.
+        let points = [
+            10.0, 0.0, 7.0, 7.0, 0.0, 10.0, -7.0, 7.0, -10.0, 0.0, -7.0, -7.0, 0.0, -10.0, 7.0,
+            -7.0, 8.6, 3.55, -8.6, -3.55,
+        ];
+        let mut hull = initial(2, &points);
+        let mut seen = false;
+        loop {
+            let candidates: Vec<u32> = hull.candidates().iter().map(|c| c.0).collect();
+            let batch = hull.next_batch().unwrap();
+            if batch.is_empty() {
+                break;
+            }
+            if candidates == vec![8, 9] || candidates == vec![9, 8] {
+                let taken: Vec<u32> = batch.iter().map(|b| b.0).collect();
+                assert_eq!(taken, vec![8, 9]);
+                seen = true;
+            }
+            for (p, f) in batch {
+                hull.insert_point(f, p).unwrap();
+            }
+        }
+        assert!(seen, "a round proposed exactly 8 and 9");
+        check_invariants(&hull);
+    }
+
+    #[test]
+    fn a_shared_horizon_ridge_keeps_points_apart() {
+        // Square, then 4 and 5 just outside the two edges at corner (1, 1):
+        // both horizons contain the ridge {2} (the corner), so they never
+        // share a batch.
+        let points = [
+            0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0001, 0.5, 0.5, 1.0001,
+        ];
+        let mut hull = initial(2, &points);
+        loop {
+            let batch = hull.next_batch().unwrap();
+            if batch.is_empty() {
+                break;
+            }
+            let taken: Vec<u32> = batch.iter().map(|b| b.0).collect();
+            assert!(!(taken.contains(&4) && taken.contains(&5)), "{taken:?}");
+            for (p, f) in batch {
+                hull.insert_point(f, p).unwrap();
+            }
+        }
+        check_invariants(&hull);
     }
 
     #[test]
