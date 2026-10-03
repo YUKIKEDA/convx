@@ -603,9 +603,12 @@ impl<'a> SimplicialHull<'a> {
             }
             take_outside(&self.input, &mut orphans, &mut strict, &mut planned.simplex)?;
         }
-        // An orphan was strictly outside a visible facet, so it is not in
-        // the hull before this point. Strictly inside every new facet, it is
-        // on no facet of the hull after it: strictly inside (design §3).
+        // An orphan strictly inside every new simplex lies in the open cone
+        // from the apex over the hull, before the visible facet it was
+        // outside, so on the open segment from the apex to the hull. It is
+        // strictly inside every kept facet too: on one only if the apex is,
+        // and then a new simplex shares that plane. So it is interior to the
+        // hull with the apex, and to the final hull (design §3).
         let interior = orphans
             .iter()
             .zip(&strict)
