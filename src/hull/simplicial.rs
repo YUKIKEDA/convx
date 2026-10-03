@@ -796,6 +796,14 @@ fn take_outside(
     let mut kept_strict = Vec::with_capacity(remaining.len());
     for ((&p, &culled), &s) in remaining.iter().zip(&inside).zip(strict.iter()) {
         let sign = if culled {
+            // A culled point is dropped without `side`, so debug builds check
+            // the scan's proof here, as `side` checks `proved_side`.
+            #[cfg(debug_assertions)]
+            debug_assert_eq!(
+                oriented_side(input, facet, p)?,
+                Sign::Negative,
+                "the scan culled point {p}, which is not strictly inside"
+            );
             Sign::Negative
         } else {
             side(input, facet, p)?
@@ -936,6 +944,12 @@ pub(crate) mod tests {
             planes += 1;
             let mut inside = vec![false; sites.len()];
             cull.mark_inside(rows, stride, sites, &mut inside);
+            let mut scalar = vec![false; sites.len()];
+            cull.mark_inside_scalar(rows, stride, sites, &mut scalar);
+            assert_eq!(
+                inside, scalar,
+                "the vector and scalar scans disagree on lifted rows"
+            );
             for (&p, &culled) in sites.iter().zip(&inside) {
                 let exact = oriented_side(input, facet, p).unwrap();
                 match cull.proved_side(input.coords(p), input.height_bound(p)) {

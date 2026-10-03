@@ -37,6 +37,26 @@
 //! `|n - c^/|c^||` is evaluated in `f64` with a margin for its own rounding.
 //! When the cofactors cannot be certified, no point is culled.
 //!
+//! # Lifted facets
+//!
+//! For a facet of sites lifted to the paraboloid (design §1, §7, #109) the
+//! points are rounded in their last coordinate only: each height is within
+//! its stored bound `e` of the exact `|p|^2`. `u*` is then the unit normal of
+//! the exact lifted plane, and `tau` bounds `|n - u*|` because the cofactors
+//! are widened by [`crate::normal::lifted_facet_cofactors`]. Moving the query
+//! `x` and the origin `o` to their exact heights changes `(x - o) . u*` by at
+//! most `(e_x + e_o) |u*_last| <= e_x + e_o`. The origin's bound is added to
+//! the floor, `floor' = (floor + e_o)(1 + 4u)`, and the query's just before
+//! the comparison:
+//!
+//! ```text
+//! w < -(((slope * l + floor') * (1 + 4u) + e_x) * (1 + 4u))
+//! ```
+//!
+//! Each factor `(1 + 4u)` covers the roundings of the sum before it. The
+//! scan reads `e_x` from the lifted row right after the coordinates. A plane
+//! that is not lifted keeps the threshold above bit for bit.
+//!
 //! # Paths
 //!
 //! The vectorized path uses `pulp` runtime dispatch with one point per lane.
@@ -222,14 +242,21 @@ impl CullPlane {
         }
     }
 
-    /// Reference path without SIMD. Same result as [`Self::mark_inside`].
+    /// Reference path without SIMD. Same result as [`Self::mark_inside`],
+    /// with the same rows, stride, and height bounds.
     #[cfg(test)]
-    fn mark_inside_scalar(&self, points: &[f64], indices: &[u32], inside: &mut [bool]) {
+    pub(crate) fn mark_inside_scalar(
+        &self,
+        rows: &[f64],
+        stride: usize,
+        indices: &[u32],
+        inside: &mut [bool],
+    ) {
         let d = self.origin.len();
         for (flag, &index) in inside.iter_mut().zip(indices) {
-            let start = index as usize * d;
-            let (w, l) = self.scalar_terms(&points[start..start + d]);
-            *flag = self.is_proved_inside(w, l, 0.0);
+            let start = index as usize * stride;
+            let (w, l) = self.scalar_terms(&rows[start..start + d]);
+            *flag = self.is_proved_inside(w, l, self.bound_of(rows, stride, index));
         }
     }
 }
@@ -354,7 +381,7 @@ mod tests {
         let mut fast = vec![false; n];
         let mut slow = vec![false; n];
         plane.mark_inside(points, plane.origin.len(), &indices, &mut fast);
-        plane.mark_inside_scalar(points, &indices, &mut slow);
+        plane.mark_inside_scalar(points, plane.origin.len(), &indices, &mut slow);
         assert_eq!(fast, slow, "SIMD and scalar paths disagree");
         let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
         for (i, &culled) in fast.iter().enumerate() {
@@ -612,7 +639,7 @@ mod tests {
                     let mut dispatched = vec![false; count];
                     let mut scalar = vec![false; count];
                     plane.mark_inside(&points, plane.origin.len(), &indices, &mut dispatched);
-                    plane.mark_inside_scalar(&points, &indices, &mut scalar);
+                    plane.mark_inside_scalar(&points, plane.origin.len(), &indices, &mut scalar);
                     assert_eq!(dispatched, scalar, "cull set, D = {d}, {count} points");
                 }
             }

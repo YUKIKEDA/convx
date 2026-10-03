@@ -183,10 +183,6 @@ impl<'a> Input<'a> {
         }))
     }
 
-    pub(crate) fn points(&self) -> &'a [f64] {
-        self.points
-    }
-
     /// Coordinates of point `index`.
     pub(crate) fn point(&self, index: u32) -> &'a [f64] {
         let start = index as usize * self.dim;
