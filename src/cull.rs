@@ -429,22 +429,35 @@ mod tests {
     /// `w` and `l` of every index.
     type Terms = (Vec<f64>, Vec<f64>);
 
-    /// `w` and `l` of every index through one instruction-set level.
-    fn terms_with<S: Simd>(simd: S, plane: &CullPlane, points: &[f64], indices: &[u32]) -> Terms {
-        let mut w = vec![0.0; indices.len()];
-        let mut l = vec![0.0; indices.len()];
+    /// Writes `w` and `l` of every index through one instruction-set level.
+    fn fill_terms<S: Simd>(
+        simd: S,
+        plane: &CullPlane,
+        points: &[f64],
+        indices: &[u32],
+        w: &mut [f64],
+        l: &mut [f64],
+    ) {
         simd.vectorize(Scan {
             plane,
             points,
             indices,
-            w: &mut w,
-            l: &mut l,
+            w,
+            l,
         });
+    }
+
+    /// `w` and `l` of every index through one instruction-set level.
+    fn terms_with<S: Simd>(simd: S, plane: &CullPlane, points: &[f64], indices: &[u32]) -> Terms {
+        let mut w = vec![0.0; indices.len()];
+        let mut l = vec![0.0; indices.len()];
+        fill_terms(simd, plane, points, indices, &mut w, &mut l);
         (w, l)
     }
 
     /// The terms through every level this CPU runs, by name: scalar lanes,
-    /// then the x86 levels from AVX2 (the P1-4 path) to AVX-512.
+    /// then the x86 levels from AVX2 (the P1-4 path) to AVX-512, or Neon on
+    /// aarch64.
     fn every_level(
         plane: &CullPlane,
         points: &[f64],
@@ -460,16 +473,23 @@ mod tests {
                 out.push(("x86-v4", terms_with(simd, plane, points, indices)));
             }
         }
+        #[cfg(target_arch = "aarch64")]
+        {
+            if let Some(simd) = pulp::aarch64::Neon::try_new() {
+                out.push(("neon", terms_with(simd, plane, points, indices)));
+            }
+        }
         out
     }
 
     #[test]
     fn every_instruction_set_level_returns_the_same_terms_and_cull_set() {
-        // Lane counts 1, 4, and 8 with tails of every length, magnitudes
-        // far from 1, and indices out of order.
+        // Lane counts 1, 2, 4, and 8 with every tail length (0..=17 covers
+        // every remainder of 8 twice), two longer runs, magnitudes far from
+        // 1, and indices out of order.
         let mut rng = Rng(11);
         for d in 1..=8 {
-            for count in [0, 1, 3, 7, 8, 9, 17, 64, 101] {
+            for count in (0..=17).chain([64, 101]) {
                 for scale in [1.0, 1e-100, 1e100] {
                     let facet: Vec<Vec<f64>> = (0..d)
                         .map(|_| (0..d).map(|_| rng.unit() * scale).collect())
@@ -530,30 +550,56 @@ mod tests {
             let indices: Vec<u32> = (0..count as u32).collect();
             let mut row = format!("{} d{dim} n{count}:", field[1]);
             let reps = (2_000_000 / count).clamp(3, 50);
+            let mut w = vec![0.0; count];
+            let mut l = vec![0.0; count];
             for (name, _) in every_level(&plane, &points, &indices[..1]) {
+                // Only the level's kernel is timed: the buffers are reused,
+                // and the cull test after it is the same scalar loop on
+                // every level.
                 let mut best = f64::MAX;
-                let mut culled = 0;
                 for _ in 0..reps {
                     let start = Instant::now();
-                    let (w, l) = match name {
-                        "scalar" => terms_with(pulp::Scalar, &plane, &points, &indices),
-                        #[cfg(target_arch = "x86_64")]
-                        "x86-v3" => {
-                            terms_with(pulp::x86::V3::try_new().unwrap(), &plane, &points, &indices)
+                    match name {
+                        "scalar" => {
+                            fill_terms(pulp::Scalar, &plane, &points, &indices, &mut w, &mut l)
                         }
                         #[cfg(target_arch = "x86_64")]
-                        "x86-v4" => {
-                            terms_with(pulp::x86::V4::try_new().unwrap(), &plane, &points, &indices)
-                        }
+                        "x86-v3" => fill_terms(
+                            pulp::x86::V3::try_new().unwrap(),
+                            &plane,
+                            &points,
+                            &indices,
+                            &mut w,
+                            &mut l,
+                        ),
+                        #[cfg(target_arch = "x86_64")]
+                        "x86-v4" => fill_terms(
+                            pulp::x86::V4::try_new().unwrap(),
+                            &plane,
+                            &points,
+                            &indices,
+                            &mut w,
+                            &mut l,
+                        ),
+                        #[cfg(target_arch = "aarch64")]
+                        "neon" => fill_terms(
+                            pulp::aarch64::Neon::try_new().unwrap(),
+                            &plane,
+                            &points,
+                            &indices,
+                            &mut w,
+                            &mut l,
+                        ),
                         _ => unreachable!(),
-                    };
-                    culled = w
-                        .iter()
-                        .zip(&l)
-                        .filter(|&(&w, &l)| plane.is_proved_inside(w, l))
-                        .count();
+                    }
+                    std::hint::black_box((&w, &l));
                     best = best.min(start.elapsed().as_secs_f64());
                 }
+                let culled = w
+                    .iter()
+                    .zip(&l)
+                    .filter(|&(&w, &l)| plane.is_proved_inside(w, l))
+                    .count();
                 std::hint::black_box(culled);
                 row += &format!(" {name} {:.2} ns/point;", best / count as f64 * 1e9);
             }

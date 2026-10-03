@@ -183,7 +183,7 @@ fn determinant(m: &[Vec<i128>]) -> i128 {
                 })
                 .collect();
             let term = m[0][j] * determinant(&minor);
-            if j % 2 == 0 {
+            if j.is_multiple_of(2) {
                 term
             } else {
                 -term

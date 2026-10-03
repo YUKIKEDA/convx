@@ -85,7 +85,7 @@ pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
     let euler: i64 = (0..d)
         .map(|k| {
             let count = faces.get(&k).map_or(0, BTreeSet::len) as i64;
-            if k % 2 == 0 {
+            if k.is_multiple_of(2) {
                 count
             } else {
                 -count
@@ -139,7 +139,7 @@ pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
         if k >= d {
             return Err("a face spans the full dimension".into());
         }
-        logical_euler += if k % 2 == 0 { 1 } else { -1 };
+        logical_euler += if k.is_multiple_of(2) { 1 } else { -1 };
     }
     if logical_euler != expected_euler {
         return Err(format!(
