@@ -21,6 +21,7 @@
 //!    set.
 //! 3. The batch is applied in ascending input index.
 
+use core::convert::Infallible;
 use std::collections::{HashMap, HashSet};
 
 use rayon::prelude::*;
@@ -374,7 +375,15 @@ impl<'a> SimplicialHull<'a> {
         #[cfg(debug_assertions)]
         let mut taken_prospective: Vec<(u32, Vec<Vec<u32>>)> = Vec::new();
         for (point, start, _) in self.candidates() {
-            let region = self.cached_region(cache, start, point)?;
+            // A candidate whose V or N meets a taken facet is rejected
+            // below; once that is certain, its walk stops (#110). Its start
+            // facet is in its V, so a taken start needs no walk at all.
+            if facets.contains(&start) {
+                continue;
+            }
+            let Some(region) = self.cached_region(cache, start, point, &facets)? else {
+                continue;
+            };
             let touched: Vec<FacetId> = region.touched().collect();
             let horizon = self.horizon_ridges(&region);
             if touched.iter().any(|f| facets.contains(f))
@@ -406,24 +415,31 @@ impl<'a> SimplicialHull<'a> {
     /// the vertices of V and N, which never change, and the neighbor lists of
     /// V. A commit changes a neighbor list only by replacing a removed facet,
     /// and a removed neighbor of a facet in V was itself in V or N.
+    ///
+    /// A walk stops at the first facet of V or N in `taken` and returns
+    /// `None`: the candidate is then rejected whatever the rest of its region
+    /// is. A stopped walk is not cached.
     fn cached_region(
         &self,
         cache: &mut RegionCache,
         start: FacetId,
         apex: u32,
-    ) -> Result<Region, ConvexHullError> {
+        taken: &IdSet<FacetId>,
+    ) -> Result<Option<Region>, ConvexHullError> {
         if let Some(cached) = cache.entries.get(&(apex, start)) {
             if cached.touched().all(|id| self.facets.get(id).is_some()) {
                 debug_assert!(
                     self.visible_region(start, apex)? == *cached,
                     "the cached region of point {apex} is stale"
                 );
-                return Ok(cached.clone());
+                return Ok(Some(cached.clone()));
             }
         }
-        let region = self.visible_region(start, apex)?;
+        let Some(region) = self.visible_region_unless(start, apex, taken)? else {
+            return Ok(None);
+        };
         cache.entries.insert((apex, start), region.clone());
-        Ok(region)
+        Ok(Some(region))
     }
 
     /// The horizon ridges H of `region`, each as its sorted vertex list.
@@ -501,6 +517,35 @@ impl<'a> SimplicialHull<'a> {
     /// neighbors from `start`, and the horizon ridges as (visible facet,
     /// slot) pairs.
     fn visible_region(&self, start: FacetId, apex: u32) -> Result<Region, ConvexHullError> {
+        match self.walk_region(start, apex, |_| Ok::<(), Infallible>(()))? {
+            Ok(region) => Ok(region),
+            Err(never) => match never {},
+        }
+    }
+
+    /// [`Self::visible_region`], or `None` as soon as the walk meets a facet
+    /// of V or N that is in `taken`.
+    fn visible_region_unless(
+        &self,
+        start: FacetId,
+        apex: u32,
+        taken: &IdSet<FacetId>,
+    ) -> Result<Option<Region>, ConvexHullError> {
+        let stop = |id: FacetId| if taken.contains(&id) { Err(()) } else { Ok(()) };
+        Ok(self.walk_region(start, apex, stop)?.ok())
+    }
+
+    /// The walk of [`Self::visible_region`]. `stop` sees every facet of V and
+    /// N as the walk reaches it; an `Err` from it ends the walk.
+    fn walk_region<E>(
+        &self,
+        start: FacetId,
+        apex: u32,
+        stop: impl Fn(FacetId) -> Result<(), E>,
+    ) -> Result<Result<Region, E>, ConvexHullError> {
+        if let Err(e) = stop(start) {
+            return Ok(Err(e));
+        }
         let mut visible = vec![start];
         let mut is_visible: IdMap<FacetId, bool> = IdMap::default();
         is_visible.insert(start, true);
@@ -513,6 +558,10 @@ impl<'a> SimplicialHull<'a> {
                 continue;
             };
             for (slot, &neighbor) in facet.neighbors.iter().enumerate() {
+                // Every neighbor of a facet of V is in V or N.
+                if let Err(e) = stop(neighbor) {
+                    return Ok(Err(e));
+                }
                 let seen = match is_visible.get(&neighbor) {
                     Some(&v) => v,
                     None => {
@@ -532,7 +581,7 @@ impl<'a> SimplicialHull<'a> {
                 }
             }
         }
-        Ok(Region { visible, horizon })
+        Ok(Ok(Region { visible, horizon }))
     }
 
     /// Inserts one point now: [`Self::plan`] then [`Self::commit`].
