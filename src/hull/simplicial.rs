@@ -30,7 +30,7 @@ use super::input::Input;
 use super::ConvexHullError;
 use crate::arena::{Arena, ArenaFull, FacetId, IdMap, IdSet};
 use crate::cull::CullPlane;
-use crate::normal::{facet_cofactors, lifted_facet_cofactors, unit_normal_with};
+use crate::normal::{facet_cofactors, lifted_facet_cofactors, working_normal};
 use crate::predicates::Sign;
 
 /// A simplicial facet during construction.
@@ -125,8 +125,10 @@ impl<'a> SimplicialHull<'a> {
         } else {
             None
         };
+        // The working normal is the certified cofactor direction. Published
+        // planes still run Householder QR (design §1).
         let normal = if finite {
-            unit_normal_with(&points, outward, cofactors.as_deref())?
+            working_normal(&points, outward, cofactors.as_deref())?
         } else {
             None
         };
