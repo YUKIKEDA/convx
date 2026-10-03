@@ -11,6 +11,7 @@ mod delaunay;
 mod hull;
 mod normal;
 mod predicates;
+mod voronoi;
 
 pub use delaunay::{DelaunayBuilder, DelaunaySimplex, DelaunayTriangulation};
 pub use hull::{
@@ -18,6 +19,9 @@ pub use hull::{
     TriangulationView,
 };
 pub use predicates::Sign;
+pub use voronoi::{
+    VoronoiBuilder, VoronoiCell, VoronoiDiagram, VoronoiInterface, VoronoiRay, VoronoiVertex,
+};
 
 #[cfg(test)]
 mod phase1;

@@ -7,7 +7,7 @@ pub(crate) mod input;
 #[cfg(any(test, debug_assertions))]
 pub(crate) mod invariants;
 pub(crate) mod merge;
-mod publish;
+pub(crate) mod publish;
 pub(crate) mod simplicial;
 
 pub use error::ConvexHullError;

@@ -3,11 +3,15 @@
 
 use super::*;
 
+/// The triangulation from the lower hull; panics on a flat lift.
 fn triangulate(dim: usize, points: &[f64]) -> DelaunayTriangulation {
-    match lower_hull(dim, points, Execution::Sequential).unwrap() {
-        Lower::Triangulation(t) => t,
-        Lower::Flat(_) => panic!("unexpected flat lift"),
-    }
+    assert!(
+        lower_hull(dim, points, Execution::Sequential)
+            .unwrap()
+            .is_ok(),
+        "unexpected flat lift"
+    );
+    DelaunayBuilder::new(dim, points).build().unwrap()
 }
 
 /// Ascending vertex lists of the simplices, sorted.
@@ -124,7 +128,7 @@ fn partly_cocircular_square() {
 #[test]
 fn every_site_on_one_circle_is_flat() {
     let points = [0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0];
-    let Lower::Flat(sites) = lower_hull(2, &points, Execution::Sequential).unwrap() else {
+    let Err(sites) = lower_hull(2, &points, Execution::Sequential).unwrap() else {
         panic!("four cocircular sites have a flat lift");
     };
     // The sites come back unlifted, for the pulling triangulation (P4-2).
@@ -321,10 +325,10 @@ fn parallel_execution_agrees() {
     let sites = random_sites(3, 60, 99, 1 << 20);
     let points: Vec<f64> = sites.iter().flatten().map(|&x| x as f64).collect();
     let sequential = triangulate(3, &points);
-    let Lower::Triangulation(parallel) = lower_hull(3, &points, Execution::Parallel).unwrap()
-    else {
-        panic!("unexpected flat lift");
-    };
+    let parallel = DelaunayBuilder::new(3, &points)
+        .parallel(true)
+        .build()
+        .unwrap();
     assert_eq!(sequential, parallel);
     check(&sequential, &points);
 }
