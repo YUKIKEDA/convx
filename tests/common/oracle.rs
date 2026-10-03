@@ -210,7 +210,7 @@ pub fn check_delaunay(t: &DelaunayTriangulation, points: &[f64]) {
             .sum();
         assert_eq!(
             euler,
-            if d % 2 == 0 { 0 } else { 2 },
+            if d.is_multiple_of(2) { 0 } else { 2 },
             "boundary Euler characteristic"
         );
     }
