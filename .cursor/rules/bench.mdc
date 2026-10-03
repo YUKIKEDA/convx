@@ -9,6 +9,17 @@ Do not write a speedup target before the sequential core exists and Qhull has be
 
 Do not start speed work without a measurement. A phase-wide optimization that the design already places after a correct sequential result stays on its roadmap row (`.cursor/rules/defer.mdc`). It is not a reason to tune one path early.
 
+Before starting a speed row, profile the build it targets (instruction counts or samples) and record in its Issue where the time goes. The row order follows that profile, not the roadmap's numbering.
+
+A timing names what its timed section contains. Reuse buffers across repetitions. Keep work common to every variant outside the section. Name the inputs: set, seed, repetitions, toolchain, and cores. Timers or profiling hooks added to measure are not committed; the PR records the method instead.
+
+```text
+# BAD — "ns/point" that includes a fresh Vec and the scalar cull test on every level
+# GOOD — buffers reused, only the level's kernel inside Instant::now()..elapsed()
+```
+
+Time a new test that runs many debug builds before adding it. Debug-only checks set the speed of the suite; keep one integration test file within tens of seconds in debug.
+
 `just bench` is not a gate until a measurement tool exists. Do not add a bench checkbox to the PR template before that.
 
 Write an external reference command (Qhull's `qconvex` and its options) only after checking each option against the tool's documentation of what it outputs. A summary option is not a facet list: `qconvex i s TI <file>` lists facet vertices, `qconvex s` does not. A selector over set names matches whole tokens, not substrings.

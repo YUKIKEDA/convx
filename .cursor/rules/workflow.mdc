@@ -44,8 +44,8 @@ When a row is recorded before Grill, and the user has named the ID and the Issue
 
 When a PR is opened on top of another, its base is the earlier branch. After any squash merge into main:
 
-1. Merge main into the next branch at once. Do not wait for a review on the old head.
-2. A conflicted file the branch did not change takes main's version. A file the branch changed keeps the branch's edits on top of main.
+1. Fetch first. If GitHub already rebased the next branch onto the squash commit (its head is a new commit from GitHub), sync the local branch to it and compare trees instead of merging. Otherwise merge main into the next branch at once. Do not wait for a review on the old head.
+2. A conflicted file the branch did not change takes main's version. A file the branch changed keeps the branch's edits on top of main. Resolve every conflict before running a formatter: a formatter rewrites the conflict markers.
 3. Check that `git diff main` lists only the branch's own files.
 4. Before pushing, fetch and confirm the PR is still open. Pushing a branch whose PR already merged and was deleted recreates it.
 5. Push, and post the new head on its PR so review runs on it.
@@ -63,9 +63,9 @@ After the squash merge, write three points on the merged PR. Write "none" when a
 2. The Issue that will carry it, if any
 3. Whether to refactor. Yes opens a `refactor` Issue that is next, before the next feature. Postponing it needs a roadmap row that names when (`.cursor/rules/defer.mdc`)
 
-Draft the three points and stop. Do not file the Issue or edit rules in that same turn. The next feature branch waits until the three points are written.
+Then, without waiting for an ask, file a `chore` Issue and one PR that writes each lesson of point 1 into the rule, design text, or ADR it names. Tacit knowledge the work relied on, which nothing states yet, is a lesson too. One Issue and PR may carry the lessons of several retrospectives. The next feature branch waits until that PR is open.
 
-A correction the user gives during the work, as an ongoing constraint, is still a rule edit in that change (`.cursor/rules/record-corrections.mdc`). A lesson first noticed here waits for the ask.
+A correction the user gives during the work, as an ongoing constraint, is still a rule edit in that change (`.cursor/rules/record-corrections.mdc`).
 
 ADR files use Status, Date, Issue, Context, and Decision. Create `docs/adr/` with the first ADR. Do not keep a retrospective log.
 
