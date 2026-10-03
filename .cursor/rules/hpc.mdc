@@ -14,7 +14,7 @@ Two storages. Do not treat one as the other.
 
 A distance kernel may gather one coordinate of several points into a lane temporary. The input slice stays row-major. One point per lane, the same operations in the same order as the scalar path, and no `mul_add` unless the certified error bound includes FMA rounding. The vector path and the scalar path of that kernel return bitwise identical `w` and `l`. The scan only culls points proved strictly inside. It does not decide visibility or outsideness.
 
-Do not store the points column-major, transpose them, or keep a second copy so a gather becomes contiguous. Do not walk a `Mat` buffer as rows, and do not swap `(row, col)`. Do not add an alignment, a prefetch, or an `unsafe` SIMD intrinsic the design does not name. Wider SIMD, lock-free allocation, and a cache of lifted coordinates stay on their roadmap rows.
+Do not store the points column-major, transpose them, or keep a second copy so a gather becomes contiguous. Do not walk a `Mat` buffer as rows, and do not swap `(row, col)`. Do not add an alignment, a prefetch, or an `unsafe` SIMD intrinsic the design does not name. A cache of lifted coordinates and the search cutoffs stay on their roadmap rows.
 
 ```rust
 // BAD — points read as columns; faer's buffer walked as a row

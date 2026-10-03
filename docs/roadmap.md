@@ -78,17 +78,17 @@ Static API, Delaunay, Voronoi, and oracles. Pulling triangulation and the cosphe
 
 After a correct sequential hull. These rows do not block P4.
 
-| ID   | Kind | Title                                                         | Issue | Status      |
-| ---- | ---- | ------------------------------------------------------------- | ----- | ----------- |
-| P5-1 | Feat | Wider SIMD, including AVX-512                                 | #25   | Done        |
-| P5-3 | Feat | Cache of lifted coordinates                                   | #27   | Not started |
-| P5-4 | Feat | Cut off search of the upper hull and of faces already decided | #28   | Not started |
-| P5-5 | Feat | Vector cull kernel faster than its scalar lanes               | #70   | Not started |
-| P5-6 | Feat | Filtered determinant cheap for every k > 4                    | #72   | Not started |
-| P5-7 | Feat | Faster distance-zero classification                           | #73   | Not started |
+| ID   | Kind | Title                                                         | Issue | Status                 |
+| ---- | ---- | ------------------------------------------------------------- | ----- | ---------------------- |
+| P5-1 | Feat | Wider SIMD, including AVX-512                                 | #25   | Done                   |
+| P5-3 | Feat | Cache of lifted coordinates                                   | #27   | Not started            |
+| P5-4 | Feat | Cut off search of the upper hull and of faces already decided | #28   | Not started            |
+| P5-5 | Feat | Vector cull kernel faster than its scalar lanes               | #70   | Set after Grill on #70 |
+| P5-6 | Feat | Filtered determinant cheap for every k > 4                    | #72   | Not started            |
+| P5-7 | Feat | Faster distance-zero classification                           | #73   | Set after Grill on #73 |
 
 ## Intentionally out of scope
 
 Items land here only through Grill → Issue.
 
-- Lock-free allocation (was P5-2, #26). The commit runs on one thread in ascending input index (§6), so no allocation is concurrent, and every insert and remove of a build measured at most 0.7% of its time. It returns through Grill if the commit becomes parallel.
+- Lock-free allocation (was P5-2, #26). The commit runs on one thread in ascending input index (§6), so no arena insert or remove is concurrent, and on the P2-7 `cube` sets measured in #26 they took under 1% of the build. It returns through Grill if the commit becomes parallel.

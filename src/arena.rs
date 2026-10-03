@@ -8,9 +8,9 @@
 //!
 //! This arena is single-threaded. Parallel workers plan with local numbers,
 //! and the commit inserts on one thread in ascending input index (§6), so
-//! no allocation is ever concurrent. Lock-free allocation was measured and
-//! left out (#26): every insert and remove of a build is at most 0.7% of
-//! its time.
+//! no arena insert or remove is ever concurrent. Lock-free allocation was
+//! left out after measurement (#26): on the P2-7 `cube` sets measured
+//! there, every arena insert and remove of a build took under 1% of it.
 
 /// Number of slots in one chunk. Not tuned before measurement.
 const CHUNK_SIZE: usize = 1024;
