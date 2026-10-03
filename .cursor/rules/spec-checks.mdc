@@ -12,6 +12,7 @@ A check or a test that stands for a statement in `docs/design.ja.md` or `docs/ve
 - Every rule written in the docs has a code path, and a test that fails when that path is skipped. A sentence with no code behind it is a gap, not documentation.
 - An oracle, a frozen record, or a check that stands for a design section lists every observable that section states. It checks or stores each one, or names it as excluded with the reason (a diagonal, an `f64` coordinate). An observable left out silently lets any change to it pass.
 - When a design statement changes, search both design files, both READMEs, and `.cursor/rules/` for every sentence that restates it, and change them in the same PR. A section that restates the old rule is a contradiction, not a summary.
+- Before a PR states "every X does Y" (every arena-id map, every caller, every path), search the whole crate for X. The PR's Verification names the search and the exceptions that remain. A claim checked against the diff alone misses the X the diff did not touch.
 - A design argument states the step that carries it, not only its conclusion. A sentence that quantifies over pairs or over facets states the incidence condition it means.
 
 ```text

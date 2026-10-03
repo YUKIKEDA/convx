@@ -103,8 +103,8 @@ pub(crate) fn is_coplanar(points: &[&[f64]]) -> Result<bool, ExactEvaluationExha
 /// determinant of `facet[i] - facet[0]`, `i = 1..k`, followed by the row
 /// `direction` as it is. `facet` holds k points of dimension k.
 ///
-/// A direction pointing to the side where [`distance_sign`] is positive has
-/// a positive sign here.
+/// A direction pointing to the side where [`orient`] of `facet` followed by
+/// a point is positive has a positive sign here.
 pub(crate) fn orient_direction(
     facet: &[&[f64]],
     direction: &[f64],

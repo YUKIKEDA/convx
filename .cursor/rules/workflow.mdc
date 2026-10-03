@@ -17,7 +17,7 @@ Grill (when the design branches) → Issue → branch → work → PR → human 
 2. Open a GitHub Issue from a template. Blank issues are disabled. One Issue, one PR.
 3. A change to the meaning of the spec is a `design` Issue that updates `docs/design.ja.md` and `docs/design.md` together, before any implementation Issue. `docs/design.md` carries the full English text. It is not a pointer page.
 4. Branch: `type/<issue-number>-<slug>`.
-5. Work that Issue only. Do not start a row whose status is `Set after Grill on #n`.
+5. Work that Issue only. Do not start a row whose status is `Set after Grill on #n`. The change that writes that row's Grill decision into its Issue body also sets the status to `Not started`. A row left `Set after Grill` blocks **Current work** when it points there.
 6. Open a PR with `.github/pull_request_template.md`. `Closes #N` on its own line under `## Related`.
 7. A human reviews and squash-merges. Agents do not merge.
 8. Retrospective, below, before the next feature branch.
