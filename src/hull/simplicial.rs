@@ -216,7 +216,7 @@ impl<'a> SimplicialHull<'a> {
         let origin = self.input.coords(facet.vertices[0]);
         Some(
             self.input
-                .point(point)
+                .coords(point)
                 .iter()
                 .zip(origin)
                 .zip(normal)
@@ -748,6 +748,39 @@ pub(crate) mod tests {
             }
             assert!(facet.outside.is_empty());
         }
+    }
+
+    #[test]
+    fn lifted_working_distance_reads_the_lifted_coordinate() {
+        // On the lift, the working distance is the dot product over all
+        // D + 1 engine coordinates; dropping the lifted one changes it.
+        let mut rng = Rng(7);
+        let points: Vec<f64> = (0..2 * 40).map(|_| rng.unit()).collect();
+        let Ok(input) = accept(2, &points).unwrap().lift().unwrap() else {
+            panic!("random sites lift to a full-dimensional set");
+        };
+        let hull = SimplicialHull::build(input, Execution::Sequential).unwrap();
+        let mut checked = 0;
+        for (_, facet) in hull.facets.iter() {
+            let Some(normal) = facet.normal.as_ref() else {
+                continue;
+            };
+            assert_eq!(normal.len(), 3);
+            let origin = hull.input.coords(facet.vertices[0]);
+            for &p in &hull.input.representatives {
+                let full: f64 = hull
+                    .input
+                    .coords(p)
+                    .iter()
+                    .zip(origin)
+                    .zip(normal)
+                    .map(|((x, o), n)| (x - o) * n)
+                    .sum();
+                assert_eq!(hull.working_distance(facet, p), Some(full));
+                checked += 1;
+            }
+        }
+        assert!(checked > 0);
     }
 
     fn vertex_set(hull: &SimplicialHull<'_>) -> Vec<u32> {
