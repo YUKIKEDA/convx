@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P4-4 (#22).
+P4-5 (#23).
 
 ## Dependencies
 
@@ -70,7 +70,7 @@ Static API, Delaunay, Voronoi, and oracles. Pulling triangulation and the cosphe
 | P4-1 | Feat | Delaunay as the lower hull of the lift                             | #19   | Done        |
 | P4-2 | Feat | Pulling triangulation when the lift is flat                        | #20   | Done        |
 | P4-3 | Feat | Voronoi dual, merging cospherical simplices into one vertex        | #21   | Done        |
-| P4-4 | Feat | Static API                                                         | #22   | Not started |
+| P4-4 | Feat | Static API                                                         | #22   | Done        |
 | P4-5 | Test | Oracles and the Phase 4 Delaunay inputs                            | #23   | Not started |
 | P4-6 | Test | Deterministic Delaunay and Voronoi simulations and frozen fixtures | #24   | Not started |
 
