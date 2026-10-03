@@ -1,0 +1,28 @@
+---
+description: Row-major points and column-major faer stay distinct; kernels do not invent a second layout
+alwaysApply: true
+---
+
+# HPC access
+
+Speed targets and when to start speed work: `.cursor/rules/bench.mdc`. This file is how memory is read. The layouts are named in `docs/design.ja.md`. Do not copy the rest of that spec here.
+
+Two storages. Do not treat one as the other.
+
+- Points are row-major `&[f64]`. Point `i` is `i * D .. (i + 1) * D`, or `chunks_exact(D)`. Coordinate `j` of that point is `points[i * D + j]`.
+- `faer::Mat` is column-major. Touch it only as `(row, col)`. In the QR edge matrix, column `j` is edge `j`: row `i` holds coordinate `i` of that edge. The null direction is the last column of Q, read down that column.
+
+A distance kernel may gather one coordinate of several points into a lane temporary. The input slice stays row-major. One point per lane, the same operations in the same order as the scalar path, and no `mul_add` unless the certified error bound includes FMA rounding. The vector path and the scalar path of that kernel return bitwise identical `w` and `l`. The scan only culls points proved strictly inside. It does not decide visibility or outsideness.
+
+Do not store the points column-major, transpose them, or keep a second copy so a gather becomes contiguous. Do not walk a `Mat` buffer as rows, and do not swap `(row, col)`. Do not add an alignment, a prefetch, or an `unsafe` SIMD intrinsic the design does not name. Wider SIMD, lock-free allocation, and a cache of lifted coordinates stay on their roadmap rows.
+
+```rust
+// BAD — points read as columns; faer's buffer walked as a row
+let x = points[j * n + i];
+let first_row = &q_buf[..ncols];
+
+// GOOD — one point is contiguous; faer is (row, col); a gather copies one coordinate
+let p = &points[i * d..(i + 1) * d];
+let last_column: Vec<f64> = (0..d).map(|row| q[(row, d - 1)]).collect();
+*slot = points[index as usize * d + j];
+```
