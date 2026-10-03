@@ -328,7 +328,7 @@ fn normal_and_cull_on_the_same_extreme_inputs() {
                 let queries = [on, just_outside, deep_inside];
                 let flat: Vec<f64> = queries.iter().flatten().copied().collect();
                 let mut inside = [false; 3];
-                plane.mark_inside(&flat, &[0, 1, 2], &mut inside);
+                plane.mark_inside(&flat, k, &[0, 1, 2], &mut inside);
                 assert!(!inside[0], "{case}: culled a point on the plane");
                 assert!(!inside[1], "{case}: culled a point 1 ulp outside");
                 // Near the largest exponent the L1 distance l sums to

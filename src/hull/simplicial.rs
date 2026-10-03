@@ -29,7 +29,7 @@ use super::input::Input;
 use super::ConvexHullError;
 use crate::arena::{Arena, ArenaFull, FacetId, IdMap, IdSet};
 use crate::cull::CullPlane;
-use crate::normal::{facet_cofactors, unit_normal_with};
+use crate::normal::{facet_cofactors, lifted_facet_cofactors, unit_normal_with};
 use crate::predicates::Sign;
 
 /// A simplicial facet during construction.
@@ -129,12 +129,21 @@ impl<'a> SimplicialHull<'a> {
         } else {
             None
         };
-        // The cull proves points inside from their f64 coordinates, which a
-        // rounded lift does not give, so lifted facets cull nothing.
-        let cull = normal
-            .as_deref()
-            .filter(|_| !self.input.is_lifted())
-            .and_then(|n| CullPlane::with_cofactors(&points, n, outward, cofactors.as_deref()));
+        // A lifted facet's points are rounded, so its cull plane is certified
+        // against the exact lift: the cofactors carry each height's bound,
+        // and the threshold adds the origin's and the query's (#109).
+        let cull = normal.as_deref().and_then(|n| {
+            if self.input.is_lifted() {
+                let bounds: Vec<f64> = vertices
+                    .iter()
+                    .map(|&v| self.input.height_bound(v))
+                    .collect();
+                let widened = lifted_facet_cofactors(&points, cofactors.as_deref()?, &bounds);
+                CullPlane::with_lifted_cofactors(&points, n, outward, widened.as_deref(), bounds[0])
+            } else {
+                CullPlane::with_cofactors(&points, n, outward, cofactors.as_deref())
+            }
+        });
         Ok(Simplex {
             vertices,
             neighbors,
@@ -744,7 +753,7 @@ fn side(input: &Input<'_>, facet: &Simplex, point: u32) -> Result<Sign, ConvexHu
     if let Some(proved) = facet
         .cull
         .as_ref()
-        .and_then(|cull| cull.proved_side(input.point(point)))
+        .and_then(|cull| cull.proved_side(input.coords(point), input.height_bound(point)))
     {
         debug_assert_eq!(
             proved,
@@ -780,12 +789,21 @@ fn take_outside(
 ) -> Result<(), ConvexHullError> {
     let mut inside = vec![false; remaining.len()];
     if let Some(cull) = &facet.cull {
-        cull.mark_inside(input.points(), remaining, &mut inside);
+        let (rows, stride) = input.engine_rows();
+        cull.mark_inside(rows, stride, remaining, &mut inside);
     }
     let mut kept = Vec::with_capacity(remaining.len());
     let mut kept_strict = Vec::with_capacity(remaining.len());
     for ((&p, &culled), &s) in remaining.iter().zip(&inside).zip(strict.iter()) {
         let sign = if culled {
+            // A culled point is dropped without `side`, so debug builds check
+            // the scan's proof here, as `side` checks `proved_side`.
+            #[cfg(debug_assertions)]
+            debug_assert_eq!(
+                oriented_side(input, facet, p)?,
+                Sign::Negative,
+                "the scan culled point {p}, which is not strictly inside"
+            );
             Sign::Negative
         } else {
             side(input, facet, p)?
@@ -905,6 +923,136 @@ pub(crate) mod tests {
             }
             assert!(facet.outside.is_empty());
         }
+    }
+
+    /// Every side a lifted facet's cull plane proves, by `proved_side` or by
+    /// the scan, is the exact lifted orientation sign. Returns the number of
+    /// cull planes, of proved sides, and of sides left to the orientation.
+    fn check_lifted_proofs(dim: usize, points: &[f64]) -> (usize, usize, usize) {
+        let Ok(input) = accept(dim, points).unwrap().lift().unwrap() else {
+            panic!("the sites are not all cospherical, so the lift is not flat");
+        };
+        let hull = SimplicialHull::build(input, Execution::Sequential).unwrap();
+        let input = &hull.input;
+        let (rows, stride) = input.engine_rows();
+        let sites = &input.representatives;
+        let (mut planes, mut proved, mut open) = (0, 0, 0);
+        for (_, facet) in hull.facets.iter() {
+            let Some(cull) = facet.cull() else {
+                continue;
+            };
+            planes += 1;
+            let mut inside = vec![false; sites.len()];
+            cull.mark_inside(rows, stride, sites, &mut inside);
+            let mut scalar = vec![false; sites.len()];
+            cull.mark_inside_scalar(rows, stride, sites, &mut scalar);
+            assert_eq!(
+                inside, scalar,
+                "the vector and scalar scans disagree on lifted rows"
+            );
+            for (&p, &culled) in sites.iter().zip(&inside) {
+                let exact = oriented_side(input, facet, p).unwrap();
+                match cull.proved_side(input.coords(p), input.height_bound(p)) {
+                    Some(sign) => {
+                        assert_eq!(sign, exact, "facet {:?}, site {p}", facet.vertices);
+                        proved += 1;
+                    }
+                    None => open += 1,
+                }
+                if culled {
+                    assert_eq!(exact, Sign::Negative, "culled site {p}");
+                }
+            }
+        }
+        (planes, proved, open)
+    }
+
+    #[test]
+    fn lifted_proved_sides_are_the_exact_sides() {
+        // x1^2 + y1^2 = x2^2 + y2^2 = N (two products of sums of two squares,
+        // Brahmagupta-Fibonacci), N about 2^57.1. Their rounded heights (the
+        // sum of the rounded squares) differ by 32, so without the height bounds a side would
+        // be proved for exactly cocircular sites. Sites one unit off the
+        // circle, inside it so the cocircular sites keep their upper facets,
+        // are provable. The small circle has exact heights; at 2^-20
+        // and 2^20 it checks the scaling.
+        let (x1, y1) = (8_362_900.0, 392_702_530.0);
+        let (x2, y2) = (377_454_220.0, 108_690_050.0);
+        let mut big: Vec<[f64; 2]> = Vec::new();
+        for (x, y) in [(x1, y1), (y1, x1), (x2, y2), (y2, x2)] {
+            big.extend([[x, y], [-x, y], [x, -y], [-x, -y]]);
+        }
+        big.extend([[x1 - 1.0, y1], [x2, y2 - 1.0], [0.0, 0.0]]);
+        let small: Vec<[f64; 2]> = vec![
+            [5.0, 0.0],
+            [0.0, 5.0],
+            [-5.0, 0.0],
+            [0.0, -5.0],
+            [3.0, 4.0],
+            [4.0, 3.0],
+            [-3.0, 4.0],
+            [4.0, -3.0],
+            [3.0, 5.0],
+            [5.0, 1.0],
+            [0.0, 0.0],
+        ];
+        let mut sphere: Vec<[f64; 3]> = Vec::new();
+        for p in [
+            [x1, y1, 0.0],
+            [x2, y2, 0.0],
+            [y1, 0.0, x1],
+            [0.0, x2, y2],
+            [0.0, y1, x1],
+            [y2, 0.0, x2],
+        ] {
+            for signs in 0..4 {
+                let mut q = p;
+                if signs & 1 == 1 {
+                    q[0] = -q[0];
+                }
+                if signs & 2 == 2 {
+                    q[1] = -q[1];
+                }
+                sphere.push(q);
+            }
+        }
+        sphere.extend([[x1 - 1.0, y1, 0.0], [0.0, x2, y2 - 1.0], [0.0, 0.0, 0.0]]);
+        let cases: Vec<(String, usize, Vec<f64>)> = vec![
+            (
+                "big circle".into(),
+                2,
+                big.iter().flatten().copied().collect(),
+            ),
+            (
+                "big sphere".into(),
+                3,
+                sphere.iter().flatten().copied().collect(),
+            ),
+            (
+                "small circle".into(),
+                2,
+                small.iter().flatten().copied().collect(),
+            ),
+            (
+                "small circle 2^-20".into(),
+                2,
+                small.iter().flatten().map(|x| x * 2f64.powi(-20)).collect(),
+            ),
+            (
+                "small circle 2^20".into(),
+                2,
+                small.iter().flatten().map(|x| x * 2f64.powi(20)).collect(),
+            ),
+        ];
+        for (name, dim, points) in &cases {
+            let (planes, proved, open) = check_lifted_proofs(*dim, points);
+            assert!(planes > 0 && proved > 0, "{name}: nothing proved");
+            assert!(open > 0, "{name}: every cospherical side was proved");
+        }
+        // Heights that overflow to infinity give no working normal, so no
+        // cull plane, and every side goes to the orientation.
+        let huge: Vec<f64> = small.iter().flatten().map(|x| x * 2f64.powi(520)).collect();
+        assert_eq!(check_lifted_proofs(2, &huge), (0, 0, 0));
     }
 
     #[test]
