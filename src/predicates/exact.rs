@@ -44,14 +44,23 @@ pub(super) fn exponent_shift(x: f64) -> Option<u64> {
     (mantissa != 0).then_some(shift)
 }
 
+/// Grows `v` so that it can hold `total` elements without reallocating.
+fn try_reserve_total<T>(v: &mut Vec<T>, total: usize) -> Result<(), ExactEvaluationExhausted> {
+    if total > v.capacity() {
+        v.try_reserve(total - v.len())
+            .map_err(|_| ExactEvaluationExhausted)?;
+    }
+    Ok(())
+}
+
 /// A signed integer of arbitrary size.
 ///
-/// The magnitude is stored as little-endian 32-bit limbs without high zero
+/// The magnitude is stored as little-endian 64-bit limbs without high zero
 /// limbs. Zero has an empty magnitude and is never negative.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct BigInt {
     negative: bool,
-    magnitude: Vec<u32>,
+    magnitude: Vec<u64>,
 }
 
 impl BigInt {
@@ -71,10 +80,8 @@ impl BigInt {
         })
     }
 
-    fn from_parts(negative: bool, mut magnitude: Vec<u32>) -> Self {
-        while magnitude.last() == Some(&0) {
-            magnitude.pop();
-        }
+    fn from_parts(negative: bool, mut magnitude: Vec<u64>) -> Self {
+        trim(&mut magnitude);
         let negative = negative && !magnitude.is_empty();
         Self {
             negative,
@@ -94,14 +101,13 @@ impl BigInt {
         }
         debug_assert!(shift >= base, "scale base above an input exponent");
         let shift = shift - base;
-        let limb_shift = (shift / 32) as usize;
-        let bit_shift = (shift % 32) as u32;
+        let limb_shift = (shift / 64) as usize;
+        let bit_shift = (shift % 64) as u32;
         let wide = u128::from(mantissa) << bit_shift;
-        let mut magnitude = try_vec(limb_shift + 3)?;
+        let mut magnitude = try_vec(limb_shift + 2)?;
         magnitude.resize(limb_shift, 0);
-        magnitude.push(wide as u32);
-        magnitude.push((wide >> 32) as u32);
-        magnitude.push((wide >> 64) as u32);
+        magnitude.push(wide as u64);
+        magnitude.push((wide >> 64) as u64);
         Ok(Self::from_parts(negative, magnitude))
     }
 
@@ -109,7 +115,7 @@ impl BigInt {
     fn bit_length(&self) -> u64 {
         match self.magnitude.last() {
             Some(&top) => {
-                (self.magnitude.len() as u64 - 1) * 32 + u64::from(32 - top.leading_zeros())
+                (self.magnitude.len() as u64 - 1) * 64 + u64::from(64 - top.leading_zeros())
             }
             None => 0,
         }
@@ -119,18 +125,13 @@ impl BigInt {
     /// then rounded to `f64`. Exact enough for a direction when `shift` is
     /// the bit length of the largest value of a vector minus 64.
     fn to_f64_shifted(&self, shift: u64) -> f64 {
-        let mut bits = 0_u64;
-        for (offset, slot) in (0..64_u64).enumerate() {
-            let position = shift + slot;
-            let limb = self
-                .magnitude
-                .get((position / 32) as usize)
-                .copied()
-                .unwrap_or(0);
-            if (limb >> (position % 32)) & 1 == 1 {
-                bits |= 1 << offset;
-            }
-        }
+        let limb = |i: u64| self.magnitude.get(i as usize).copied().unwrap_or(0);
+        let (index, offset) = (shift / 64, (shift % 64) as u32);
+        let bits = if offset == 0 {
+            limb(index)
+        } else {
+            (limb(index) >> offset) | (limb(index + 1) << (64 - offset))
+        };
         let value = bits as f64;
         if self.negative {
             -value
@@ -149,6 +150,7 @@ impl BigInt {
         }
     }
 
+    #[cfg(test)]
     fn try_clone(&self) -> Result<Self, ExactEvaluationExhausted> {
         let mut magnitude = try_vec(self.magnitude.len())?;
         magnitude.extend_from_slice(&self.magnitude);
@@ -158,102 +160,188 @@ impl BigInt {
         })
     }
 
+    /// Sets the value to zero, keeping the limb buffer.
+    fn clear(&mut self) {
+        self.magnitude.clear();
+        self.negative = false;
+    }
+
+    /// Sets the value to one, keeping the limb buffer.
+    fn set_one(&mut self) -> Result<(), ExactEvaluationExhausted> {
+        self.clear();
+        try_reserve_total(&mut self.magnitude, 1)?;
+        self.magnitude.push(1);
+        Ok(())
+    }
+
+    /// Copies `other` into this value's limb buffer.
+    fn assign(&mut self, other: &Self) -> Result<(), ExactEvaluationExhausted> {
+        self.magnitude.clear();
+        try_reserve_total(&mut self.magnitude, other.magnitude.len())?;
+        self.magnitude.extend_from_slice(&other.magnitude);
+        self.negative = other.negative;
+        Ok(())
+    }
+
+    /// Copies `-other` into this value's limb buffer.
+    fn assign_negated(&mut self, other: &Self) -> Result<(), ExactEvaluationExhausted> {
+        self.assign(other)?;
+        self.negative = !self.negative && !self.magnitude.is_empty();
+        Ok(())
+    }
+
     fn negated(mut self) -> Self {
         self.negative = !self.negative && !self.magnitude.is_empty();
         self
     }
 
-    fn signed_add(
-        &self,
-        other: &Self,
-        other_negative: bool,
-    ) -> Result<Self, ExactEvaluationExhausted> {
-        if self.negative == other_negative {
-            let magnitude = add_magnitude(&self.magnitude, &other.magnitude)?;
-            return Ok(Self::from_parts(self.negative, magnitude));
+    /// Adds the magnitude `other` with sign `negative` in place.
+    fn accumulate(
+        &mut self,
+        other: &[u64],
+        negative: bool,
+    ) -> Result<(), ExactEvaluationExhausted> {
+        if other.is_empty() {
+            return Ok(());
         }
-        match compare_magnitude(&self.magnitude, &other.magnitude) {
-            Ordering::Equal => Ok(Self::zero()),
-            Ordering::Greater => {
-                let magnitude = sub_magnitude(&self.magnitude, &other.magnitude)?;
-                Ok(Self::from_parts(self.negative, magnitude))
+        if self.magnitude.is_empty() || self.negative == negative {
+            if self.magnitude.is_empty() {
+                self.negative = negative;
             }
+            return add_assign_magnitude(&mut self.magnitude, other);
+        }
+        match compare_magnitude(&self.magnitude, other) {
+            Ordering::Equal => {
+                self.magnitude.clear();
+                self.negative = false;
+            }
+            Ordering::Greater => sub_assign_magnitude(&mut self.magnitude, other),
             Ordering::Less => {
-                let magnitude = sub_magnitude(&other.magnitude, &self.magnitude)?;
-                Ok(Self::from_parts(other_negative, magnitude))
+                reverse_sub_assign_magnitude(&mut self.magnitude, other)?;
+                self.negative = negative;
             }
         }
+        Ok(())
     }
 
-    pub(super) fn add(&self, other: &Self) -> Result<Self, ExactEvaluationExhausted> {
-        self.signed_add(other, other.negative)
-    }
-
-    pub(super) fn sub(&self, other: &Self) -> Result<Self, ExactEvaluationExhausted> {
-        let other_negative = !other.negative && !other.magnitude.is_empty();
-        self.signed_add(other, other_negative)
-    }
-
-    pub(super) fn mul(&self, other: &Self) -> Result<Self, ExactEvaluationExhausted> {
-        if self.magnitude.is_empty() || other.magnitude.is_empty() {
-            return Ok(Self::zero());
+    /// `self += sign * x * y`, where `sign` is -1 when `negate`. `scratch` is
+    /// reused across calls, so a dot product allocates only as its
+    /// accumulator grows.
+    fn add_product(
+        &mut self,
+        x: &Self,
+        y: &Self,
+        negate: bool,
+        scratch: &mut Vec<u64>,
+    ) -> Result<(), ExactEvaluationExhausted> {
+        if x.magnitude.is_empty() || y.magnitude.is_empty() {
+            return Ok(());
         }
-        let magnitude = mul_magnitude(&self.magnitude, &other.magnitude)?;
-        Ok(Self::from_parts(self.negative != other.negative, magnitude))
+        mul_into(scratch, &x.magnitude, &y.magnitude)?;
+        self.accumulate(scratch, (x.negative != y.negative) != negate)
+    }
+
+    #[cfg(test)]
+    pub(super) fn add(&self, other: &Self) -> Result<Self, ExactEvaluationExhausted> {
+        let mut sum = self.try_clone()?;
+        sum.accumulate(&other.magnitude, other.negative)?;
+        Ok(sum)
+    }
+
+    #[cfg(test)]
+    pub(super) fn sub(&self, other: &Self) -> Result<Self, ExactEvaluationExhausted> {
+        let mut difference = self.try_clone()?;
+        difference.accumulate(&other.magnitude, !other.negative)?;
+        Ok(difference)
+    }
+
+    #[cfg(test)]
+    pub(super) fn mul(&self, other: &Self) -> Result<Self, ExactEvaluationExhausted> {
+        let mut product = Self::zero();
+        let mut scratch = Vec::new();
+        product.add_product(self, other, false, &mut scratch)?;
+        Ok(product)
     }
 }
 
-fn compare_magnitude(a: &[u32], b: &[u32]) -> Ordering {
+fn trim(magnitude: &mut Vec<u64>) {
+    while magnitude.last() == Some(&0) {
+        magnitude.pop();
+    }
+}
+
+fn compare_magnitude(a: &[u64], b: &[u64]) -> Ordering {
     a.len()
         .cmp(&b.len())
         .then_with(|| a.iter().rev().cmp(b.iter().rev()))
 }
 
-fn add_magnitude(a: &[u32], b: &[u32]) -> Result<Vec<u32>, ExactEvaluationExhausted> {
-    let (long, short) = if a.len() >= b.len() { (a, b) } else { (b, a) };
-    let mut out = try_vec(long.len() + 1)?;
-    let mut carry = 0_u64;
-    for (i, &limb) in long.iter().enumerate() {
-        let sum = u64::from(limb) + u64::from(short.get(i).copied().unwrap_or(0)) + carry;
-        out.push(sum as u32);
-        carry = sum >> 32;
+/// `acc += b`.
+fn add_assign_magnitude(acc: &mut Vec<u64>, b: &[u64]) -> Result<(), ExactEvaluationExhausted> {
+    let len = acc.len().max(b.len());
+    try_reserve_total(acc, len + 1)?;
+    acc.resize(len, 0);
+    let mut carry = false;
+    for (i, slot) in acc.iter_mut().enumerate() {
+        let (sum, c1) = slot.overflowing_add(b.get(i).copied().unwrap_or(0));
+        let (sum, c2) = sum.overflowing_add(u64::from(carry));
+        *slot = sum;
+        carry = c1 || c2;
     }
-    if carry != 0 {
-        out.push(carry as u32);
+    if carry {
+        acc.push(1);
     }
-    Ok(out)
+    Ok(())
 }
 
-/// `a - b` for `a >= b`.
-fn sub_magnitude(a: &[u32], b: &[u32]) -> Result<Vec<u32>, ExactEvaluationExhausted> {
-    let mut out = try_vec(a.len())?;
-    let mut borrow = 0_i64;
-    for (i, &limb) in a.iter().enumerate() {
-        let mut diff = i64::from(limb) - i64::from(b.get(i).copied().unwrap_or(0)) - borrow;
-        borrow = 0;
-        if diff < 0 {
-            diff += 1 << 32;
-            borrow = 1;
-        }
-        out.push(diff as u32);
+/// `acc -= b` for `acc > b`.
+fn sub_assign_magnitude(acc: &mut Vec<u64>, b: &[u64]) {
+    let mut borrow = false;
+    for (i, slot) in acc.iter_mut().enumerate() {
+        let (diff, b1) = slot.overflowing_sub(b.get(i).copied().unwrap_or(0));
+        let (diff, b2) = diff.overflowing_sub(u64::from(borrow));
+        *slot = diff;
+        borrow = b1 || b2;
     }
-    debug_assert_eq!(borrow, 0, "sub_magnitude requires a >= b");
-    Ok(out)
+    debug_assert!(!borrow, "sub_assign_magnitude requires acc > b");
+    trim(acc);
 }
 
-fn mul_magnitude(a: &[u32], b: &[u32]) -> Result<Vec<u32>, ExactEvaluationExhausted> {
-    let mut out = try_vec(a.len() + b.len())?;
+/// `acc = b - acc` for `b > acc`.
+fn reverse_sub_assign_magnitude(
+    acc: &mut Vec<u64>,
+    b: &[u64],
+) -> Result<(), ExactEvaluationExhausted> {
+    try_reserve_total(acc, b.len())?;
+    acc.resize(b.len(), 0);
+    let mut borrow = false;
+    for (slot, &limb) in acc.iter_mut().zip(b) {
+        let (diff, b1) = limb.overflowing_sub(*slot);
+        let (diff, b2) = diff.overflowing_sub(u64::from(borrow));
+        *slot = diff;
+        borrow = b1 || b2;
+    }
+    debug_assert!(!borrow, "reverse_sub_assign_magnitude requires b > acc");
+    trim(acc);
+    Ok(())
+}
+
+/// `out = a * b`, reusing the buffer of `out`.
+fn mul_into(out: &mut Vec<u64>, a: &[u64], b: &[u64]) -> Result<(), ExactEvaluationExhausted> {
+    out.clear();
+    try_reserve_total(out, a.len() + b.len())?;
     out.resize(a.len() + b.len(), 0);
     for (i, &x) in a.iter().enumerate() {
-        let mut carry = 0_u64;
+        let mut carry = 0_u128;
         for (j, &y) in b.iter().enumerate() {
-            let cur = u64::from(out[i + j]) + u64::from(x) * u64::from(y) + carry;
-            out[i + j] = cur as u32;
-            carry = cur >> 32;
+            let cur = u128::from(out[i + j]) + u128::from(x) * u128::from(y) + carry;
+            out[i + j] = cur as u64;
+            carry = cur >> 64;
         }
-        out[i + b.len()] = carry as u32;
+        out[i + b.len()] = carry as u64;
     }
-    Ok(out)
+    trim(out);
+    Ok(())
 }
 
 /// Exact sign of the determinant described by `rows`.
@@ -276,10 +364,11 @@ fn determinant_of(rows: Rows<'_>) -> Result<BigInt, ExactEvaluationExhausted> {
     // The lifted column holds sum X^2 - sum O^2 over the scaled integers:
     // the true difference times 2^(2 (base - 1074)), another positive factor
     // that applies to the whole column.
-    let squared_norm = |scaled: &[BigInt]| -> Result<BigInt, ExactEvaluationExhausted> {
+    let mut scratch = Vec::new();
+    let mut squared_norm = |scaled: &[BigInt]| -> Result<BigInt, ExactEvaluationExhausted> {
         let mut sum = BigInt::zero();
         for x in scaled {
-            sum = sum.add(&x.mul(x)?)?;
+            sum.add_product(x, x, false, &mut scratch)?;
         }
         Ok(sum)
     };
@@ -293,15 +382,24 @@ fn determinant_of(rows: Rows<'_>) -> Result<BigInt, ExactEvaluationExhausted> {
         let mut row = try_vec(k)?;
         match rows.row(i) {
             Row::Difference(point) => {
-                let mut scaled = try_vec(point.len())?;
-                for &x in point {
-                    scaled.push(BigInt::from_f64_scaled(x, base)?);
-                }
-                for (x, o) in scaled.iter().zip(&scaled_origin) {
-                    row.push(x.sub(o)?);
-                }
                 if let Some(origin_norm) = &origin_norm {
-                    row.push(squared_norm(&scaled)?.sub(origin_norm)?);
+                    let mut scaled = try_vec(point.len())?;
+                    for &x in point {
+                        scaled.push(BigInt::from_f64_scaled(x, base)?);
+                    }
+                    let mut norm = squared_norm(&scaled)?;
+                    norm.accumulate(&origin_norm.magnitude, !origin_norm.negative)?;
+                    for (mut x, o) in scaled.into_iter().zip(&scaled_origin) {
+                        x.accumulate(&o.magnitude, !o.negative)?;
+                        row.push(x);
+                    }
+                    row.push(norm);
+                } else {
+                    for (&x, o) in point.iter().zip(&scaled_origin) {
+                        let mut entry = BigInt::from_f64_scaled(x, base)?;
+                        entry.accumulate(&o.magnitude, !o.negative)?;
+                        row.push(entry);
+                    }
                 }
             }
             Row::Direction(direction) => {
@@ -358,60 +456,71 @@ pub(super) fn determinant(a: &[Vec<BigInt>]) -> Result<BigInt, ExactEvaluationEx
     if n == 0 {
         return BigInt::one();
     }
+    // Every intermediate lives in a slot allocated once per determinant and
+    // overwritten in place, so limb buffers are reused across steps.
+    let slots = |len: usize| -> Result<Vec<BigInt>, ExactEvaluationExhausted> {
+        let mut v = try_vec(len)?;
+        v.resize_with(len, BigInt::zero);
+        Ok(v)
+    };
+    let mut scratch: Vec<u64> = Vec::new();
     // Coefficients of det(xI - A_r), highest power first, for the leading
-    // r x r submatrix A_r. Starts with r = 1.
-    let mut poly: Vec<BigInt> = try_vec(2)?;
-    poly.push(BigInt::one()?);
-    poly.push(a[0][0].try_clone()?.negated());
+    // r x r submatrix A_r: r + 1 of them. Starts with r = 1.
+    let mut poly = slots(n + 1)?;
+    let mut next_poly = slots(n + 1)?;
+    let mut column = slots(n + 1)?;
+    let mut v = slots(n)?;
+    let mut next = slots(n)?;
+    poly[0].set_one()?;
+    poly[1].assign_negated(&a[0][0])?;
 
     for r in 1..n {
         // First column of the Toeplitz matrix: 1, -a_rr, -R C, -R A_r C, ...,
         // -R A_r^(r-1) C, where R is row r and C is column r restricted to
         // the leading r entries.
-        let mut column: Vec<BigInt> = try_vec(r + 2)?;
-        column.push(BigInt::one()?);
-        column.push(a[r][r].try_clone()?.negated());
-        let mut v: Vec<BigInt> = try_vec(r)?;
-        for row in a.iter().take(r) {
-            v.push(row[r].try_clone()?);
+        column[0].set_one()?;
+        column[1].assign_negated(&a[r][r])?;
+        for (slot, row) in v.iter_mut().zip(a).take(r) {
+            slot.assign(&row[r])?;
         }
         for step in 0..r {
-            let mut dot = BigInt::zero();
-            for (x, y) in a[r][..r].iter().zip(&v) {
-                dot = dot.add(&x.mul(y)?)?;
+            // -(R . v), accumulated with the sign folded into each product.
+            let dot = &mut column[step + 2];
+            dot.clear();
+            for (x, y) in a[r][..r].iter().zip(&v[..r]) {
+                dot.add_product(x, y, true, &mut scratch)?;
             }
-            column.push(dot.negated());
             if step + 1 < r {
-                let mut next: Vec<BigInt> = try_vec(r)?;
-                for row in a.iter().take(r) {
-                    let mut sum = BigInt::zero();
-                    for (x, y) in row[..r].iter().zip(&v) {
-                        sum = sum.add(&x.mul(y)?)?;
+                for (sum, row) in next.iter_mut().zip(a).take(r) {
+                    sum.clear();
+                    for (x, y) in row[..r].iter().zip(&v[..r]) {
+                        sum.add_product(x, y, false, &mut scratch)?;
                     }
-                    next.push(sum);
                 }
-                v = next;
+                core::mem::swap(&mut v, &mut next);
             }
         }
         // poly <- T * poly, T lower-triangular Toeplitz of size (r+2) x (r+1).
-        let mut next_poly: Vec<BigInt> = try_vec(r + 2)?;
-        for i in 0..r + 2 {
-            let mut sum = BigInt::zero();
-            for (j, p) in poly.iter().enumerate().take(i + 1) {
-                sum = sum.add(&column[i - j].mul(p)?)?;
+        for (i, sum) in next_poly.iter_mut().enumerate().take(r + 2) {
+            sum.clear();
+            for (j, p) in poly.iter().enumerate().take((i + 1).min(r + 1)) {
+                sum.add_product(&column[i - j], p, false, &mut scratch)?;
             }
-            next_poly.push(sum);
         }
-        poly = next_poly;
+        core::mem::swap(&mut poly, &mut next_poly);
     }
 
-    let constant = poly.pop().unwrap_or_else(BigInt::zero);
+    let constant = core::mem::replace(&mut poly[n], BigInt::zero());
     Ok(if n % 2 == 1 {
         constant.negated()
     } else {
         constant
     })
 }
+
+#[cfg(test)]
+#[path = "exact_reference.rs"]
+mod reference;
 
 #[cfg(test)]
 mod tests {
@@ -529,5 +638,75 @@ mod tests {
                 assert_eq!(got, want, "{m:?}");
             }
         }
+    }
+
+    /// Random `f64` entries: mixed exponents, zeros, and repeated rows, so
+    /// that values span many limbs and some determinants are exactly zero.
+    fn random_matrix(n: usize, next: &mut impl FnMut() -> u64) -> Vec<Vec<f64>> {
+        let mut m: Vec<Vec<f64>> = (0..n)
+            .map(|_| {
+                (0..n)
+                    .map(|_| match next() % 8 {
+                        0 => 0.0,
+                        1 => (next() % 7) as f64 - 3.0,
+                        _ => {
+                            let mantissa = (next() >> 11) as f64;
+                            let exponent = (next() % 400) as i32 - 200;
+                            let sign = if next().is_multiple_of(2) { 1.0 } else { -1.0 };
+                            sign * mantissa * 2f64.powi(exponent)
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        if n >= 2 && next().is_multiple_of(4) {
+            m[n - 1] = m[0].clone();
+        }
+        m
+    }
+
+    #[test]
+    fn determinant_matches_the_previous_exact_stage() {
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let mut signs = [0usize; 3];
+        for n in 1..=9 {
+            for _ in 0..60 {
+                let m = random_matrix(n, &mut next);
+                let base = m
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .filter_map(exponent_shift)
+                    .min()
+                    .unwrap_or(0);
+                let ours: Vec<Vec<BigInt>> = m
+                    .iter()
+                    .map(|row| {
+                        row.iter()
+                            .map(|&x| BigInt::from_f64_scaled(x, base).unwrap())
+                            .collect()
+                    })
+                    .collect();
+                let theirs: Vec<Vec<reference::RefInt>> = m
+                    .iter()
+                    .map(|row| {
+                        row.iter()
+                            .map(|&x| reference::RefInt::from_f64_scaled(x, base).unwrap())
+                            .collect()
+                    })
+                    .collect();
+                let got = determinant(&ours).unwrap();
+                let want = reference::determinant(&theirs).unwrap().parts();
+                assert_eq!((got.negative, got.magnitude.clone()), want, "{m:?}");
+                signs[got.sign() as usize] += 1;
+            }
+        }
+        assert!(signs.iter().all(|&c| c > 0), "every sign occurs: {signs:?}");
     }
 }
