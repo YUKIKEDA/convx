@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P5-6 (#72), by the owner's choice, ahead of P5-3. P5-9 (#79) follows it.
+P5-6 (#72), by the owner's choice, ahead of P5-3: its majority criterion is re-measured now that P5-9 (#79) is done.
 
 ## Dependencies
 
@@ -87,7 +87,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-6 | Feat | Filtered determinant cheap for every k > 4                    | #72   | Not started            |
 | P5-7 | Feat | Faster distance-zero classification                           | #73   | Set after Grill on #73 |
 | P5-8 | Feat | Linear batch extraction                                       | #75   | Done                   |
-| P5-9 | Feat | Certified distance proves a strict side                       | #79   | Not started            |
+| P5-9 | Feat | Certified distance proves a strict side                       | #79   | Done                   |
 
 ## Intentionally out of scope
 

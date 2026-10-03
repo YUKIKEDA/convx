@@ -687,7 +687,29 @@ enum Link {
 
 /// The exact side of `point` relative to `facet`: [`Sign::Positive`] is
 /// strictly outside, [`Sign::Zero`] on the supporting hyperplane.
+///
+/// A facet with a certified working normal first tries to prove the strict
+/// side from the working distance (design §1); the orientation decides
+/// everything else. Debug builds check every proved side against the
+/// orientation.
 fn side(input: &Input<'_>, facet: &Simplex, point: u32) -> Result<Sign, ConvexHullError> {
+    if let Some(proved) = facet
+        .cull
+        .as_ref()
+        .and_then(|cull| cull.proved_side(input.point(point)))
+    {
+        debug_assert_eq!(
+            proved,
+            oriented_side(input, facet, point)?,
+            "the working distance proved the wrong side of point {point}"
+        );
+        return Ok(proved);
+    }
+    oriented_side(input, facet, point)
+}
+
+/// The side of `point` relative to `facet` by orientation alone.
+fn oriented_side(input: &Input<'_>, facet: &Simplex, point: u32) -> Result<Sign, ConvexHullError> {
     let mut indices = facet.vertices.clone();
     indices.push(point);
     let sign = input.orient(&indices)?;
