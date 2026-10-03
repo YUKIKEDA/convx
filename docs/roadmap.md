@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P5-11 (#86), then P5-3 (#27): the owner asked to take the remaining measured costs in turn.
+P5-3 (#27): the owner asked to take the remaining measured costs in turn.
 
 ## Dependencies
 
@@ -89,7 +89,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-8  | Feat | Linear batch extraction                                       | #75   | Done                   |
 | P5-9  | Feat | Certified distance proves a strict side                       | #79   | Done                   |
 | P5-10 | Feat | Visibility search without SipHash                             | #85   | Done                   |
-| P5-11 | Feat | Cheaper certification of a new facet's working normal         | #86   | Set after Grill on #86 |
+| P5-11 | Feat | Cheaper certification of a new facet's working normal         | #86   | Done                   |
 
 ## Intentionally out of scope
 

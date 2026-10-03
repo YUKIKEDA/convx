@@ -278,6 +278,14 @@ const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
 /// The largest error bound at which a filtered cofactor direction is used.
 const FILTERED_DIRECTION_LIMIT: f64 = 1e-10;
 
+/// [`cofactor_direction_from`] evaluating the cofactors itself.
+#[cfg(test)]
+pub(crate) fn cofactor_direction(
+    facet: &[&[f64]],
+) -> Result<Option<(Vec<f64>, f64)>, ExactEvaluationExhausted> {
+    cofactor_direction_from(facet, direction_cofactors(facet).as_deref())
+}
+
 /// The unit direction of the cofactor vector of the hyperplane through
 /// `facet` (k points of dimension k), with a bound `err` such that the
 /// returned vector is within `err` (Euclidean) of the exact unit direction
@@ -288,11 +296,16 @@ const FILTERED_DIRECTION_LIMIT: f64 = 1e-10;
 /// otherwise the cofactors are computed exactly. Returns `None` only when
 /// every cofactor is exactly zero, that is, when the points are affinely
 /// dependent.
-pub(crate) fn cofactor_direction(
+///
+/// `cofactors` are the filtered cofactors of `facet` already evaluated by
+/// [`direction_cofactors`], so a caller that needs them twice evaluates them
+/// once (#86).
+pub(crate) fn cofactor_direction_from(
     facet: &[&[f64]],
+    cofactors: Option<&[(f64, f64)]>,
 ) -> Result<Option<(Vec<f64>, f64)>, ExactEvaluationExhausted> {
     let k = facet.len() as f64;
-    if let Some(cofactors) = direction_cofactors(facet) {
+    if let Some(cofactors) = cofactors {
         let bound: f64 = cofactors.iter().map(|&(_, e)| e).sum::<f64>() * (1.0 + k * UNIT_ROUNDOFF);
         let length = cofactors.iter().map(|&(c, _)| c * c).sum::<f64>().sqrt();
         let length_low = length * (1.0 - (k + 3.0) * UNIT_ROUNDOFF);
