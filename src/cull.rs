@@ -1,4 +1,5 @@
-//! Distance scan that culls points proved strictly inside a facet.
+//! Distance scan that culls points proved strictly inside a facet, and the
+//! proof of a strict side for one point.
 //!
 //! The scan evaluates, for each point `x`, the working distance
 //! `w = sum_j (x_j - o_j) n_j` against the facet's working unit normal `n`
@@ -10,12 +11,16 @@
 //! ```
 //!
 //! which proves that its exact orientation against the facet is the inside
-//! sign. The scan never decides visibility or outsideness.
+//! sign. [`CullPlane::proved_side`] uses the same threshold for one point in
+//! both directions: beyond it on either side, the working distance proves
+//! the strict side, which is the exact orientation sign (design §1). Within
+//! it, including on the plane, nothing is proved and the orientation
+//! decides.
 //!
 //! # Why the test is sound
 //!
 //! Let `u*` be the exact outward unit normal and `tau >= |n - u*|`. For the
-//! exact value `S = (x - o) . n`, `(x - o) . u* <= S + |x - o| tau`. The
+//! exact value `S = (x - o) . n`, `|(x - o) . u* - S| <= |x - o| tau`. The
 //! rounding of `w` is at most `gamma_{d+1} sum |x_j - o_j| |n_j|`, plus
 //! `d * 2^-1074` for products that underflow. With `|n_j| <= 1 + d u` and
 //! `l >= (1 - gamma_d) sum |x_j - o_j|`, both terms are covered by
@@ -23,7 +28,8 @@
 //! The factor `(1 + 4u)` in `slope` covers the rounding of evaluating
 //! `slope` itself; the factor `(1 + 4u)` in the comparison covers the
 //! rounding of `slope * l + floor`. Both round the threshold up, toward
-//! culling less.
+//! culling less. Every bound is on an absolute value, so the same threshold
+//! proves `(x - o) . u* > 0` when `w` exceeds it.
 //!
 //! `tau` is certified once per facet from the cofactor vector `c` of the
 //! facet's edges (see [`crate::predicates::direction_cofactors`]): with
@@ -96,9 +102,30 @@ impl CullPlane {
         (w, l)
     }
 
+    /// The certified threshold for a point at L1 distance `l`.
+    fn threshold(&self, l: f64) -> f64 {
+        (self.slope * l + self.floor) * (1.0 + 4.0 * UNIT_ROUNDOFF)
+    }
+
     fn is_proved_inside(&self, w: f64, l: f64) -> bool {
-        let threshold = (self.slope * l + self.floor) * (1.0 + 4.0 * UNIT_ROUNDOFF);
-        w < -threshold
+        w < -self.threshold(l)
+    }
+
+    /// The side of `point` that the working distance proves:
+    /// [`Sign::Positive`] strictly outside, [`Sign::Negative`] strictly
+    /// inside, or `None` when it proves neither. A proved sign is the exact
+    /// orientation sign of the facet, in outward order, followed by the
+    /// point (design §1).
+    pub(crate) fn proved_side(&self, point: &[f64]) -> Option<Sign> {
+        let (w, l) = self.scalar_terms(point);
+        let threshold = self.threshold(l);
+        if w > threshold {
+            Some(Sign::Positive)
+        } else if w < -threshold {
+            Some(Sign::Negative)
+        } else {
+            None
+        }
     }
 
     /// Marks `inside[i] = true` for each `indices[i]` whose point in the
@@ -605,5 +632,144 @@ mod tests {
             }
             println!("{row}");
         }
+    }
+
+    /// The side of each point that `plane` proves, checked against the
+    /// exact side relative to `outward`: a proved sign must be that side,
+    /// and a point on the exact plane is never proved. Returns how many
+    /// points were proved outside and inside.
+    fn check_proved(
+        facet: &[&[f64]],
+        outward: Sign,
+        plane: &CullPlane,
+        points: &[Vec<f64>],
+    ) -> (usize, usize) {
+        let (mut outside, mut inside) = (0, 0);
+        for p in points {
+            let exact = distance_sign(facet, p).unwrap();
+            let side = if exact == Sign::Zero {
+                Sign::Zero
+            } else if exact == outward {
+                Sign::Positive
+            } else {
+                Sign::Negative
+            };
+            if let Some(proved) = plane.proved_side(p) {
+                assert_eq!(proved, side, "{p:?} proved on the wrong side");
+                if proved == Sign::Positive {
+                    outside += 1;
+                } else {
+                    inside += 1;
+                }
+            }
+        }
+        (outside, inside)
+    }
+
+    #[test]
+    fn proved_sides_are_the_exact_sides() {
+        // Random facets and points in D = 1..=6 at several magnitudes, plus
+        // points on the plane and one ulp off it: every proved side is the
+        // exact one, and both directions are proved often.
+        let mut rng = Rng(79);
+        for d in 1..=6 {
+            // 1e±45 keeps the cofactors of a D = 6 facet within f64, so the
+            // huge and tiny magnitudes reach the assertions.
+            for scale in [1.0, 1e-45, 1e45, 3.0] {
+                let facet: Vec<Vec<f64>> = (0..d)
+                    .map(|_| (0..d).map(|_| rng.unit() * scale).collect())
+                    .collect();
+                let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
+                let normal = unit_normal(&refs, Sign::Positive)
+                    .unwrap()
+                    .unwrap_or_else(|| panic!("d = {d}, scale {scale}: no normal"));
+                let plane = CullPlane::new(&refs, &normal, Sign::Positive)
+                    .unwrap_or_else(|| panic!("d = {d}, scale {scale}: no certified plane"));
+                let mut points: Vec<Vec<f64>> = (0..400)
+                    .map(|_| (0..d).map(|_| rng.unit() * 4.0 * scale).collect())
+                    .collect();
+                // Points on the plane: affine combinations of the vertices,
+                // and their neighbors one ulp away in the last coordinate.
+                for _ in 0..50 {
+                    let weights: Vec<f64> = (0..d).map(|_| rng.unit()).collect();
+                    let total: f64 = weights.iter().sum();
+                    let on: Vec<f64> = (0..d)
+                        .map(|j| {
+                            facet
+                                .iter()
+                                .zip(&weights)
+                                .map(|(v, w)| v[j] * w / total)
+                                .sum()
+                        })
+                        .collect();
+                    for step in [0_i64, 1, -1] {
+                        let mut q = on.clone();
+                        let last = q[d - 1];
+                        if last != 0.0 {
+                            q[d - 1] = f64::from_bits((last.to_bits() as i64 + step) as u64);
+                        }
+                        points.push(q);
+                    }
+                }
+                let (outside, inside) = check_proved(&refs, Sign::Positive, &plane, &points);
+                assert!(
+                    outside > 50 && inside > 50,
+                    "d = {d}, scale {scale}: {outside} outside, {inside} inside proved"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_tilted_working_normal_proves_neither_side_wrongly() {
+        // The facet y = 0 with outward (0, 1), scanned with a working normal
+        // tilted by 0.1 rad (review of #34). (-1, 0.01) is outside and
+        // (1, -0.01) inside, but the tilted distance has the opposite sign
+        // for both; tau must keep either from being proved.
+        let facet = [vec![0.0, 0.0], vec![1.0, 0.0]];
+        let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
+        let normal = [0.1_f64.sin(), 0.1_f64.cos()];
+        let outward = crate::predicates::orient_direction(&refs, &normal).unwrap();
+        let plane = CullPlane::new(&refs, &normal, outward).expect("certified");
+        let points = vec![
+            vec![-1.0, 0.01],
+            vec![1.0, -0.01],
+            vec![0.5, 10.0],
+            vec![0.5, -10.0],
+        ];
+        let (outside, inside) = check_proved(&refs, outward, &plane, &points);
+        assert_eq!((outside, inside), (1, 1), "only the far points are proved");
+    }
+
+    #[test]
+    fn a_45_degree_working_normal_proves_no_side() {
+        // The facet of #33 with the 45-degree-off normal (-1, 0, 0) that QR
+        // alone returned. tau near 0.77 makes the slope exceed 1, so no
+        // distance can prove a side: the outside point (2, 4, 3) and a point
+        // far on the inner side both go to the orientation.
+        let t = 2f64.powi(-48);
+        let facet = [
+            vec![1.0, 2.0, 3.0],
+            vec![1.0, 2.0, 4.0],
+            vec![1.0 + t, 2.0 + t, 4.0],
+        ];
+        let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
+        let normal = [-1.0, 0.0, 0.0];
+        let outward = crate::predicates::orient_direction(&refs, &normal).unwrap();
+        let plane = CullPlane::new(&refs, &normal, outward).expect("certified");
+        let outside = vec![2.0, 4.0, 3.0];
+        assert_eq!(distance_sign(&refs, &outside).unwrap(), outward);
+        let deep: Vec<f64> = [-100.0, 100.0]
+            .iter()
+            .map(|&k| vec![1.0 + k, 2.0 - k, 3.0])
+            .find(|p| distance_sign(&refs, p).unwrap() == outward.reversed())
+            .unwrap();
+        let far_outside: Vec<f64> = [-100.0, 100.0]
+            .iter()
+            .map(|&k| vec![1.0 + k, 2.0 - k, 3.0])
+            .find(|p| distance_sign(&refs, p).unwrap() == outward)
+            .unwrap();
+        let points = vec![outside, deep, far_outside];
+        assert_eq!(check_proved(&refs, outward, &plane, &points), (0, 0));
     }
 }

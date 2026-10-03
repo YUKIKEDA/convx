@@ -18,7 +18,7 @@ The public API has no tolerance parameter. Coplanar means the exact sign of the 
 
 Geometric degree $k$ is one less than the number of argument points, and is independent of the hull dimension $D$. $k \le 4$ (up to five points) uses a dedicated formula. $k > 4$ uses a filtered floating-point determinant. Householder QR (`faer`) produces the public unit normal and the working normal used by distance scans.
 
-A SIMD distance scan only culls points the error bound proves strictly inside, so they are not fed to the predicate. Visibility and outsideness are the orientation of the facet vertices and the point. The scan's sign is not topology. Dimension is also decided by predicate signs. A new point with exact sign zero against the current basis does not extend the span.
+A SIMD distance scan culls points the error bound proves strictly inside, so they are not fed to the predicate. Visibility and outsideness are the strict sign of the orientation of the facet vertices and the point. The certified working distance may prove that sign first, inside or outside; zero and everything near the plane go to the orientation. Dimension is also decided by predicate signs. A new point with exact sign zero against the current basis does not extend the span.
 
 ## Input is a row-major coordinate slice
 
