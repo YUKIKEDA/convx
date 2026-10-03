@@ -84,6 +84,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-2 | Feat | Lock-free allocation                                          | #26   | Not started |
 | P5-3 | Feat | Cache of lifted coordinates                                   | #27   | Not started |
 | P5-4 | Feat | Cut off search of the upper hull and of faces already decided | #28   | Not started |
+| P5-5 | Feat | Vector cull kernel faster than its scalar lanes               | #70   | Not started |
 
 ## Intentionally out of scope
 
