@@ -29,7 +29,7 @@ use super::input::Input;
 use super::ConvexHullError;
 use crate::arena::{Arena, ArenaFull, FacetId, IdMap, IdSet};
 use crate::cull::CullPlane;
-use crate::normal::unit_normal;
+use crate::normal::{facet_cofactors, unit_normal_with};
 use crate::predicates::Sign;
 
 /// A simplicial facet during construction.
@@ -112,8 +112,15 @@ impl<'a> SimplicialHull<'a> {
         // Rounded lifted coordinates can be infinite; that facet then has no
         // working normal, and the farthest point falls back to index order.
         let finite = points.iter().all(|p| p.iter().all(|x| x.is_finite()));
+        // The cofactors certify both the working normal and the cull plane;
+        // they are evaluated once (#86).
+        let cofactors = if finite {
+            facet_cofactors(&points)
+        } else {
+            None
+        };
         let normal = if finite {
-            unit_normal(&points, outward)?
+            unit_normal_with(&points, outward, cofactors.as_deref())?
         } else {
             None
         };
@@ -122,7 +129,7 @@ impl<'a> SimplicialHull<'a> {
         let cull = normal
             .as_deref()
             .filter(|_| !self.input.is_lifted())
-            .and_then(|n| CullPlane::new(&points, n, outward));
+            .and_then(|n| CullPlane::with_cofactors(&points, n, outward, cofactors.as_deref()));
         Ok(Simplex {
             vertices,
             neighbors,

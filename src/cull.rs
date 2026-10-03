@@ -47,8 +47,9 @@
 
 use pulp::{Arch, Simd, WithSimd};
 
-use crate::normal::exact_unit_scaling;
-use crate::predicates::{direction_cofactors, Sign};
+#[cfg(test)]
+use crate::normal::facet_cofactors;
+use crate::predicates::Sign;
 
 const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
 /// 2^-1073.
@@ -63,11 +64,23 @@ pub(crate) struct CullPlane {
 }
 
 impl CullPlane {
+    /// [`Self::with_cofactors`] evaluating the cofactors itself.
+    #[cfg(test)]
+    pub(crate) fn new(facet: &[&[f64]], normal: &[f64], outward: Sign) -> Option<Self> {
+        Self::with_cofactors(facet, normal, outward, facet_cofactors(facet).as_deref())
+    }
+
     /// Prepares `facet` (D points of dimension D) with its working unit
     /// `normal`, which must satisfy `orient_direction(facet, normal) ==
-    /// outward`. Returns `None` when the plane error cannot be certified; the
+    /// outward`, and `cofactors`, the [`crate::normal::facet_cofactors`] of
+    /// `facet`. Returns `None` when the plane error cannot be certified; the
     /// caller then culls nothing for this facet.
-    pub(crate) fn new(facet: &[&[f64]], normal: &[f64], outward: Sign) -> Option<Self> {
+    pub(crate) fn with_cofactors(
+        facet: &[&[f64]],
+        normal: &[f64],
+        outward: Sign,
+        cofactors: Option<&[(f64, f64)]>,
+    ) -> Option<Self> {
         let d = facet.len();
         debug_assert!(
             d >= 1 && normal.len() == d,
@@ -78,7 +91,7 @@ impl CullPlane {
             Sign::Negative => -1.0,
             Sign::Zero => return None,
         };
-        let tau = plane_error(facet, normal, side)?;
+        let tau = plane_error(cofactors?, normal, side)?;
         let n = d as f64;
         let slope = (4.0 * (n + 1.0) * UNIT_ROUNDOFF + 2.0 * tau) * (1.0 + 4.0 * UNIT_ROUNDOFF);
         let floor = (n + 1.0) * ETA;
@@ -158,21 +171,12 @@ impl CullPlane {
     }
 }
 
-/// Certified upper bound on `|normal - side * c / |c||`.
-fn plane_error(facet: &[&[f64]], normal: &[f64], side: f64) -> Option<f64> {
-    let d = facet.len() as f64;
-    // Scaling every coordinate by one power of two scales the cofactors by a
-    // positive factor and leaves their direction unchanged. Use it only when
-    // it is exact for every coordinate, so the cofactors stay those of the
-    // facet's own points.
-    let scaled = exact_unit_scaling(facet);
-    let cofactors = match &scaled {
-        Some(points) => {
-            let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
-            direction_cofactors(&refs)?
-        }
-        None => direction_cofactors(facet)?,
-    };
+/// Certified upper bound on `|normal - side * c / |c||`, from the filtered
+/// `cofactors` of the facet (`crate::normal::facet_cofactors`): scaling
+/// every coordinate by one exact power of two scales the cofactors by a
+/// positive factor and leaves their direction unchanged.
+fn plane_error(cofactors: &[(f64, f64)], normal: &[f64], side: f64) -> Option<f64> {
+    let d = cofactors.len() as f64;
     let bound: f64 = cofactors.iter().map(|&(_, e)| e).sum::<f64>() * (1.0 + d * UNIT_ROUNDOFF);
     let length = cofactors.iter().map(|&(c, _)| c * c).sum::<f64>().sqrt();
     let length_low = length * (1.0 - (d + 3.0) * UNIT_ROUNDOFF);
@@ -181,7 +185,7 @@ fn plane_error(facet: &[&[f64]], normal: &[f64], side: f64) -> Option<f64> {
     }
     let deviation = normal
         .iter()
-        .zip(&cofactors)
+        .zip(cofactors)
         .map(|(&n, &(c, _))| {
             let diff = n - side * (c / length);
             diff * diff

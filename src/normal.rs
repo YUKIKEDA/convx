@@ -24,7 +24,9 @@
 
 use faer::Mat;
 
-use crate::predicates::{cofactor_direction, orient_direction, ExactEvaluationExhausted, Sign};
+use crate::predicates::{
+    cofactor_direction_from, direction_cofactors, orient_direction, ExactEvaluationExhausted, Sign,
+};
 
 /// `2^k` for `-1022 <= k <= 1023`.
 fn power_of_two(k: i32) -> f64 {
@@ -65,6 +67,31 @@ pub(crate) fn unit_normal(
     facet: &[&[f64]],
     outward: Sign,
 ) -> Result<Option<Vec<f64>>, ExactEvaluationExhausted> {
+    unit_normal_with(facet, outward, facet_cofactors(facet).as_deref())
+}
+
+/// The filtered cofactors of `facet` (k points of dimension k) as the
+/// certification of its normal reads them: of the facet scaled by one power
+/// of two when that is exact for every coordinate (see
+/// [`exact_unit_scaling`]), otherwise of the facet itself. [`unit_normal`]
+/// and [`crate::cull::CullPlane::with_cofactors`] both certify against these, so a
+/// caller that needs both evaluates them once and passes them on (#86).
+pub(crate) fn facet_cofactors(facet: &[&[f64]]) -> Option<Vec<(f64, f64)>> {
+    match exact_unit_scaling(facet) {
+        Some(points) => {
+            let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+            direction_cofactors(&refs)
+        }
+        None => direction_cofactors(facet),
+    }
+}
+
+/// [`unit_normal`] with `cofactors`, the [`facet_cofactors`] of `facet`.
+pub(crate) fn unit_normal_with(
+    facet: &[&[f64]],
+    outward: Sign,
+    cofactors: Option<&[(f64, f64)]>,
+) -> Result<Option<Vec<f64>>, ExactEvaluationExhausted> {
     let d = facet.len();
     debug_assert!(d >= 1, "a hyperplane needs at least one point");
     debug_assert!(
@@ -88,9 +115,9 @@ pub(crate) fn unit_normal(
         let reference = match &scaled {
             Some(points) => {
                 let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
-                cofactor_direction(&refs)?
+                cofactor_direction_from(&refs, cofactors)?
             }
-            None => cofactor_direction(facet)?,
+            None => cofactor_direction_from(facet, cofactors)?,
         };
         let Some((direction, err)) = reference else {
             // Every cofactor is zero: the points are affinely dependent.
