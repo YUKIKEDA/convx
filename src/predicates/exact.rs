@@ -150,6 +150,7 @@ impl BigInt {
         }
     }
 
+    #[cfg(test)]
     fn try_clone(&self) -> Result<Self, ExactEvaluationExhausted> {
         let mut magnitude = try_vec(self.magnitude.len())?;
         magnitude.extend_from_slice(&self.magnitude);
@@ -157,6 +158,36 @@ impl BigInt {
             negative: self.negative,
             magnitude,
         })
+    }
+
+    /// Sets the value to zero, keeping the limb buffer.
+    fn clear(&mut self) {
+        self.magnitude.clear();
+        self.negative = false;
+    }
+
+    /// Sets the value to one, keeping the limb buffer.
+    fn set_one(&mut self) -> Result<(), ExactEvaluationExhausted> {
+        self.clear();
+        try_reserve_total(&mut self.magnitude, 1)?;
+        self.magnitude.push(1);
+        Ok(())
+    }
+
+    /// Copies `other` into this value's limb buffer.
+    fn assign(&mut self, other: &Self) -> Result<(), ExactEvaluationExhausted> {
+        self.magnitude.clear();
+        try_reserve_total(&mut self.magnitude, other.magnitude.len())?;
+        self.magnitude.extend_from_slice(&other.magnitude);
+        self.negative = other.negative;
+        Ok(())
+    }
+
+    /// Copies `-other` into this value's limb buffer.
+    fn assign_negated(&mut self, other: &Self) -> Result<(), ExactEvaluationExhausted> {
+        self.assign(other)?;
+        self.negative = !self.negative && !self.magnitude.is_empty();
+        Ok(())
     }
 
     fn negated(mut self) -> Self {
@@ -217,6 +248,7 @@ impl BigInt {
         Ok(sum)
     }
 
+    #[cfg(test)]
     pub(super) fn sub(&self, other: &Self) -> Result<Self, ExactEvaluationExhausted> {
         let mut difference = self.try_clone()?;
         difference.accumulate(&other.magnitude, !other.negative)?;
@@ -350,15 +382,24 @@ fn determinant_of(rows: Rows<'_>) -> Result<BigInt, ExactEvaluationExhausted> {
         let mut row = try_vec(k)?;
         match rows.row(i) {
             Row::Difference(point) => {
-                let mut scaled = try_vec(point.len())?;
-                for &x in point {
-                    scaled.push(BigInt::from_f64_scaled(x, base)?);
-                }
-                for (x, o) in scaled.iter().zip(&scaled_origin) {
-                    row.push(x.sub(o)?);
-                }
                 if let Some(origin_norm) = &origin_norm {
-                    row.push(squared_norm(&scaled)?.sub(origin_norm)?);
+                    let mut scaled = try_vec(point.len())?;
+                    for &x in point {
+                        scaled.push(BigInt::from_f64_scaled(x, base)?);
+                    }
+                    let mut norm = squared_norm(&scaled)?;
+                    norm.accumulate(&origin_norm.magnitude, !origin_norm.negative)?;
+                    for (mut x, o) in scaled.into_iter().zip(&scaled_origin) {
+                        x.accumulate(&o.magnitude, !o.negative)?;
+                        row.push(x);
+                    }
+                    row.push(norm);
+                } else {
+                    for (&x, o) in point.iter().zip(&scaled_origin) {
+                        let mut entry = BigInt::from_f64_scaled(x, base)?;
+                        entry.accumulate(&o.magnitude, !o.negative)?;
+                        row.push(entry);
+                    }
                 }
             }
             Row::Direction(direction) => {
@@ -415,57 +456,61 @@ pub(super) fn determinant(a: &[Vec<BigInt>]) -> Result<BigInt, ExactEvaluationEx
     if n == 0 {
         return BigInt::one();
     }
-    // Coefficients of det(xI - A_r), highest power first, for the leading
-    // r x r submatrix A_r. Starts with r = 1.
-    // One product buffer for the whole determinant.
+    // Every intermediate lives in a slot allocated once per determinant and
+    // overwritten in place, so limb buffers are reused across steps.
+    let slots = |len: usize| -> Result<Vec<BigInt>, ExactEvaluationExhausted> {
+        let mut v = try_vec(len)?;
+        v.resize_with(len, BigInt::zero);
+        Ok(v)
+    };
     let mut scratch: Vec<u64> = Vec::new();
-    let mut poly: Vec<BigInt> = try_vec(2)?;
-    poly.push(BigInt::one()?);
-    poly.push(a[0][0].try_clone()?.negated());
+    // Coefficients of det(xI - A_r), highest power first, for the leading
+    // r x r submatrix A_r: r + 1 of them. Starts with r = 1.
+    let mut poly = slots(n + 1)?;
+    let mut next_poly = slots(n + 1)?;
+    let mut column = slots(n + 1)?;
+    let mut v = slots(n)?;
+    let mut next = slots(n)?;
+    poly[0].set_one()?;
+    poly[1].assign_negated(&a[0][0])?;
 
     for r in 1..n {
         // First column of the Toeplitz matrix: 1, -a_rr, -R C, -R A_r C, ...,
         // -R A_r^(r-1) C, where R is row r and C is column r restricted to
         // the leading r entries.
-        let mut column: Vec<BigInt> = try_vec(r + 2)?;
-        column.push(BigInt::one()?);
-        column.push(a[r][r].try_clone()?.negated());
-        let mut v: Vec<BigInt> = try_vec(r)?;
-        for row in a.iter().take(r) {
-            v.push(row[r].try_clone()?);
+        column[0].set_one()?;
+        column[1].assign_negated(&a[r][r])?;
+        for (slot, row) in v.iter_mut().zip(a).take(r) {
+            slot.assign(&row[r])?;
         }
         for step in 0..r {
             // -(R . v), accumulated with the sign folded into each product.
-            let mut dot = BigInt::zero();
-            for (x, y) in a[r][..r].iter().zip(&v) {
+            let dot = &mut column[step + 2];
+            dot.clear();
+            for (x, y) in a[r][..r].iter().zip(&v[..r]) {
                 dot.add_product(x, y, true, &mut scratch)?;
             }
-            column.push(dot);
             if step + 1 < r {
-                let mut next: Vec<BigInt> = try_vec(r)?;
-                for row in a.iter().take(r) {
-                    let mut sum = BigInt::zero();
-                    for (x, y) in row[..r].iter().zip(&v) {
+                for (sum, row) in next.iter_mut().zip(a).take(r) {
+                    sum.clear();
+                    for (x, y) in row[..r].iter().zip(&v[..r]) {
                         sum.add_product(x, y, false, &mut scratch)?;
                     }
-                    next.push(sum);
                 }
-                v = next;
+                core::mem::swap(&mut v, &mut next);
             }
         }
         // poly <- T * poly, T lower-triangular Toeplitz of size (r+2) x (r+1).
-        let mut next_poly: Vec<BigInt> = try_vec(r + 2)?;
-        for i in 0..r + 2 {
-            let mut sum = BigInt::zero();
-            for (j, p) in poly.iter().enumerate().take(i + 1) {
+        for (i, sum) in next_poly.iter_mut().enumerate().take(r + 2) {
+            sum.clear();
+            for (j, p) in poly.iter().enumerate().take((i + 1).min(r + 1)) {
                 sum.add_product(&column[i - j], p, false, &mut scratch)?;
             }
-            next_poly.push(sum);
         }
-        poly = next_poly;
+        core::mem::swap(&mut poly, &mut next_poly);
     }
 
-    let constant = poly.pop().unwrap_or_else(BigInt::zero);
+    let constant = core::mem::replace(&mut poly[n], BigInt::zero());
     Ok(if n % 2 == 1 {
         constant.negated()
     } else {
