@@ -288,7 +288,25 @@ fn face_extremes(
 /// the same way, and the boundary complex closes up.
 fn place(input: &Input<'_>, extreme: &[u32], q: u32) -> Result<Vec<Vec<u32>>, ConvexHullError> {
     let d = input.dim();
-    let point = |i: u32| input.point(i);
+    let simplices = placing(d, |i| input.point(i), extreme)?;
+    debug_assert!(
+        simplices.iter().all(|s| s.len() == d),
+        "a facet spans D - 1 dimensions"
+    );
+    simplices
+        .into_iter()
+        .map(|s| oriented(input, s, q))
+        .collect()
+}
+
+/// The placing triangulation of `points` (ascending), coordinates of
+/// dimension `d` given by `point`: simplices of `r + 1` vertices for the
+/// affine dimension `r` of the points, unoriented. See [`place`].
+pub(crate) fn placing<'p>(
+    d: usize,
+    point: impl Fn(u32) -> &'p [f64],
+    extreme: &[u32],
+) -> Result<Vec<Vec<u32>>, ConvexHullError> {
     let Some((&first, rest)) = extreme.split_first() else {
         return Ok(Vec::new());
     };
@@ -367,14 +385,7 @@ fn place(input: &Input<'_>, extreme: &[u32], q: u32) -> Result<Vec<Vec<u32>>, Co
         added.sort_unstable();
         simplices.extend(added);
     }
-    debug_assert!(
-        simplices.iter().all(|s| s.len() == d),
-        "a facet spans D - 1 dimensions"
-    );
-    simplices
-        .into_iter()
-        .map(|s| oriented(input, s, q))
-        .collect()
+    Ok(simplices)
 }
 
 /// Orders `vertices` so that `q` is on the negative side.

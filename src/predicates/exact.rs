@@ -269,17 +269,39 @@ fn determinant_of(rows: Rows<'_>) -> Result<BigInt, ExactEvaluationExhausted> {
     // that power of two keeps the integers small and multiplies the
     // determinant by a positive factor, so the sign is unchanged.
     let base = rows.values().filter_map(exponent_shift).min().unwrap_or(0);
-    let mut scaled_origin = try_vec(k)?;
+    let mut scaled_origin = try_vec(rows.origin.len())?;
     for &x in rows.origin {
         scaled_origin.push(BigInt::from_f64_scaled(x, base)?);
     }
+    // The lifted column holds sum X^2 - sum O^2 over the scaled integers:
+    // the true difference times 2^(2 (base - 1074)), another positive factor
+    // that applies to the whole column.
+    let squared_norm = |scaled: &[BigInt]| -> Result<BigInt, ExactEvaluationExhausted> {
+        let mut sum = BigInt::zero();
+        for x in scaled {
+            sum = sum.add(&x.mul(x)?)?;
+        }
+        Ok(sum)
+    };
+    let origin_norm = if rows.lifted {
+        Some(squared_norm(&scaled_origin)?)
+    } else {
+        None
+    };
     let mut matrix: Vec<Vec<BigInt>> = try_vec(k)?;
     for i in 0..k {
         let mut row = try_vec(k)?;
         match rows.row(i) {
             Row::Difference(point) => {
-                for (&x, o) in point.iter().zip(&scaled_origin) {
-                    row.push(BigInt::from_f64_scaled(x, base)?.sub(o)?);
+                let mut scaled = try_vec(point.len())?;
+                for &x in point {
+                    scaled.push(BigInt::from_f64_scaled(x, base)?);
+                }
+                for (x, o) in scaled.iter().zip(&scaled_origin) {
+                    row.push(x.sub(o)?);
+                }
+                if let Some(origin_norm) = &origin_norm {
+                    row.push(squared_norm(&scaled)?.sub(origin_norm)?);
                 }
             }
             Row::Direction(direction) => {
@@ -311,6 +333,7 @@ pub(super) fn cofactor_direction_exact(
             origin: facet[0],
             points: &facet[1..],
             direction: Some(&unit),
+            lifted: false,
         })?);
         unit[j] = 0.0;
     }

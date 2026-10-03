@@ -59,6 +59,24 @@ pub(crate) fn orient(points: &[&[f64]]) -> Result<Sign, ExactEvaluationExhausted
         origin: points[0],
         points: &points[1..],
         direction: None,
+        lifted: false,
+    })
+}
+
+/// Orientation of `points` lifted to the paraboloid (design §7): k + 2
+/// points, each of dimension k >= 1, standing for `(p, |p|^2)` in dimension
+/// k + 1. Cospherical means [`Sign::Zero`].
+///
+/// The lifted coordinate is the polynomial `sum_i p_i^2` of the input
+/// coordinates, never a rounded `f64`; an intermediate that overflows only
+/// sends the evaluation to the exact sign.
+pub(crate) fn orient_lifted(points: &[&[f64]]) -> Result<Sign, ExactEvaluationExhausted> {
+    debug_assert!(points.len() >= 3, "a lifted orientation needs k + 2 points");
+    sign_of(Rows {
+        origin: points[0],
+        points: &points[1..],
+        direction: None,
+        lifted: true,
     })
 }
 
@@ -96,16 +114,23 @@ pub(crate) fn orient_direction(
         origin: facet[0],
         points: &facet[1..],
         direction: Some(direction),
+        lifted: false,
     })
 }
 
 /// The rows of an orientation determinant: `p - origin` for each point,
 /// then, when present, a direction row taken as it is.
+///
+/// When `lifted`, each point `p` of dimension D stands for the point of
+/// dimension D + 1 whose last coordinate is the polynomial `sum_i p_i^2`
+/// (design §7). The array is not extended: the last column of a difference
+/// row is `|p|^2 - |origin|^2`, evaluated by the filter or exactly.
 #[derive(Clone, Copy)]
 struct Rows<'a> {
     origin: &'a [f64],
     points: &'a [&'a [f64]],
     direction: Option<&'a [f64]>,
+    lifted: bool,
 }
 
 enum Row<'a> {
@@ -116,7 +141,7 @@ enum Row<'a> {
 impl<'a> Rows<'a> {
     /// Size of the square determinant.
     fn k(self) -> usize {
-        self.origin.len()
+        self.origin.len() + usize::from(self.lifted)
     }
 
     fn row(self, i: usize) -> Row<'a> {
@@ -144,7 +169,8 @@ fn sign_of(rows: Rows<'_>) -> Result<Sign, ExactEvaluationExhausted> {
         "a determinant of size k needs k rows"
     );
     debug_assert!(
-        rows.points.iter().all(|p| p.len() == k) && rows.direction.is_none_or(|d| d.len() == k),
+        rows.points.iter().all(|p| p.len() == rows.origin.len())
+            && rows.direction.is_none_or(|d| d.len() == k),
         "every row needs dimension k"
     );
     debug_assert!(
@@ -181,7 +207,15 @@ fn filtered(rows: Rows<'_>) -> Option<Sign> {
 fn filtered_value(rows: Rows<'_>) -> Option<Approx> {
     let k = rows.k();
     let origin = rows.origin;
+    let squared_norm = |p: &[f64]| {
+        p.iter().fold(Approx::exact(0.0), |sum, &x| {
+            sum.add(Approx::exact(x).mul(Approx::exact(x)))
+        })
+    };
     let entry = |i: usize, j: usize| match rows.row(i) {
+        // The lifted column; a non-finite square leaves the filter
+        // uncertified, and the exact path decides (design §7).
+        Row::Difference(p) if j == origin.len() => squared_norm(p).sub(squared_norm(origin)),
         Row::Difference(p) => Approx::exact(p[j]).sub(Approx::exact(origin[j])),
         Row::Direction(d) => Approx::exact(d[j]),
     };
@@ -225,6 +259,7 @@ pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Vec<(f64, f64)>> {
             origin: facet[0],
             points: &facet[1..],
             direction: Some(&unit),
+            lifted: false,
         });
         unit[j] = 0.0;
         let value = value?;
@@ -291,6 +326,7 @@ mod tests {
             origin: refs[0],
             points: &refs[1..],
             direction: None,
+            lifted: false,
         })
         .unwrap()
     }
@@ -424,6 +460,7 @@ mod tests {
                         origin: refs[0],
                         points: &refs[1..],
                         direction: None,
+                        lifted: false,
                     })
                     .is_some()
                 })
@@ -501,5 +538,158 @@ mod tests {
             vec![big, small, 0.0],
         ];
         assert_eq!(orient_of(&flat), Sign::Zero);
+    }
+
+    // Lifted orientation (design §7).
+
+    fn lifted_of(points: &[Vec<f64>]) -> Sign {
+        let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+        orient_lifted(&refs).unwrap()
+    }
+
+    /// Independent reference: the lifted determinant of integer points in
+    /// `i128`, by cofactor expansion.
+    fn lifted_reference(points: &[Vec<i64>]) -> Sign {
+        fn det(m: &[Vec<i128>]) -> i128 {
+            if m.len() == 1 {
+                return m[0][0];
+            }
+            (0..m.len())
+                .map(|j| {
+                    let minor: Vec<Vec<i128>> = m[1..]
+                        .iter()
+                        .map(|r| {
+                            r.iter()
+                                .enumerate()
+                                .filter(|&(c, _)| c != j)
+                                .map(|(_, &x)| x)
+                                .collect()
+                        })
+                        .collect();
+                    let t = m[0][j] * det(&minor);
+                    if j % 2 == 0 {
+                        t
+                    } else {
+                        -t
+                    }
+                })
+                .sum()
+        }
+        let norm = |p: &[i64]| {
+            p.iter()
+                .map(|&x| i128::from(x) * i128::from(x))
+                .sum::<i128>()
+        };
+        let o = &points[0];
+        let rows: Vec<Vec<i128>> = points[1..]
+            .iter()
+            .map(|p| {
+                p.iter()
+                    .zip(o)
+                    .map(|(&x, &y)| i128::from(x - y))
+                    .chain(core::iter::once(norm(p) - norm(o)))
+                    .collect()
+            })
+            .collect();
+        match det(&rows).cmp(&0) {
+            core::cmp::Ordering::Less => Sign::Negative,
+            core::cmp::Ordering::Equal => Sign::Zero,
+            core::cmp::Ordering::Greater => Sign::Positive,
+        }
+    }
+
+    #[test]
+    fn lifted_matches_an_independent_reference() {
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % 9) as i64 - 4
+        };
+        let mut zeros = 0;
+        for k in 2..=3 {
+            for _ in 0..400 {
+                let points: Vec<Vec<i64>> = (0..k + 2)
+                    .map(|_| (0..k).map(|_| next()).collect())
+                    .collect();
+                let as_f64: Vec<Vec<f64>> = points
+                    .iter()
+                    .map(|p| p.iter().map(|&x| x as f64).collect())
+                    .collect();
+                let expected = lifted_reference(&points);
+                zeros += usize::from(expected == Sign::Zero);
+                assert_eq!(lifted_of(&as_f64), expected, "{points:?}");
+            }
+        }
+        assert!(zeros > 0, "the small grid gives exact cospherical cases");
+    }
+
+    #[test]
+    fn lifted_cocircular_and_inside() {
+        // (0,0), (1,0), (0,1) counterclockwise; (1,1) is on their circle,
+        // (0.5, 0.5) inside it, (2, 2) outside.
+        let base = vec![vec![0.0, 0.0], vec![1.0, 0.0], vec![0.0, 1.0]];
+        let with = |q: [f64; 2]| {
+            let mut p = base.clone();
+            p.push(q.to_vec());
+            lifted_of(&p)
+        };
+        assert_eq!(with([1.0, 1.0]), Sign::Zero);
+        assert_eq!(with([0.5, 0.5]), Sign::Negative);
+        assert_eq!(with([2.0, 2.0]), Sign::Positive);
+    }
+
+    #[test]
+    fn lifted_survives_overflowing_and_underflowing_squares() {
+        // Scaling by 2^e multiplies the coordinate columns by 2^e and the
+        // lifted column by 2^2e, so the sign is unchanged; at 2^600 every
+        // square overflows f64, at 2^-600 every square underflows.
+        let cases: [([f64; 2], Sign); 3] = [
+            ([1.0, 1.0], Sign::Zero),
+            ([0.5, 0.5], Sign::Negative),
+            ([2.0, 2.0], Sign::Positive),
+        ];
+        for e in [600, -600, 1000, -1000] {
+            let s = 2f64.powi(e);
+            for (q, expected) in cases {
+                let points = vec![
+                    vec![0.0, 0.0],
+                    vec![s, 0.0],
+                    vec![0.0, s],
+                    vec![q[0] * s, q[1] * s],
+                ];
+                assert_eq!(lifted_of(&points), expected, "scale 2^{e}, {q:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn lifted_translation_keeps_the_sign() {
+        // |p + t|^2 - |o + t|^2 = |p|^2 - |o|^2 + 2 t . (p - o): a column
+        // operation, so the determinant is unchanged. Integer translations
+        // below 2^26 keep every coordinate exact.
+        let points = [
+            vec![0.0, 0.0],
+            vec![3.0, 0.0],
+            vec![0.0, 3.0],
+            vec![3.0, 3.0],
+        ];
+        let near = [
+            vec![0.0, 0.0],
+            vec![3.0, 0.0],
+            vec![0.0, 3.0],
+            vec![3.0, 2.0],
+        ];
+        for t in [1.0, 1024.0, -(2f64.powi(25))] {
+            let moved = |ps: &[Vec<f64>]| -> Vec<Vec<f64>> {
+                ps.iter()
+                    .map(|p| p.iter().map(|x| x + t).collect())
+                    .collect()
+            };
+            assert_eq!(lifted_of(&moved(&points)), Sign::Zero, "t = {t}");
+            assert_eq!(lifted_of(&moved(&near)), lifted_of(&near), "t = {t}");
+        }
+        assert_eq!(lifted_of(&near), Sign::Negative);
     }
 }

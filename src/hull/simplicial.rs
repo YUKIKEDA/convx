@@ -30,7 +30,7 @@ use super::ConvexHullError;
 use crate::arena::{Arena, ArenaFull, FacetId};
 use crate::cull::CullPlane;
 use crate::normal::unit_normal;
-use crate::predicates::{orient, Sign};
+use crate::predicates::Sign;
 
 /// A simplicial facet during construction.
 pub(crate) struct Simplex {
@@ -74,7 +74,7 @@ impl<'a> SimplicialHull<'a> {
             input,
             facets: Arena::new(),
         };
-        if hull.input.dim() == 1 {
+        if hull.input.engine_dim() == 1 {
             hull.build_segment()?;
         } else {
             let initial = hull.initial_simplex()?;
@@ -91,8 +91,9 @@ impl<'a> SimplicialHull<'a> {
         Ok(hull)
     }
 
-    fn points_of(&self, vertices: &[u32]) -> Vec<&'a [f64]> {
-        vertices.iter().map(|&v| self.input.point(v)).collect()
+    /// Engine-space coordinates of `vertices` for working normals.
+    fn coords_of(&self, vertices: &[u32]) -> Vec<&[f64]> {
+        vertices.iter().map(|&v| self.input.coords(v)).collect()
     }
 
     /// The exact side of `point` relative to `facet`: [`Sign::Positive`] is
@@ -107,10 +108,20 @@ impl<'a> SimplicialHull<'a> {
         neighbors: Vec<FacetId>,
         outward: Sign,
     ) -> Result<Simplex, ConvexHullError> {
-        let points = self.points_of(&vertices);
-        let normal = unit_normal(&points, outward)?;
+        let points = self.coords_of(&vertices);
+        // Rounded lifted coordinates can be infinite; that facet then has no
+        // working normal, and the farthest point falls back to index order.
+        let finite = points.iter().all(|p| p.iter().all(|x| x.is_finite()));
+        let normal = if finite {
+            unit_normal(&points, outward)?
+        } else {
+            None
+        };
+        // The cull proves points inside from their f64 coordinates, which a
+        // rounded lift does not give, so lifted facets cull nothing.
         let cull = normal
             .as_deref()
+            .filter(|_| !self.input.is_lifted())
             .and_then(|n| CullPlane::new(&points, n, outward));
         Ok(Simplex {
             vertices,
@@ -147,13 +158,13 @@ impl<'a> SimplicialHull<'a> {
     /// that the opposite vertex is on the negative side.
     fn initial_simplex(&mut self) -> Result<Vec<FacetId>, ConvexHullError> {
         let simplex = self.input.spanning_points.clone();
-        let d = self.input.dim();
+        let d = self.input.engine_dim();
         let mut ordered = Vec::with_capacity(d + 1);
         for (i, &apex) in simplex.iter().enumerate() {
             let mut vertices: Vec<u32> = simplex.iter().copied().filter(|&v| v != apex).collect();
-            let mut points = self.points_of(&vertices);
-            points.push(self.input.point(apex));
-            if orient(&points)? == Sign::Positive {
+            let mut indices = vertices.clone();
+            indices.push(apex);
+            if self.input.orient(&indices)? == Sign::Positive {
                 vertices.swap(0, 1);
             }
             ordered.push((i, vertices));
@@ -202,7 +213,7 @@ impl<'a> SimplicialHull<'a> {
     /// certified working normal.
     fn working_distance(&self, facet: &Simplex, point: u32) -> Option<f64> {
         let normal = facet.normal.as_ref()?;
-        let origin = self.input.point(facet.vertices[0]);
+        let origin = self.input.coords(facet.vertices[0]);
         Some(
             self.input
                 .point(point)
@@ -385,9 +396,9 @@ impl<'a> SimplicialHull<'a> {
     /// outward order (orientation positive outside).
     fn outside_any(&self, simplices: &[Vec<u32>], point: u32) -> Result<bool, ConvexHullError> {
         for vertices in simplices {
-            let mut points = self.points_of(vertices);
-            points.push(self.input.point(point));
-            if orient(&points)? == Sign::Positive {
+            let mut indices = vertices.clone();
+            indices.push(point);
+            if self.input.orient(&indices)? == Sign::Positive {
                 return Ok(true);
             }
         }
@@ -610,9 +621,9 @@ enum Link {
 /// The exact side of `point` relative to `facet`: [`Sign::Positive`] is
 /// strictly outside, [`Sign::Zero`] on the supporting hyperplane.
 fn side(input: &Input<'_>, facet: &Simplex, point: u32) -> Result<Sign, ConvexHullError> {
-    let mut points: Vec<&[f64]> = facet.vertices.iter().map(|&v| input.point(v)).collect();
-    points.push(input.point(point));
-    let sign = orient(&points)?;
+    let mut indices = facet.vertices.clone();
+    indices.push(point);
+    let sign = input.orient(&indices)?;
     Ok(if facet.outward == Sign::Positive {
         sign
     } else {
@@ -676,6 +687,7 @@ fn packs_before(a: (u32, Option<f64>), b: (u32, Option<f64>)) -> bool {
 pub(crate) mod tests {
     use super::*;
     use crate::hull::input::accept;
+    use crate::predicates::orient;
     use std::collections::HashSet;
 
     pub(crate) struct Rng(pub(crate) u64);

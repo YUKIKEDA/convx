@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use super::simplicial::SimplicialHull;
 use super::ConvexHullError;
 use crate::arena::FacetId;
-use crate::predicates::{orient, Sign};
+use crate::predicates::Sign;
 
 /// A logical facet during construction. `GroupId` in the design is the index
 /// of the group in [`LogicalFacets::groups`]; it exists only here.
@@ -90,13 +90,9 @@ pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, ConvexHu
             let Some(&across) = other.vertices.iter().find(|v| !facet.vertices.contains(v)) else {
                 continue;
             };
-            let mut points: Vec<&[f64]> = facet
-                .vertices
-                .iter()
-                .map(|&v| hull.input.point(v))
-                .collect();
-            points.push(hull.input.point(across));
-            if orient(&points)? == Sign::Zero {
+            let mut indices = facet.vertices.clone();
+            indices.push(across);
+            if hull.input.orient(&indices)? == Sign::Zero {
                 sets.union(i as u32, j);
             }
         }
