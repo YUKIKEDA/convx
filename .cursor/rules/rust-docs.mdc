@@ -16,6 +16,7 @@ Sources: [rustdoc book](https://doc.rust-lang.org/stable/rustdoc/how-to-write-do
 - Public user-facing types and methods need an example, or a link to one, within reason. Getters that only return a field can skip a code block.
 - Doc tests compile. Use `?`, not `unwrap`. Hide setup with `# ` lines. Fence with ` ```rust `.
 - Link types with intra-doc links. Do not restate the signature.
+- A link resolves in `cargo doc --no-deps --document-private-items`. When a function becomes a test-only wrapper (`#[cfg(test)]`) of a `_with` form, move every link to it onto the item that always exists. A public item does not link to a private one; name the value instead (`u32::MAX`).
 - A number or a bound in rustdoc names its source (Issue or PR) and the inputs it was measured on. A claim covers only what the code or the measurement shows: "no arena insert is concurrent", not "no allocation is concurrent"; "under 1% on the sets of #26", not "at most 0.7%".
 - Do not document "this field is ignored when…". If that sentence seems needed, the types are wrong (`.cursor/rules/types.mdc`).
 - When `Cargo.toml` exists, `missing_docs` is deny on the library crate. `pub(crate)` items do not need rustdoc.

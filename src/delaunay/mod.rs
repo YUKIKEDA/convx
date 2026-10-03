@@ -129,7 +129,7 @@ pub struct DelaunaySimplex {
     /// the ascending order is kept.
     pub vertices: Vec<u32>,
     /// `neighbors[i]` is the simplex across the face opposite
-    /// `vertices[i]`, or [`NO_NEIGHBOR`] on the boundary of the site hull.
+    /// `vertices[i]`, or `u32::MAX` on the boundary of the site hull.
     pub neighbors: Vec<u32>,
 }
 
