@@ -212,10 +212,16 @@ fn filtered_value(rows: Rows<'_>) -> Option<Approx> {
             sum.add(Approx::exact(x).mul(Approx::exact(x)))
         })
     };
+    // The lifted column's origin term, once per call.
+    let origin_norm = if rows.lifted {
+        squared_norm(origin)
+    } else {
+        Approx::exact(0.0)
+    };
     let entry = |i: usize, j: usize| match rows.row(i) {
         // The lifted column; a non-finite square leaves the filter
         // uncertified, and the exact path decides (design §7).
-        Row::Difference(p) if j == origin.len() => squared_norm(p).sub(squared_norm(origin)),
+        Row::Difference(p) if j == origin.len() => squared_norm(p).sub(origin_norm),
         Row::Difference(p) => Approx::exact(p[j]).sub(Approx::exact(origin[j])),
         Row::Direction(d) => Approx::exact(d[j]),
     };
@@ -229,11 +235,7 @@ fn filtered_value(rows: Rows<'_>) -> Option<Approx> {
         4 => filter::orient4(&core::array::from_fn(|i| {
             core::array::from_fn(|j| entry(i, j))
         })),
-        _ => filter::determinant(
-            (0..k)
-                .map(|i| (0..k).map(|j| entry(i, j)).collect())
-                .collect(),
-        )?,
+        _ => filter::determinant(k, entry)?,
     })
 }
 
@@ -356,6 +358,70 @@ mod tests {
         fn unit(&mut self) -> f64 {
             (self.next() >> 11) as f64 / (1_u64 << 53) as f64 * 2.0 - 1.0
         }
+    }
+
+    /// The elimination over a matrix of row vectors, as it was before sizes
+    /// 5 to 9 moved to arrays: the reference they must match bit for bit.
+    fn determinant_of_rows(mut m: Vec<Vec<Approx>>) -> Option<Approx> {
+        let n = m.len();
+        let mut det = Approx::exact(1.0);
+        for col in 0..n {
+            let best = (col..n)
+                .max_by(|&a, &b| m[a][col].value().abs().total_cmp(&m[b][col].value().abs()))?;
+            if best != col {
+                m.swap(best, col);
+                det = det.negated();
+            }
+            let pivot = m[col][col];
+            det = det.mul(pivot);
+            let (upper, lower) = m.split_at_mut(col + 1);
+            let pivot_row = &upper[col];
+            for row in lower {
+                let factor = row[col].div(pivot)?;
+                for (entry, &above) in row[col + 1..].iter_mut().zip(&pivot_row[col + 1..]) {
+                    *entry = entry.sub(factor.mul(above));
+                }
+            }
+        }
+        Some(det)
+    }
+
+    #[test]
+    fn determinant_matches_the_row_elimination_bit_for_bit() {
+        // Sizes on the stack (5..=9) and in row vectors (10..=18); magnitudes
+        // far from 1; repeated rows and columns, so some pivots are not
+        // certain and both sides must return None.
+        let mut rng = Rng(72);
+        let mut uncertain = 0;
+        for n in 5..=18 {
+            for trial in 0..40 {
+                let scale = [1.0, 1e-120, 1e120, 3.0][trial % 4];
+                let mut m: Vec<Vec<f64>> = (0..n)
+                    .map(|_| (0..n).map(|_| rng.unit() * scale).collect())
+                    .collect();
+                if trial % 5 == 0 {
+                    m[n - 1] = m[0].clone();
+                }
+                if trial % 7 == 0 {
+                    // Equal first two columns: after the first step the
+                    // second pivot is not certain, and rows below divide by it.
+                    for row in &mut m {
+                        row[1] = row[0];
+                    }
+                }
+                let reference = determinant_of_rows(
+                    m.iter()
+                        .map(|r| r.iter().map(|&x| Approx::exact(x)).collect())
+                        .collect(),
+                );
+                let stored = filter::determinant(n, |i, j| Approx::exact(m[i][j]));
+                let bits =
+                    |a: Option<Approx>| a.map(|a| (a.value().to_bits(), a.error().to_bits()));
+                assert_eq!(bits(stored), bits(reference), "n = {n}, trial {trial}");
+                uncertain += usize::from(reference.is_none());
+            }
+        }
+        assert!(uncertain > 0, "some pivot is uncertain");
     }
 
     #[test]

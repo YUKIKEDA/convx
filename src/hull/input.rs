@@ -45,11 +45,25 @@ impl<'a> Input<'a> {
     /// the engine space: the plain orientation, or the lifted one with the
     /// lifted coordinate as the polynomial `|p|^2`.
     pub(crate) fn orient(&self, indices: &[u32]) -> Result<Sign, ExactEvaluationExhausted> {
-        let points: Vec<&[f64]> = indices.iter().map(|&i| self.point(i)).collect();
-        if self.lifted.is_some() {
-            orient_lifted(&points)
+        // Up to INLINE points are gathered on the stack; a call does not
+        // allocate for them.
+        const INLINE: usize = 17;
+        let sign = |points: &[&[f64]]| {
+            if self.lifted.is_some() {
+                orient_lifted(points)
+            } else {
+                orient(points)
+            }
+        };
+        if indices.len() <= INLINE {
+            let mut points: [&[f64]; INLINE] = [&[]; INLINE];
+            for (slot, &i) in points.iter_mut().zip(indices) {
+                *slot = self.point(i);
+            }
+            sign(&points[..indices.len()])
         } else {
-            orient(&points)
+            let points: Vec<&[f64]> = indices.iter().map(|&i| self.point(i)).collect();
+            sign(&points)
         }
     }
 
