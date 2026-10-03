@@ -418,7 +418,7 @@ The only conversion from `[[f64; D]]` to `&[f64]` is `as_flattened()`. There is 
 
 Dependencies are `faer`, `rayon`, `pulp`, and `thiserror`. The implementation language is Rust. Parallelism is switched by the runtime `parallel` flag. The build assumes `std`.
 
-The distance kernel is runtime CPU detection through `pulp`, up to AVX-512 (`x86-v4`). Every instruction-set level returns the same cull set. Widening the instruction set further is done after the sequential result is correct.
+The distance kernel is runtime CPU detection through `pulp`, up to AVX-512 (`x86-v4`). Every instruction-set level returns the same cull set.
 
 ---
 
@@ -484,7 +484,6 @@ Phase 4 is the static API, Delaunay, Voronoi, and the oracles. Phase 4 is not co
 What may wait until a correct sequential result exists is the following.
 
 - Lock-free allocation
-- Wider SIMD, including AVX-512
 - A cache of lifted coordinates
 - Cutting off the search of the upper hull and of faces already decided
 
