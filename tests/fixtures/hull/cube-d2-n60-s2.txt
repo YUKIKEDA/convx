@@ -17,3 +17,447 @@ facet 30 47
 facet 34 39
 facet 39 57
 facet 48 50
+delaunay_sites 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59
+delaunay_simplex 0 1 11
+delaunay_simplex 0 1 44
+delaunay_simplex 0 11 25
+delaunay_simplex 0 18 25
+delaunay_simplex 0 18 47
+delaunay_simplex 0 44 47
+delaunay_simplex 1 11 21
+delaunay_simplex 1 14 21
+delaunay_simplex 1 14 24
+delaunay_simplex 1 24 44
+delaunay_simplex 2 3 29
+delaunay_simplex 2 3 31
+delaunay_simplex 2 5 31
+delaunay_simplex 2 5 52
+delaunay_simplex 2 29 33
+delaunay_simplex 2 33 52
+delaunay_simplex 3 29 40
+delaunay_simplex 3 31 35
+delaunay_simplex 3 35 39
+delaunay_simplex 3 39 40
+delaunay_simplex 4 6 8
+delaunay_simplex 4 6 41
+delaunay_simplex 4 8 53
+delaunay_simplex 4 14 38
+delaunay_simplex 4 14 41
+delaunay_simplex 4 38 53
+delaunay_simplex 5 16 52
+delaunay_simplex 5 16 56
+delaunay_simplex 5 23 31
+delaunay_simplex 5 23 32
+delaunay_simplex 5 32 56
+delaunay_simplex 6 8 22
+delaunay_simplex 6 22 43
+delaunay_simplex 6 30 41
+delaunay_simplex 6 43 46
+delaunay_simplex 6 46 50
+delaunay_simplex 7 33 34
+delaunay_simplex 7 33 52
+delaunay_simplex 7 45 49
+delaunay_simplex 7 45 52
+delaunay_simplex 7 48 49
+delaunay_simplex 8 22 53
+delaunay_simplex 9 15 19
+delaunay_simplex 9 15 37
+delaunay_simplex 9 19 54
+delaunay_simplex 9 36 54
+delaunay_simplex 9 36 59
+delaunay_simplex 9 37 59
+delaunay_simplex 10 17 26
+delaunay_simplex 10 17 57
+delaunay_simplex 10 18 47
+delaunay_simplex 10 18 55
+delaunay_simplex 10 26 55
+delaunay_simplex 11 21 55
+delaunay_simplex 11 25 55
+delaunay_simplex 12 23 32
+delaunay_simplex 12 23 42
+delaunay_simplex 12 32 53
+delaunay_simplex 12 38 42
+delaunay_simplex 12 38 53
+delaunay_simplex 13 19 35
+delaunay_simplex 13 19 54
+delaunay_simplex 13 27 54
+delaunay_simplex 13 27 57
+delaunay_simplex 13 35 39
+delaunay_simplex 13 39 57
+delaunay_simplex 14 21 28
+delaunay_simplex 14 24 41
+delaunay_simplex 14 28 38
+delaunay_simplex 15 19 35
+delaunay_simplex 15 31 35
+delaunay_simplex 15 31 37
+delaunay_simplex 16 45 52
+delaunay_simplex 16 45 56
+delaunay_simplex 17 26 54
+delaunay_simplex 17 54 57
+delaunay_simplex 18 25 55
+delaunay_simplex 20 22 51
+delaunay_simplex 20 22 53
+delaunay_simplex 20 32 51
+delaunay_simplex 20 32 53
+delaunay_simplex 21 28 58
+delaunay_simplex 21 55 58
+delaunay_simplex 22 43 51
+delaunay_simplex 23 31 42
+delaunay_simplex 24 30 41
+delaunay_simplex 24 30 47
+delaunay_simplex 24 44 47
+delaunay_simplex 26 36 54
+delaunay_simplex 26 36 58
+delaunay_simplex 26 55 58
+delaunay_simplex 27 54 57
+delaunay_simplex 28 36 37
+delaunay_simplex 28 36 58
+delaunay_simplex 28 37 38
+delaunay_simplex 29 33 40
+delaunay_simplex 31 37 42
+delaunay_simplex 32 51 56
+delaunay_simplex 33 34 40
+delaunay_simplex 34 39 40
+delaunay_simplex 36 37 59
+delaunay_simplex 37 38 42
+delaunay_simplex 43 46 50
+delaunay_simplex 43 48 50
+delaunay_simplex 43 48 51
+delaunay_simplex 45 49 56
+delaunay_simplex 48 49 51
+delaunay_simplex 49 51 56
+voronoi_vertex 0 1 11
+voronoi_vertex 0 1 44
+voronoi_vertex 0 11 25
+voronoi_vertex 0 18 25
+voronoi_vertex 0 18 47
+voronoi_vertex 0 44 47
+voronoi_vertex 1 11 21
+voronoi_vertex 1 14 21
+voronoi_vertex 1 14 24
+voronoi_vertex 1 24 44
+voronoi_vertex 2 3 29
+voronoi_vertex 2 3 31
+voronoi_vertex 2 5 31
+voronoi_vertex 2 5 52
+voronoi_vertex 2 29 33
+voronoi_vertex 2 33 52
+voronoi_vertex 3 29 40
+voronoi_vertex 3 31 35
+voronoi_vertex 3 35 39
+voronoi_vertex 3 39 40
+voronoi_vertex 4 6 8
+voronoi_vertex 4 6 41
+voronoi_vertex 4 8 53
+voronoi_vertex 4 14 38
+voronoi_vertex 4 14 41
+voronoi_vertex 4 38 53
+voronoi_vertex 5 16 52
+voronoi_vertex 5 16 56
+voronoi_vertex 5 23 31
+voronoi_vertex 5 23 32
+voronoi_vertex 5 32 56
+voronoi_vertex 6 8 22
+voronoi_vertex 6 22 43
+voronoi_vertex 6 30 41
+voronoi_vertex 6 43 46
+voronoi_vertex 6 46 50
+voronoi_vertex 7 33 34
+voronoi_vertex 7 33 52
+voronoi_vertex 7 45 49
+voronoi_vertex 7 45 52
+voronoi_vertex 7 48 49
+voronoi_vertex 8 22 53
+voronoi_vertex 9 15 19
+voronoi_vertex 9 15 37
+voronoi_vertex 9 19 54
+voronoi_vertex 9 36 54
+voronoi_vertex 9 36 59
+voronoi_vertex 9 37 59
+voronoi_vertex 10 17 26
+voronoi_vertex 10 17 57
+voronoi_vertex 10 18 47
+voronoi_vertex 10 18 55
+voronoi_vertex 10 26 55
+voronoi_vertex 11 21 55
+voronoi_vertex 11 25 55
+voronoi_vertex 12 23 32
+voronoi_vertex 12 23 42
+voronoi_vertex 12 32 53
+voronoi_vertex 12 38 42
+voronoi_vertex 12 38 53
+voronoi_vertex 13 19 35
+voronoi_vertex 13 19 54
+voronoi_vertex 13 27 54
+voronoi_vertex 13 27 57
+voronoi_vertex 13 35 39
+voronoi_vertex 13 39 57
+voronoi_vertex 14 21 28
+voronoi_vertex 14 24 41
+voronoi_vertex 14 28 38
+voronoi_vertex 15 19 35
+voronoi_vertex 15 31 35
+voronoi_vertex 15 31 37
+voronoi_vertex 16 45 52
+voronoi_vertex 16 45 56
+voronoi_vertex 17 26 54
+voronoi_vertex 17 54 57
+voronoi_vertex 18 25 55
+voronoi_vertex 20 22 51
+voronoi_vertex 20 22 53
+voronoi_vertex 20 32 51
+voronoi_vertex 20 32 53
+voronoi_vertex 21 28 58
+voronoi_vertex 21 55 58
+voronoi_vertex 22 43 51
+voronoi_vertex 23 31 42
+voronoi_vertex 24 30 41
+voronoi_vertex 24 30 47
+voronoi_vertex 24 44 47
+voronoi_vertex 26 36 54
+voronoi_vertex 26 36 58
+voronoi_vertex 26 55 58
+voronoi_vertex 27 54 57
+voronoi_vertex 28 36 37
+voronoi_vertex 28 36 58
+voronoi_vertex 28 37 38
+voronoi_vertex 29 33 40
+voronoi_vertex 31 37 42
+voronoi_vertex 32 51 56
+voronoi_vertex 33 34 40
+voronoi_vertex 34 39 40
+voronoi_vertex 36 37 59
+voronoi_vertex 37 38 42
+voronoi_vertex 43 46 50
+voronoi_vertex 43 48 50
+voronoi_vertex 43 48 51
+voronoi_vertex 45 49 56
+voronoi_vertex 48 49 51
+voronoi_vertex 49 51 56
+voronoi_cell 0 0 1 2 3 4 5
+voronoi_cell 1 0 1 6 7 8 9
+voronoi_cell 2 10 11 12 13 14 15
+voronoi_cell 3 10 11 16 17 18 19
+voronoi_cell 4 20 21 22 23 24 25
+voronoi_cell 5 12 13 26 27 28 29 30
+voronoi_cell 6 20 21 31 32 33 34 35
+voronoi_cell 7 36 37 38 39 40
+voronoi_cell 8 20 22 31 41
+voronoi_cell 9 42 43 44 45 46 47
+voronoi_cell 10 48 49 50 51 52
+voronoi_cell 11 0 2 6 53 54
+voronoi_cell 12 55 56 57 58 59
+voronoi_cell 13 60 61 62 63 64 65
+voronoi_cell 14 7 8 23 24 66 67 68
+voronoi_cell 15 42 43 69 70 71
+voronoi_cell 16 26 27 72 73
+voronoi_cell 17 48 49 74 75
+voronoi_cell 18 3 4 50 51 76
+voronoi_cell 19 42 44 60 61 69
+voronoi_cell 20 77 78 79 80
+voronoi_cell 21 6 7 53 66 81 82
+voronoi_cell 22 31 32 41 77 78 83
+voronoi_cell 23 28 29 55 56 84
+voronoi_cell 24 8 9 67 85 86 87
+voronoi_cell 25 2 3 54 76
+voronoi_cell 26 48 52 74 88 89 90
+voronoi_cell 27 62 63 91
+voronoi_cell 28 66 68 81 92 93 94
+voronoi_cell 29 10 14 16 95
+voronoi_cell 30 33 85 86
+voronoi_cell 31 11 12 17 28 70 71 84 96
+voronoi_cell 32 29 30 55 57 79 80 97
+voronoi_cell 33 14 15 36 37 95 98
+voronoi_cell 34 36 98 99
+voronoi_cell 35 17 18 60 64 69 70
+voronoi_cell 36 45 46 88 89 92 93 100
+voronoi_cell 37 43 47 71 92 94 96 100 101
+voronoi_cell 38 23 25 58 59 68 94 101
+voronoi_cell 39 18 19 64 65 99
+voronoi_cell 40 16 19 95 98 99
+voronoi_cell 41 21 24 33 67 85
+voronoi_cell 42 56 58 84 96 101
+voronoi_cell 43 32 34 83 102 103 104
+voronoi_cell 44 1 5 9 87
+voronoi_cell 45 38 39 72 73 105
+voronoi_cell 46 34 35 102
+voronoi_cell 47 4 5 50 86 87
+voronoi_cell 48 40 103 104 106
+voronoi_cell 49 38 40 105 106 107
+voronoi_cell 50 35 102 103
+voronoi_cell 51 77 79 83 97 104 106 107
+voronoi_cell 52 13 15 26 37 39 72
+voronoi_cell 53 22 25 41 57 59 78 80
+voronoi_cell 54 44 45 61 62 74 75 88 91
+voronoi_cell 55 51 52 53 54 76 82 90
+voronoi_cell 56 27 30 73 97 105 107
+voronoi_cell 57 49 63 65 75 91
+voronoi_cell 58 81 82 89 90 93
+voronoi_cell 59 46 47 100
+voronoi_interface 0 1
+voronoi_interface 0 11
+voronoi_interface 0 18
+voronoi_interface 0 25
+voronoi_interface 0 44
+voronoi_interface 0 47
+voronoi_interface 1 11
+voronoi_interface 1 14
+voronoi_interface 1 21
+voronoi_interface 1 24
+voronoi_interface 1 44
+voronoi_interface 2 3
+voronoi_interface 2 5
+voronoi_interface 2 29
+voronoi_interface 2 31
+voronoi_interface 2 33
+voronoi_interface 2 52
+voronoi_interface 3 29
+voronoi_interface 3 31
+voronoi_interface 3 35
+voronoi_interface 3 39
+voronoi_interface 3 40
+voronoi_interface 4 6
+voronoi_interface 4 8
+voronoi_interface 4 14
+voronoi_interface 4 38
+voronoi_interface 4 41
+voronoi_interface 4 53
+voronoi_interface 5 16
+voronoi_interface 5 23
+voronoi_interface 5 31
+voronoi_interface 5 32
+voronoi_interface 5 52
+voronoi_interface 5 56
+voronoi_interface 6 8
+voronoi_interface 6 22
+voronoi_interface 6 30
+voronoi_interface 6 41
+voronoi_interface 6 43
+voronoi_interface 6 46
+voronoi_interface 6 50
+voronoi_interface 7 33
+voronoi_interface 7 34
+voronoi_interface 7 45
+voronoi_interface 7 48
+voronoi_interface 7 49
+voronoi_interface 7 52
+voronoi_interface 8 22
+voronoi_interface 8 53
+voronoi_interface 9 15
+voronoi_interface 9 19
+voronoi_interface 9 36
+voronoi_interface 9 37
+voronoi_interface 9 54
+voronoi_interface 9 59
+voronoi_interface 10 17
+voronoi_interface 10 18
+voronoi_interface 10 26
+voronoi_interface 10 47
+voronoi_interface 10 55
+voronoi_interface 10 57
+voronoi_interface 11 21
+voronoi_interface 11 25
+voronoi_interface 11 55
+voronoi_interface 12 23
+voronoi_interface 12 32
+voronoi_interface 12 38
+voronoi_interface 12 42
+voronoi_interface 12 53
+voronoi_interface 13 19
+voronoi_interface 13 27
+voronoi_interface 13 35
+voronoi_interface 13 39
+voronoi_interface 13 54
+voronoi_interface 13 57
+voronoi_interface 14 21
+voronoi_interface 14 24
+voronoi_interface 14 28
+voronoi_interface 14 38
+voronoi_interface 14 41
+voronoi_interface 15 19
+voronoi_interface 15 31
+voronoi_interface 15 35
+voronoi_interface 15 37
+voronoi_interface 16 45
+voronoi_interface 16 52
+voronoi_interface 16 56
+voronoi_interface 17 26
+voronoi_interface 17 54
+voronoi_interface 17 57
+voronoi_interface 18 25
+voronoi_interface 18 47
+voronoi_interface 18 55
+voronoi_interface 19 35
+voronoi_interface 19 54
+voronoi_interface 20 22
+voronoi_interface 20 32
+voronoi_interface 20 51
+voronoi_interface 20 53
+voronoi_interface 21 28
+voronoi_interface 21 55
+voronoi_interface 21 58
+voronoi_interface 22 43
+voronoi_interface 22 51
+voronoi_interface 22 53
+voronoi_interface 23 31
+voronoi_interface 23 32
+voronoi_interface 23 42
+voronoi_interface 24 30
+voronoi_interface 24 41
+voronoi_interface 24 44
+voronoi_interface 24 47
+voronoi_interface 25 55
+voronoi_interface 26 36
+voronoi_interface 26 54
+voronoi_interface 26 55
+voronoi_interface 26 58
+voronoi_interface 27 54
+voronoi_interface 27 57
+voronoi_interface 28 36
+voronoi_interface 28 37
+voronoi_interface 28 38
+voronoi_interface 28 58
+voronoi_interface 29 33
+voronoi_interface 29 40
+voronoi_interface 30 41
+voronoi_interface 30 47
+voronoi_interface 31 35
+voronoi_interface 31 37
+voronoi_interface 31 42
+voronoi_interface 32 51
+voronoi_interface 32 53
+voronoi_interface 32 56
+voronoi_interface 33 34
+voronoi_interface 33 40
+voronoi_interface 33 52
+voronoi_interface 34 39
+voronoi_interface 34 40
+voronoi_interface 35 39
+voronoi_interface 36 37
+voronoi_interface 36 54
+voronoi_interface 36 58
+voronoi_interface 36 59
+voronoi_interface 37 38
+voronoi_interface 37 42
+voronoi_interface 37 59
+voronoi_interface 38 42
+voronoi_interface 38 53
+voronoi_interface 39 40
+voronoi_interface 39 57
+voronoi_interface 43 46
+voronoi_interface 43 48
+voronoi_interface 43 50
+voronoi_interface 43 51
+voronoi_interface 44 47
+voronoi_interface 45 49
+voronoi_interface 45 52
+voronoi_interface 45 56
+voronoi_interface 46 50
+voronoi_interface 48 49
+voronoi_interface 48 50
+voronoi_interface 48 51
+voronoi_interface 49 51
+voronoi_interface 49 56
+voronoi_interface 51 56
+voronoi_interface 54 57
+voronoi_interface 55 58

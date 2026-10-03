@@ -1,0 +1,122 @@
+generator xoshiro256starstar-v1
+family onsphere
+dim 4
+count 40
+seed 1
+volume 22.999999999999996 1e-12
+vertices 0 1 2 3 4 6 7 8 9 11 12 13 14 19 23 25 27 33 39
+coplanar_points
+interior_points
+facet 0 3 7 11 39
+facet 0 3 9 11 12 25 39
+facet 0 4 7 19 33 39
+facet 0 6 7 11 19
+facet 0 6 11 19 25 27
+facet 0 12 23 25 27 33
+facet 0 12 33 39
+facet 0 19 27 33
+facet 1 2 3 4 6 7 13 14
+facet 1 2 3 9 14
+facet 1 2 6 13 23 25 27
+facet 1 2 9 23 25
+facet 1 4 8 13 14
+facet 1 8 9 12 14 23
+facet 1 8 13 23 27
+facet 2 3 6 7 11
+facet 2 3 9 11 25
+facet 2 6 11 25
+facet 3 4 7 14 39
+facet 3 9 12 14 39
+facet 4 6 7 13 19
+facet 4 8 12 14 33 39
+facet 4 8 13 19 27 33
+facet 6 13 19 27
+facet 8 12 23 27 33
+facet 9 12 23 25
+delaunay_sites 0 1 2 3 4 6 7 8 9 11 12 13 14 19 23 25 27 33 39
+voronoi_vertex 0 1 2 3 4 6 7 8 9 11 12 13 14 19 23 25 27 33 39
+voronoi_cell 0 0
+voronoi_cell 1 0
+voronoi_cell 2 0
+voronoi_cell 3 0
+voronoi_cell 4 0
+voronoi_cell 6 0
+voronoi_cell 7 0
+voronoi_cell 8 0
+voronoi_cell 9 0
+voronoi_cell 11 0
+voronoi_cell 12 0
+voronoi_cell 13 0
+voronoi_cell 14 0
+voronoi_cell 19 0
+voronoi_cell 23 0
+voronoi_cell 25 0
+voronoi_cell 27 0
+voronoi_cell 33 0
+voronoi_cell 39 0
+voronoi_interface 0 7
+voronoi_interface 0 11
+voronoi_interface 0 12
+voronoi_interface 0 19
+voronoi_interface 0 25
+voronoi_interface 0 27
+voronoi_interface 0 33
+voronoi_interface 0 39
+voronoi_interface 1 2
+voronoi_interface 1 8
+voronoi_interface 1 9
+voronoi_interface 1 13
+voronoi_interface 1 14
+voronoi_interface 1 23
+voronoi_interface 2 3
+voronoi_interface 2 6
+voronoi_interface 2 9
+voronoi_interface 2 11
+voronoi_interface 2 25
+voronoi_interface 3 7
+voronoi_interface 3 9
+voronoi_interface 3 11
+voronoi_interface 3 14
+voronoi_interface 3 39
+voronoi_interface 4 7
+voronoi_interface 4 8
+voronoi_interface 4 13
+voronoi_interface 4 14
+voronoi_interface 4 19
+voronoi_interface 4 33
+voronoi_interface 4 39
+voronoi_interface 6 7
+voronoi_interface 6 11
+voronoi_interface 6 13
+voronoi_interface 6 19
+voronoi_interface 6 25
+voronoi_interface 6 27
+voronoi_interface 7 11
+voronoi_interface 7 19
+voronoi_interface 7 39
+voronoi_interface 8 12
+voronoi_interface 8 13
+voronoi_interface 8 14
+voronoi_interface 8 23
+voronoi_interface 8 27
+voronoi_interface 8 33
+voronoi_interface 9 12
+voronoi_interface 9 14
+voronoi_interface 9 23
+voronoi_interface 9 25
+voronoi_interface 11 25
+voronoi_interface 12 14
+voronoi_interface 12 23
+voronoi_interface 12 25
+voronoi_interface 12 33
+voronoi_interface 12 39
+voronoi_interface 13 19
+voronoi_interface 13 27
+voronoi_interface 14 39
+voronoi_interface 19 27
+voronoi_interface 19 33
+voronoi_interface 23 25
+voronoi_interface 23 27
+voronoi_interface 25 27
+voronoi_interface 27 33
+voronoi_interface 33 39

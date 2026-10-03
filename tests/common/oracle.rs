@@ -5,6 +5,9 @@
 //! is defined by these predicates, never by another implementation's
 //! output (docs/verification.md).
 
+// An oracle reports a violation by panicking, also inside the freeze tool.
+#![allow(clippy::unwrap_used, clippy::panic)]
+
 use convx::{ConvexHullBuilder, DelaunayTriangulation, VoronoiDiagram};
 
 /// Integer sites of dimension `dim` from exact integer `f64` coordinates.

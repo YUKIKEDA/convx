@@ -11,3 +11,53 @@ facet 2 16
 facet 2 43
 facet 15 16
 facet 15 43
+delaunay_sites 0 1 2 3 4 6 8 9 12 15 16 17 32 41 43 49
+voronoi_vertex 0 4 6 9
+voronoi_vertex 0 4 15 17
+voronoi_vertex 1 2 3 49
+voronoi_vertex 1 3 8 32
+voronoi_vertex 1 4 9 32
+voronoi_vertex 1 9 41 49
+voronoi_vertex 4 12 17 32
+voronoi_vertex 6 9 16 41
+voronoi_vertex 8 12 32 43
+voronoi_cell 0 0 1
+voronoi_cell 1 2 3 4 5
+voronoi_cell 2 2
+voronoi_cell 3 2 3
+voronoi_cell 4 0 1 4 6
+voronoi_cell 6 0 7
+voronoi_cell 8 3 8
+voronoi_cell 9 0 4 5 7
+voronoi_cell 12 6 8
+voronoi_cell 15 1
+voronoi_cell 16 7
+voronoi_cell 17 1 6
+voronoi_cell 32 3 4 6 8
+voronoi_cell 41 5 7
+voronoi_cell 43 8
+voronoi_cell 49 2 5
+voronoi_interface 0 4
+voronoi_interface 0 6
+voronoi_interface 0 15
+voronoi_interface 1 3
+voronoi_interface 1 9
+voronoi_interface 1 32
+voronoi_interface 1 49
+voronoi_interface 2 3
+voronoi_interface 2 49
+voronoi_interface 3 8
+voronoi_interface 4 9
+voronoi_interface 4 17
+voronoi_interface 4 32
+voronoi_interface 6 9
+voronoi_interface 6 16
+voronoi_interface 8 32
+voronoi_interface 8 43
+voronoi_interface 9 41
+voronoi_interface 12 17
+voronoi_interface 12 32
+voronoi_interface 12 43
+voronoi_interface 15 17
+voronoi_interface 16 41
+voronoi_interface 41 49

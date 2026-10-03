@@ -64,10 +64,27 @@ pub enum Family {
     /// Eight centers with offsets of a few 2^-30: near-duplicates and some
     /// exact duplicates.
     Cluster,
+    /// Integer points in [-2, 2]^D drawn with replacement: many cospherical
+    /// sets for Delaunay and Voronoi.
+    Lattice,
+    /// Integer points with `|p|^2 = R` for a fixed `R` per dimension, drawn
+    /// with replacement: every site on one sphere, exactly.
+    OnSphere,
+    /// `OnSphere` points, each coordinate moved by -1, 0, or +1 times 2^-8:
+    /// near-cospherical, decided by the exact lift.
+    NearSphere,
 }
 
 impl Family {
-    pub const ALL: [Self; 4] = [Self::Cube, Self::Sphere, Self::Grid, Self::Cluster];
+    pub const ALL: [Self; 7] = [
+        Self::Cube,
+        Self::Sphere,
+        Self::Grid,
+        Self::Cluster,
+        Self::Lattice,
+        Self::OnSphere,
+        Self::NearSphere,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -75,6 +92,40 @@ impl Family {
             Self::Sphere => "sphere",
             Self::Grid => "grid",
             Self::Cluster => "cluster",
+            Self::Lattice => "lattice",
+            Self::OnSphere => "onsphere",
+            Self::NearSphere => "nearsphere",
+        }
+    }
+
+    /// Whether every coordinate is an integer, so the exact `i128` oracles
+    /// apply directly.
+    pub fn is_integer(self) -> bool {
+        matches!(self, Self::Grid | Self::Lattice | Self::OnSphere)
+    }
+
+    /// The integer points with `|p|^2 = R` in dimension `dim`, ascending.
+    fn sphere_points(dim: usize) -> Vec<Vec<i64>> {
+        let radius2: i64 = match dim {
+            1 => 4,
+            2 => 25,
+            3 => 9,
+            _ => 4,
+        };
+        let bound = (radius2 as f64).sqrt() as i64;
+        let mut out = Vec::new();
+        let mut current = vec![-bound; dim];
+        loop {
+            if current.iter().map(|x| x * x).sum::<i64>() == radius2 {
+                out.push(current.clone());
+            }
+            let Some(a) = (0..dim).rev().find(|&a| current[a] < bound) else {
+                return out;
+            };
+            current[a] += 1;
+            for c in &mut current[a + 1..] {
+                *c = -bound;
+            }
         }
     }
 
@@ -104,6 +155,26 @@ impl Family {
                     let c = rng.below(8) as usize;
                     for a in 0..dim {
                         points.push(centers[c * dim + a] + rng.below(4) as f64 * step);
+                    }
+                }
+                points
+            }
+            Self::Lattice => (0..dim * count)
+                .map(|_| rng.below(5) as f64 - 2.0)
+                .collect(),
+            Self::OnSphere | Self::NearSphere => {
+                let sphere = Self::sphere_points(dim);
+                let step = 1.0 / 256.0;
+                let mut points = Vec::with_capacity(dim * count);
+                for _ in 0..count {
+                    let p = &sphere[rng.below(sphere.len() as u64) as usize];
+                    for &x in p {
+                        let moved = if self == Self::NearSphere {
+                            (rng.below(3) as f64 - 1.0) * step
+                        } else {
+                            0.0
+                        };
+                        points.push(x as f64 + moved);
                     }
                 }
                 points

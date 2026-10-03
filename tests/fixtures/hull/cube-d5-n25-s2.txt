@@ -239,3 +239,1048 @@ facet 13 18 19 20 24
 facet 13 18 19 22 24
 facet 17 19 20 22 24
 facet 18 19 20 22 24
+delaunay_sites 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24
+delaunay_simplex 0 1 2 3 4 11
+delaunay_simplex 0 1 2 3 4 12
+delaunay_simplex 0 1 2 3 11 12
+delaunay_simplex 0 1 2 4 5 16
+delaunay_simplex 0 1 2 4 11 16
+delaunay_simplex 0 1 2 5 8 16
+delaunay_simplex 0 1 2 8 12 19
+delaunay_simplex 0 1 2 8 12 20
+delaunay_simplex 0 1 2 8 15 16
+delaunay_simplex 0 1 2 8 15 19
+delaunay_simplex 0 1 2 11 12 19
+delaunay_simplex 0 1 2 11 15 16
+delaunay_simplex 0 1 2 11 15 19
+delaunay_simplex 0 1 3 4 10 11
+delaunay_simplex 0 1 3 4 10 12
+delaunay_simplex 0 1 3 10 11 24
+delaunay_simplex 0 1 3 10 12 24
+delaunay_simplex 0 1 3 11 12 24
+delaunay_simplex 0 1 4 5 10 13
+delaunay_simplex 0 1 4 5 13 16
+delaunay_simplex 0 1 4 10 11 15
+delaunay_simplex 0 1 4 10 13 15
+delaunay_simplex 0 1 4 11 15 16
+delaunay_simplex 0 1 4 13 15 16
+delaunay_simplex 0 1 5 8 10 13
+delaunay_simplex 0 1 5 8 13 16
+delaunay_simplex 0 1 8 9 10 13
+delaunay_simplex 0 1 8 9 12 13
+delaunay_simplex 0 1 8 9 12 20
+delaunay_simplex 0 1 8 12 13 24
+delaunay_simplex 0 1 8 12 19 24
+delaunay_simplex 0 1 8 13 15 16
+delaunay_simplex 0 1 8 13 15 19
+delaunay_simplex 0 1 8 13 19 24
+delaunay_simplex 0 1 9 10 12 13
+delaunay_simplex 0 1 10 11 15 24
+delaunay_simplex 0 1 10 12 13 24
+delaunay_simplex 0 1 10 13 15 24
+delaunay_simplex 0 1 11 12 19 24
+delaunay_simplex 0 1 11 15 19 24
+delaunay_simplex 0 1 13 15 19 24
+delaunay_simplex 0 2 3 11 12 19
+delaunay_simplex 0 2 4 11 13 16
+delaunay_simplex 0 2 8 12 19 20
+delaunay_simplex 0 2 8 13 16 19
+delaunay_simplex 0 2 8 15 16 19
+delaunay_simplex 0 2 11 13 15 16
+delaunay_simplex 0 2 11 13 15 19
+delaunay_simplex 0 2 13 15 16 19
+delaunay_simplex 0 3 4 10 11 22
+delaunay_simplex 0 3 10 11 13 15
+delaunay_simplex 0 3 10 11 13 22
+delaunay_simplex 0 3 10 11 15 24
+delaunay_simplex 0 3 10 12 13 24
+delaunay_simplex 0 3 10 13 15 24
+delaunay_simplex 0 3 11 12 19 24
+delaunay_simplex 0 3 11 13 15 19
+delaunay_simplex 0 3 11 13 19 22
+delaunay_simplex 0 3 11 15 19 24
+delaunay_simplex 0 3 12 13 19 24
+delaunay_simplex 0 3 13 15 19 24
+delaunay_simplex 0 4 10 11 13 15
+delaunay_simplex 0 4 10 11 13 22
+delaunay_simplex 0 4 11 13 15 16
+delaunay_simplex 0 8 12 13 19 24
+delaunay_simplex 0 8 13 15 16 19
+delaunay_simplex 1 2 3 4 11 23
+delaunay_simplex 1 2 3 4 12 23
+delaunay_simplex 1 2 3 8 11 12
+delaunay_simplex 1 2 3 8 11 23
+delaunay_simplex 1 2 3 8 12 23
+delaunay_simplex 1 2 4 5 14 16
+delaunay_simplex 1 2 4 5 14 23
+delaunay_simplex 1 2 4 5 17 23
+delaunay_simplex 1 2 4 11 16 23
+delaunay_simplex 1 2 4 12 17 23
+delaunay_simplex 1 2 4 14 16 23
+delaunay_simplex 1 2 5 8 9 14
+delaunay_simplex 1 2 5 8 14 16
+delaunay_simplex 1 2 5 9 12 17
+delaunay_simplex 1 2 5 9 12 23
+delaunay_simplex 1 2 5 9 14 23
+delaunay_simplex 1 2 5 12 17 23
+delaunay_simplex 1 2 8 9 12 20
+delaunay_simplex 1 2 8 9 12 23
+delaunay_simplex 1 2 8 9 14 23
+delaunay_simplex 1 2 8 11 12 19
+delaunay_simplex 1 2 8 11 14 16
+delaunay_simplex 1 2 8 11 14 23
+delaunay_simplex 1 2 8 11 15 16
+delaunay_simplex 1 2 8 11 15 19
+delaunay_simplex 1 2 11 14 16 23
+delaunay_simplex 1 3 4 10 11 23
+delaunay_simplex 1 3 4 10 12 21
+delaunay_simplex 1 3 4 10 21 23
+delaunay_simplex 1 3 4 12 21 23
+delaunay_simplex 1 3 8 11 12 24
+delaunay_simplex 1 3 8 11 23 24
+delaunay_simplex 1 3 8 12 23 24
+delaunay_simplex 1 3 10 11 23 24
+delaunay_simplex 1 3 10 12 21 24
+delaunay_simplex 1 3 10 21 23 24
+delaunay_simplex 1 3 12 21 23 24
+delaunay_simplex 1 4 5 9 10 21
+delaunay_simplex 1 4 5 9 12 17
+delaunay_simplex 1 4 5 9 12 21
+delaunay_simplex 1 4 5 10 13 14
+delaunay_simplex 1 4 5 10 14 23
+delaunay_simplex 1 4 5 10 21 23
+delaunay_simplex 1 4 5 12 17 23
+delaunay_simplex 1 4 5 12 21 23
+delaunay_simplex 1 4 5 13 14 16
+delaunay_simplex 1 4 9 10 12 21
+delaunay_simplex 1 4 10 11 14 15
+delaunay_simplex 1 4 10 11 14 23
+delaunay_simplex 1 4 10 13 14 15
+delaunay_simplex 1 4 11 14 15 16
+delaunay_simplex 1 4 11 14 16 23
+delaunay_simplex 1 4 13 14 15 16
+delaunay_simplex 1 5 8 9 10 14
+delaunay_simplex 1 5 8 10 13 14
+delaunay_simplex 1 5 8 13 14 16
+delaunay_simplex 1 5 9 10 14 23
+delaunay_simplex 1 5 9 10 21 23
+delaunay_simplex 1 5 9 12 21 23
+delaunay_simplex 1 8 9 10 13 24
+delaunay_simplex 1 8 9 10 14 24
+delaunay_simplex 1 8 9 12 13 24
+delaunay_simplex 1 8 9 12 23 24
+delaunay_simplex 1 8 9 14 23 24
+delaunay_simplex 1 8 10 13 14 24
+delaunay_simplex 1 8 11 12 19 24
+delaunay_simplex 1 8 11 14 15 16
+delaunay_simplex 1 8 11 14 15 24
+delaunay_simplex 1 8 11 14 23 24
+delaunay_simplex 1 8 11 15 19 24
+delaunay_simplex 1 8 13 14 15 16
+delaunay_simplex 1 8 13 14 15 24
+delaunay_simplex 1 8 13 15 19 24
+delaunay_simplex 1 9 10 12 13 24
+delaunay_simplex 1 9 10 12 21 24
+delaunay_simplex 1 9 10 14 23 24
+delaunay_simplex 1 9 10 21 23 24
+delaunay_simplex 1 9 12 21 23 24
+delaunay_simplex 1 10 11 14 15 23
+delaunay_simplex 1 10 11 15 23 24
+delaunay_simplex 1 10 13 14 15 24
+delaunay_simplex 1 10 14 15 23 24
+delaunay_simplex 1 11 14 15 23 24
+delaunay_simplex 2 3 4 11 22 23
+delaunay_simplex 2 3 4 12 17 23
+delaunay_simplex 2 3 6 7 11 22
+delaunay_simplex 2 3 6 7 11 23
+delaunay_simplex 2 3 6 7 17 22
+delaunay_simplex 2 3 6 7 17 23
+delaunay_simplex 2 3 6 9 11 23
+delaunay_simplex 2 3 6 9 11 24
+delaunay_simplex 2 3 6 9 17 20
+delaunay_simplex 2 3 6 9 17 23
+delaunay_simplex 2 3 6 9 20 24
+delaunay_simplex 2 3 6 11 20 22
+delaunay_simplex 2 3 6 11 20 24
+delaunay_simplex 2 3 6 17 20 22
+delaunay_simplex 2 3 7 11 22 23
+delaunay_simplex 2 3 8 9 11 23
+delaunay_simplex 2 3 8 9 11 24
+delaunay_simplex 2 3 8 9 12 23
+delaunay_simplex 2 3 8 9 12 24
+delaunay_simplex 2 3 8 11 12 24
+delaunay_simplex 2 3 9 12 17 23
+delaunay_simplex 2 3 9 12 17 24
+delaunay_simplex 2 3 9 17 20 24
+delaunay_simplex 2 3 11 12 19 24
+delaunay_simplex 2 3 11 19 20 22
+delaunay_simplex 2 3 11 19 20 24
+delaunay_simplex 2 3 12 17 20 24
+delaunay_simplex 2 3 12 19 20 24
+delaunay_simplex 2 4 5 7 16 23
+delaunay_simplex 2 4 5 14 16 23
+delaunay_simplex 2 4 7 11 16 23
+delaunay_simplex 2 4 7 11 22 23
+delaunay_simplex 2 5 7 9 14 16
+delaunay_simplex 2 5 7 9 14 23
+delaunay_simplex 2 5 7 9 16 20
+delaunay_simplex 2 5 7 9 17 23
+delaunay_simplex 2 5 7 14 16 23
+delaunay_simplex 2 5 8 9 14 16
+delaunay_simplex 2 5 9 12 17 23
+delaunay_simplex 2 6 7 9 14 16
+delaunay_simplex 2 6 7 9 14 23
+delaunay_simplex 2 6 7 9 16 20
+delaunay_simplex 2 6 7 9 17 20
+delaunay_simplex 2 6 7 9 17 23
+delaunay_simplex 2 6 7 11 14 16
+delaunay_simplex 2 6 7 11 14 23
+delaunay_simplex 2 6 7 11 16 18
+delaunay_simplex 2 6 7 11 18 22
+delaunay_simplex 2 6 7 16 18 20
+delaunay_simplex 2 6 9 11 14 23
+delaunay_simplex 2 6 9 11 14 24
+delaunay_simplex 2 6 9 14 16 24
+delaunay_simplex 2 6 9 16 20 24
+delaunay_simplex 2 6 11 14 16 24
+delaunay_simplex 2 6 11 15 16 18
+delaunay_simplex 2 6 11 15 16 24
+delaunay_simplex 2 6 11 15 18 19
+delaunay_simplex 2 6 11 15 19 20
+delaunay_simplex 2 6 11 15 20 24
+delaunay_simplex 2 6 11 18 19 22
+delaunay_simplex 2 6 11 19 20 22
+delaunay_simplex 2 6 15 16 18 24
+delaunay_simplex 2 6 15 18 19 20
+delaunay_simplex 2 6 15 18 20 24
+delaunay_simplex 2 6 16 18 20 24
+delaunay_simplex 2 6 18 19 20 22
+delaunay_simplex 2 7 11 14 16 23
+delaunay_simplex 2 8 9 11 14 23
+delaunay_simplex 2 8 9 11 14 24
+delaunay_simplex 2 8 9 12 20 24
+delaunay_simplex 2 8 9 14 16 24
+delaunay_simplex 2 8 9 16 20 24
+delaunay_simplex 2 8 11 12 19 24
+delaunay_simplex 2 8 11 14 16 24
+delaunay_simplex 2 8 11 15 16 24
+delaunay_simplex 2 8 11 15 19 24
+delaunay_simplex 2 8 12 19 20 24
+delaunay_simplex 2 8 15 16 19 24
+delaunay_simplex 2 8 16 18 19 20
+delaunay_simplex 2 8 16 19 20 24
+delaunay_simplex 2 9 12 17 20 24
+delaunay_simplex 2 11 13 15 16 18
+delaunay_simplex 2 11 13 15 18 19
+delaunay_simplex 2 11 15 19 20 24
+delaunay_simplex 2 13 15 16 18 19
+delaunay_simplex 2 15 16 18 19 24
+delaunay_simplex 2 15 18 19 20 24
+delaunay_simplex 2 16 18 19 20 24
+delaunay_simplex 3 4 10 11 22 23
+delaunay_simplex 3 4 10 21 22 23
+delaunay_simplex 3 4 12 17 21 23
+delaunay_simplex 3 6 7 11 22 23
+delaunay_simplex 3 6 7 17 22 23
+delaunay_simplex 3 6 9 11 23 24
+delaunay_simplex 3 6 9 17 20 24
+delaunay_simplex 3 6 9 17 21 23
+delaunay_simplex 3 6 9 17 21 24
+delaunay_simplex 3 6 9 21 23 24
+delaunay_simplex 3 6 11 15 19 22
+delaunay_simplex 3 6 11 15 19 24
+delaunay_simplex 3 6 11 15 21 22
+delaunay_simplex 3 6 11 15 21 24
+delaunay_simplex 3 6 11 19 20 22
+delaunay_simplex 3 6 11 19 20 24
+delaunay_simplex 3 6 11 21 22 23
+delaunay_simplex 3 6 11 21 23 24
+delaunay_simplex 3 6 15 19 22 24
+delaunay_simplex 3 6 15 21 22 24
+delaunay_simplex 3 6 17 20 22 24
+delaunay_simplex 3 6 17 21 22 23
+delaunay_simplex 3 6 17 21 22 24
+delaunay_simplex 3 6 19 20 22 24
+delaunay_simplex 3 8 9 11 23 24
+delaunay_simplex 3 8 9 12 23 24
+delaunay_simplex 3 9 12 17 21 23
+delaunay_simplex 3 9 12 17 21 24
+delaunay_simplex 3 9 12 21 23 24
+delaunay_simplex 3 10 11 13 15 22
+delaunay_simplex 3 10 11 15 21 22
+delaunay_simplex 3 10 11 15 21 24
+delaunay_simplex 3 10 11 21 22 23
+delaunay_simplex 3 10 11 21 23 24
+delaunay_simplex 3 10 12 13 21 24
+delaunay_simplex 3 10 13 15 22 24
+delaunay_simplex 3 10 13 21 22 24
+delaunay_simplex 3 10 15 21 22 24
+delaunay_simplex 3 11 13 15 19 22
+delaunay_simplex 3 12 13 19 22 24
+delaunay_simplex 3 12 13 21 22 24
+delaunay_simplex 3 12 17 19 20 24
+delaunay_simplex 3 12 17 19 22 24
+delaunay_simplex 3 12 17 21 22 24
+delaunay_simplex 3 13 15 19 22 24
+delaunay_simplex 3 17 19 20 22 24
+delaunay_simplex 4 5 7 10 14 23
+delaunay_simplex 4 5 7 14 16 23
+delaunay_simplex 4 5 9 12 17 21
+delaunay_simplex 4 5 10 13 14 16
+delaunay_simplex 4 5 12 17 21 23
+delaunay_simplex 4 7 10 11 13 14
+delaunay_simplex 4 7 10 11 14 23
+delaunay_simplex 4 7 10 11 22 23
+delaunay_simplex 4 7 10 13 14 16
+delaunay_simplex 4 7 11 13 14 16
+delaunay_simplex 4 7 11 14 16 23
+delaunay_simplex 4 10 11 13 14 15
+delaunay_simplex 4 11 13 14 15 16
+delaunay_simplex 5 6 7 9 14 18
+delaunay_simplex 5 6 7 9 14 21
+delaunay_simplex 5 6 7 10 14 21
+delaunay_simplex 5 6 9 14 18 24
+delaunay_simplex 5 6 9 14 21 24
+delaunay_simplex 5 6 10 14 18 24
+delaunay_simplex 5 6 10 14 21 24
+delaunay_simplex 5 7 9 14 16 18
+delaunay_simplex 5 7 9 14 21 23
+delaunay_simplex 5 7 9 16 18 20
+delaunay_simplex 5 7 9 17 21 23
+delaunay_simplex 5 7 10 14 21 23
+delaunay_simplex 5 8 9 10 13 24
+delaunay_simplex 5 8 9 10 14 24
+delaunay_simplex 5 8 9 14 16 18
+delaunay_simplex 5 8 9 14 18 24
+delaunay_simplex 5 8 10 13 14 24
+delaunay_simplex 5 8 13 14 16 18
+delaunay_simplex 5 8 13 14 18 24
+delaunay_simplex 5 9 10 14 21 23
+delaunay_simplex 5 9 10 14 21 24
+delaunay_simplex 5 9 12 17 21 23
+delaunay_simplex 5 10 13 14 18 24
+delaunay_simplex 6 7 9 14 16 18
+delaunay_simplex 6 7 9 14 21 23
+delaunay_simplex 6 7 9 16 18 20
+delaunay_simplex 6 7 9 17 21 23
+delaunay_simplex 6 7 10 11 15 21
+delaunay_simplex 6 7 10 11 15 22
+delaunay_simplex 6 7 10 11 21 22
+delaunay_simplex 6 7 10 14 15 18
+delaunay_simplex 6 7 10 14 15 21
+delaunay_simplex 6 7 11 14 15 16
+delaunay_simplex 6 7 11 14 15 23
+delaunay_simplex 6 7 11 15 16 18
+delaunay_simplex 6 7 11 15 18 22
+delaunay_simplex 6 7 11 15 21 23
+delaunay_simplex 6 7 11 21 22 23
+delaunay_simplex 6 7 14 15 16 18
+delaunay_simplex 6 7 14 15 21 23
+delaunay_simplex 6 7 17 21 22 23
+delaunay_simplex 6 9 11 14 23 24
+delaunay_simplex 6 9 14 16 18 24
+delaunay_simplex 6 9 14 21 23 24
+delaunay_simplex 6 9 16 18 20 24
+delaunay_simplex 6 10 11 15 21 22
+delaunay_simplex 6 10 13 14 15 18
+delaunay_simplex 6 10 13 14 15 24
+delaunay_simplex 6 10 13 14 18 24
+delaunay_simplex 6 10 13 15 21 22
+delaunay_simplex 6 10 13 15 21 24
+delaunay_simplex 6 10 14 15 21 24
+delaunay_simplex 6 11 14 15 16 24
+delaunay_simplex 6 11 14 15 23 24
+delaunay_simplex 6 11 15 18 19 22
+delaunay_simplex 6 11 15 19 20 24
+delaunay_simplex 6 11 15 21 23 24
+delaunay_simplex 6 13 14 15 18 24
+delaunay_simplex 6 13 15 18 22 24
+delaunay_simplex 6 13 15 21 22 24
+delaunay_simplex 6 14 15 16 18 24
+delaunay_simplex 6 14 15 21 23 24
+delaunay_simplex 6 15 18 19 20 24
+delaunay_simplex 6 15 18 19 22 24
+delaunay_simplex 6 18 19 20 22 24
+delaunay_simplex 7 10 11 13 14 15
+delaunay_simplex 7 10 11 14 15 23
+delaunay_simplex 7 10 11 15 21 23
+delaunay_simplex 7 10 11 21 22 23
+delaunay_simplex 7 10 13 14 15 18
+delaunay_simplex 7 10 14 15 21 23
+delaunay_simplex 7 11 13 14 15 16
+delaunay_simplex 7 11 13 15 16 18
+delaunay_simplex 7 13 14 15 16 18
+delaunay_simplex 8 9 11 14 23 24
+delaunay_simplex 8 9 12 13 20 24
+delaunay_simplex 8 9 14 16 18 24
+delaunay_simplex 8 9 16 18 20 24
+delaunay_simplex 8 11 14 15 16 24
+delaunay_simplex 8 12 13 19 20 24
+delaunay_simplex 8 13 14 15 16 24
+delaunay_simplex 8 13 14 16 18 24
+delaunay_simplex 8 13 15 16 18 19
+delaunay_simplex 8 13 15 16 18 24
+delaunay_simplex 8 13 15 18 19 24
+delaunay_simplex 8 13 18 19 20 24
+delaunay_simplex 8 15 16 18 19 24
+delaunay_simplex 8 16 18 19 20 24
+delaunay_simplex 9 10 12 17 21 24
+delaunay_simplex 9 10 14 21 23 24
+delaunay_simplex 10 11 15 21 23 24
+delaunay_simplex 10 13 15 21 22 24
+delaunay_simplex 10 14 15 21 23 24
+delaunay_simplex 13 14 15 16 18 24
+delaunay_simplex 13 15 18 19 22 24
+voronoi_vertex 0 1 2 3 4 11
+voronoi_vertex 0 1 2 3 4 12
+voronoi_vertex 0 1 2 3 11 12
+voronoi_vertex 0 1 2 4 5 16
+voronoi_vertex 0 1 2 4 11 16
+voronoi_vertex 0 1 2 5 8 16
+voronoi_vertex 0 1 2 8 12 19
+voronoi_vertex 0 1 2 8 12 20
+voronoi_vertex 0 1 2 8 15 16
+voronoi_vertex 0 1 2 8 15 19
+voronoi_vertex 0 1 2 11 12 19
+voronoi_vertex 0 1 2 11 15 16
+voronoi_vertex 0 1 2 11 15 19
+voronoi_vertex 0 1 3 4 10 11
+voronoi_vertex 0 1 3 4 10 12
+voronoi_vertex 0 1 3 10 11 24
+voronoi_vertex 0 1 3 10 12 24
+voronoi_vertex 0 1 3 11 12 24
+voronoi_vertex 0 1 4 5 10 13
+voronoi_vertex 0 1 4 5 13 16
+voronoi_vertex 0 1 4 10 11 15
+voronoi_vertex 0 1 4 10 13 15
+voronoi_vertex 0 1 4 11 15 16
+voronoi_vertex 0 1 4 13 15 16
+voronoi_vertex 0 1 5 8 10 13
+voronoi_vertex 0 1 5 8 13 16
+voronoi_vertex 0 1 8 9 10 13
+voronoi_vertex 0 1 8 9 12 13
+voronoi_vertex 0 1 8 9 12 20
+voronoi_vertex 0 1 8 12 13 24
+voronoi_vertex 0 1 8 12 19 24
+voronoi_vertex 0 1 8 13 15 16
+voronoi_vertex 0 1 8 13 15 19
+voronoi_vertex 0 1 8 13 19 24
+voronoi_vertex 0 1 9 10 12 13
+voronoi_vertex 0 1 10 11 15 24
+voronoi_vertex 0 1 10 12 13 24
+voronoi_vertex 0 1 10 13 15 24
+voronoi_vertex 0 1 11 12 19 24
+voronoi_vertex 0 1 11 15 19 24
+voronoi_vertex 0 1 13 15 19 24
+voronoi_vertex 0 2 3 11 12 19
+voronoi_vertex 0 2 4 11 13 16
+voronoi_vertex 0 2 8 12 19 20
+voronoi_vertex 0 2 8 13 16 19
+voronoi_vertex 0 2 8 15 16 19
+voronoi_vertex 0 2 11 13 15 16
+voronoi_vertex 0 2 11 13 15 19
+voronoi_vertex 0 2 13 15 16 19
+voronoi_vertex 0 3 4 10 11 22
+voronoi_vertex 0 3 10 11 13 15
+voronoi_vertex 0 3 10 11 13 22
+voronoi_vertex 0 3 10 11 15 24
+voronoi_vertex 0 3 10 12 13 24
+voronoi_vertex 0 3 10 13 15 24
+voronoi_vertex 0 3 11 12 19 24
+voronoi_vertex 0 3 11 13 15 19
+voronoi_vertex 0 3 11 13 19 22
+voronoi_vertex 0 3 11 15 19 24
+voronoi_vertex 0 3 12 13 19 24
+voronoi_vertex 0 3 13 15 19 24
+voronoi_vertex 0 4 10 11 13 15
+voronoi_vertex 0 4 10 11 13 22
+voronoi_vertex 0 4 11 13 15 16
+voronoi_vertex 0 8 12 13 19 24
+voronoi_vertex 0 8 13 15 16 19
+voronoi_vertex 1 2 3 4 11 23
+voronoi_vertex 1 2 3 4 12 23
+voronoi_vertex 1 2 3 8 11 12
+voronoi_vertex 1 2 3 8 11 23
+voronoi_vertex 1 2 3 8 12 23
+voronoi_vertex 1 2 4 5 14 16
+voronoi_vertex 1 2 4 5 14 23
+voronoi_vertex 1 2 4 5 17 23
+voronoi_vertex 1 2 4 11 16 23
+voronoi_vertex 1 2 4 12 17 23
+voronoi_vertex 1 2 4 14 16 23
+voronoi_vertex 1 2 5 8 9 14
+voronoi_vertex 1 2 5 8 14 16
+voronoi_vertex 1 2 5 9 12 17
+voronoi_vertex 1 2 5 9 12 23
+voronoi_vertex 1 2 5 9 14 23
+voronoi_vertex 1 2 5 12 17 23
+voronoi_vertex 1 2 8 9 12 20
+voronoi_vertex 1 2 8 9 12 23
+voronoi_vertex 1 2 8 9 14 23
+voronoi_vertex 1 2 8 11 12 19
+voronoi_vertex 1 2 8 11 14 16
+voronoi_vertex 1 2 8 11 14 23
+voronoi_vertex 1 2 8 11 15 16
+voronoi_vertex 1 2 8 11 15 19
+voronoi_vertex 1 2 11 14 16 23
+voronoi_vertex 1 3 4 10 11 23
+voronoi_vertex 1 3 4 10 12 21
+voronoi_vertex 1 3 4 10 21 23
+voronoi_vertex 1 3 4 12 21 23
+voronoi_vertex 1 3 8 11 12 24
+voronoi_vertex 1 3 8 11 23 24
+voronoi_vertex 1 3 8 12 23 24
+voronoi_vertex 1 3 10 11 23 24
+voronoi_vertex 1 3 10 12 21 24
+voronoi_vertex 1 3 10 21 23 24
+voronoi_vertex 1 3 12 21 23 24
+voronoi_vertex 1 4 5 9 10 21
+voronoi_vertex 1 4 5 9 12 17
+voronoi_vertex 1 4 5 9 12 21
+voronoi_vertex 1 4 5 10 13 14
+voronoi_vertex 1 4 5 10 14 23
+voronoi_vertex 1 4 5 10 21 23
+voronoi_vertex 1 4 5 12 17 23
+voronoi_vertex 1 4 5 12 21 23
+voronoi_vertex 1 4 5 13 14 16
+voronoi_vertex 1 4 9 10 12 21
+voronoi_vertex 1 4 10 11 14 15
+voronoi_vertex 1 4 10 11 14 23
+voronoi_vertex 1 4 10 13 14 15
+voronoi_vertex 1 4 11 14 15 16
+voronoi_vertex 1 4 11 14 16 23
+voronoi_vertex 1 4 13 14 15 16
+voronoi_vertex 1 5 8 9 10 14
+voronoi_vertex 1 5 8 10 13 14
+voronoi_vertex 1 5 8 13 14 16
+voronoi_vertex 1 5 9 10 14 23
+voronoi_vertex 1 5 9 10 21 23
+voronoi_vertex 1 5 9 12 21 23
+voronoi_vertex 1 8 9 10 13 24
+voronoi_vertex 1 8 9 10 14 24
+voronoi_vertex 1 8 9 12 13 24
+voronoi_vertex 1 8 9 12 23 24
+voronoi_vertex 1 8 9 14 23 24
+voronoi_vertex 1 8 10 13 14 24
+voronoi_vertex 1 8 11 12 19 24
+voronoi_vertex 1 8 11 14 15 16
+voronoi_vertex 1 8 11 14 15 24
+voronoi_vertex 1 8 11 14 23 24
+voronoi_vertex 1 8 11 15 19 24
+voronoi_vertex 1 8 13 14 15 16
+voronoi_vertex 1 8 13 14 15 24
+voronoi_vertex 1 8 13 15 19 24
+voronoi_vertex 1 9 10 12 13 24
+voronoi_vertex 1 9 10 12 21 24
+voronoi_vertex 1 9 10 14 23 24
+voronoi_vertex 1 9 10 21 23 24
+voronoi_vertex 1 9 12 21 23 24
+voronoi_vertex 1 10 11 14 15 23
+voronoi_vertex 1 10 11 15 23 24
+voronoi_vertex 1 10 13 14 15 24
+voronoi_vertex 1 10 14 15 23 24
+voronoi_vertex 1 11 14 15 23 24
+voronoi_vertex 2 3 4 11 22 23
+voronoi_vertex 2 3 4 12 17 23
+voronoi_vertex 2 3 6 7 11 22
+voronoi_vertex 2 3 6 7 11 23
+voronoi_vertex 2 3 6 7 17 22
+voronoi_vertex 2 3 6 7 17 23
+voronoi_vertex 2 3 6 9 11 23
+voronoi_vertex 2 3 6 9 11 24
+voronoi_vertex 2 3 6 9 17 20
+voronoi_vertex 2 3 6 9 17 23
+voronoi_vertex 2 3 6 9 20 24
+voronoi_vertex 2 3 6 11 20 22
+voronoi_vertex 2 3 6 11 20 24
+voronoi_vertex 2 3 6 17 20 22
+voronoi_vertex 2 3 7 11 22 23
+voronoi_vertex 2 3 8 9 11 23
+voronoi_vertex 2 3 8 9 11 24
+voronoi_vertex 2 3 8 9 12 23
+voronoi_vertex 2 3 8 9 12 24
+voronoi_vertex 2 3 8 11 12 24
+voronoi_vertex 2 3 9 12 17 23
+voronoi_vertex 2 3 9 12 17 24
+voronoi_vertex 2 3 9 17 20 24
+voronoi_vertex 2 3 11 12 19 24
+voronoi_vertex 2 3 11 19 20 22
+voronoi_vertex 2 3 11 19 20 24
+voronoi_vertex 2 3 12 17 20 24
+voronoi_vertex 2 3 12 19 20 24
+voronoi_vertex 2 4 5 7 16 23
+voronoi_vertex 2 4 5 14 16 23
+voronoi_vertex 2 4 7 11 16 23
+voronoi_vertex 2 4 7 11 22 23
+voronoi_vertex 2 5 7 9 14 16
+voronoi_vertex 2 5 7 9 14 23
+voronoi_vertex 2 5 7 9 16 20
+voronoi_vertex 2 5 7 9 17 23
+voronoi_vertex 2 5 7 14 16 23
+voronoi_vertex 2 5 8 9 14 16
+voronoi_vertex 2 5 9 12 17 23
+voronoi_vertex 2 6 7 9 14 16
+voronoi_vertex 2 6 7 9 14 23
+voronoi_vertex 2 6 7 9 16 20
+voronoi_vertex 2 6 7 9 17 20
+voronoi_vertex 2 6 7 9 17 23
+voronoi_vertex 2 6 7 11 14 16
+voronoi_vertex 2 6 7 11 14 23
+voronoi_vertex 2 6 7 11 16 18
+voronoi_vertex 2 6 7 11 18 22
+voronoi_vertex 2 6 7 16 18 20
+voronoi_vertex 2 6 9 11 14 23
+voronoi_vertex 2 6 9 11 14 24
+voronoi_vertex 2 6 9 14 16 24
+voronoi_vertex 2 6 9 16 20 24
+voronoi_vertex 2 6 11 14 16 24
+voronoi_vertex 2 6 11 15 16 18
+voronoi_vertex 2 6 11 15 16 24
+voronoi_vertex 2 6 11 15 18 19
+voronoi_vertex 2 6 11 15 19 20
+voronoi_vertex 2 6 11 15 20 24
+voronoi_vertex 2 6 11 18 19 22
+voronoi_vertex 2 6 11 19 20 22
+voronoi_vertex 2 6 15 16 18 24
+voronoi_vertex 2 6 15 18 19 20
+voronoi_vertex 2 6 15 18 20 24
+voronoi_vertex 2 6 16 18 20 24
+voronoi_vertex 2 6 18 19 20 22
+voronoi_vertex 2 7 11 14 16 23
+voronoi_vertex 2 8 9 11 14 23
+voronoi_vertex 2 8 9 11 14 24
+voronoi_vertex 2 8 9 12 20 24
+voronoi_vertex 2 8 9 14 16 24
+voronoi_vertex 2 8 9 16 20 24
+voronoi_vertex 2 8 11 12 19 24
+voronoi_vertex 2 8 11 14 16 24
+voronoi_vertex 2 8 11 15 16 24
+voronoi_vertex 2 8 11 15 19 24
+voronoi_vertex 2 8 12 19 20 24
+voronoi_vertex 2 8 15 16 19 24
+voronoi_vertex 2 8 16 18 19 20
+voronoi_vertex 2 8 16 19 20 24
+voronoi_vertex 2 9 12 17 20 24
+voronoi_vertex 2 11 13 15 16 18
+voronoi_vertex 2 11 13 15 18 19
+voronoi_vertex 2 11 15 19 20 24
+voronoi_vertex 2 13 15 16 18 19
+voronoi_vertex 2 15 16 18 19 24
+voronoi_vertex 2 15 18 19 20 24
+voronoi_vertex 2 16 18 19 20 24
+voronoi_vertex 3 4 10 11 22 23
+voronoi_vertex 3 4 10 21 22 23
+voronoi_vertex 3 4 12 17 21 23
+voronoi_vertex 3 6 7 11 22 23
+voronoi_vertex 3 6 7 17 22 23
+voronoi_vertex 3 6 9 11 23 24
+voronoi_vertex 3 6 9 17 20 24
+voronoi_vertex 3 6 9 17 21 23
+voronoi_vertex 3 6 9 17 21 24
+voronoi_vertex 3 6 9 21 23 24
+voronoi_vertex 3 6 11 15 19 22
+voronoi_vertex 3 6 11 15 19 24
+voronoi_vertex 3 6 11 15 21 22
+voronoi_vertex 3 6 11 15 21 24
+voronoi_vertex 3 6 11 19 20 22
+voronoi_vertex 3 6 11 19 20 24
+voronoi_vertex 3 6 11 21 22 23
+voronoi_vertex 3 6 11 21 23 24
+voronoi_vertex 3 6 15 19 22 24
+voronoi_vertex 3 6 15 21 22 24
+voronoi_vertex 3 6 17 20 22 24
+voronoi_vertex 3 6 17 21 22 23
+voronoi_vertex 3 6 17 21 22 24
+voronoi_vertex 3 6 19 20 22 24
+voronoi_vertex 3 8 9 11 23 24
+voronoi_vertex 3 8 9 12 23 24
+voronoi_vertex 3 9 12 17 21 23
+voronoi_vertex 3 9 12 17 21 24
+voronoi_vertex 3 9 12 21 23 24
+voronoi_vertex 3 10 11 13 15 22
+voronoi_vertex 3 10 11 15 21 22
+voronoi_vertex 3 10 11 15 21 24
+voronoi_vertex 3 10 11 21 22 23
+voronoi_vertex 3 10 11 21 23 24
+voronoi_vertex 3 10 12 13 21 24
+voronoi_vertex 3 10 13 15 22 24
+voronoi_vertex 3 10 13 21 22 24
+voronoi_vertex 3 10 15 21 22 24
+voronoi_vertex 3 11 13 15 19 22
+voronoi_vertex 3 12 13 19 22 24
+voronoi_vertex 3 12 13 21 22 24
+voronoi_vertex 3 12 17 19 20 24
+voronoi_vertex 3 12 17 19 22 24
+voronoi_vertex 3 12 17 21 22 24
+voronoi_vertex 3 13 15 19 22 24
+voronoi_vertex 3 17 19 20 22 24
+voronoi_vertex 4 5 7 10 14 23
+voronoi_vertex 4 5 7 14 16 23
+voronoi_vertex 4 5 9 12 17 21
+voronoi_vertex 4 5 10 13 14 16
+voronoi_vertex 4 5 12 17 21 23
+voronoi_vertex 4 7 10 11 13 14
+voronoi_vertex 4 7 10 11 14 23
+voronoi_vertex 4 7 10 11 22 23
+voronoi_vertex 4 7 10 13 14 16
+voronoi_vertex 4 7 11 13 14 16
+voronoi_vertex 4 7 11 14 16 23
+voronoi_vertex 4 10 11 13 14 15
+voronoi_vertex 4 11 13 14 15 16
+voronoi_vertex 5 6 7 9 14 18
+voronoi_vertex 5 6 7 9 14 21
+voronoi_vertex 5 6 7 10 14 21
+voronoi_vertex 5 6 9 14 18 24
+voronoi_vertex 5 6 9 14 21 24
+voronoi_vertex 5 6 10 14 18 24
+voronoi_vertex 5 6 10 14 21 24
+voronoi_vertex 5 7 9 14 16 18
+voronoi_vertex 5 7 9 14 21 23
+voronoi_vertex 5 7 9 16 18 20
+voronoi_vertex 5 7 9 17 21 23
+voronoi_vertex 5 7 10 14 21 23
+voronoi_vertex 5 8 9 10 13 24
+voronoi_vertex 5 8 9 10 14 24
+voronoi_vertex 5 8 9 14 16 18
+voronoi_vertex 5 8 9 14 18 24
+voronoi_vertex 5 8 10 13 14 24
+voronoi_vertex 5 8 13 14 16 18
+voronoi_vertex 5 8 13 14 18 24
+voronoi_vertex 5 9 10 14 21 23
+voronoi_vertex 5 9 10 14 21 24
+voronoi_vertex 5 9 12 17 21 23
+voronoi_vertex 5 10 13 14 18 24
+voronoi_vertex 6 7 9 14 16 18
+voronoi_vertex 6 7 9 14 21 23
+voronoi_vertex 6 7 9 16 18 20
+voronoi_vertex 6 7 9 17 21 23
+voronoi_vertex 6 7 10 11 15 21
+voronoi_vertex 6 7 10 11 15 22
+voronoi_vertex 6 7 10 11 21 22
+voronoi_vertex 6 7 10 14 15 18
+voronoi_vertex 6 7 10 14 15 21
+voronoi_vertex 6 7 11 14 15 16
+voronoi_vertex 6 7 11 14 15 23
+voronoi_vertex 6 7 11 15 16 18
+voronoi_vertex 6 7 11 15 18 22
+voronoi_vertex 6 7 11 15 21 23
+voronoi_vertex 6 7 11 21 22 23
+voronoi_vertex 6 7 14 15 16 18
+voronoi_vertex 6 7 14 15 21 23
+voronoi_vertex 6 7 17 21 22 23
+voronoi_vertex 6 9 11 14 23 24
+voronoi_vertex 6 9 14 16 18 24
+voronoi_vertex 6 9 14 21 23 24
+voronoi_vertex 6 9 16 18 20 24
+voronoi_vertex 6 10 11 15 21 22
+voronoi_vertex 6 10 13 14 15 18
+voronoi_vertex 6 10 13 14 15 24
+voronoi_vertex 6 10 13 14 18 24
+voronoi_vertex 6 10 13 15 21 22
+voronoi_vertex 6 10 13 15 21 24
+voronoi_vertex 6 10 14 15 21 24
+voronoi_vertex 6 11 14 15 16 24
+voronoi_vertex 6 11 14 15 23 24
+voronoi_vertex 6 11 15 18 19 22
+voronoi_vertex 6 11 15 19 20 24
+voronoi_vertex 6 11 15 21 23 24
+voronoi_vertex 6 13 14 15 18 24
+voronoi_vertex 6 13 15 18 22 24
+voronoi_vertex 6 13 15 21 22 24
+voronoi_vertex 6 14 15 16 18 24
+voronoi_vertex 6 14 15 21 23 24
+voronoi_vertex 6 15 18 19 20 24
+voronoi_vertex 6 15 18 19 22 24
+voronoi_vertex 6 18 19 20 22 24
+voronoi_vertex 7 10 11 13 14 15
+voronoi_vertex 7 10 11 14 15 23
+voronoi_vertex 7 10 11 15 21 23
+voronoi_vertex 7 10 11 21 22 23
+voronoi_vertex 7 10 13 14 15 18
+voronoi_vertex 7 10 14 15 21 23
+voronoi_vertex 7 11 13 14 15 16
+voronoi_vertex 7 11 13 15 16 18
+voronoi_vertex 7 13 14 15 16 18
+voronoi_vertex 8 9 11 14 23 24
+voronoi_vertex 8 9 12 13 20 24
+voronoi_vertex 8 9 14 16 18 24
+voronoi_vertex 8 9 16 18 20 24
+voronoi_vertex 8 11 14 15 16 24
+voronoi_vertex 8 12 13 19 20 24
+voronoi_vertex 8 13 14 15 16 24
+voronoi_vertex 8 13 14 16 18 24
+voronoi_vertex 8 13 15 16 18 19
+voronoi_vertex 8 13 15 16 18 24
+voronoi_vertex 8 13 15 18 19 24
+voronoi_vertex 8 13 18 19 20 24
+voronoi_vertex 8 15 16 18 19 24
+voronoi_vertex 8 16 18 19 20 24
+voronoi_vertex 9 10 12 17 21 24
+voronoi_vertex 9 10 14 21 23 24
+voronoi_vertex 10 11 15 21 23 24
+voronoi_vertex 10 13 15 21 22 24
+voronoi_vertex 10 14 15 21 23 24
+voronoi_vertex 13 14 15 16 18 24
+voronoi_vertex 13 15 18 19 22 24
+voronoi_cell 0 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65
+voronoi_cell 1 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143 144 145 146 147 148
+voronoi_cell 2 0 1 2 3 4 5 6 7 8 9 10 11 12 41 42 43 44 45 46 47 48 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 149 150 151 152 153 154 155 156 157 158 159 160 161 162 163 164 165 166 167 168 169 170 171 172 173 174 175 176 177 178 179 180 181 182 183 184 185 186 187 188 189 190 191 192 193 194 195 196 197 198 199 200 201 202 203 204 205 206 207 208 209 210 211 212 213 214 215 216 217 218 219 220 221 222 223 224 225 226 227 228 229 230 231 232 233 234 235 236
+voronoi_cell 3 0 1 2 13 14 15 16 17 41 49 50 51 52 53 54 55 56 57 58 59 60 66 67 68 69 70 92 93 94 95 96 97 98 99 100 101 102 149 150 151 152 153 154 155 156 157 158 159 160 161 162 163 164 165 166 167 168 169 170 171 172 173 174 175 176 237 238 239 240 241 242 243 244 245 246 247 248 249 250 251 252 253 254 255 256 257 258 259 260 261 262 263 264 265 266 267 268 269 270 271 272 273 274 275 276 277 278 279 280 281 282
+voronoi_cell 4 0 1 3 4 13 14 18 19 20 21 22 23 42 49 61 62 63 66 67 71 72 73 74 75 76 92 93 94 95 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 149 150 177 178 179 180 237 238 239 283 284 285 286 287 288 289 290 291 292 293 294 295
+voronoi_cell 5 3 5 18 19 24 25 71 72 73 77 78 79 80 81 82 103 104 105 106 107 108 109 110 111 119 120 121 122 123 124 177 178 181 182 183 184 185 186 187 283 284 285 286 287 296 297 298 299 300 301 302 303 304 305 306 307 308 309 310 311 312 313 314 315 316 317 318
+voronoi_cell 6 151 152 153 154 155 156 157 158 159 160 161 162 188 189 190 191 192 193 194 195 196 197 198 199 200 201 202 203 204 205 206 207 208 209 210 211 212 213 214 240 241 242 243 244 245 246 247 248 249 250 251 252 253 254 255 256 257 258 259 260 296 297 298 299 300 301 302 319 320 321 322 323 324 325 326 327 328 329 330 331 332 333 334 335 336 337 338 339 340 341 342 343 344 345 346 347 348 349 350 351 352 353 354 355 356 357 358 359 360
+voronoi_cell 7 151 152 153 154 163 177 179 180 181 182 183 184 185 188 189 190 191 192 193 194 195 196 197 215 240 241 283 284 288 289 290 291 292 293 296 297 298 303 304 305 306 307 319 320 321 322 323 324 325 326 327 328 329 330 331 332 333 334 335 336 361 362 363 364 365 366 367 368 369
+voronoi_cell 8 5 6 7 8 9 24 25 26 27 28 29 30 31 32 33 43 44 45 64 65 68 69 70 77 78 83 84 85 86 87 88 89 90 96 97 98 119 120 121 125 126 127 128 129 130 131 132 133 134 135 136 137 138 164 165 166 167 168 186 216 217 218 219 220 221 222 223 224 225 226 227 228 261 262 308 309 310 311 312 313 314 370 371 372 373 374 375 376 377 378 379 380 381 382 383
+voronoi_cell 9 26 27 28 34 77 79 80 81 83 84 85 103 104 105 112 119 122 123 124 125 126 127 128 129 139 140 141 142 143 155 156 157 158 159 164 165 166 167 169 170 171 181 182 183 184 186 187 188 189 190 191 192 198 199 200 201 216 217 218 219 220 229 242 243 244 245 246 261 262 263 264 265 285 296 297 299 300 303 304 305 306 308 309 310 311 315 316 317 319 320 321 322 337 338 339 340 370 371 372 373 384 385
+voronoi_cell 10 13 14 15 16 18 20 21 24 26 34 35 36 37 49 50 51 52 53 54 61 62 92 93 94 99 100 101 103 106 107 108 112 113 114 115 119 120 122 123 125 126 130 139 140 141 142 144 145 146 147 237 238 266 267 268 269 270 271 272 273 274 283 286 288 289 290 291 294 298 301 302 307 308 309 312 315 316 318 323 324 325 326 327 341 342 343 344 345 346 347 361 362 363 364 365 366 384 385 386 387 388
+voronoi_cell 11 0 2 4 10 11 12 13 15 17 20 22 35 38 39 41 42 46 47 49 50 51 52 55 56 57 58 61 62 63 66 68 69 74 86 87 88 89 90 91 92 96 97 99 113 114 116 117 131 132 133 134 135 144 145 148 149 151 152 155 156 160 161 163 164 165 168 172 173 174 179 180 193 194 195 196 198 199 202 203 204 205 206 207 208 209 215 216 217 221 222 223 224 230 231 232 237 240 242 247 248 249 250 251 252 253 254 261 266 267 268 269 270 275 288 289 290 292 293 294 295 323 324 325 328 329 330 331 332 333 337 341 348 349 350 351 352 361 362 363 364 367 368 370 374 386
+voronoi_cell 12 1 2 6 7 10 14 16 17 27 28 29 30 34 36 38 41 43 53 55 59 64 67 68 70 75 79 80 82 83 84 86 93 95 96 98 100 102 104 105 109 110 112 124 127 128 131 139 140 143 150 166 167 168 169 170 172 175 176 187 218 221 225 229 239 262 263 264 265 271 276 277 278 279 280 285 287 317 371 375 384
+voronoi_cell 13 18 19 21 23 24 25 26 27 29 31 32 33 34 36 37 40 42 44 46 47 48 50 51 53 54 56 57 59 60 61 62 63 64 65 106 111 115 118 120 121 125 127 130 136 137 138 139 146 230 231 233 266 271 272 273 275 276 277 281 286 288 291 292 294 295 308 312 313 314 318 342 343 344 345 346 353 354 355 361 365 367 368 369 371 375 376 377 378 379 380 381 387 389 390
+voronoi_cell 14 71 72 76 77 78 81 85 87 88 91 106 107 111 113 114 115 116 117 118 119 120 121 122 126 129 130 132 133 134 136 137 141 144 146 147 148 178 181 182 185 186 188 189 193 194 198 199 200 202 215 216 217 219 222 283 284 286 288 289 291 292 293 294 295 296 297 298 299 300 301 302 303 304 307 309 310 311 312 313 314 315 316 318 319 320 326 327 328 329 334 335 337 338 339 342 343 344 347 348 349 353 356 357 361 362 365 366 367 369 370 372 374 376 377 385 388 389
+voronoi_cell 15 8 9 11 12 20 21 22 23 31 32 35 37 39 40 45 46 47 48 50 52 54 56 58 60 61 63 65 89 90 113 115 116 118 132 133 135 136 137 138 144 145 146 147 148 203 204 205 206 207 210 211 212 223 224 226 230 231 232 233 234 235 247 248 249 250 255 256 266 267 268 272 274 275 281 294 295 323 324 326 327 328 329 330 331 332 334 335 341 342 343 345 346 347 348 349 350 351 352 353 354 355 356 357 358 359 361 362 363 365 366 367 368 369 374 376 378 379 380 382 386 387 388 389 390
+voronoi_cell 16 3 4 5 8 11 19 22 23 25 31 42 44 45 46 48 63 65 71 74 76 78 87 89 91 111 116 117 118 121 132 136 177 178 179 181 183 185 186 188 190 193 195 197 200 201 202 203 204 210 213 215 219 220 222 223 226 227 228 230 233 234 236 284 286 291 292 293 295 303 305 310 313 319 321 328 330 334 338 340 348 356 367 368 369 372 373 374 376 377 378 379 382 383 389
+voronoi_cell 17 73 75 79 82 104 109 150 153 154 157 158 162 169 170 171 175 184 187 191 192 229 239 241 243 244 245 257 258 259 263 264 278 279 280 282 285 287 306 317 322 336 384
+voronoi_cell 18 195 196 197 203 205 208 210 211 212 213 214 227 230 231 233 234 235 236 296 299 301 303 305 310 311 313 314 318 319 321 326 330 331 334 338 340 342 344 350 353 354 356 358 359 360 365 368 369 372 373 377 378 379 380 381 382 383 389 390
+voronoi_cell 19 6 9 10 12 30 32 33 38 39 40 41 43 44 45 47 48 55 56 57 58 59 60 64 65 86 90 131 135 138 172 173 174 176 205 206 208 209 211 214 221 224 225 226 227 228 231 232 233 234 235 236 247 248 251 252 255 260 275 276 278 279 281 282 350 351 358 359 360 375 378 380 381 382 383 390
+voronoi_cell 20 7 28 43 83 157 159 160 161 162 171 173 174 175 176 183 190 191 197 201 206 207 209 211 212 213 214 218 220 225 227 228 229 232 235 236 243 251 252 257 260 278 282 305 321 340 351 358 360 371 373 375 381 383
+voronoi_cell 21 93 94 95 100 101 102 103 105 108 110 112 123 124 140 142 143 238 239 244 245 246 249 250 253 254 256 258 259 263 264 265 267 268 269 270 271 273 274 277 280 285 287 297 298 300 302 304 306 307 315 316 317 320 322 323 325 327 332 333 335 336 339 341 345 346 347 352 355 357 363 364 366 384 385 386 387 388
+voronoi_cell 22 49 51 57 62 149 151 153 160 162 163 173 180 196 208 209 214 237 238 240 241 247 249 251 253 255 256 257 258 259 260 266 267 269 272 273 274 275 276 277 279 280 281 282 290 324 325 331 333 336 341 345 350 354 355 359 360 364 387 390
+voronoi_cell 23 66 67 69 70 72 73 74 75 76 80 81 82 84 85 88 91 92 94 95 97 98 99 101 102 107 108 109 110 114 117 122 123 124 128 129 134 141 142 143 144 145 147 148 149 150 152 154 155 158 163 164 166 169 177 178 179 180 182 184 185 187 189 192 194 198 215 216 237 238 239 240 241 242 244 246 253 254 258 261 262 263 265 269 270 283 284 287 289 290 293 304 306 307 315 317 320 322 329 332 333 335 336 337 339 349 352 357 362 363 364 366 370 385 386 388
+voronoi_cell 24 15 16 17 29 30 33 35 36 37 38 39 40 52 53 54 55 58 59 60 64 96 97 98 99 100 101 102 125 126 127 128 129 130 131 133 134 135 137 138 139 140 141 142 143 145 146 147 148 156 159 161 165 167 168 170 171 172 174 175 176 199 200 201 202 204 207 210 212 213 217 218 219 220 221 222 223 224 225 226 228 229 232 234 235 236 242 243 245 246 248 250 252 254 255 256 257 259 260 261 262 264 265 268 270 271 272 273 274 276 277 278 279 280 281 282 299 300 301 302 308 309 311 312 314 316 318 337 338 339 340 343 344 346 347 348 349 351 352 353 354 355 356 357 358 359 360 370 371 372 373 374 375 376 377 379 380 381 382 383 384 385 386 387 388 389 390
+voronoi_interface 0 1
+voronoi_interface 0 2
+voronoi_interface 0 3
+voronoi_interface 0 4
+voronoi_interface 0 5
+voronoi_interface 0 8
+voronoi_interface 0 9
+voronoi_interface 0 10
+voronoi_interface 0 11
+voronoi_interface 0 12
+voronoi_interface 0 13
+voronoi_interface 0 15
+voronoi_interface 0 16
+voronoi_interface 0 19
+voronoi_interface 0 20
+voronoi_interface 0 22
+voronoi_interface 0 24
+voronoi_interface 1 2
+voronoi_interface 1 3
+voronoi_interface 1 4
+voronoi_interface 1 5
+voronoi_interface 1 8
+voronoi_interface 1 9
+voronoi_interface 1 10
+voronoi_interface 1 11
+voronoi_interface 1 12
+voronoi_interface 1 13
+voronoi_interface 1 14
+voronoi_interface 1 15
+voronoi_interface 1 16
+voronoi_interface 1 17
+voronoi_interface 1 19
+voronoi_interface 1 20
+voronoi_interface 1 21
+voronoi_interface 1 23
+voronoi_interface 1 24
+voronoi_interface 2 3
+voronoi_interface 2 4
+voronoi_interface 2 5
+voronoi_interface 2 6
+voronoi_interface 2 7
+voronoi_interface 2 8
+voronoi_interface 2 9
+voronoi_interface 2 11
+voronoi_interface 2 12
+voronoi_interface 2 13
+voronoi_interface 2 14
+voronoi_interface 2 15
+voronoi_interface 2 16
+voronoi_interface 2 17
+voronoi_interface 2 18
+voronoi_interface 2 19
+voronoi_interface 2 20
+voronoi_interface 2 22
+voronoi_interface 2 23
+voronoi_interface 2 24
+voronoi_interface 3 4
+voronoi_interface 3 6
+voronoi_interface 3 7
+voronoi_interface 3 8
+voronoi_interface 3 9
+voronoi_interface 3 10
+voronoi_interface 3 11
+voronoi_interface 3 12
+voronoi_interface 3 13
+voronoi_interface 3 15
+voronoi_interface 3 17
+voronoi_interface 3 19
+voronoi_interface 3 20
+voronoi_interface 3 21
+voronoi_interface 3 22
+voronoi_interface 3 23
+voronoi_interface 3 24
+voronoi_interface 4 5
+voronoi_interface 4 7
+voronoi_interface 4 9
+voronoi_interface 4 10
+voronoi_interface 4 11
+voronoi_interface 4 12
+voronoi_interface 4 13
+voronoi_interface 4 14
+voronoi_interface 4 15
+voronoi_interface 4 16
+voronoi_interface 4 17
+voronoi_interface 4 21
+voronoi_interface 4 22
+voronoi_interface 4 23
+voronoi_interface 5 6
+voronoi_interface 5 7
+voronoi_interface 5 8
+voronoi_interface 5 9
+voronoi_interface 5 10
+voronoi_interface 5 12
+voronoi_interface 5 13
+voronoi_interface 5 14
+voronoi_interface 5 16
+voronoi_interface 5 17
+voronoi_interface 5 18
+voronoi_interface 5 20
+voronoi_interface 5 21
+voronoi_interface 5 23
+voronoi_interface 5 24
+voronoi_interface 6 7
+voronoi_interface 6 9
+voronoi_interface 6 10
+voronoi_interface 6 11
+voronoi_interface 6 13
+voronoi_interface 6 14
+voronoi_interface 6 15
+voronoi_interface 6 16
+voronoi_interface 6 17
+voronoi_interface 6 18
+voronoi_interface 6 19
+voronoi_interface 6 20
+voronoi_interface 6 21
+voronoi_interface 6 22
+voronoi_interface 6 23
+voronoi_interface 6 24
+voronoi_interface 7 9
+voronoi_interface 7 10
+voronoi_interface 7 11
+voronoi_interface 7 13
+voronoi_interface 7 14
+voronoi_interface 7 15
+voronoi_interface 7 16
+voronoi_interface 7 17
+voronoi_interface 7 18
+voronoi_interface 7 20
+voronoi_interface 7 21
+voronoi_interface 7 22
+voronoi_interface 7 23
+voronoi_interface 8 9
+voronoi_interface 8 10
+voronoi_interface 8 11
+voronoi_interface 8 12
+voronoi_interface 8 13
+voronoi_interface 8 14
+voronoi_interface 8 15
+voronoi_interface 8 16
+voronoi_interface 8 18
+voronoi_interface 8 19
+voronoi_interface 8 20
+voronoi_interface 8 23
+voronoi_interface 8 24
+voronoi_interface 9 10
+voronoi_interface 9 11
+voronoi_interface 9 12
+voronoi_interface 9 13
+voronoi_interface 9 14
+voronoi_interface 9 16
+voronoi_interface 9 17
+voronoi_interface 9 18
+voronoi_interface 9 20
+voronoi_interface 9 21
+voronoi_interface 9 23
+voronoi_interface 9 24
+voronoi_interface 10 11
+voronoi_interface 10 12
+voronoi_interface 10 13
+voronoi_interface 10 14
+voronoi_interface 10 15
+voronoi_interface 10 16
+voronoi_interface 10 17
+voronoi_interface 10 18
+voronoi_interface 10 21
+voronoi_interface 10 22
+voronoi_interface 10 23
+voronoi_interface 10 24
+voronoi_interface 11 12
+voronoi_interface 11 13
+voronoi_interface 11 14
+voronoi_interface 11 15
+voronoi_interface 11 16
+voronoi_interface 11 18
+voronoi_interface 11 19
+voronoi_interface 11 20
+voronoi_interface 11 21
+voronoi_interface 11 22
+voronoi_interface 11 23
+voronoi_interface 11 24
+voronoi_interface 12 13
+voronoi_interface 12 17
+voronoi_interface 12 19
+voronoi_interface 12 20
+voronoi_interface 12 21
+voronoi_interface 12 22
+voronoi_interface 12 23
+voronoi_interface 12 24
+voronoi_interface 13 14
+voronoi_interface 13 15
+voronoi_interface 13 16
+voronoi_interface 13 18
+voronoi_interface 13 19
+voronoi_interface 13 20
+voronoi_interface 13 21
+voronoi_interface 13 22
+voronoi_interface 13 24
+voronoi_interface 14 15
+voronoi_interface 14 16
+voronoi_interface 14 18
+voronoi_interface 14 21
+voronoi_interface 14 23
+voronoi_interface 14 24
+voronoi_interface 15 16
+voronoi_interface 15 18
+voronoi_interface 15 19
+voronoi_interface 15 20
+voronoi_interface 15 21
+voronoi_interface 15 22
+voronoi_interface 15 23
+voronoi_interface 15 24
+voronoi_interface 16 18
+voronoi_interface 16 19
+voronoi_interface 16 20
+voronoi_interface 16 23
+voronoi_interface 16 24
+voronoi_interface 17 19
+voronoi_interface 17 20
+voronoi_interface 17 21
+voronoi_interface 17 22
+voronoi_interface 17 23
+voronoi_interface 17 24
+voronoi_interface 18 19
+voronoi_interface 18 20
+voronoi_interface 18 22
+voronoi_interface 18 24
+voronoi_interface 19 20
+voronoi_interface 19 22
+voronoi_interface 19 24
+voronoi_interface 20 22
+voronoi_interface 20 24
+voronoi_interface 21 22
+voronoi_interface 21 23
+voronoi_interface 21 24
+voronoi_interface 22 23
+voronoi_interface 22 24
+voronoi_interface 23 24

@@ -1,0 +1,215 @@
+generator xoshiro256starstar-v1
+family onsphere
+dim 5
+count 25
+seed 1
+volume 11.849999999999998 1e-12
+vertices 0 1 2 3 4 5 6 7 8 9 11 12 14 15 16 17 18 19 20 22 24
+coplanar_points
+interior_points
+facet 0 1 2 6 9 11
+facet 0 1 2 6 17 20
+facet 0 1 2 11 20
+facet 0 1 3 5 6 7 14
+facet 0 1 3 6 17 20
+facet 0 1 3 7 20
+facet 0 1 6 9 11 14 22
+facet 0 1 7 11 20
+facet 0 1 7 11 22
+facet 0 1 7 14 22
+facet 0 2 6 9 17 18
+facet 0 2 9 11 17 20
+facet 0 3 4 5 6 7 17 18
+facet 0 3 4 7 17 20
+facet 0 4 7 8 9 16 17 18 19 22 24
+facet 0 4 7 8 17 20 22
+facet 0 5 6 7 9 14 16 18 22 24
+facet 0 7 11 20 22
+facet 0 9 11 17 20 22
+facet 1 2 3 5 6 12 14 15
+facet 1 2 3 6 20
+facet 1 2 3 15 20
+facet 1 2 6 9 11 14
+facet 1 2 11 14 15
+facet 1 2 11 15 20
+facet 1 3 5 7 8 11 12 14 15 16 22 24
+facet 1 3 7 11 15 20
+facet 2 3 4 5 6 17 18 19
+facet 2 3 4 5 12 19
+facet 2 3 4 12 20
+facet 2 3 4 17 20
+facet 2 3 6 17 20
+facet 2 3 12 15 20
+facet 2 4 12 19 20
+facet 2 4 17 19 20
+facet 2 5 6 9 14 16 18 19 24
+facet 2 5 12 14 16 24
+facet 2 5 12 16 19
+facet 2 8 9 11 12 15 22 24
+facet 2 8 9 11 20
+facet 2 8 9 19 20
+facet 2 8 9 19 24
+facet 2 8 11 15 20
+facet 2 8 12 15 20
+facet 2 8 12 16 19 24
+facet 2 8 12 19 20
+facet 2 9 11 12 14 15 22 24
+facet 2 9 17 18 19
+facet 2 9 17 19 20
+facet 3 4 5 7 16
+facet 3 4 5 12 16
+facet 3 4 7 8 12 15 20
+facet 3 4 7 8 12 16
+facet 4 5 7 16 18
+facet 4 5 12 16 19
+facet 4 5 16 18 19
+facet 4 8 12 16 19
+facet 4 8 12 19 20
+facet 4 8 17 19 20
+facet 7 8 11 15 20
+facet 7 8 11 20 22
+facet 8 9 11 20 22
+facet 8 9 17 19 20
+facet 8 9 17 20 22
+delaunay_sites 0 1 2 3 4 5 6 7 8 9 11 12 14 15 16 17 18 19 20 22 24
+voronoi_vertex 0 1 2 3 4 5 6 7 8 9 11 12 14 15 16 17 18 19 20 22 24
+voronoi_cell 0 0
+voronoi_cell 1 0
+voronoi_cell 2 0
+voronoi_cell 3 0
+voronoi_cell 4 0
+voronoi_cell 5 0
+voronoi_cell 6 0
+voronoi_cell 7 0
+voronoi_cell 8 0
+voronoi_cell 9 0
+voronoi_cell 11 0
+voronoi_cell 12 0
+voronoi_cell 14 0
+voronoi_cell 15 0
+voronoi_cell 16 0
+voronoi_cell 17 0
+voronoi_cell 18 0
+voronoi_cell 19 0
+voronoi_cell 20 0
+voronoi_cell 22 0
+voronoi_cell 24 0
+voronoi_interface 0 1
+voronoi_interface 0 2
+voronoi_interface 0 3
+voronoi_interface 0 6
+voronoi_interface 0 7
+voronoi_interface 0 9
+voronoi_interface 0 11
+voronoi_interface 0 14
+voronoi_interface 0 17
+voronoi_interface 0 18
+voronoi_interface 0 20
+voronoi_interface 0 22
+voronoi_interface 1 2
+voronoi_interface 1 3
+voronoi_interface 1 6
+voronoi_interface 1 7
+voronoi_interface 1 11
+voronoi_interface 1 14
+voronoi_interface 1 15
+voronoi_interface 1 20
+voronoi_interface 1 22
+voronoi_interface 2 3
+voronoi_interface 2 4
+voronoi_interface 2 5
+voronoi_interface 2 6
+voronoi_interface 2 8
+voronoi_interface 2 9
+voronoi_interface 2 11
+voronoi_interface 2 12
+voronoi_interface 2 14
+voronoi_interface 2 15
+voronoi_interface 2 16
+voronoi_interface 2 17
+voronoi_interface 2 18
+voronoi_interface 2 19
+voronoi_interface 2 20
+voronoi_interface 2 24
+voronoi_interface 3 4
+voronoi_interface 3 5
+voronoi_interface 3 6
+voronoi_interface 3 7
+voronoi_interface 3 12
+voronoi_interface 3 15
+voronoi_interface 3 16
+voronoi_interface 3 17
+voronoi_interface 3 20
+voronoi_interface 4 5
+voronoi_interface 4 7
+voronoi_interface 4 8
+voronoi_interface 4 12
+voronoi_interface 4 16
+voronoi_interface 4 17
+voronoi_interface 4 18
+voronoi_interface 4 19
+voronoi_interface 4 20
+voronoi_interface 5 6
+voronoi_interface 5 7
+voronoi_interface 5 12
+voronoi_interface 5 14
+voronoi_interface 5 16
+voronoi_interface 5 18
+voronoi_interface 5 19
+voronoi_interface 6 9
+voronoi_interface 6 14
+voronoi_interface 6 17
+voronoi_interface 6 18
+voronoi_interface 6 20
+voronoi_interface 7 8
+voronoi_interface 7 11
+voronoi_interface 7 14
+voronoi_interface 7 15
+voronoi_interface 7 16
+voronoi_interface 7 18
+voronoi_interface 7 20
+voronoi_interface 7 22
+voronoi_interface 8 9
+voronoi_interface 8 11
+voronoi_interface 8 12
+voronoi_interface 8 15
+voronoi_interface 8 16
+voronoi_interface 8 17
+voronoi_interface 8 19
+voronoi_interface 8 20
+voronoi_interface 8 22
+voronoi_interface 8 24
+voronoi_interface 9 11
+voronoi_interface 9 14
+voronoi_interface 9 17
+voronoi_interface 9 18
+voronoi_interface 9 19
+voronoi_interface 9 20
+voronoi_interface 9 22
+voronoi_interface 9 24
+voronoi_interface 11 14
+voronoi_interface 11 15
+voronoi_interface 11 20
+voronoi_interface 11 22
+voronoi_interface 12 14
+voronoi_interface 12 15
+voronoi_interface 12 16
+voronoi_interface 12 19
+voronoi_interface 12 20
+voronoi_interface 12 24
+voronoi_interface 14 15
+voronoi_interface 14 22
+voronoi_interface 14 24
+voronoi_interface 15 20
+voronoi_interface 16 18
+voronoi_interface 16 19
+voronoi_interface 16 24
+voronoi_interface 17 18
+voronoi_interface 17 19
+voronoi_interface 17 20
+voronoi_interface 17 22
+voronoi_interface 18 19
+voronoi_interface 19 20
+voronoi_interface 19 24
+voronoi_interface 20 22
+voronoi_interface 22 24
