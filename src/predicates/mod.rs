@@ -306,6 +306,18 @@ pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Vec<(f64, f64)>> {
     if k == 1 {
         return Some(vec![(1.0, 0.0)]);
     }
+    if k > 4 {
+        // One elimination shared by every cofactor (#111).
+        let entry =
+            |i: usize, j: usize| Approx::exact(facet[i + 1][j]).sub(Approx::exact(facet[0][j]));
+        let values = filter::cofactors(k, entry)?;
+        return values
+            .into_iter()
+            .map(|c| {
+                (c.value().is_finite() && c.error().is_finite()).then(|| (c.value(), c.error()))
+            })
+            .collect();
+    }
     let mut unit = vec![0.0; k];
     let mut cofactors = Vec::with_capacity(k);
     for j in 0..k {
@@ -728,6 +740,100 @@ mod tests {
             core::cmp::Ordering::Equal => Sign::Zero,
             core::cmp::Ordering::Greater => Sign::Positive,
         }
+    }
+
+    /// Whether the exact cofactor `j` of `facet` lies in `[value - bound,
+    /// value + bound]`, compared exactly: every number is scaled to an
+    /// integer by 2^1074 per row.
+    fn cofactor_within(facet: &[Vec<f64>], j: usize, value: f64, bound: f64) -> bool {
+        use exact::BigInt;
+        let k = facet.len();
+        let int = |x: f64| BigInt::from_f64_scaled(x, 0).unwrap();
+        let mut rows: Vec<Vec<BigInt>> = facet[1..]
+            .iter()
+            .map(|p| {
+                p.iter()
+                    .zip(&facet[0])
+                    .map(|(&x, &o)| int(x).sub(&int(o)).unwrap())
+                    .collect()
+            })
+            .collect();
+        rows.push(
+            (0..k)
+                .map(|m| int(if m == j { 1.0 } else { 0.0 }))
+                .collect(),
+        );
+        let exact = exact::determinant(&rows).unwrap();
+        // value and bound times 2^(1074 k): one factor from the conversion,
+        // k - 1 more from the scale.
+        let mut scale = int(1.0);
+        for _ in 1..k - 1 {
+            scale = scale.mul(&int(1.0)).unwrap();
+        }
+        let high = int(value).add(&int(bound)).unwrap().mul(&scale).unwrap();
+        let low = int(value).sub(&int(bound)).unwrap().mul(&scale).unwrap();
+        exact.sub(&high).unwrap().sign() != Sign::Positive
+            && exact.sub(&low).unwrap().sign() != Sign::Negative
+    }
+
+    #[test]
+    fn shared_elimination_bounds_every_cofactor() {
+        // k = 5..9 points of dimension k, at three scales, in general
+        // position and with the last point a hair off the affine span of
+        // the others, where the cofactors cancel and the bounds matter.
+        // Named exception: at 2^300 every cofactor of k >= 5 points is a
+        // product of at least four entries near 2^300, beyond the f64 range,
+        // so no set is certified and the direction falls back to the exact
+        // stage. Every other case is certified, and every cofactor lies in
+        // its interval.
+        let mut rng = Rng(111);
+        let mut tight = 0;
+        for k in 5..=9 {
+            for scale in [1.0, 2f64.powi(-300), 2f64.powi(300)] {
+                for near in [false, true] {
+                    for _ in 0..6 {
+                        let mut facet: Vec<Vec<f64>> = (0..k)
+                            .map(|_| (0..k).map(|_| rng.unit() * scale).collect())
+                            .collect();
+                        if near {
+                            let others = k - 1;
+                            let last: Vec<f64> = (0..k)
+                                .map(|m| {
+                                    let mean: f64 =
+                                        facet[..others].iter().map(|p| p[m]).sum::<f64>()
+                                            / others as f64;
+                                    mean + rng.unit() * scale * 1e-9
+                                })
+                                .collect();
+                            facet[k - 1] = last;
+                        }
+                        let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
+                        let result = direction_cofactors(&refs);
+                        if scale > 1.0 {
+                            assert!(
+                                result.is_none(),
+                                "k {k}, 2^300, near {near}: certified past f64 range"
+                            );
+                            continue;
+                        }
+                        let Some(cofactors) = result else {
+                            panic!("k {k}, scale {scale:e}, near {near}: not certified");
+                        };
+                        assert_eq!(cofactors.len(), k, "one cofactor per column");
+                        for (j, &(value, bound)) in cofactors.iter().enumerate() {
+                            assert!(
+                                cofactor_within(&facet, j, value, bound),
+                                "k {k}, scale {scale:e}, near {near}, cofactor {j}: {value:e} +- {bound:e}"
+                            );
+                            if bound > value.abs() * 1e-12 {
+                                tight += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(tight > 0, "no case where the bound is far above rounding");
     }
 
     #[test]
