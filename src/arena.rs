@@ -6,9 +6,11 @@
 //! the entry was inserted. Removing an entry bumps the generation, so a stale
 //! id never reaches a reused slot. Freed slots are reused last in, first out.
 //!
-//! This arena is single-threaded. Worker-local arenas and the renumbering at
-//! commit belong to the parallel build (P3-3, #17); lock-free allocation is
-//! P5-2 (#26).
+//! This arena is single-threaded. Parallel workers plan with local numbers,
+//! and the commit inserts on one thread in ascending input index (§6), so
+//! no arena insert or remove is ever concurrent. Lock-free allocation was
+//! left out after measurement (#26): on the P2-7 `cube` sets measured
+//! there, every arena insert and remove of a build took under 1% of it.
 
 /// Number of slots in one chunk. Not tuned before measurement.
 const CHUNK_SIZE: usize = 1024;
