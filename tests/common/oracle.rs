@@ -219,7 +219,8 @@ pub fn check_delaunay(t: &DelaunayTriangulation, points: &[f64]) {
 /// Checks that the Voronoi vertices are exactly the lower logical facets of
 /// the lift: each vertex's sites are cospherical with no site strictly
 /// inside and no other site on the sphere, and every Delaunay simplex lies in
-/// exactly one vertex.
+/// exactly one vertex. Then checks the interfaces and the rays against
+/// [`check_voronoi_faces`].
 pub fn check_voronoi(v: &VoronoiDiagram, t: &DelaunayTriangulation, points: &[f64]) {
     let d = v.dim;
     let sites = integer_sites(d, points);
@@ -252,6 +253,154 @@ pub fn check_voronoi(v: &VoronoiDiagram, t: &DelaunayTriangulation, points: &[f6
             holders, 1,
             "simplex {:?} lies in {holders} vertices",
             s.vertices
+        );
+    }
+    check_voronoi_faces(v, &sites, &reps);
+}
+
+/// The on-set of every supporting hyperplane of `set` spanned by D of its
+/// sites: the sites of `set` on the hyperplane, ascending, without repeats.
+/// A D-subset whose hyperplane has sites of `set` strictly on both sides
+/// supports nothing; one with every site on it is not independent.
+fn supporting(sites: &[Vec<i128>], set: &[u32], d: usize) -> Vec<Vec<u32>> {
+    let mut found = std::collections::BTreeSet::new();
+    let mut pick: Vec<usize> = (0..d).collect();
+    if set.len() < d {
+        return Vec::new();
+    }
+    loop {
+        let base: Vec<u32> = pick.iter().map(|&k| set[k]).collect();
+        let (mut positive, mut negative) = (false, false);
+        let mut on = base.clone();
+        for &q in set.iter().filter(|q| !base.contains(q)) {
+            let mut with = base.clone();
+            with.push(q);
+            match orientation(sites, &with).signum() {
+                1 => positive = true,
+                -1 => negative = true,
+                _ => on.push(q),
+            }
+            if positive && negative {
+                break;
+            }
+        }
+        if positive != negative {
+            on.sort_unstable();
+            found.insert(on);
+        }
+        // The next D-subset in lexicographic order.
+        let Some(k) = (0..d).rev().find(|&k| pick[k] < set.len() - d + k) else {
+            return found.into_iter().collect();
+        };
+        pick[k] += 1;
+        for j in k + 1..d {
+            pick[j] = pick[j - 1] + 1;
+        }
+    }
+}
+
+/// The sites of the smallest face of the polytope of `set` that contains
+/// `members`: the intersection of the on-sets of the facets containing them.
+fn smallest_face(facets: &[Vec<u32>], set: &[u32], members: &[u32]) -> Vec<u32> {
+    let mut face = set.to_vec();
+    for f in facets
+        .iter()
+        .filter(|f| members.iter().all(|m| f.contains(m)))
+    {
+        face.retain(|x| f.contains(x));
+    }
+    face
+}
+
+/// Checks the interfaces and the rays (§8) against a brute force over exact
+/// orientations, independent of the Delaunay cells. The facets of the site
+/// hull and of each vertex's polytope are its supporting hyperplanes spanned
+/// by D sites. A pair is an edge when the smallest face containing it is the
+/// pair, so a diagonal is not. A ray is a pair of a vertex and a site-hull
+/// facet that meet in a facet of the vertex's polytope; its `hull_facet` is
+/// the extreme sites on that facet; a cell holds it when its site is in the
+/// meet. A site on the boundary of the site hull has at least one ray, and
+/// an interior one has none.
+fn check_voronoi_faces(v: &VoronoiDiagram, sites: &[Vec<i128>], reps: &[u32]) {
+    type Ray = (u32, Vec<u32>);
+    let d = v.dim;
+    let hull_facets = supporting(sites, reps, d);
+    let extreme: Vec<u32> = reps
+        .iter()
+        .copied()
+        .filter(|&r| smallest_face(&hull_facets, reps, &[r]) == [r])
+        .collect();
+    // (apex, hull_facet, meet) per ray.
+    let mut rays: Vec<(u32, Vec<u32>, Vec<u32>)> = Vec::new();
+    let mut interfaces: std::collections::BTreeMap<[u32; 2], (Vec<u32>, Vec<Ray>)> =
+        Default::default();
+    for (apex, vertex) in v.vertices.iter().enumerate() {
+        let apex = apex as u32;
+        let group = &vertex.sites;
+        let facets = supporting(sites, group, d);
+        let mut own: Vec<(Vec<u32>, Vec<u32>)> = Vec::new();
+        for f in &hull_facets {
+            let meet: Vec<u32> = group.iter().copied().filter(|s| f.contains(s)).collect();
+            if facets.contains(&meet) {
+                let ends: Vec<u32> = f.iter().copied().filter(|s| extreme.contains(s)).collect();
+                own.push((ends, meet));
+            }
+        }
+        for (i, &a) in group.iter().enumerate() {
+            for &b in &group[i + 1..] {
+                if smallest_face(&facets, group, &[a, b]) != [a, b] {
+                    continue;
+                }
+                let entry = interfaces.entry([a, b]).or_default();
+                entry.0.push(apex);
+                for (ends, meet) in &own {
+                    if meet.contains(&a) && meet.contains(&b) {
+                        entry.1.push((apex, ends.clone()));
+                    }
+                }
+            }
+        }
+        rays.extend(own.into_iter().map(|(ends, meet)| (apex, ends, meet)));
+    }
+
+    let shape = |r: &[convx::VoronoiRay]| -> Vec<Ray> {
+        r.iter().map(|x| (x.apex, x.hull_facet.clone())).collect()
+    };
+    let got: Vec<([u32; 2], Vec<u32>, Vec<Ray>)> = v
+        .interfaces
+        .iter()
+        .map(|f| (f.sites, f.vertices.clone(), shape(&f.rays)))
+        .collect();
+    let want: Vec<([u32; 2], Vec<u32>, Vec<Ray>)> = interfaces
+        .into_iter()
+        .map(|(sites, (vertices, mut r))| {
+            r.sort();
+            (sites, vertices, r)
+        })
+        .collect();
+    assert_eq!(got, want, "interfaces differ from the oracle");
+
+    let cell_sites: Vec<u32> = v.cells.iter().map(|c| c.site).collect();
+    assert_eq!(cell_sites, reps, "one cell per site");
+    for cell in &v.cells {
+        let mut want: Vec<Ray> = rays
+            .iter()
+            .filter(|(_, _, meet)| meet.contains(&cell.site))
+            .map(|(apex, ends, _)| (*apex, ends.clone()))
+            .collect();
+        want.sort();
+        assert_eq!(
+            shape(&cell.rays),
+            want,
+            "rays of cell {} differ from the oracle",
+            cell.site
+        );
+        let boundary = hull_facets.iter().any(|f| f.contains(&cell.site));
+        assert_eq!(
+            !cell.rays.is_empty(),
+            boundary,
+            "site {} has rays exactly when it is on the site hull",
+            cell.site
         );
     }
 }
