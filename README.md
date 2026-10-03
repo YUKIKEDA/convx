@@ -40,7 +40,7 @@ A successful build assigns every input index one destination. `representative` i
 
 `ConvexHull` owns the three lists. `representative` is attached to the hull, the Delaunay triangulation, and the Voronoi diagram. Nearby points that differ in bits and fail `==` are not snapped together.
 
-Classification runs after outside points have been absorbed and coplanar adjacent simplices have been merged into one logical facet. The distance sign is the orientation of $D$ affinely independent points of that face and the query point. A strictly positive distance to any logical facet means outside, and a successful result contains no outside point. Strictly negative distance to every facet means interior. A strictly zero distance to some facet, with the rest negative or zero, means on the boundary. Whether that boundary point becomes a vertex or a `coplanar_points` entry is an orientation, on the input coordinates, of whether it lies outside that face's convex hull.
+Classification runs after outside points have been absorbed and coplanar adjacent simplices have been merged into one logical facet. The distance sign is the orientation of $D$ affinely independent points of that face and the query point. A strictly positive distance to any logical facet means outside, and a successful result contains no outside point. Strictly negative distance to every facet means interior. A point that construction dropped while every sign it tested was strictly negative is already known to be interior (the proof is in design §3). A strictly zero distance to some facet, with the rest negative or zero, means on the boundary. Whether that boundary point becomes a vertex or a `coplanar_points` entry is an orientation, on the input coordinates, of whether it lies outside that face's convex hull.
 
 Insertion keeps a simplicial complex. After every point is inserted, only simplices that are exactly coplanar across a shared ridge merge into one logical facet. There is no merge mid-insertion. One supporting plane's connected boundary is one logical facet.
 
@@ -68,7 +68,7 @@ When the original sites span $\mathbb{R}^D$ and every point lies on one sphere, 
 
 When several diagonals exist, the build returns the split that version's algorithm chose. Which sites are extreme is unique, so the extreme set is promised. Diagonal agreement is limited to the sequential and parallel paths of the same binary. Dimension degeneracy is reported from the affine dimension of the input sites, using those sites' indices.
 
-Delaunay and Voronoi sites are the full representative set. Interior points and non-vertex boundary points are sites. 
+Delaunay and Voronoi sites are the full representative set. Interior points and non-vertex boundary points are sites.
 
 ## Voronoi is the dual before diagonals
 

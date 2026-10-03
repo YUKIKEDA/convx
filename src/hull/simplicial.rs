@@ -56,6 +56,10 @@ impl Simplex {
 pub(crate) struct SimplicialHull<'a> {
     pub(crate) input: Input<'a>,
     pub(crate) facets: Arena<Simplex>,
+    /// Points construction dropped with every sign it tested strictly
+    /// negative: strictly inside the hull at that step, so in the interior
+    /// of the final hull (design §3). Unordered.
+    pub(crate) proved_interior: Vec<u32>,
 }
 
 /// An index that no longer fits in `u32` is an exhaustion of the index
@@ -73,6 +77,7 @@ impl<'a> SimplicialHull<'a> {
         let mut hull = Self {
             input,
             facets: Arena::new(),
+            proved_interior: Vec::new(),
         };
         if hull.input.engine_dim() == 1 {
             hull.build_segment()?;
@@ -196,14 +201,17 @@ impl<'a> SimplicialHull<'a> {
         Ok(ids)
     }
 
-    /// Assigns each candidate to the first facet in `facets` that it is
-    /// strictly outside. Candidates outside none are dropped: they are inside
-    /// the current hull or on its boundary.
+    /// Assigns each candidate to the first facet in `facets`, every facet of
+    /// the initial simplex, that it is strictly outside. Candidates outside
+    /// none are dropped: they are inside the current hull or on its
+    /// boundary. Those strictly inside every facet are recorded in
+    /// [`Self::proved_interior`].
     fn assign(
         &mut self,
         mut remaining: Vec<u32>,
         facets: &[FacetId],
     ) -> Result<(), ConvexHullError> {
+        let mut strict = vec![true; remaining.len()];
         for &id in facets {
             if remaining.is_empty() {
                 break;
@@ -211,8 +219,15 @@ impl<'a> SimplicialHull<'a> {
             let Some(facet) = self.facets.get_mut(id) else {
                 continue;
             };
-            take_outside(&self.input, &mut remaining, facet)?;
+            take_outside(&self.input, &mut remaining, &mut strict, facet)?;
         }
+        self.proved_interior.extend(
+            remaining
+                .iter()
+                .zip(&strict)
+                .filter(|&(_, &s)| s)
+                .map(|(&p, _)| p),
+        );
         Ok(())
     }
 
@@ -581,20 +596,42 @@ impl<'a> SimplicialHull<'a> {
             .filter(|&p| p != apex)
             .collect();
         orphans.sort_unstable();
+        let mut strict = vec![true; orphans.len()];
         for planned in &mut created {
             if orphans.is_empty() {
                 break;
             }
-            take_outside(&self.input, &mut orphans, &mut planned.simplex)?;
+            take_outside(&self.input, &mut orphans, &mut strict, &mut planned.simplex)?;
         }
-        Ok(Plan { visible, created })
+        // An orphan strictly inside every new simplex lies in the open cone
+        // from the apex over the hull, before the visible facet it was
+        // outside, so on the open segment from the apex to the hull. It is
+        // strictly inside every kept facet too: on one only if the apex is,
+        // and then a new simplex shares that plane. So it is interior to the
+        // hull with the apex, and to the final hull (design §3).
+        let interior = orphans
+            .iter()
+            .zip(&strict)
+            .filter(|&(_, &s)| s)
+            .map(|(&p, _)| p)
+            .collect();
+        Ok(Plan {
+            visible,
+            created,
+            interior,
+        })
     }
 
     /// Applies a plan: inserts the new simplices, turns local links into
     /// arena ids, points each facet across the horizon at its new neighbor,
     /// and removes the visible facets.
     fn commit(&mut self, plan: Plan) {
-        let Plan { visible, created } = plan;
+        let Plan {
+            visible,
+            created,
+            interior,
+        } = plan;
+        self.proved_interior.extend(interior);
         let mut ids = Vec::with_capacity(created.len());
         let mut wiring = Vec::with_capacity(created.len());
         for planned in created {
@@ -639,6 +676,9 @@ struct Plan {
     visible: Vec<FacetId>,
     /// New simplices, numbered locally by position.
     created: Vec<Planned>,
+    /// Outside points of the visible facets that are strictly inside every
+    /// new simplex, for [`SimplicialHull::proved_interior`].
+    interior: Vec<u32>,
 }
 
 impl Plan {
@@ -729,10 +769,13 @@ fn oriented_side(input: &Input<'_>, facet: &Simplex, point: u32) -> Result<Sign,
 }
 
 /// Moves the points of `remaining` strictly outside `facet` into its outside
-/// set, keeping the order of both lists.
+/// set, keeping the order of both lists. `strict[i]` belongs to
+/// `remaining[i]` and is cleared when that point is on the supporting
+/// hyperplane of `facet`; a culled point is proved strictly inside.
 fn take_outside(
     input: &Input<'_>,
     remaining: &mut Vec<u32>,
+    strict: &mut Vec<bool>,
     facet: &mut Simplex,
 ) -> Result<(), ConvexHullError> {
     let mut inside = vec![false; remaining.len()];
@@ -740,14 +783,22 @@ fn take_outside(
         cull.mark_inside(input.points(), remaining, &mut inside);
     }
     let mut kept = Vec::with_capacity(remaining.len());
-    for (&p, &culled) in remaining.iter().zip(&inside) {
-        if !culled && side(input, facet, p)? == Sign::Positive {
+    let mut kept_strict = Vec::with_capacity(remaining.len());
+    for ((&p, &culled), &s) in remaining.iter().zip(&inside).zip(strict.iter()) {
+        let sign = if culled {
+            Sign::Negative
+        } else {
+            side(input, facet, p)?
+        };
+        if sign == Sign::Positive {
             facet.outside.push(p);
         } else {
             kept.push(p);
+            kept_strict.push(s && sign == Sign::Negative);
         }
     }
     *remaining = kept;
+    *strict = kept_strict;
     Ok(())
 }
 
@@ -906,6 +957,7 @@ pub(crate) mod tests {
         let mut hull = SimplicialHull {
             input: accept(dim, points).unwrap(),
             facets: Arena::new(),
+            proved_interior: Vec::new(),
         };
         let initial = hull.initial_simplex().unwrap();
         let candidates: Vec<u32> = hull

@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P5-7 (#73, in review), then P5-4 (#28): the owner asked to take the remaining measured costs in turn. The measurement on #28 bounds its gain on the `cube` sets.
+P5-4 (#28): the owner asked to take the remaining measured costs in turn. The measurement on #28 bounds its gain on the `cube` sets.
 
 ## Dependencies
 
@@ -85,7 +85,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-4  | Feat | Cut off search of the upper hull and of faces already decided | #28   | Not started            |
 | P5-5  | Feat | Vector cull kernel faster than its scalar lanes               | #70   | Set after Grill on #70 |
 | P5-6  | Feat | Filtered determinant cheap for every k > 4                    | #72   | Done                   |
-| P5-7  | Feat | Faster distance-zero classification                           | #73   | Set after Grill on #73 |
+| P5-7  | Feat | Faster distance-zero classification                           | #73   | Done                   |
 | P5-8  | Feat | Linear batch extraction                                       | #75   | Done                   |
 | P5-9  | Feat | Certified distance proves a strict side                       | #79   | Done                   |
 | P5-10 | Feat | Visibility search without SipHash                             | #85   | Done                   |
