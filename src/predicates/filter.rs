@@ -190,51 +190,90 @@ pub(super) fn determinant(n: usize, entry: impl Fn(usize, usize) -> Approx) -> O
 /// operation carries its running bound, so each returned value bounds its
 /// own cofactor. Returns `None` when a divisor's sign is not certified.
 pub(super) fn cofactors(k: usize, entry: impl Fn(usize, usize) -> Approx) -> Option<Vec<Approx>> {
+    // The k - 1 rows sit on the stack for the orders `determinant` keeps
+    // there; the last row of the square array is zero and is not read.
+    match k {
+        5 => eliminate_shared(&mut leading_rows::<5>(&entry)[..4], k),
+        6 => eliminate_shared(&mut leading_rows::<6>(&entry)[..5], k),
+        7 => eliminate_shared(&mut leading_rows::<7>(&entry)[..6], k),
+        8 => eliminate_shared(&mut leading_rows::<8>(&entry)[..7], k),
+        9 => eliminate_shared(&mut leading_rows::<9>(&entry)[..8], k),
+        _ => eliminate_shared(
+            &mut (0..k - 1)
+                .map(|i| (0..k).map(|j| entry(i, j)).collect::<Vec<_>>())
+                .collect::<Vec<_>>(),
+            k,
+        ),
+    }
+}
+
+/// The elimination of [`cofactors`] over the `k - 1` rows of length `k`.
+fn eliminate_shared<R: AsRef<[Approx]> + AsMut<[Approx]>>(
+    rows: &mut [R],
+    k: usize,
+) -> Option<Vec<Approx>> {
     let m = k - 1;
-    let mut rows: Vec<Vec<Approx>> = (0..m)
-        .map(|i| (0..k).map(|j| entry(i, j)).collect())
-        .collect();
+    debug_assert_eq!(rows.len(), m, "k - 1 rows");
     let mut swapped = false;
     for col in 0..m {
         let best = (col..m).max_by(|&a, &b| {
-            rows[a][col]
+            rows[a].as_ref()[col]
                 .value
                 .abs()
-                .total_cmp(&rows[b][col].value.abs())
+                .total_cmp(&rows[b].as_ref()[col].value.abs())
         })?;
         if best != col {
             rows.swap(best, col);
             swapped = !swapped;
         }
         let (upper, lower) = rows.split_at_mut(col + 1);
-        let pivot_row = &upper[col];
+        let pivot_row = upper[col].as_ref();
         let pivot = pivot_row[col];
         for row in lower {
+            let row = row.as_mut();
             let factor = row[col].div(pivot)?;
-            for (entry, &above) in row[col + 1..].iter_mut().zip(&pivot_row[col + 1..]) {
+            for (entry, &above) in row[col + 1..k].iter_mut().zip(&pivot_row[col + 1..k]) {
                 *entry = entry.sub(factor.mul(above));
             }
         }
     }
     let mut det = Approx::exact(1.0);
     for (i, row) in rows.iter().enumerate() {
-        det = det.mul(row[i]);
+        det = det.mul(row.as_ref()[i]);
     }
     if swapped {
         det = det.negated();
     }
-    // Back substitution for T x = u, u the last column.
-    let mut x = vec![Approx::exact(0.0); m];
+    // Back substitution for T x = u, u the last column, written into the
+    // first m entries of the result.
+    let mut out = vec![Approx::exact(0.0); k];
     for i in (0..m).rev() {
-        let mut sum = rows[i][m];
-        for j in i + 1..m {
-            sum = sum.sub(rows[i][j].mul(x[j]));
+        let row = rows[i].as_ref();
+        let mut sum = row[m];
+        for (j, &xj) in out.iter().enumerate().take(m).skip(i + 1) {
+            sum = sum.sub(row[j].mul(xj));
         }
-        x[i] = sum.div(rows[i][i])?;
+        out[i] = sum.div(row[i])?;
     }
-    let mut cofactors: Vec<Approx> = x.iter().map(|&xi| det.mul(xi).negated()).collect();
-    cofactors.push(det);
-    Some(cofactors)
+    for value in out.iter_mut().take(m) {
+        *value = det.mul(*value).negated();
+    }
+    out[m] = det;
+    Some(out)
+}
+
+/// The first `N - 1` rows of an `N x N` array from `entry`; the last row
+/// is zero and `entry` is not called for it.
+fn leading_rows<const N: usize>(entry: impl Fn(usize, usize) -> Approx) -> [[Approx; N]; N] {
+    core::array::from_fn(|i| {
+        core::array::from_fn(|j| {
+            if i + 1 < N {
+                entry(i, j)
+            } else {
+                Approx::exact(0.0)
+            }
+        })
+    })
 }
 
 fn fixed<const N: usize>(entry: impl Fn(usize, usize) -> Approx) -> [[Approx; N]; N] {

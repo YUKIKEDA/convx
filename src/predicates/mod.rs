@@ -781,8 +781,12 @@ mod tests {
         // k = 5..9 points of dimension k, at three scales, in general
         // position and with the last point a hair off the affine span of
         // the others, where the cofactors cancel and the bounds matter.
+        // Named exception: at 2^300 every cofactor of k >= 5 points is a
+        // product of at least four entries near 2^300, beyond the f64 range,
+        // so no set is certified and the direction falls back to the exact
+        // stage. Every other case is certified, and every cofactor lies in
+        // its interval.
         let mut rng = Rng(111);
-        let mut certified = 0;
         let mut tight = 0;
         for k in 5..=9 {
             for scale in [1.0, 2f64.powi(-300), 2f64.powi(300)] {
@@ -804,10 +808,17 @@ mod tests {
                             facet[k - 1] = last;
                         }
                         let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
-                        let Some(cofactors) = direction_cofactors(&refs) else {
+                        let result = direction_cofactors(&refs);
+                        if scale > 1.0 {
+                            assert!(
+                                result.is_none(),
+                                "k {k}, 2^300, near {near}: certified past f64 range"
+                            );
                             continue;
+                        }
+                        let Some(cofactors) = result else {
+                            panic!("k {k}, scale {scale:e}, near {near}: not certified");
                         };
-                        certified += 1;
                         assert_eq!(cofactors.len(), k, "one cofactor per column");
                         for (j, &(value, bound)) in cofactors.iter().enumerate() {
                             assert!(
@@ -822,7 +833,6 @@ mod tests {
                 }
             }
         }
-        assert!(certified >= 100, "only {certified} facets certified");
         assert!(tight > 0, "no case where the bound is far above rounding");
     }
 
