@@ -179,6 +179,64 @@ pub(super) fn determinant(n: usize, entry: impl Fn(usize, usize) -> Approx) -> O
     }
 }
 
+/// Every cofactor `c_j` of the `(k - 1) x k` matrix `entry`, that is the
+/// determinant of its rows followed by the unit row `e_j`, from one
+/// elimination (#111, design §1).
+///
+/// Gaussian elimination with partial pivoting over the first `k - 1`
+/// columns gives `[T | u]`, `T` upper triangular, after `s` row swaps. Row
+/// additions leave every maximal minor unchanged and a swap flips its sign,
+/// so with `T x = u` the cofactor vector is `(-1)^s det T (-x, 1)`. Every
+/// operation carries its running bound, so each returned value bounds its
+/// own cofactor. Returns `None` when a divisor's sign is not certified.
+pub(super) fn cofactors(k: usize, entry: impl Fn(usize, usize) -> Approx) -> Option<Vec<Approx>> {
+    let m = k - 1;
+    let mut rows: Vec<Vec<Approx>> = (0..m)
+        .map(|i| (0..k).map(|j| entry(i, j)).collect())
+        .collect();
+    let mut swapped = false;
+    for col in 0..m {
+        let best = (col..m).max_by(|&a, &b| {
+            rows[a][col]
+                .value
+                .abs()
+                .total_cmp(&rows[b][col].value.abs())
+        })?;
+        if best != col {
+            rows.swap(best, col);
+            swapped = !swapped;
+        }
+        let (upper, lower) = rows.split_at_mut(col + 1);
+        let pivot_row = &upper[col];
+        let pivot = pivot_row[col];
+        for row in lower {
+            let factor = row[col].div(pivot)?;
+            for (entry, &above) in row[col + 1..].iter_mut().zip(&pivot_row[col + 1..]) {
+                *entry = entry.sub(factor.mul(above));
+            }
+        }
+    }
+    let mut det = Approx::exact(1.0);
+    for (i, row) in rows.iter().enumerate() {
+        det = det.mul(row[i]);
+    }
+    if swapped {
+        det = det.negated();
+    }
+    // Back substitution for T x = u, u the last column.
+    let mut x = vec![Approx::exact(0.0); m];
+    for i in (0..m).rev() {
+        let mut sum = rows[i][m];
+        for j in i + 1..m {
+            sum = sum.sub(rows[i][j].mul(x[j]));
+        }
+        x[i] = sum.div(rows[i][i])?;
+    }
+    let mut cofactors: Vec<Approx> = x.iter().map(|&xi| det.mul(xi).negated()).collect();
+    cofactors.push(det);
+    Some(cofactors)
+}
+
 fn fixed<const N: usize>(entry: impl Fn(usize, usize) -> Approx) -> [[Approx; N]; N] {
     core::array::from_fn(|i| core::array::from_fn(|j| entry(i, j)))
 }
