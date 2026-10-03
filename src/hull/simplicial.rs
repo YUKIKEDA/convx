@@ -265,22 +265,23 @@ impl<'a> SimplicialHull<'a> {
     /// thread or on rayon's pool, and the plans are committed in ascending
     /// input index. Both executions run the same plans and the same commits.
     fn absorb(&mut self, execution: Execution) -> Result<(), ConvexHullError> {
+        let mut cache = RegionCache::default();
         loop {
-            let batch = self.next_batch()?;
+            let batch = self.next_batch_with(&mut cache)?;
             if batch.is_empty() {
                 return Ok(());
             }
             let plans: Vec<Plan> = match execution {
                 Execution::Sequential => batch
                     .iter()
-                    .map(|&(point, start)| self.plan(start, point))
+                    .map(|(point, _, region)| self.plan_region(*point, region.clone()))
                     .collect::<Result<_, _>>()?,
                 Execution::Parallel => batch
                     .par_iter()
-                    .map(|&(point, start)| self.plan(start, point))
+                    .map(|(point, _, region)| self.plan_region(*point, region.clone()))
                     .collect::<Result<_, _>>()?,
             };
-            for (plan, &(point, start)) in plans.into_iter().zip(&batch) {
+            for (plan, &(point, start, _)) in plans.into_iter().zip(&batch) {
                 // Debug check of §6: applying the batch sequentially in index
                 // order, planning each point against the hull as the earlier
                 // commits left it, gives the same mutation as the plan made
@@ -297,6 +298,10 @@ impl<'a> SimplicialHull<'a> {
                 let _ = (point, start);
                 self.commit(plan);
             }
+            // Entries of removed facets can never be looked up again.
+            cache
+                .entries
+                .retain(|&(_, start), _| self.facets.get(start).is_some());
         }
     }
 
@@ -306,15 +311,39 @@ impl<'a> SimplicialHull<'a> {
     ///
     /// Candidates are packed in [`packs_before`] order. A candidate is taken
     /// when none of its facets T = V ∪ N and none of its horizon ridges H is
-    /// already reserved, and when neither it nor a taken candidate is
-    /// strictly outside a prospective simplex of the other. A skipped
-    /// candidate stays in its outside set for a later round.
+    /// already reserved. A debug build also asserts that neither it nor a
+    /// taken candidate is strictly outside a prospective simplex of the
+    /// other; that never holds once T and H are free (see
+    /// [`Self::conflicts`]), so it skips no candidate. A skipped candidate
+    /// stays in its outside set for a later round. This wraps
+    /// [`Self::next_batch_with`] with an empty cache for tests.
+    #[cfg(test)]
     fn next_batch(&self) -> Result<Vec<(u32, FacetId)>, ConvexHullError> {
+        Ok(self
+            .next_batch_with(&mut RegionCache::default())?
+            .into_iter()
+            .map(|(p, f, _)| (p, f))
+            .collect())
+    }
+
+    /// The batch of the next round, with each point's visible region, in
+    /// ascending point index. Regions come from `cache` when no commit has
+    /// touched them since they were computed.
+    ///
+    /// The prospective-simplex conflict test of §6 never holds once T and H
+    /// are free (see [`Self::conflicts`]), so it runs only as a debug
+    /// assertion, like the sequential replay of a parallel round.
+    fn next_batch_with(
+        &self,
+        cache: &mut RegionCache,
+    ) -> Result<Vec<(u32, FacetId, Region)>, ConvexHullError> {
         let mut facets: HashSet<FacetId> = HashSet::new();
         let mut ridges: HashSet<Vec<u32>> = HashSet::new();
-        let mut taken: Vec<(u32, FacetId, Vec<Vec<u32>>)> = Vec::new();
+        let mut taken: Vec<(u32, FacetId, Region)> = Vec::new();
+        #[cfg(debug_assertions)]
+        let mut taken_prospective: Vec<(u32, Vec<Vec<u32>>)> = Vec::new();
         for (point, start, _) in self.candidates() {
-            let region = self.visible_region(start, point)?;
+            let region = self.cached_region(cache, start, point)?;
             let touched: Vec<FacetId> = region.touched().collect();
             let horizon = self.horizon_ridges(&region);
             if touched.iter().any(|f| facets.contains(f))
@@ -322,24 +351,48 @@ impl<'a> SimplicialHull<'a> {
             {
                 continue;
             }
-            let prospective = self.prospective(&region, point);
-            let mut conflict = false;
-            for (other, _, other_prospective) in &taken {
-                if self.conflicts((point, &prospective), (*other, other_prospective))? {
-                    conflict = true;
-                    break;
+            #[cfg(debug_assertions)]
+            {
+                let prospective = self.prospective(&region, point);
+                for (other, other_prospective) in &taken_prospective {
+                    debug_assert!(
+                        !self.conflicts((point, &prospective), (*other, other_prospective))?,
+                        "points {point} and {other} conflict although T and H are free"
+                    );
                 }
-            }
-            if conflict {
-                continue;
+                taken_prospective.push((point, prospective));
             }
             facets.extend(touched);
             ridges.extend(horizon);
-            taken.push((point, start, prospective));
+            taken.push((point, start, region));
         }
-        let mut batch: Vec<(u32, FacetId)> = taken.into_iter().map(|(p, f, _)| (p, f)).collect();
-        batch.sort_unstable_by_key(|&(point, _)| point);
-        Ok(batch)
+        taken.sort_unstable_by_key(|&(point, _, _)| point);
+        Ok(taken)
+    }
+
+    /// The visible region of `apex` from `start`, reused from `cache` while
+    /// every facet of its V and N is alive. That is enough: the search reads
+    /// the vertices of V and N, which never change, and the neighbor lists of
+    /// V. A commit changes a neighbor list only by replacing a removed facet,
+    /// and a removed neighbor of a facet in V was itself in V or N.
+    fn cached_region(
+        &self,
+        cache: &mut RegionCache,
+        start: FacetId,
+        apex: u32,
+    ) -> Result<Region, ConvexHullError> {
+        if let Some(cached) = cache.entries.get(&(apex, start)) {
+            if cached.touched().all(|id| self.facets.get(id).is_some()) {
+                debug_assert!(
+                    self.visible_region(start, apex)? == *cached,
+                    "the cached region of point {apex} is stale"
+                );
+                return Ok(cached.clone());
+            }
+        }
+        let region = self.visible_region(start, apex)?;
+        cache.entries.insert((apex, start), region.clone());
+        Ok(region)
     }
 
     /// The horizon ridges H of `region`, each as its sorted vertex list.
@@ -364,6 +417,7 @@ impl<'a> SimplicialHull<'a> {
 
     /// The prospective simplices of `apex`: each horizon ridge joined with
     /// the apex, in the outward vertex order the insertion will give them.
+    #[cfg(any(test, debug_assertions))]
     fn prospective(&self, region: &Region, apex: u32) -> Vec<Vec<u32>> {
         region
             .horizon
@@ -379,11 +433,17 @@ impl<'a> SimplicialHull<'a> {
     /// Whether two candidates conflict on their prospective simplices: one
     /// is strictly outside a prospective simplex of the other.
     ///
-    /// After the T and H test this never holds in exact arithmetic: the
-    /// facets strictly visible from a point form a connected region, and
-    /// the only old facets next to the prospective simplices of P are N(P),
-    /// so a Q outside one of them would also see a facet of T(P). The design
-    /// keeps it as the sufficient condition (§6), and it is checked here.
+    /// After the T and H test this never holds in exact arithmetic. A
+    /// prospective simplex of P sits on a horizon ridge, which lies on
+    /// exactly two facets: a visible one and one of N(P), both supporting
+    /// hyperplanes of the convex hull. The strict outer side of the
+    /// prospective simplex is covered by the strict outer sides of those two,
+    /// and a point strictly outside a facet's hyperplane sees that facet. So
+    /// a Q strictly outside a prospective simplex of P sees a facet of T(P),
+    /// and the reverse holds the same way. Connectivity of the visible region
+    /// is what puts every facet across the horizon into N(P). §6 keeps the
+    /// test as a debug assertion, which [`Self::next_batch_with`] checks.
+    #[cfg(any(test, debug_assertions))]
     fn conflicts(
         &self,
         (p, p_prospective): (u32, &[Vec<u32>]),
@@ -394,6 +454,7 @@ impl<'a> SimplicialHull<'a> {
 
     /// Whether `point` is strictly outside any of `simplices`, each in
     /// outward order (orientation positive outside).
+    #[cfg(any(test, debug_assertions))]
     fn outside_any(&self, simplices: &[Vec<u32>], point: u32) -> Result<bool, ConvexHullError> {
         for vertices in simplices {
             let mut indices = vertices.clone();
@@ -454,8 +515,14 @@ impl<'a> SimplicialHull<'a> {
     /// the hull: the cone from `apex` over the horizon, with links between
     /// the new simplices by local number, and the outside points of the
     /// visible facets reassigned to the new simplices. Runs on a worker.
+    #[cfg(any(test, debug_assertions))]
     fn plan(&self, start: FacetId, apex: u32) -> Result<Plan, ConvexHullError> {
-        let Region { visible, horizon } = self.visible_region(start, apex)?;
+        self.plan_region(apex, self.visible_region(start, apex)?)
+    }
+
+    /// [`Self::plan`] with the visible region already found.
+    fn plan_region(&self, apex: u32, region: Region) -> Result<Plan, ConvexHullError> {
+        let Region { visible, horizon } = region;
 
         // One new simplex per horizon ridge: the visible facet's vertex order
         // with the vertex opposite the ridge replaced by the apex keeps the
@@ -656,6 +723,7 @@ fn take_outside(
 
 /// The region a point would replace: its visible facets V and its horizon
 /// ridges, each with the facet across it (N).
+#[derive(Clone, Debug, PartialEq)]
 struct Region {
     visible: Vec<FacetId>,
     /// (visible facet, slot of the ridge in it, facet across the ridge).
@@ -670,6 +738,14 @@ impl Region {
             .copied()
             .chain(self.horizon.iter().map(|&(_, _, n)| n))
     }
+}
+
+/// Visible regions of candidates, kept across rounds (see
+/// [`SimplicialHull::cached_region`]).
+#[derive(Default)]
+struct RegionCache {
+    /// By (apex, start facet).
+    entries: HashMap<(u32, FacetId), Region>,
 }
 
 /// Packing order of design §6: a larger working distance first, ties by the

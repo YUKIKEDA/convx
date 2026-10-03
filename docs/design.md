@@ -217,7 +217,7 @@ flowchart TD
     scan["Cull points proved inside"]
     pick["Take the farthest point of each facet as a candidate"]
     reserve["Reserve unreserved T and H, largest outside distance first"]
-    conflict["Drop conflicts by orientation of the prospective simplices"]
+    conflict["Debug build: check that no prospective simplices conflict"]
     commit["Commit in ascending input-index order"]
     scan --> pick --> reserve --> conflict --> commit
 ```
@@ -235,7 +235,7 @@ $$
 T(P) \cap T(Q) = \emptyset, \quad H(P) \cap H(Q) = \emptyset
 $$
 
-Disjoint $T$ and $H$ are necessary for the two points to be candidates for the same batch. The sufficient condition is judged from the prospective simplices, which are known before commit. A prospective simplex is the vertices of a horizon ridge with that point added. If $Q$ is strictly outside any prospective simplex of $P$ by orientation, or the reverse, they do not share a batch.
+Disjoint $T$ and $H$ are the condition for two points to share a batch. A prospective simplex is the vertices of a horizon ridge with that point added, known before commit. Two points conflict if $Q$ is strictly outside a prospective simplex of $P$ by orientation, or the reverse. Once $T$ and $H$ are disjoint, no conflict can occur. A prospective simplex of $P$ sits on a horizon ridge, and that ridge lies on exactly two facets: a visible one and one of $N(P)$, both supporting hyperplanes of the convex hull. The strict outer side of the prospective simplex is covered by the strict outer sides of those two facets, and a point strictly outside a facet's hyperplane sees that facet. So a $Q$ strictly outside a prospective simplex of $P$ sees a facet of $T(P)$, and the reverse holds the same way. The connectivity of the visible region is what puts every facet across the horizon into $N(P)$. Disjoint $H$ remains the condition that two commits do not write the same ridge. A debug build checks the conflict test on every batch, as it checks the sequential application of a parallel batch. A release build does not evaluate it, because its cost grows with the square of the batch size and it never changes a batch.
 
 The order of packing into a batch is largest outside distance first. The order of applying the batch is ascending input index. Sequential and parallel builds both use this extraction and this commit. The sequential build runs it on one thread. `parallel` defaults to off. When it is on, the input point slice is immutable, workers build mutations locally, and a barrier commits them in the order above. A debug build checks that the topology of applying the same batch sequentially in index order agrees with the topology of the parallel commit.
 
@@ -477,7 +477,7 @@ Phase 1 is the predicate kernel. Orientation, the distance sign, coplanar, the e
 
 Phase 2 is sequential Quickhull. Insertion proceeds with simplices. After completion, coplanar simplices are merged, and then the distance-zero points are classified. This phase includes the index partition, `volume()`, the invariants, and the convex-hull inputs above.
 
-Phase 3 is parallel. It includes the same batch extraction as the sequential build, the reservation and prospective-simplex conflict test of §6, worker-local mutation, commit in index order, and the check of agreement with the sequential result. Sequential and parallel builds choose the initial simplex with the same function. A debug build compares sequential application of the same batch with the parallel commit.
+Phase 3 is parallel. It includes the same batch extraction as the sequential build, the reservation of §6 with its debug check of prospective-simplex conflicts, worker-local mutation, commit in index order, and the check of agreement with the sequential result. Sequential and parallel builds choose the initial simplex with the same function. A debug build compares sequential application of the same batch with the parallel commit.
 
 Phase 4 is the static API, Delaunay, Voronoi, and the oracles. Phase 4 is not complete until the Delaunay inputs above pass. The pulling triangulation for a flat lift, and the procedure that merges cospherical simplices into one Voronoi vertex, are internal procedures of this phase.
 
