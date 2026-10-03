@@ -30,7 +30,7 @@ fn off_facet(hull: &ConvexHull, facet_vertices: &[u32]) -> Result<u32, String> {
 pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
     let d = hull.dim;
     let point = |i: u32| &points[i as usize * d..(i as usize + 1) * d];
-    let expected_euler = if d % 2 == 0 { 0 } else { 2 };
+    let expected_euler = if d.is_multiple_of(2) { 0 } else { 2 };
 
     // 5. Index partition.
     let fixed: Vec<u32> = (0..hull.representative.len() as u32)

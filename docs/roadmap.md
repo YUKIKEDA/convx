@@ -80,7 +80,7 @@ After a correct sequential hull. These rows do not block P4.
 
 | ID   | Kind | Title                                                         | Issue | Status      |
 | ---- | ---- | ------------------------------------------------------------- | ----- | ----------- |
-| P5-1 | Feat | Wider SIMD, including AVX-512                                 | #25   | Not started |
+| P5-1 | Feat | Wider SIMD, including AVX-512                                 | #25   | Done        |
 | P5-2 | Feat | Lock-free allocation                                          | #26   | Not started |
 | P5-3 | Feat | Cache of lifted coordinates                                   | #27   | Not started |
 | P5-4 | Feat | Cut off search of the upper hull and of faces already decided | #28   | Not started |

@@ -41,7 +41,7 @@ pub(crate) fn check_shape(dim: usize, len: usize) -> Result<usize, ConvexHullErr
     if dim == 0 {
         return Err(ConvexHullError::NonPositiveDimension);
     }
-    if len % dim != 0 {
+    if !len.is_multiple_of(dim) {
         return Err(ConvexHullError::LengthMismatch { len, dim });
     }
     Ok(len / dim)

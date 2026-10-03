@@ -215,6 +215,12 @@ impl WithSimd for Scan<'_> {
     }
 }
 
+/// The P2-7 timing sets' generator, for the cull timing below.
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "../tests/common/generator.rs"]
+mod generator;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,5 +424,140 @@ mod tests {
         let mut inside = [false; 5];
         plane.mark_inside(&points, &indices, &mut inside);
         assert_eq!(inside, [true, false, true, false, true]);
+    }
+
+    /// `w` and `l` of every index.
+    type Terms = (Vec<f64>, Vec<f64>);
+
+    /// `w` and `l` of every index through one instruction-set level.
+    fn terms_with<S: Simd>(simd: S, plane: &CullPlane, points: &[f64], indices: &[u32]) -> Terms {
+        let mut w = vec![0.0; indices.len()];
+        let mut l = vec![0.0; indices.len()];
+        simd.vectorize(Scan {
+            plane,
+            points,
+            indices,
+            w: &mut w,
+            l: &mut l,
+        });
+        (w, l)
+    }
+
+    /// The terms through every level this CPU runs, by name: scalar lanes,
+    /// then the x86 levels from AVX2 (the P1-4 path) to AVX-512.
+    fn every_level(
+        plane: &CullPlane,
+        points: &[f64],
+        indices: &[u32],
+    ) -> Vec<(&'static str, Terms)> {
+        let mut out = vec![("scalar", terms_with(pulp::Scalar, plane, points, indices))];
+        #[cfg(target_arch = "x86_64")]
+        {
+            if let Some(simd) = pulp::x86::V3::try_new() {
+                out.push(("x86-v3", terms_with(simd, plane, points, indices)));
+            }
+            if let Some(simd) = pulp::x86::V4::try_new() {
+                out.push(("x86-v4", terms_with(simd, plane, points, indices)));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn every_instruction_set_level_returns_the_same_terms_and_cull_set() {
+        // Lane counts 1, 4, and 8 with tails of every length, magnitudes
+        // far from 1, and indices out of order.
+        let mut rng = Rng(11);
+        for d in 1..=8 {
+            for count in [0, 1, 3, 7, 8, 9, 17, 64, 101] {
+                for scale in [1.0, 1e-100, 1e100] {
+                    let facet: Vec<Vec<f64>> = (0..d)
+                        .map(|_| (0..d).map(|_| rng.unit() * scale).collect())
+                        .collect();
+                    let plane = prepare(&facet);
+                    let points: Vec<f64> = (0..d * count).map(|_| rng.unit() * scale).collect();
+                    let indices: Vec<u32> = (0..count as u32).rev().collect();
+                    let reference: Vec<(u64, u64)> = indices
+                        .iter()
+                        .map(|&i| {
+                            let start = i as usize * d;
+                            let (w, l) = plane.scalar_terms(&points[start..start + d]);
+                            (w.to_bits(), l.to_bits())
+                        })
+                        .collect();
+                    for (name, (w, l)) in every_level(&plane, &points, &indices) {
+                        let bits: Vec<(u64, u64)> = w
+                            .iter()
+                            .zip(&l)
+                            .map(|(w, l)| (w.to_bits(), l.to_bits()))
+                            .collect();
+                        assert_eq!(bits, reference, "{name}, D = {d}, {count} points");
+                    }
+                    let mut dispatched = vec![false; count];
+                    let mut scalar = vec![false; count];
+                    plane.mark_inside(&points, &indices, &mut dispatched);
+                    plane.mark_inside_scalar(&points, &indices, &mut scalar);
+                    assert_eq!(dispatched, scalar, "cull set, D = {d}, {count} points");
+                }
+            }
+        }
+    }
+
+    /// Before/after timing of the cull on the P2-7 sets, per level. Run by
+    /// hand: `cargo test --release --lib cull_timing -- --ignored
+    /// --nocapture`. The facet is each set's first D points; the cost per
+    /// point does not depend on the plane.
+    #[test]
+    #[ignore = "measurement, run by hand in release"]
+    fn cull_timing() {
+        use std::time::Instant;
+        let sets =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/benches/sets.txt"))
+                .unwrap();
+        for line in sets.lines().filter(|l| l.starts_with("set ")) {
+            let field: Vec<&str> = line.split_whitespace().collect();
+            let family = super::generator::Family::from_name(field[1]).unwrap();
+            let dim: usize = field[2].parse().unwrap();
+            let count: usize = field[3].parse().unwrap();
+            let seed: u64 = field[4].parse().unwrap();
+            let points = family.points(dim, count, seed);
+            let facet: Vec<Vec<f64>> = points
+                .chunks_exact(dim)
+                .take(dim)
+                .map(<[f64]>::to_vec)
+                .collect();
+            let plane = prepare(&facet);
+            let indices: Vec<u32> = (0..count as u32).collect();
+            let mut row = format!("{} d{dim} n{count}:", field[1]);
+            let reps = (2_000_000 / count).clamp(3, 50);
+            for (name, _) in every_level(&plane, &points, &indices[..1]) {
+                let mut best = f64::MAX;
+                let mut culled = 0;
+                for _ in 0..reps {
+                    let start = Instant::now();
+                    let (w, l) = match name {
+                        "scalar" => terms_with(pulp::Scalar, &plane, &points, &indices),
+                        #[cfg(target_arch = "x86_64")]
+                        "x86-v3" => {
+                            terms_with(pulp::x86::V3::try_new().unwrap(), &plane, &points, &indices)
+                        }
+                        #[cfg(target_arch = "x86_64")]
+                        "x86-v4" => {
+                            terms_with(pulp::x86::V4::try_new().unwrap(), &plane, &points, &indices)
+                        }
+                        _ => unreachable!(),
+                    };
+                    culled = w
+                        .iter()
+                        .zip(&l)
+                        .filter(|&(&w, &l)| plane.is_proved_inside(w, l))
+                        .count();
+                    best = best.min(start.elapsed().as_secs_f64());
+                }
+                std::hint::black_box(culled);
+                row += &format!(" {name} {:.2} ns/point;", best / count as f64 * 1e9);
+            }
+            println!("{row}");
+        }
     }
 }
