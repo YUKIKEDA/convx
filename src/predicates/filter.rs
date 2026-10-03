@@ -86,6 +86,14 @@ impl Approx {
         Some(Self { value, error })
     }
 
+    /// The value negated, with the same bound (negation is exact).
+    pub(super) fn negated(self) -> Self {
+        Self {
+            value: -self.value,
+            error: self.error,
+        }
+    }
+
     pub(super) fn value(self) -> f64 {
         self.value
     }
@@ -143,26 +151,54 @@ pub(super) fn orient4(m: &[[Approx; 4]; 4]) -> Approx {
         .add(top(2, 3).mul(bottom(0, 1)))
 }
 
-/// Filtered determinant for any size by Gaussian elimination with partial
-/// pivoting. Returns `None` when a pivot's sign is not certain.
-pub(super) fn determinant(mut m: Vec<Vec<Approx>>) -> Option<Approx> {
+/// Filtered determinant of the `n` x `n` matrix with entries `entry(i, j)`,
+/// for any size, by Gaussian elimination with partial pivoting. Returns
+/// `None` when a pivot's sign is not certain.
+///
+/// Sizes 5 to 9 (every orientation and lifted orientation of the static
+/// range) build an array of exactly that size on the stack, so a call does
+/// not allocate. Larger sizes use one vector per row. Both run the same
+/// elimination, so the value and the bound do not depend on the storage.
+pub(super) fn determinant(n: usize, entry: impl Fn(usize, usize) -> Approx) -> Option<Approx> {
+    match n {
+        5 => eliminate(&mut fixed::<5>(entry)),
+        6 => eliminate(&mut fixed::<6>(entry)),
+        7 => eliminate(&mut fixed::<7>(entry)),
+        8 => eliminate(&mut fixed::<8>(entry)),
+        9 => eliminate(&mut fixed::<9>(entry)),
+        _ => eliminate(
+            &mut (0..n)
+                .map(|i| (0..n).map(|j| entry(i, j)).collect::<Vec<_>>())
+                .collect::<Vec<_>>(),
+        ),
+    }
+}
+
+fn fixed<const N: usize>(entry: impl Fn(usize, usize) -> Approx) -> [[Approx; N]; N] {
+    core::array::from_fn(|i| core::array::from_fn(|j| entry(i, j)))
+}
+
+/// Gaussian elimination with partial pivoting over the rows of `m`.
+fn eliminate<R: AsRef<[Approx]> + AsMut<[Approx]>>(m: &mut [R]) -> Option<Approx> {
     let n = m.len();
     let mut det = Approx::exact(1.0);
     for col in 0..n {
-        let best =
-            (col..n).max_by(|&a, &b| m[a][col].value.abs().total_cmp(&m[b][col].value.abs()))?;
+        let best = (col..n).max_by(|&a, &b| {
+            m[a].as_ref()[col]
+                .value
+                .abs()
+                .total_cmp(&m[b].as_ref()[col].value.abs())
+        })?;
         if best != col {
             m.swap(best, col);
-            det = Approx {
-                value: -det.value,
-                error: det.error,
-            };
+            det = det.negated();
         }
-        let pivot = m[col][col];
+        let pivot = m[col].as_ref()[col];
         det = det.mul(pivot);
         let (upper, lower) = m.split_at_mut(col + 1);
-        let pivot_row = &upper[col];
+        let pivot_row = upper[col].as_ref();
         for row in lower {
+            let row = row.as_mut();
             let factor = row[col].div(pivot)?;
             for (entry, &above) in row[col + 1..].iter_mut().zip(&pivot_row[col + 1..]) {
                 *entry = entry.sub(factor.mul(above));
