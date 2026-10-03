@@ -311,9 +311,12 @@ impl<'a> SimplicialHull<'a> {
     ///
     /// Candidates are packed in [`packs_before`] order. A candidate is taken
     /// when none of its facets T = V ∪ N and none of its horizon ridges H is
-    /// already reserved, and when neither it nor a taken candidate is
-    /// strictly outside a prospective simplex of the other. A skipped
-    /// candidate stays in its outside set for a later round.
+    /// already reserved. A debug build also asserts that neither it nor a
+    /// taken candidate is strictly outside a prospective simplex of the
+    /// other; that never holds once T and H are free (see
+    /// [`Self::conflicts`]), so it skips no candidate. A skipped candidate
+    /// stays in its outside set for a later round. This wraps
+    /// [`Self::next_batch_with`] with an empty cache for tests.
     #[cfg(test)]
     fn next_batch(&self) -> Result<Vec<(u32, FacetId)>, ConvexHullError> {
         Ok(self
@@ -430,11 +433,16 @@ impl<'a> SimplicialHull<'a> {
     /// Whether two candidates conflict on their prospective simplices: one
     /// is strictly outside a prospective simplex of the other.
     ///
-    /// After the T and H test this never holds in exact arithmetic: the
-    /// facets strictly visible from a point form a connected region, and
-    /// the only old facets next to the prospective simplices of P are N(P),
-    /// so a Q outside one of them would also see a facet of T(P). §6 keeps it
-    /// as a debug assertion, which [`Self::next_batch_with`] checks.
+    /// After the T and H test this never holds in exact arithmetic. A
+    /// prospective simplex of P sits on a horizon ridge, which lies on
+    /// exactly two facets: a visible one and one of N(P), both supporting
+    /// hyperplanes of the convex hull. The strict outer side of the
+    /// prospective simplex is covered by the strict outer sides of those two,
+    /// and a point strictly outside a facet's hyperplane sees that facet. So
+    /// a Q strictly outside a prospective simplex of P sees a facet of T(P),
+    /// and the reverse holds the same way. Connectivity of the visible region
+    /// is what puts every facet across the horizon into N(P). §6 keeps the
+    /// test as a debug assertion, which [`Self::next_batch_with`] checks.
     #[cfg(any(test, debug_assertions))]
     fn conflicts(
         &self,
