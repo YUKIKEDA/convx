@@ -99,10 +99,13 @@ impl<'a> DelaunayBuilder<'a> {
     /// [`ConvexHullError::ExactEvaluationExhausted`]. Sites that all lie on
     /// one sphere succeed.
     pub fn build(self) -> Result<DelaunayTriangulation, ConvexHullError> {
-        match lower_hull(self.dim, self.points, self.execution)? {
-            Lower::Triangulation(t) => Ok(t),
-            Lower::Flat(sites) => pull(sites, self.execution),
-        }
+        let complex = complex(self.dim, self.points, self.execution)?;
+        let cells = complex.groups.into_iter().flat_map(|g| g.cells).collect();
+        Ok(DelaunayTriangulation {
+            dim: complex.dim,
+            simplices: publish(complex.dim, self.points, cells)?,
+            representative: complex.representative,
+        })
     }
 }
 
@@ -130,28 +133,69 @@ pub struct DelaunaySimplex {
     pub neighbors: Vec<u32>,
 }
 
-/// The lower hull of the lift, or the sites when the lift is flat.
-pub(crate) enum Lower<'a> {
-    Triangulation(DelaunayTriangulation),
-    /// Every site on one sphere: the pulling triangulation of P4-2 (#20).
-    Flat(Input<'a>),
+/// The Delaunay complex before diagonals are inserted (design §8): one
+/// group per lower logical facet of the lift, with the simplices it is cut
+/// into.
+pub(crate) struct Complex {
+    pub(crate) dim: usize,
+    pub(crate) representative: Vec<u32>,
+    pub(crate) groups: Vec<Group>,
 }
 
-/// Builds the Delaunay triangulation of `points` (dimension `dim`) as the
-/// lower hull of the lift. Input checks and `DegenerateDimension` concern
-/// the original sites, with their original indices.
+/// One lower logical facet of the lift: cospherical sites and their cells.
+pub(crate) struct Group {
+    /// The sites, ascending; at least D + 1.
+    pub(crate) sites: Vec<u32>,
+    /// The simplices of the group, ascending vertex lists.
+    pub(crate) cells: Vec<Vec<u32>>,
+}
+
+/// The Delaunay complex of `points` (dimension `dim`): the lower hull of the
+/// lift, or the pulling triangulation as one group when the lift is flat.
+pub(crate) fn complex(
+    dim: usize,
+    points: &[f64],
+    execution: Execution,
+) -> Result<Complex, ConvexHullError> {
+    let complex = match lower_hull(dim, points, execution)? {
+        Ok(complex) => complex,
+        Err(flat) => pull(flat, execution)?,
+    };
+    debug_assert!(
+        {
+            let mut seen: Vec<u32> = complex
+                .groups
+                .iter()
+                .flat_map(|g| g.sites.iter().copied())
+                .collect();
+            seen.sort_unstable();
+            seen.dedup();
+            let mut reps: Vec<u32> = (0..complex.representative.len() as u32)
+                .filter(|&i| complex.representative[i as usize] == i)
+                .collect();
+            reps.sort_unstable();
+            seen == reps
+        },
+        "every site is a vertex of the Delaunay complex"
+    );
+    Ok(complex)
+}
+
+/// The lower hull of the lift, or `Err` with the accepted sites when the
+/// lift is flat. Input checks and `DegenerateDimension` concern the original
+/// sites, with their original indices.
 pub(crate) fn lower_hull(
     dim: usize,
     points: &[f64],
     execution: Execution,
-) -> Result<Lower<'_>, ConvexHullError> {
+) -> Result<Result<Complex, Input<'_>>, ConvexHullError> {
     let input = accept(dim, points)?;
     let lifted = match input.lift()? {
         Ok(lifted) => lifted,
-        Err(flat) => return Ok(Lower::Flat(flat)),
+        Err(flat) => return Ok(Err(flat)),
     };
     let hull = SimplicialHull::build(lifted, execution)?;
-    let groups = merge(&hull)?;
+    let logical = merge(&hull)?;
     let input = &hull.input;
     let d = input.dim();
 
@@ -171,8 +215,8 @@ pub(crate) fn lower_hull(
         "every lifted site is a vertex of the simplicial hull"
     );
 
-    let mut cells: Vec<Vec<u32>> = Vec::new();
-    for group in &groups.groups {
+    let mut groups = Vec::new();
+    for group in &logical.groups {
         let Some(outward) = group
             .simplices
             .first()
@@ -184,30 +228,26 @@ pub(crate) fn lower_hull(
         if lift_side(input, &outward)? != Sign::Negative {
             continue;
         }
-        let vertices = &group.vertices;
-        if vertices.len() == d + 1 {
-            cells.push(vertices.clone());
+        let sites = group.vertices.clone();
+        let cells = if sites.len() == d + 1 {
+            vec![sites.clone()]
         } else {
-            let split = placing(d, |i| input.point(i), vertices)?;
+            let mut split = placing(d, |i| input.point(i), &sites)?;
             debug_assert!(
                 split.iter().all(|s| s.len() == d + 1),
                 "a lower facet projects onto a full-dimensional region"
             );
-            cells.extend(split);
-        }
+            for cell in &mut split {
+                cell.sort_unstable();
+            }
+            split
+        };
+        groups.push(Group { sites, cells });
     }
-    let simplices = publish(input, cells)?;
-    debug_assert!(
-        input
-            .representatives
-            .iter()
-            .all(|r| simplices.iter().any(|s| s.vertices.contains(r))),
-        "every site is a vertex of the lower hull"
-    );
-    Ok(Lower::Triangulation(DelaunayTriangulation {
+    Ok(Ok(Complex {
         dim: d,
         representative: input.representative.clone(),
-        simplices,
+        groups,
     }))
 }
 
@@ -221,16 +261,18 @@ fn lift_side(input: &Input<'_>, outward: &[u32]) -> Result<Sign, ConvexHullError
     Ok(orient(&points)?)
 }
 
-/// Orders, orients, and links the cells (ascending vertex lists).
+/// Orders, orients, and links the cells (ascending vertex lists) of sites
+/// of dimension `d` stored row-major in `points`.
 fn publish(
-    input: &Input<'_>,
+    d: usize,
+    points: &[f64],
     mut cells: Vec<Vec<u32>>,
 ) -> Result<Vec<DelaunaySimplex>, ConvexHullError> {
     cells.sort_unstable();
-    let d = input.dim();
+    let point = |i: u32| &points[i as usize * d..(i as usize + 1) * d];
     let mut oriented = Vec::with_capacity(cells.len());
     for mut vertices in cells {
-        let points: Vec<&[f64]> = vertices.iter().map(|&v| input.point(v)).collect();
+        let points: Vec<&[f64]> = vertices.iter().map(|&v| point(v)).collect();
         if orient(&points)? == Sign::Negative {
             vertices.swap(d - 1, d);
         }
@@ -277,7 +319,7 @@ fn publish(
 /// is split by the same rule, and `v` joins every simplex found; a face that
 /// is already a simplex is returned as it is. The recursion runs on an
 /// explicit stack.
-fn pull(sites: Input<'_>, execution: Execution) -> Result<DelaunayTriangulation, ConvexHullError> {
+fn pull(sites: Input<'_>, execution: Execution) -> Result<Complex, ConvexHullError> {
     let d = sites.dim();
     let hull = SimplicialHull::build(sites, execution)?;
     let facets: Vec<Vec<u32>> = merge(&hull)?
@@ -326,11 +368,14 @@ fn pull(sites: Input<'_>, execution: Execution) -> Result<DelaunayTriangulation,
             stack.push((facet, k - 1, next));
         }
     }
-    let simplices = publish(input, cells)?;
-    Ok(DelaunayTriangulation {
+    // One lower facet: the whole site set is one Voronoi vertex (§8).
+    Ok(Complex {
         dim: d,
         representative: input.representative.clone(),
-        simplices,
+        groups: vec![Group {
+            sites: input.representatives.clone(),
+            cells,
+        }],
     })
 }
 

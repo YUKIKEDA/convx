@@ -299,7 +299,7 @@ fn determinant(mut m: Vec<Vec<f64>>) -> f64 {
 
 /// A point strictly inside relative to `facet_vertices`: the smallest hull
 /// vertex that is not on that facet.
-fn inner_reference(vertices: &[u32], facet_vertices: &[u32]) -> u32 {
+pub(crate) fn inner_reference(vertices: &[u32], facet_vertices: &[u32]) -> u32 {
     vertices
         .iter()
         .copied()
@@ -315,6 +315,28 @@ fn facet_plane(
     facet_vertices: &[u32],
     inner: u32,
 ) -> Result<FacetPlane, ConvexHullError> {
+    let (basis, normal) = facet_normal(input, facet_vertices, inner)?;
+    let point = |i: u32| input.point(i);
+    // The plane passes through the first basis point r: offset = -n . r.
+    let offset = -normal
+        .iter()
+        .zip(point(basis[0]))
+        .map(|(n, x)| n * x)
+        .sum::<f64>();
+    if !offset.is_finite() || normal.iter().any(|x| !x.is_finite()) {
+        return Err(ConvexHullError::NonFiniteFacetPlane);
+    }
+    Ok(FacetPlane { normal, offset })
+}
+
+/// The outward unit normal of a facet (design §5), with the basis it is
+/// built on: the first D affinely independent vertices in lexicographic
+/// order, oriented by the exact sign so that `inner` is inside.
+pub(crate) fn facet_normal(
+    input: &Input<'_>,
+    facet_vertices: &[u32],
+    inner: u32,
+) -> Result<(Vec<u32>, Vec<f64>), ConvexHullError> {
     let d = input.dim();
     let point = |i: u32| input.point(i);
     let basis: Vec<u32> = minimum_basis(d, facet_vertices, point)?
@@ -327,16 +349,7 @@ fn facet_plane(
     points.pop();
     let normal =
         unit_normal(&points, inside.reversed())?.ok_or(ConvexHullError::NonFiniteFacetPlane)?;
-    // The plane passes through the first basis point r: offset = -n . r.
-    let offset = -normal
-        .iter()
-        .zip(point(basis[0]))
-        .map(|(n, x)| n * x)
-        .sum::<f64>();
-    if !offset.is_finite() || normal.iter().any(|x| !x.is_finite()) {
-        return Err(ConvexHullError::NonFiniteFacetPlane);
-    }
-    Ok(FacetPlane { normal, offset })
+    Ok((basis, normal))
 }
 
 /// Numbers facets and simplices in the public order and builds the planes.
