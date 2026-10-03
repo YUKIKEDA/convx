@@ -269,7 +269,21 @@ impl<'a> SimplicialHull<'a> {
                     .map(|&(point, start)| self.plan(start, point))
                     .collect::<Result<_, _>>()?,
             };
-            for plan in plans {
+            for (plan, &(point, start)) in plans.into_iter().zip(&batch) {
+                // Debug check of §6: applying the batch sequentially in index
+                // order, planning each point against the hull as the earlier
+                // commits left it, gives the same mutation as the plan made
+                // before the round, so the same topology.
+                #[cfg(debug_assertions)]
+                if execution == Execution::Parallel {
+                    let again = self.plan(start, point)?;
+                    debug_assert!(
+                        again.shape() == plan.shape(),
+                        "point {point}: the parallel plan differs from sequential application"
+                    );
+                }
+                #[cfg(not(debug_assertions))]
+                let _ = (point, start);
                 self.commit(plan);
             }
         }
@@ -541,6 +555,37 @@ struct Plan {
     created: Vec<Planned>,
 }
 
+impl Plan {
+    /// Everything a commit writes, without the derived planes: removed
+    /// facets, and per new simplex its vertices, links, the facet across,
+    /// and its outside points.
+    #[cfg(debug_assertions)]
+    fn shape(&self) -> PlanShape {
+        (
+            self.visible.clone(),
+            self.created
+                .iter()
+                .map(|c| {
+                    (
+                        c.simplex.vertices.clone(),
+                        c.links.clone(),
+                        c.across,
+                        c.replaces,
+                        c.simplex.outside.clone(),
+                    )
+                })
+                .collect(),
+        )
+    }
+}
+
+/// See [`Plan::shape`].
+#[cfg(debug_assertions)]
+type PlanShape = (
+    Vec<FacetId>,
+    Vec<(Vec<u32>, Vec<Link>, FacetId, FacetId, Vec<u32>)>,
+);
+
 /// A new simplex of a plan.
 struct Planned {
     /// The simplex, with its outside points; neighbors are set at commit.
@@ -554,7 +599,7 @@ struct Planned {
 }
 
 /// A neighbor reference inside a plan.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Link {
     /// A facet of the hull before the round (across the horizon).
     Old(FacetId),

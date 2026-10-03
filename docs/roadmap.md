@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P3-4 (#18).
+P4-1 (#19).
 
 ## Dependencies
 
@@ -54,12 +54,12 @@ Sequential Quickhull.
 
 Parallel commit. The initial simplex is the same function as in P2.
 
-| ID   | Kind | Title                                                                   | Issue | Status      |
-| ---- | ---- | ----------------------------------------------------------------------- | ----- | ----------- |
-| P3-1 | Feat | Batch extraction shared with the sequential build                       | #15   | Done        |
-| P3-2 | Feat | Reserve T and H, and drop conflicts on prospective simplices            | #16   | Done        |
-| P3-3 | Feat | Worker-local mutation and commit in input-index order                   | #17   | Done        |
-| P3-4 | Test | Debug agreement of sequential batch application and the parallel commit | #18   | Not started |
+| ID   | Kind | Title                                                                   | Issue | Status |
+| ---- | ---- | ----------------------------------------------------------------------- | ----- | ------ |
+| P3-1 | Feat | Batch extraction shared with the sequential build                       | #15   | Done   |
+| P3-2 | Feat | Reserve T and H, and drop conflicts on prospective simplices            | #16   | Done   |
+| P3-3 | Feat | Worker-local mutation and commit in input-index order                   | #17   | Done   |
+| P3-4 | Test | Debug agreement of sequential batch application and the parallel commit | #18   | Done   |
 
 ## P4
 

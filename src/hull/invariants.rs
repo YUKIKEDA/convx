@@ -104,10 +104,24 @@ pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
     // 2. Logical-facet complex: close the facet vertex sets under
     // intersection and count each face by its affine dimension.
     let facet_sets: Vec<Vec<u32>> = hull.facets.iter().map(|f| f.vertices.clone()).collect();
+    // Facets by vertex: only a facet that shares a vertex can meet a face.
+    let mut by_vertex: HashMap<u32, Vec<usize>> = HashMap::new();
+    for (f, facet) in facet_sets.iter().enumerate() {
+        for &v in facet {
+            by_vertex.entry(v).or_default().push(f);
+        }
+    }
+    let sharing = |face: &[u32]| -> BTreeSet<usize> {
+        face.iter()
+            .filter_map(|v| by_vertex.get(v))
+            .flatten()
+            .copied()
+            .collect()
+    };
     let mut all: BTreeSet<Vec<u32>> = facet_sets.iter().cloned().collect();
     let mut frontier: Vec<Vec<u32>> = facet_sets.clone();
     while let Some(face) = frontier.pop() {
-        for facet in &facet_sets {
+        for facet in sharing(&face).into_iter().map(|g| &facet_sets[g]) {
             let meet: Vec<u32> = face
                 .iter()
                 .copied()
@@ -139,10 +153,11 @@ pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
     for (f, facet) in hull.facets.iter().enumerate() {
         let mut expected = Vec::new();
         if d >= 2 {
-            for (g, other) in hull.facets.iter().enumerate() {
+            for g in sharing(&facet.vertices) {
                 if g == f {
                     continue;
                 }
+                let other = &hull.facets[g];
                 let meet: Vec<u32> = facet
                     .vertices
                     .iter()
