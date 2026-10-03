@@ -23,6 +23,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use rayon::prelude::*;
+
 use super::input::Input;
 use super::ConvexHullError;
 use crate::arena::{Arena, ArenaFull, FacetId};
@@ -67,7 +69,7 @@ fn insert_or_abort(arena: &mut Arena<Simplex>, simplex: Simplex) -> FacetId {
 
 impl<'a> SimplicialHull<'a> {
     /// Builds the simplicial hull of an accepted input.
-    pub(crate) fn build(input: Input<'a>) -> Result<Self, ConvexHullError> {
+    pub(crate) fn build(input: Input<'a>, execution: Execution) -> Result<Self, ConvexHullError> {
         let mut hull = Self {
             input,
             facets: Arena::new(),
@@ -84,7 +86,7 @@ impl<'a> SimplicialHull<'a> {
                 .filter(|p| !hull.input.spanning_points.contains(p))
                 .collect();
             hull.assign(candidates, &initial)?;
-            hull.absorb()?;
+            hull.absorb(execution)?;
         }
         Ok(hull)
     }
@@ -96,14 +98,7 @@ impl<'a> SimplicialHull<'a> {
     /// The exact side of `point` relative to `facet`: [`Sign::Positive`] is
     /// strictly outside, [`Sign::Zero`] on the supporting hyperplane.
     pub(crate) fn side(&self, facet: &Simplex, point: u32) -> Result<Sign, ConvexHullError> {
-        let mut points = self.points_of(&facet.vertices);
-        points.push(self.input.point(point));
-        let sign = orient(&points)?;
-        Ok(if facet.outward == Sign::Positive {
-            sign
-        } else {
-            sign.reversed()
-        })
+        side(&self.input, facet, point)
     }
 
     fn make_simplex(
@@ -191,33 +186,14 @@ impl<'a> SimplicialHull<'a> {
         mut remaining: Vec<u32>,
         facets: &[FacetId],
     ) -> Result<(), ConvexHullError> {
-        let points = self.input.points();
-        let mut inside = Vec::new();
         for &id in facets {
             if remaining.is_empty() {
                 break;
             }
-            let Some(facet) = self.facets.get(id) else {
+            let Some(facet) = self.facets.get_mut(id) else {
                 continue;
             };
-            inside.clear();
-            inside.resize(remaining.len(), false);
-            if let Some(cull) = &facet.cull {
-                cull.mark_inside(points, &remaining, &mut inside);
-            }
-            let mut kept = Vec::with_capacity(remaining.len());
-            let mut outside = Vec::new();
-            for (&p, &culled) in remaining.iter().zip(&inside) {
-                if !culled && self.side(facet, p)? == Sign::Positive {
-                    outside.push(p);
-                } else {
-                    kept.push(p);
-                }
-            }
-            if let Some(facet) = self.facets.get_mut(id) {
-                facet.outside = outside;
-            }
-            remaining = kept;
+            take_outside(&self.input, &mut remaining, facet)?;
         }
         Ok(())
     }
@@ -273,17 +249,28 @@ impl<'a> SimplicialHull<'a> {
         candidates
     }
 
-    /// Absorbs every outside point in rounds of batches (design §6).
-    fn absorb(&mut self) -> Result<(), ConvexHullError> {
+    /// Absorbs every outside point in rounds of batches (design §6). Each
+    /// point of a batch is planned against the hull before the round, on one
+    /// thread or on rayon's pool, and the plans are committed in ascending
+    /// input index. Both executions run the same plans and the same commits.
+    fn absorb(&mut self, execution: Execution) -> Result<(), ConvexHullError> {
         loop {
             let batch = self.next_batch()?;
             if batch.is_empty() {
                 return Ok(());
             }
-            // Regions are disjoint, so each start facet is still live when
-            // its point is applied.
-            for (point, start) in batch {
-                self.insert_point(start, point)?;
+            let plans: Vec<Plan> = match execution {
+                Execution::Sequential => batch
+                    .iter()
+                    .map(|&(point, start)| self.plan(start, point))
+                    .collect::<Result<_, _>>()?,
+                Execution::Parallel => batch
+                    .par_iter()
+                    .map(|&(point, start)| self.plan(start, point))
+                    .collect::<Result<_, _>>()?,
+            };
+            for plan in plans {
+                self.commit(plan);
             }
         }
     }
@@ -430,17 +417,26 @@ impl<'a> SimplicialHull<'a> {
         Ok(Region { visible, horizon })
     }
 
-    /// Replaces the facets visible from `apex`, starting at `start`, with the
-    /// cone from `apex` over the horizon, and reassigns the outside points of
-    /// the deleted facets to the new ones.
+    /// Inserts one point now: [`Self::plan`] then [`Self::commit`].
+    #[cfg(test)]
     fn insert_point(&mut self, start: FacetId, apex: u32) -> Result<(), ConvexHullError> {
+        let plan = self.plan(start, apex)?;
+        self.commit(plan);
+        Ok(())
+    }
+
+    /// Prepares the insertion of `apex`, outside `start`, without changing
+    /// the hull: the cone from `apex` over the horizon, with links between
+    /// the new simplices by local number, and the outside points of the
+    /// visible facets reassigned to the new simplices. Runs on a worker.
+    fn plan(&self, start: FacetId, apex: u32) -> Result<Plan, ConvexHullError> {
         let Region { visible, horizon } = self.visible_region(start, apex)?;
 
-        // One new facet per horizon ridge: the visible facet's vertex order
+        // One new simplex per horizon ridge: the visible facet's vertex order
         // with the vertex opposite the ridge replaced by the apex keeps the
         // outward orientation.
-        let mut created = Vec::with_capacity(horizon.len());
-        let mut ridges: HashMap<Vec<u32>, (FacetId, usize)> = HashMap::new();
+        let mut created: Vec<Planned> = Vec::with_capacity(horizon.len());
+        let mut ridges: HashMap<Vec<u32>, (usize, usize)> = HashMap::new();
         for &(visible_id, slot, across) in &horizon {
             let Some(old) = self.facets.get(visible_id) else {
                 continue;
@@ -448,15 +444,8 @@ impl<'a> SimplicialHull<'a> {
             let mut vertices = old.vertices.clone();
             vertices[slot] = apex;
             let d = vertices.len();
-            let mut neighbors = vec![across; d];
-            neighbors[slot] = across;
-            let simplex = self.make_simplex(vertices.clone(), neighbors, Sign::Positive)?;
-            let id = insert_or_abort(&mut self.facets, simplex);
-            if let Some(n) = self.facets.get_mut(across) {
-                if let Some(back) = n.neighbors.iter_mut().find(|f| **f == visible_id) {
-                    *back = id;
-                }
-            }
+            let k = created.len();
+            let mut links = vec![Link::Old(across); d];
             for other in (0..d).filter(|&m| m != slot) {
                 let mut key: Vec<u32> = vertices
                     .iter()
@@ -466,33 +455,147 @@ impl<'a> SimplicialHull<'a> {
                     .collect();
                 key.sort_unstable();
                 if let Some((twin, twin_slot)) = ridges.remove(&key) {
-                    if let Some(f) = self.facets.get_mut(id) {
-                        f.neighbors[other] = twin;
-                    }
-                    if let Some(f) = self.facets.get_mut(twin) {
-                        f.neighbors[twin_slot] = id;
-                    }
+                    links[other] = Link::New(twin);
+                    created[twin].links[twin_slot] = Link::New(k);
                 } else {
-                    ridges.insert(key, (id, other));
+                    ridges.insert(key, (k, other));
                 }
             }
-            created.push(id);
+            created.push(Planned {
+                simplex: self.make_simplex(vertices, Vec::new(), Sign::Positive)?,
+                links,
+                across,
+                replaces: visible_id,
+            });
         }
         debug_assert!(
             ridges.is_empty(),
-            "every new ridge is shared by two new facets"
+            "every new ridge is shared by two new simplices"
         );
 
-        // Reassign the outside points of the deleted facets.
-        let mut orphans = Vec::new();
-        for id in visible {
-            if let Some(old) = self.facets.remove(id) {
-                orphans.extend(old.outside.into_iter().filter(|&p| p != apex));
+        // Reassign the outside points of the visible facets.
+        let mut orphans: Vec<u32> = visible
+            .iter()
+            .filter_map(|&id| self.facets.get(id))
+            .flat_map(|f| f.outside.iter().copied())
+            .filter(|&p| p != apex)
+            .collect();
+        orphans.sort_unstable();
+        for planned in &mut created {
+            if orphans.is_empty() {
+                break;
+            }
+            take_outside(&self.input, &mut orphans, &mut planned.simplex)?;
+        }
+        Ok(Plan { visible, created })
+    }
+
+    /// Applies a plan: inserts the new simplices, turns local links into
+    /// arena ids, points each facet across the horizon at its new neighbor,
+    /// and removes the visible facets.
+    fn commit(&mut self, plan: Plan) {
+        let Plan { visible, created } = plan;
+        let mut ids = Vec::with_capacity(created.len());
+        let mut wiring = Vec::with_capacity(created.len());
+        for planned in created {
+            ids.push(insert_or_abort(&mut self.facets, planned.simplex));
+            wiring.push((planned.links, planned.across, planned.replaces));
+        }
+        for (&id, (links, across, replaces)) in ids.iter().zip(wiring) {
+            let neighbors: Vec<FacetId> = links
+                .iter()
+                .map(|link| match *link {
+                    Link::Old(old) => old,
+                    Link::New(k) => ids[k],
+                })
+                .collect();
+            if let Some(f) = self.facets.get_mut(id) {
+                f.neighbors = neighbors;
+            }
+            if let Some(n) = self.facets.get_mut(across) {
+                if let Some(back) = n.neighbors.iter_mut().find(|f| **f == replaces) {
+                    *back = id;
+                }
             }
         }
-        orphans.sort_unstable();
-        self.assign(orphans, &created)
+        for id in visible {
+            self.facets.remove(id);
+        }
     }
+}
+
+/// How the points of a batch are planned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Execution {
+    /// On the calling thread.
+    Sequential,
+    /// On rayon's global pool.
+    Parallel,
+}
+
+/// The insertion of one point, prepared against the hull before its round.
+struct Plan {
+    /// Facets to remove.
+    visible: Vec<FacetId>,
+    /// New simplices, numbered locally by position.
+    created: Vec<Planned>,
+}
+
+/// A new simplex of a plan.
+struct Planned {
+    /// The simplex, with its outside points; neighbors are set at commit.
+    simplex: Simplex,
+    /// Neighbor per slot, by arena id or by local number.
+    links: Vec<Link>,
+    /// The facet across the horizon ridge this simplex is built on.
+    across: FacetId,
+    /// The visible facet that `across` points at until the commit.
+    replaces: FacetId,
+}
+
+/// A neighbor reference inside a plan.
+#[derive(Clone, Copy, Debug)]
+enum Link {
+    /// A facet of the hull before the round (across the horizon).
+    Old(FacetId),
+    /// The new simplex with this local number.
+    New(usize),
+}
+
+/// The exact side of `point` relative to `facet`: [`Sign::Positive`] is
+/// strictly outside, [`Sign::Zero`] on the supporting hyperplane.
+fn side(input: &Input<'_>, facet: &Simplex, point: u32) -> Result<Sign, ConvexHullError> {
+    let mut points: Vec<&[f64]> = facet.vertices.iter().map(|&v| input.point(v)).collect();
+    points.push(input.point(point));
+    let sign = orient(&points)?;
+    Ok(if facet.outward == Sign::Positive {
+        sign
+    } else {
+        sign.reversed()
+    })
+}
+
+/// Moves the points of `remaining` strictly outside `facet` into its outside
+/// set, keeping the order of both lists.
+fn take_outside(
+    input: &Input<'_>,
+    remaining: &mut Vec<u32>,
+    facet: &mut Simplex,
+) -> Result<(), ConvexHullError> {
+    let mut inside = vec![false; remaining.len()];
+    if let Some(cull) = &facet.cull {
+        cull.mark_inside(input.points(), remaining, &mut inside);
+    }
+    let mut kept = Vec::with_capacity(remaining.len());
+    for (&p, &culled) in remaining.iter().zip(&inside) {
+        if !culled && side(input, facet, p)? == Sign::Positive {
+            facet.outside.push(p);
+        } else {
+            kept.push(p);
+        }
+    }
+    *remaining = kept;
+    Ok(())
 }
 
 /// The region a point would replace: its visible facets V and its horizon
@@ -547,7 +650,7 @@ pub(crate) mod tests {
     }
 
     fn build(dim: usize, points: &[f64]) -> SimplicialHull<'_> {
-        SimplicialHull::build(accept(dim, points).unwrap()).unwrap()
+        SimplicialHull::build(accept(dim, points).unwrap(), Execution::Sequential).unwrap()
     }
 
     /// No representative strictly outside any facet, and neighbor links are
@@ -817,6 +920,39 @@ pub(crate) mod tests {
             }
         }
         check_invariants(&hull);
+    }
+
+    /// The arena as (id, vertices, neighbors, outward, outside), in id order.
+    type Snapshot = Vec<(FacetId, Vec<u32>, Vec<FacetId>, Sign, Vec<u32>)>;
+
+    fn snapshot(hull: &SimplicialHull<'_>) -> Snapshot {
+        hull.facets
+            .iter()
+            .map(|(id, f)| {
+                (
+                    id,
+                    f.vertices.clone(),
+                    f.neighbors.clone(),
+                    f.outward,
+                    f.outside.clone(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn parallel_planning_commits_the_same_arena() {
+        let mut rng = Rng(34);
+        for (dim, count) in [(2, 500), (3, 400), (4, 150), (5, 60)] {
+            let points: Vec<f64> = (0..count * dim).map(|_| rng.unit()).collect();
+            let sequential =
+                SimplicialHull::build(accept(dim, &points).unwrap(), Execution::Sequential)
+                    .unwrap();
+            let parallel =
+                SimplicialHull::build(accept(dim, &points).unwrap(), Execution::Parallel).unwrap();
+            assert_eq!(snapshot(&sequential), snapshot(&parallel), "dim {dim}");
+            check_invariants(&parallel);
+        }
     }
 
     #[test]
