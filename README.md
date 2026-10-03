@@ -94,7 +94,7 @@ let hull = ConvexHullBuilder::new(2, points)
 
 Dependencies are `faer`, `rayon`, `pulp`, and `thiserror`. The implementation language is Rust. Parallelism is the runtime `parallel` flag. The build assumes `std`. The MSRV is 1.89. The distance kernel is runtime CPU detection through `pulp`, up to AVX-512.
 
-What may wait until a correct sequential result exists: lock-free allocation, a cache of lifted coordinates, and cutting off the search of the upper hull and of faces already decided. The sign convention and the lift-as-formula are part of the Delaunay specification from the start.
+What may wait until a correct sequential result exists: a cache of lifted coordinates, and cutting off the search of the upper hull and of faces already decided. The sign convention and the lift-as-formula are part of the Delaunay specification from the start.
 
 ## Verification
 

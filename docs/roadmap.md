@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P5-2 (#26).
+P5-3 (#27).
 
 ## Dependencies
 
@@ -81,11 +81,14 @@ After a correct sequential hull. These rows do not block P4.
 | ID   | Kind | Title                                                         | Issue | Status      |
 | ---- | ---- | ------------------------------------------------------------- | ----- | ----------- |
 | P5-1 | Feat | Wider SIMD, including AVX-512                                 | #25   | Done        |
-| P5-2 | Feat | Lock-free allocation                                          | #26   | Not started |
 | P5-3 | Feat | Cache of lifted coordinates                                   | #27   | Not started |
 | P5-4 | Feat | Cut off search of the upper hull and of faces already decided | #28   | Not started |
 | P5-5 | Feat | Vector cull kernel faster than its scalar lanes               | #70   | Not started |
+| P5-6 | Feat | Filtered determinant cheap for every k > 4                    | #72   | Not started |
+| P5-7 | Feat | Faster distance-zero classification                           | #73   | Not started |
 
 ## Intentionally out of scope
 
 Items land here only through Grill → Issue.
+
+- Lock-free allocation (was P5-2, #26). The commit runs on one thread in ascending input index (§6), so no allocation is concurrent, and every insert and remove of a build measured at most 0.7% of its time. It returns through Grill if the commit becomes parallel.

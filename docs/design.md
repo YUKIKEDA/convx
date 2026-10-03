@@ -483,7 +483,6 @@ Phase 4 is the static API, Delaunay, Voronoi, and the oracles. Phase 4 is not co
 
 What may wait until a correct sequential result exists is the following.
 
-- Lock-free allocation
 - A cache of lifted coordinates
 - Cutting off the search of the upper hull and of faces already decided
 
