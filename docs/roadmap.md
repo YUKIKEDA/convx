@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P5-1 (#25).
+P5-2 (#26).
 
 ## Dependencies
 
