@@ -101,7 +101,8 @@ pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, ConvexHu
     // Number groups by their smallest member, in arena order.
     let mut number_of_root: HashMap<u32, u32> = HashMap::new();
     let mut groups: Vec<Group> = Vec::new();
-    let mut group_of = HashMap::with_capacity(ids.len());
+    let mut group_of: IdMap<FacetId, u32> =
+        IdMap::with_capacity_and_hasher(ids.len(), Default::default());
     for (i, &id) in ids.iter().enumerate() {
         let root = sets.find(i as u32);
         let number = *number_of_root.entry(root).or_insert_with(|| {
