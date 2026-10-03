@@ -11,12 +11,19 @@ mod delaunay;
 mod hull;
 mod normal;
 mod predicates;
+mod static_api;
+mod voronoi;
 
+pub use delaunay::{DelaunayBuilder, DelaunaySimplex, DelaunayTriangulation};
 pub use hull::{
     BoundarySimplex, ConvexHull, ConvexHullBuilder, ConvexHullError, FacetPlane, LogicalFacet,
     TriangulationView,
 };
 pub use predicates::Sign;
+pub use static_api::{StaticConvexHull, StaticDelaunay, StaticVoronoi};
+pub use voronoi::{
+    VoronoiBuilder, VoronoiCell, VoronoiDiagram, VoronoiInterface, VoronoiRay, VoronoiVertex,
+};
 
 #[cfg(test)]
 mod phase1;
