@@ -34,3 +34,5 @@ $$
 ```
 
 Do not put `$` inside a Rust or other code block. Place the formula outside the code block.
+
+A new formula does not reuse a symbol already defined nearby with another meaning. Name a new quantity with a new letter. In #116, $k$ was the geometric degree in §1, and a new sentence used it for the number of points.
