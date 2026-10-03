@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P5-3 (#27): the owner asked to take the remaining measured costs in turn.
+P5-7 (#73), then P5-4 (#28): the owner asked to take the remaining measured costs in turn, and the distance-zero classification is the largest measured cost of a large low-dimensional hull build.
 
 ## Dependencies
 
@@ -81,7 +81,7 @@ After a correct sequential hull. These rows do not block P4.
 | ID    | Kind | Title                                                         | Issue | Status                 |
 | ----- | ---- | ------------------------------------------------------------- | ----- | ---------------------- |
 | P5-1  | Feat | Wider SIMD, including AVX-512                                 | #25   | Done                   |
-| P5-3  | Feat | Cache of lifted coordinates                                   | #27   | Not started            |
+| P5-3  | Feat | Cache of lifted coordinates                                   | #27   | Done                   |
 | P5-4  | Feat | Cut off search of the upper hull and of faces already decided | #28   | Not started            |
 | P5-5  | Feat | Vector cull kernel faster than its scalar lanes               | #70   | Set after Grill on #70 |
 | P5-6  | Feat | Filtered determinant cheap for every k > 4                    | #72   | Done                   |

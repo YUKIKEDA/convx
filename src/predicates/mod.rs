@@ -59,24 +59,77 @@ pub(crate) fn orient(points: &[&[f64]]) -> Result<Sign, ExactEvaluationExhausted
         origin: points[0],
         points: &points[1..],
         direction: None,
-        lifted: false,
+        lifted: None,
     })
+}
+
+/// The filtered lifted height `|p|^2` of one site, with its error bound
+/// (design §7). A cache of these is bit for bit what the filter computed from
+/// the coordinates on every call, so caching changes no sign. The exact stage
+/// never reads it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LiftedHeight(Approx);
+
+impl LiftedHeight {
+    /// The height of site `p`: the sum of its squares, left to right, with
+    /// the running bound of [`filter`]. A non-finite value leaves every
+    /// filter that reads it uncertified.
+    pub(crate) fn of(p: &[f64]) -> Self {
+        Self(p.iter().fold(Approx::exact(0.0), |sum, &x| {
+            sum.add(Approx::exact(x).mul(Approx::exact(x)))
+        }))
+    }
+
+    /// The rounded height, for working coordinates only.
+    pub(crate) fn value(self) -> f64 {
+        self.0.value()
+    }
+
+    /// The error bound of [`Self::value`].
+    pub(crate) fn error(self) -> f64 {
+        self.0.error()
+    }
+
+    /// A height stored as its [`Self::value`] and [`Self::error`], read back
+    /// from a cache. Debug builds check every height a predicate reads
+    /// against [`Self::of`] its point.
+    pub(crate) fn stored(value: f64, error: f64) -> Self {
+        Self(Approx::stored(value, error))
+    }
+
+    /// The value and bound as bits, to check a cache against its source.
+    fn bits(self) -> (u64, u64) {
+        (self.0.value().to_bits(), self.0.error().to_bits())
+    }
+}
+
+/// [`orient_lifted_with`] evaluating the heights itself.
+#[cfg(test)]
+pub(crate) fn orient_lifted(points: &[&[f64]]) -> Result<Sign, ExactEvaluationExhausted> {
+    let heights: Vec<LiftedHeight> = points.iter().map(|p| LiftedHeight::of(p)).collect();
+    orient_lifted_with(points, &heights)
 }
 
 /// Orientation of `points` lifted to the paraboloid (design §7): k + 2
 /// points, each of dimension k >= 1, standing for `(p, |p|^2)` in dimension
 /// k + 1. Cospherical means [`Sign::Zero`].
 ///
-/// The lifted coordinate is the polynomial `sum_i p_i^2` of the input
-/// coordinates, never a rounded `f64`; an intermediate that overflows only
-/// sends the evaluation to the exact sign.
-pub(crate) fn orient_lifted(points: &[&[f64]]) -> Result<Sign, ExactEvaluationExhausted> {
+/// `heights[i]` is [`LiftedHeight::of`] `points[i]`; the filter reads it in
+/// place of the squares. The exact stage takes the lifted coordinate as the
+/// polynomial `sum_i p_i^2` of the input coordinates, never a rounded `f64`;
+/// an intermediate that overflows only sends the evaluation to the exact
+/// sign.
+pub(crate) fn orient_lifted_with(
+    points: &[&[f64]],
+    heights: &[LiftedHeight],
+) -> Result<Sign, ExactEvaluationExhausted> {
     debug_assert!(points.len() >= 3, "a lifted orientation needs k + 2 points");
+    debug_assert_eq!(heights.len(), points.len(), "one height per point");
     sign_of(Rows {
         origin: points[0],
         points: &points[1..],
         direction: None,
-        lifted: true,
+        lifted: Some(heights),
     })
 }
 
@@ -114,7 +167,7 @@ pub(crate) fn orient_direction(
         origin: facet[0],
         points: &facet[1..],
         direction: Some(direction),
-        lifted: false,
+        lifted: None,
     })
 }
 
@@ -124,13 +177,14 @@ pub(crate) fn orient_direction(
 /// When `lifted`, each point `p` of dimension D stands for the point of
 /// dimension D + 1 whose last coordinate is the polynomial `sum_i p_i^2`
 /// (design §7). The array is not extended: the last column of a difference
-/// row is `|p|^2 - |origin|^2`, evaluated by the filter or exactly.
+/// row is `|p|^2 - |origin|^2`, evaluated by the filter from the heights
+/// (`origin` first, then `points` in order) or exactly from the coordinates.
 #[derive(Clone, Copy)]
 struct Rows<'a> {
     origin: &'a [f64],
     points: &'a [&'a [f64]],
     direction: Option<&'a [f64]>,
-    lifted: bool,
+    lifted: Option<&'a [LiftedHeight]>,
 }
 
 enum Row<'a> {
@@ -141,7 +195,7 @@ enum Row<'a> {
 impl<'a> Rows<'a> {
     /// Size of the square determinant.
     fn k(self) -> usize {
-        self.origin.len() + usize::from(self.lifted)
+        self.origin.len() + usize::from(self.lifted.is_some())
     }
 
     fn row(self, i: usize) -> Row<'a> {
@@ -177,6 +231,15 @@ fn sign_of(rows: Rows<'_>) -> Result<Sign, ExactEvaluationExhausted> {
         rows.values().all(f64::is_finite),
         "predicate input must be finite"
     );
+    debug_assert!(
+        rows.lifted
+            .is_none_or(|heights| heights.len() == rows.points.len() + 1
+                && core::iter::once(rows.origin)
+                    .chain(rows.points.iter().copied())
+                    .zip(heights)
+                    .all(|(p, &h)| h.bits() == LiftedHeight::of(p).bits())),
+        "a cached height must be the height of its point"
+    );
     if let Some(sign) = filtered(rows) {
         return Ok(sign);
     }
@@ -207,21 +270,11 @@ fn filtered(rows: Rows<'_>) -> Option<Sign> {
 fn filtered_value(rows: Rows<'_>) -> Option<Approx> {
     let k = rows.k();
     let origin = rows.origin;
-    let squared_norm = |p: &[f64]| {
-        p.iter().fold(Approx::exact(0.0), |sum, &x| {
-            sum.add(Approx::exact(x).mul(Approx::exact(x)))
-        })
-    };
-    // The lifted column's origin term, once per call.
-    let origin_norm = if rows.lifted {
-        squared_norm(origin)
-    } else {
-        Approx::exact(0.0)
-    };
+    let heights = rows.lifted.unwrap_or_default();
     let entry = |i: usize, j: usize| match rows.row(i) {
-        // The lifted column; a non-finite square leaves the filter
+        // The lifted column; a non-finite height leaves the filter
         // uncertified, and the exact path decides (design §7).
-        Row::Difference(p) if j == origin.len() => squared_norm(p).sub(origin_norm),
+        Row::Difference(_) if j == origin.len() => heights[i + 1].0.sub(heights[0].0),
         Row::Difference(p) => Approx::exact(p[j]).sub(Approx::exact(origin[j])),
         Row::Direction(d) => Approx::exact(d[j]),
     };
@@ -261,7 +314,7 @@ pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Vec<(f64, f64)>> {
             origin: facet[0],
             points: &facet[1..],
             direction: Some(&unit),
-            lifted: false,
+            lifted: None,
         });
         unit[j] = 0.0;
         let value = value?;
@@ -341,7 +394,7 @@ mod tests {
             origin: refs[0],
             points: &refs[1..],
             direction: None,
-            lifted: false,
+            lifted: None,
         })
         .unwrap()
     }
@@ -539,7 +592,7 @@ mod tests {
                         origin: refs[0],
                         points: &refs[1..],
                         direction: None,
-                        lifted: false,
+                        lifted: None,
                     })
                     .is_some()
                 })
