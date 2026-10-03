@@ -19,7 +19,7 @@ optional footer
 
 ## Types (English)
 
-Use one of: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `build`, `ci`.
+Use one of: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `build`, `ci`. `perf` is not a type here: a speedup that changes no result takes the type of its roadmap row (`feat` for a `Feat` row). The same list applies to every commit subject, not only to the PR title.
 
 ## Scope
 

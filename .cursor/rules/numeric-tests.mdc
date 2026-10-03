@@ -13,6 +13,7 @@ A test of a floating-point geometric result must be able to fail when the result
 - A guard whose removal fails no test is a finding. Either the guard is redundant (remove it and write down why), or a test is missing (add it).
 - A change that moves a check into debug builds records a `cargo test --release` run in the PR. Debug assertions hide the release path.
 - Mutate files by copying them aside and restoring the copy. `git checkout` also discards uncommitted work in those files.
+- A family test fails when a case's precondition is missing (no plane, no normal, an overflow), instead of skipping the case. A skipped case is a named exception with its reason. Otherwise a magnitude can pass without reaching any assertion.
 - A test over a family of inputs states the expected result of every case. An exception is named in the test with its reason. Do not weaken the assertion for the whole family.
 
 ```text

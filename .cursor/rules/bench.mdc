@@ -11,6 +11,10 @@ Do not start speed work without a measurement. A phase-wide optimization that th
 
 Before starting a speed row, profile the build it targets (instruction counts or samples) and record in its Issue where the time goes. The row order follows that profile, not the roadmap's numbering.
 
+A speed PR reports the wall time on the exact input its Issue names, next to that Issue's baseline. A smaller input, instruction counts, or a per-call micro timing may explain the result; it does not replace that number.
+
+Build both sides of a comparison with the same profile and the same flags (debug info included). Pin them to one core and alternate them. A difference inside the spread of repeated runs is not a result.
+
 A timing names what its timed section contains. Reuse buffers across repetitions. Keep work common to every variant outside the section. Name the inputs: set, seed, repetitions, toolchain, and cores. Timers or profiling hooks added to measure are not committed; the PR records the method instead.
 
 ```text
