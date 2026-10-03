@@ -7,7 +7,7 @@ alwaysApply: true
 
 When the user states a constraint that later sessions must follow, do not stop at the local edit. Add or update an `.mdc` file under `.cursor/rules/`.
 
-A correction given in the conversation lands in the same change. A lesson first noticed at the post-merge retrospective waits until the user asks for the Issue (`.cursor/rules/workflow.mdc`).
+A correction given in the conversation lands in the same change. A lesson first noticed at the post-merge retrospective becomes a rule without waiting for an ask: a `chore` Issue and a rules PR right after the retrospective (`.cursor/rules/workflow.mdc`). Tacit knowledge the work relied on, which no rule states yet, counts as such a lesson.
 
 ## Record
 

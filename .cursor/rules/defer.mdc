@@ -29,4 +29,11 @@ Forbidden:
 - Closing a phase while a temporary gap is still in the code
 - One optimized path merged beside an unoptimized path of the same capability
 
+When a row becomes `Done` or moves to **Intentionally out of scope**, search both design files, both READMEs, and `.cursor/rules/` for its title and keywords in the same change. Remove or update every sentence that still lists it as waiting work.
+
+```text
+# BAD — P5-1 done; §11 and hpc.mdc still say "wider SIMD stays on its roadmap row"
+# GOOD — the same PR drops AVX-512 from §11, both READMEs, hpc.mdc, and scope.mdc
+```
+
 A question about whether something can wait is not consent to leave it unplanned (`.cursor/rules/consent.mdc`).
