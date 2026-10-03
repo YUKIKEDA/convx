@@ -132,6 +132,25 @@ impl<'a> Input<'a> {
         }
     }
 
+    /// The engine coordinates of every point, row-major, with the row stride:
+    /// the input points, or the lifted rows `(p, |p|^2, bound)`. The engine
+    /// coordinates of point `i` start at `rows[i * stride]`.
+    pub(crate) fn engine_rows(&self) -> (&[f64], usize) {
+        match &self.lifted {
+            Some(lifted) => (&lifted.rows, lifted.dim + 2),
+            None => (self.points, self.dim),
+        }
+    }
+
+    /// A bound on the rounding of the last engine coordinate of point
+    /// `index`: the height bound of a lifted site, and 0 otherwise.
+    pub(crate) fn height_bound(&self, index: u32) -> f64 {
+        match &self.lifted {
+            Some(lifted) => lifted.height(index).error(),
+            None => 0.0,
+        }
+    }
+
     /// The same sites lifted to the paraboloid, or `Err(self)` unchanged when
     /// the lift is flat: every site on one sphere, so the lifted points span
     /// only dimension D (design §7).
@@ -162,10 +181,6 @@ impl<'a> Input<'a> {
             lifted: Some(lifted),
             ..self
         }))
-    }
-
-    pub(crate) fn points(&self) -> &'a [f64] {
-        self.points
     }
 
     /// Coordinates of point `index`.
