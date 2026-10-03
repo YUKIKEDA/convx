@@ -7,6 +7,7 @@
 
 mod arena;
 mod cull;
+mod delaunay;
 mod hull;
 mod normal;
 mod predicates;

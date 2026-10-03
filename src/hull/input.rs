@@ -4,7 +4,7 @@
 use core::cmp::Ordering;
 
 use super::ConvexHullError;
-use crate::predicates::{orient, Sign};
+use crate::predicates::{orient, orient_lifted, ExactEvaluationExhausted, Sign};
 
 /// Validated input. Past this point, code trusts that every coordinate is
 /// finite and that there are at most `u32::MAX` points.
@@ -16,12 +16,91 @@ pub(crate) struct Input<'a> {
     /// The representatives, ascending.
     pub(crate) representatives: Vec<u32>,
     /// The lexicographically minimum affine basis: D + 1 representatives.
+    /// For a lifted input, D + 2: that basis and the first representative
+    /// off the lifted hyperplane through it.
     pub(crate) spanning_points: Vec<u32>,
+    /// Rounded lifted coordinates `(p, |p|^2)` when this input stands for the
+    /// sites lifted to the paraboloid (design §7). They feed only working
+    /// normals and distances; every sign comes from [`Input::orient`].
+    lifted: Option<Vec<f64>>,
 }
 
 impl<'a> Input<'a> {
+    /// Dimension of the input sites.
     pub(crate) fn dim(&self) -> usize {
         self.dim
+    }
+
+    /// Dimension the hull core works in: D, or D + 1 for lifted sites.
+    pub(crate) fn engine_dim(&self) -> usize {
+        self.dim + usize::from(self.lifted.is_some())
+    }
+
+    /// Whether the sites stand lifted to the paraboloid.
+    pub(crate) fn is_lifted(&self) -> bool {
+        self.lifted.is_some()
+    }
+
+    /// Orientation of the points `indices` (engine dimension + 1 of them) in
+    /// the engine space: the plain orientation, or the lifted one with the
+    /// lifted coordinate as the polynomial `|p|^2`.
+    pub(crate) fn orient(&self, indices: &[u32]) -> Result<Sign, ExactEvaluationExhausted> {
+        let points: Vec<&[f64]> = indices.iter().map(|&i| self.point(i)).collect();
+        if self.lifted.is_some() {
+            orient_lifted(&points)
+        } else {
+            orient(&points)
+        }
+    }
+
+    /// Engine-space coordinates of point `index` for working normals and
+    /// distances only. Lifted coordinates are rounded and may be infinite.
+    pub(crate) fn coords(&self, index: u32) -> &[f64] {
+        match &self.lifted {
+            Some(lifted) => {
+                let d = self.dim + 1;
+                let start = index as usize * d;
+                &lifted[start..start + d]
+            }
+            None => self.point(index),
+        }
+    }
+
+    /// The same sites lifted to the paraboloid, or `Err(self)` unchanged when
+    /// the lift is flat: every site on one sphere, so the lifted points span
+    /// only dimension D (design §7).
+    pub(crate) fn lift(self) -> Result<Result<Self, Self>, ConvexHullError> {
+        debug_assert!(self.lifted.is_none(), "already lifted");
+        let d = self.dim;
+        let mut spanning = self.spanning_points.clone();
+        let mut apex = None;
+        for &p in &self.representatives {
+            if spanning.contains(&p) {
+                continue;
+            }
+            let mut indices = spanning.clone();
+            indices.push(p);
+            let points: Vec<&[f64]> = indices.iter().map(|&i| self.point(i)).collect();
+            if orient_lifted(&points)? != Sign::Zero {
+                apex = Some(p);
+                break;
+            }
+        }
+        let Some(apex) = apex else {
+            return Ok(Err(self));
+        };
+        spanning.push(apex);
+        let count = self.points.len() / d;
+        let mut lifted = Vec::with_capacity(count * (d + 1));
+        for p in self.points.chunks_exact(d) {
+            lifted.extend_from_slice(p);
+            lifted.push(p.iter().map(|x| x * x).sum());
+        }
+        Ok(Ok(Self {
+            spanning_points: spanning,
+            lifted: Some(lifted),
+            ..self
+        }))
     }
 
     pub(crate) fn points(&self) -> &'a [f64] {
@@ -93,6 +172,7 @@ pub(crate) fn accept(dim: usize, points: &[f64]) -> Result<Input<'_>, ConvexHull
         representative,
         representatives,
         spanning_points,
+        lifted: None,
     })
 }
 
