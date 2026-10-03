@@ -28,6 +28,7 @@ use crate::hull::input::accept;
 use crate::hull::publish::{facet_normal, inner_reference};
 use crate::hull::simplicial::Execution;
 use crate::hull::ConvexHullError;
+use crate::normal::{binary_exponent, scale_by_power_of_two};
 use crate::predicates::{orient, Sign};
 
 /// Builds a [`VoronoiDiagram`].
@@ -414,17 +415,35 @@ fn vertex_coords<'p>(
 
 /// The circumcenter of the D + 1 sites `cell`, with the first site moved to
 /// the origin: `2 (v_i - v_0) . x = |v_i - v_0|^2`, solved by Householder QR,
-/// then `v_0 + x`. `None` when any value is not finite.
+/// then `v_0 + x`. The translated edges are first scaled by the power of two
+/// that brings their width into [1, 2), and the solution scaled back, both
+/// exactly, so squares of large or tiny edges do not overflow or underflow.
+/// `None` when any value is not finite.
 fn circumcenter<'p>(d: usize, point: &impl Fn(u32) -> &'p [f64], cell: &[u32]) -> Option<Vec<f64>> {
     let origin = point(cell[0]);
     let edges: Vec<Vec<f64>> = cell[1..]
         .iter()
         .map(|&v| point(v).iter().zip(origin).map(|(x, o)| x - o).collect())
         .collect();
-    let a = Mat::from_fn(d, d, |i, j| 2.0 * edges[i][j]);
-    let mut rhs = Mat::from_fn(d, 1, |i, _| edges[i].iter().map(|x| x * x).sum::<f64>());
+    let width = edges
+        .iter()
+        .flatten()
+        .map(|x| x.abs())
+        .fold(0.0_f64, f64::max);
+    if !width.is_finite() || width == 0.0 {
+        return None;
+    }
+    let shift = -binary_exponent(width);
+    let scaled: Vec<Vec<f64>> = edges
+        .iter()
+        .map(|e| e.iter().map(|&x| scale_by_power_of_two(x, shift)).collect())
+        .collect();
+    let a = Mat::from_fn(d, d, |i, j| 2.0 * scaled[i][j]);
+    let mut rhs = Mat::from_fn(d, 1, |i, _| scaled[i].iter().map(|x| x * x).sum::<f64>());
     a.qr().solve_in_place(&mut rhs);
-    let center: Vec<f64> = (0..d).map(|i| origin[i] + rhs[(i, 0)]).collect();
+    let center: Vec<f64> = (0..d)
+        .map(|i| origin[i] + scale_by_power_of_two(rhs[(i, 0)], -shift))
+        .collect();
     center.iter().all(|x| x.is_finite()).then_some(center)
 }
 

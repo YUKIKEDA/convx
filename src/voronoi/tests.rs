@@ -30,8 +30,21 @@ fn pairs(v: &VoronoiDiagram) -> Vec<[u32; 2]> {
 fn check(v: &VoronoiDiagram, points: &[f64]) {
     let d = v.dim;
     let point = |i: u32| &points[i as usize * d..(i as usize + 1) * d];
-    let distance2 =
-        |c: &[f64], i: u32| -> f64 { point(i).iter().zip(c).map(|(x, y)| (x - y) * (x - y)).sum() };
+    // Distances are measured in coordinates divided by a power of two near
+    // the largest magnitude, so squares neither overflow nor underflow.
+    let largest = points.iter().map(|x| x.abs()).fold(0.0_f64, f64::max);
+    let unit = if largest > 0.0 {
+        2f64.powi(largest.log2().floor() as i32)
+    } else {
+        1.0
+    };
+    let distance2 = |c: &[f64], i: u32| -> f64 {
+        point(i)
+            .iter()
+            .zip(c)
+            .map(|(x, y)| (x / unit - y / unit) * (x / unit - y / unit))
+            .sum()
+    };
     assert!(v.vertices.windows(2).all(|w| w[0].sites < w[1].sites));
     assert!(v.interfaces.windows(2).all(|w| w[0].sites < w[1].sites));
     assert!(v.cells.windows(2).all(|w| w[0].site < w[1].site));
@@ -212,4 +225,29 @@ fn a_circumcenter_that_overflows_fails() {
     );
     // The Delaunay triangulation of the same sites succeeds.
     assert!(DelaunayBuilder::new(2, &points).build().is_ok());
+}
+
+#[test]
+fn huge_and_tiny_coordinates_keep_finite_circumcenters() {
+    // The circumcenter of sites scaled by 2^±600 is representable, though
+    // the squared edges of the unscaled solve would overflow or underflow;
+    // the solve scales the translated simplex exactly and back.
+    let points = [0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0, 1.0, -3.0];
+    let base = VoronoiBuilder::new(2, &points).build().unwrap();
+    for e in [600, -600] {
+        let s = 2f64.powi(e);
+        let scaled: Vec<f64> = points.iter().map(|x| x * s).collect();
+        let v = diagram(2, &scaled);
+        assert_eq!(v.vertices.len(), base.vertices.len());
+        for (a, b) in v.vertices.iter().zip(&base.vertices) {
+            assert_eq!(a.sites, b.sites);
+            let back: Vec<f64> = a.coords.iter().map(|x| x / s).collect();
+            assert!(
+                close(&back, &b.coords),
+                "2^{e}: {:?} vs {:?}",
+                back,
+                b.coords
+            );
+        }
+    }
 }
