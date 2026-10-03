@@ -91,6 +91,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-10 | Feat | Visibility search without SipHash                             | #85   | Done                   |
 | P5-11 | Feat | Cheaper certification of a new facet's working normal         | #86   | Done                   |
 | P5-12 | Feat | Faster exact stage for predicates the filter cannot decide    | #96   | Done                   |
+| P5-13 | Feat | Certified cull and strict-side proof for lifted facets        | #109  | Done                   |
 
 ## Intentionally out of scope
 

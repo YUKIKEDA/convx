@@ -29,8 +29,8 @@ use super::input::Input;
 use super::ConvexHullError;
 use crate::arena::{Arena, ArenaFull, FacetId, IdMap, IdSet};
 use crate::cull::CullPlane;
-use crate::normal::{facet_cofactors, unit_normal_with};
-use crate::predicates::{direction_cofactors_lifted, Sign};
+use crate::normal::{facet_cofactors, lifted_facet_cofactors, unit_normal_with};
+use crate::predicates::Sign;
 
 /// A simplicial facet during construction.
 pub(crate) struct Simplex {
@@ -132,18 +132,18 @@ impl<'a> SimplicialHull<'a> {
         // A lifted facet's points are rounded, so its cull plane is certified
         // against the exact lift: the cofactors carry each height's bound,
         // and the threshold adds the origin's and the query's (#109).
-        let cull = normal
-            .as_deref()
-            .and_then(|n| match self.input.lifted_sites(&vertices) {
-                Some((sites, heights)) => CullPlane::with_lifted_cofactors(
-                    &points,
-                    n,
-                    outward,
-                    direction_cofactors_lifted(&sites, &heights).as_deref(),
-                    heights[0].error(),
-                ),
-                None => CullPlane::with_cofactors(&points, n, outward, cofactors.as_deref()),
-            });
+        let cull = normal.as_deref().and_then(|n| {
+            if self.input.is_lifted() {
+                let bounds: Vec<f64> = vertices
+                    .iter()
+                    .map(|&v| self.input.height_bound(v))
+                    .collect();
+                let widened = lifted_facet_cofactors(&points, cofactors.as_deref()?, &bounds);
+                CullPlane::with_lifted_cofactors(&points, n, outward, widened.as_deref(), bounds[0])
+            } else {
+                CullPlane::with_cofactors(&points, n, outward, cofactors.as_deref())
+            }
+        });
         Ok(Simplex {
             vertices,
             neighbors,
@@ -955,14 +955,21 @@ pub(crate) mod tests {
 
     #[test]
     fn lifted_proved_sides_are_the_exact_sides() {
-        // Integer sites on a circle (a sphere) of radius 5 (3) centred at
-        // 2^26, with neighbours one unit off it and the centre. Every |p|^2
-        // exceeds 2^53, so each height is rounded by about one unit, far more
-        // than the rounding of w: a threshold without the height bounds
-        // proves a sign for cospherical sites. The same shape near the
-        // origin, at 2^-20 and at 2^20, has exact heights.
-        let c = f64::from(1 << 26);
-        let circle: [[f64; 2]; 11] = [
+        // x1^2 + y1^2 = x2^2 + y2^2 = N (two products of sums of two squares,
+        // Brahmagupta-Fibonacci), N about 2^57.1. Their rounded heights (the
+        // sum of the rounded squares) differ by 32, so without the height bounds a side would
+        // be proved for exactly cocircular sites. Sites one unit off the
+        // circle, inside it so the cocircular sites keep their upper facets,
+        // are provable. The small circle has exact heights; at 2^-20
+        // and 2^20 it checks the scaling.
+        let (x1, y1) = (8_362_900.0, 392_702_530.0);
+        let (x2, y2) = (377_454_220.0, 108_690_050.0);
+        let mut big: Vec<[f64; 2]> = Vec::new();
+        for (x, y) in [(x1, y1), (y1, x1), (x2, y2), (y2, x2)] {
+            big.extend([[x, y], [-x, y], [x, -y], [-x, -y]]);
+        }
+        big.extend([[x1 - 1.0, y1], [x2, y2 - 1.0], [0.0, 0.0]]);
+        let small: Vec<[f64; 2]> = vec![
             [5.0, 0.0],
             [0.0, 5.0],
             [-5.0, 0.0],
@@ -976,29 +983,61 @@ pub(crate) mod tests {
             [0.0, 0.0],
         ];
         let mut sphere: Vec<[f64; 3]> = Vec::new();
-        for i in -3_i32..=3 {
-            for j in -3_i32..=3 {
-                for k in -3_i32..=3 {
-                    let r = i * i + j * j + k * k;
-                    if r == 9 || r == 10 || r == 0 {
-                        sphere.push([f64::from(i), f64::from(j), f64::from(k)]);
-                    }
+        for p in [
+            [x1, y1, 0.0],
+            [x2, y2, 0.0],
+            [y1, 0.0, x1],
+            [0.0, x2, y2],
+            [0.0, y1, x1],
+            [y2, 0.0, x2],
+        ] {
+            for signs in 0..4 {
+                let mut q = p;
+                if signs & 1 == 1 {
+                    q[0] = -q[0];
                 }
+                if signs & 2 == 2 {
+                    q[1] = -q[1];
+                }
+                sphere.push(q);
             }
         }
-        for (shift, scale) in [(c, 1.0), (0.0, 1.0), (0.0, 2f64.powi(-20)), (0.0, 2f64.powi(20))] {
-            let flat: Vec<f64> = circle.iter().flatten().map(|x| x * scale + shift).collect();
-            let (planes, proved, open) = check_lifted_proofs(2, &flat);
-            assert!(planes > 0 && proved > 0, "circle at {shift} x {scale}: nothing proved");
-            assert!(open > 0, "circle at {shift} x {scale}: every cospherical side was proved");
-            let flat: Vec<f64> = sphere.iter().flatten().map(|x| x * scale + shift).collect();
-            let (planes, proved, open) = check_lifted_proofs(3, &flat);
-            assert!(planes > 0 && proved > 0, "sphere at {shift} x {scale}: nothing proved");
-            assert!(open > 0, "sphere at {shift} x {scale}: every cospherical side was proved");
+        sphere.extend([[x1 - 1.0, y1, 0.0], [0.0, x2, y2 - 1.0], [0.0, 0.0, 0.0]]);
+        let cases: Vec<(String, usize, Vec<f64>)> = vec![
+            (
+                "big circle".into(),
+                2,
+                big.iter().flatten().copied().collect(),
+            ),
+            (
+                "big sphere".into(),
+                3,
+                sphere.iter().flatten().copied().collect(),
+            ),
+            (
+                "small circle".into(),
+                2,
+                small.iter().flatten().copied().collect(),
+            ),
+            (
+                "small circle 2^-20".into(),
+                2,
+                small.iter().flatten().map(|x| x * 2f64.powi(-20)).collect(),
+            ),
+            (
+                "small circle 2^20".into(),
+                2,
+                small.iter().flatten().map(|x| x * 2f64.powi(20)).collect(),
+            ),
+        ];
+        for (name, dim, points) in &cases {
+            let (planes, proved, open) = check_lifted_proofs(*dim, points);
+            assert!(planes > 0 && proved > 0, "{name}: nothing proved");
+            assert!(open > 0, "{name}: every cospherical side was proved");
         }
         // Heights that overflow to infinity give no working normal, so no
         // cull plane, and every side goes to the orientation.
-        let huge: Vec<f64> = circle.iter().flatten().map(|x| x * 2f64.powi(520)).collect();
+        let huge: Vec<f64> = small.iter().flatten().map(|x| x * 2f64.powi(520)).collect();
         assert_eq!(check_lifted_proofs(2, &huge), (0, 0, 0));
     }
 

@@ -110,8 +110,8 @@ impl CullPlane {
 
     /// [`Self::with_cofactors`] for a facet of sites lifted to the
     /// paraboloid. `facet` holds the rounded lifted coordinates, `cofactors`
-    /// are the [`crate::predicates::direction_cofactors_lifted`] of the
-    /// sites, which bound the cofactors of the exact lift, and
+    /// are the [`crate::normal::lifted_facet_cofactors`] of the facet,
+    /// which bound the cofactors of the exact lift, and
     /// `origin_bound` bounds the rounding of the first vertex's height. A
     /// proved side is then the exact lifted orientation sign (#109).
     pub(crate) fn with_lifted_cofactors(
@@ -733,6 +733,60 @@ mod tests {
             }
         }
         (outside, inside)
+    }
+
+    /// A lifted plane through the rounded points `facet` (heights exact
+    /// except as `bounds` says) of the horizontal plane `h = 0`.
+    fn lifted_plane(bounds: &[f64]) -> CullPlane {
+        let facet = [
+            vec![0.0, 0.0, 0.0],
+            vec![1.0, 0.0, 0.0],
+            vec![0.0, 1.0, 0.0],
+        ];
+        let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
+        let normal = unit_normal(&refs, Sign::Positive).unwrap().unwrap();
+        let cofactors = crate::normal::facet_cofactors(&refs).unwrap();
+        let widened = crate::normal::lifted_facet_cofactors(&refs, &cofactors, bounds);
+        CullPlane::with_lifted_cofactors(
+            &refs,
+            &normal,
+            Sign::Positive,
+            widened.as_deref(),
+            bounds[0],
+        )
+        .expect("certified")
+    }
+
+    #[test]
+    fn lifted_threshold_covers_the_height_bounds() {
+        // The rounded points span h = 0. Each query's rounded height is off
+        // by at most a bound under which the exact point may lie on the
+        // exact plane, so no side may be proved. Dropping the query's bound
+        // from the threshold, or the origin's from the floor, proves one.
+        let delta = 1e-3;
+        // The query's own height is uncertain.
+        let exact_vertices = lifted_plane(&[0.0, 0.0, 0.0]);
+        assert_eq!(
+            exact_vertices.proved_side(&[0.25, 0.25, delta], delta),
+            None
+        );
+        assert_eq!(
+            exact_vertices.proved_side(&[0.25, 0.25, -delta], delta),
+            None
+        );
+        // The origin's height is uncertain; the query sits right above it.
+        let uncertain_origin = lifted_plane(&[delta, 0.0, 0.0]);
+        assert_eq!(uncertain_origin.proved_side(&[0.0, 0.0, delta], 0.0), None);
+        assert_eq!(uncertain_origin.proved_side(&[0.0, 0.0, -delta], 0.0), None);
+        // Far beyond every bound, both sides are proved.
+        assert_eq!(
+            exact_vertices.proved_side(&[0.25, 0.25, 1.0], delta),
+            Some(Sign::Positive)
+        );
+        assert_eq!(
+            uncertain_origin.proved_side(&[0.25, 0.25, -1.0], 0.0),
+            Some(Sign::Negative)
+        );
     }
 
     #[test]

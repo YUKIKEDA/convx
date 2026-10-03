@@ -81,7 +81,6 @@ impl<'a> Input<'a> {
     }
 
     /// Whether the sites stand lifted to the paraboloid.
-    #[cfg(test)]
     pub(crate) fn is_lifted(&self) -> bool {
         self.lifted.is_some()
     }
@@ -150,16 +149,6 @@ impl<'a> Input<'a> {
             Some(lifted) => lifted.height(index).error(),
             None => 0.0,
         }
-    }
-
-    /// The input coordinates and filtered heights of the lifted sites
-    /// `indices`, or `None` when the input is not lifted.
-    pub(crate) fn lifted_sites(&self, indices: &[u32]) -> Option<(Vec<&[f64]>, Vec<LiftedHeight>)> {
-        let lifted = self.lifted.as_ref()?;
-        Some((
-            indices.iter().map(|&i| lifted.site(i)).collect(),
-            indices.iter().map(|&i| lifted.height(i)).collect(),
-        ))
     }
 
     /// The same sites lifted to the paraboloid, or `Err(self)` unchanged when

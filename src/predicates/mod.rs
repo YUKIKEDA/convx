@@ -301,26 +301,8 @@ fn filtered_value(rows: Rows<'_>) -> Option<Approx> {
 /// Returns `None` when a bound is not finite or a filtered elimination could
 /// not certify a pivot.
 pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Vec<(f64, f64)>> {
-    debug_assert!(!facet.is_empty(), "a hyperplane needs at least one point");
-    cofactors_of(facet, None)
-}
-
-/// [`direction_cofactors`] of the hyperplane through `sites` lifted to the
-/// paraboloid (design §7): k sites of dimension k - 1 standing for
-/// `(p, |p|^2)`, with `heights[i]` the [`LiftedHeight::of`] `sites[i]`. Each
-/// bound covers the rounding of the heights, so the cofactors are those of
-/// the exact lift (#109).
-pub(crate) fn direction_cofactors_lifted(
-    sites: &[&[f64]],
-    heights: &[LiftedHeight],
-) -> Option<Vec<(f64, f64)>> {
-    debug_assert!(sites.len() >= 2, "a lifted hyperplane needs two sites");
-    debug_assert_eq!(heights.len(), sites.len(), "one height per site");
-    cofactors_of(sites, Some(heights))
-}
-
-fn cofactors_of(facet: &[&[f64]], lifted: Option<&[LiftedHeight]>) -> Option<Vec<(f64, f64)>> {
-    let k = facet[0].len() + usize::from(lifted.is_some());
+    let k = facet.len();
+    debug_assert!(k >= 1, "a hyperplane needs at least one point");
     if k == 1 {
         return Some(vec![(1.0, 0.0)]);
     }
@@ -332,7 +314,7 @@ fn cofactors_of(facet: &[&[f64]], lifted: Option<&[LiftedHeight]>) -> Option<Vec
             origin: facet[0],
             points: &facet[1..],
             direction: Some(&unit),
-            lifted,
+            lifted: None,
         });
         unit[j] = 0.0;
         let value = value?;
