@@ -12,6 +12,54 @@
 //! left out after measurement (#26): on the P2-7 `cube` sets measured
 //! there, every arena insert and remove of a build took under 1% of it.
 
+use std::collections::{HashMap, HashSet};
+use std::hash::{BuildHasherDefault, Hasher};
+
+/// A hash map keyed by arena ids (or tuples of ids and point numbers).
+pub(crate) type IdMap<K, V> = HashMap<K, V, BuildHasherDefault<IdHasher>>;
+
+/// A hash set of arena ids.
+pub(crate) type IdSet<K> = HashSet<K, BuildHasherDefault<IdHasher>>;
+
+/// Hashes each word with one rotate, xor, and multiply.
+///
+/// Arena ids are made by the arena, never chosen by the caller, so a keyed
+/// hash (the standard `RandomState`) buys no protection here and cost about
+/// a fifth of a build (#85). Keys built from caller-chosen data keep the
+/// standard hasher.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct IdHasher(u64);
+
+impl IdHasher {
+    fn add(&mut self, word: u64) {
+        self.0 = (self.0.rotate_left(5) ^ word).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+}
+
+impl Hasher for IdHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.add(u64::from(b));
+        }
+    }
+
+    fn write_u32(&mut self, n: u32) {
+        self.add(u64::from(n));
+    }
+
+    fn write_u64(&mut self, n: u64) {
+        self.add(n);
+    }
+
+    fn write_usize(&mut self, n: usize) {
+        self.add(n as u64);
+    }
+}
+
 /// Number of slots in one chunk. Not tuned before measurement.
 const CHUNK_SIZE: usize = 1024;
 

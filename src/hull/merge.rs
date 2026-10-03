@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use super::simplicial::SimplicialHull;
 use super::ConvexHullError;
-use crate::arena::FacetId;
+use crate::arena::{FacetId, IdMap};
 use crate::predicates::Sign;
 
 /// A logical facet during construction. `GroupId` in the design is the index
@@ -65,7 +65,7 @@ impl UnionFind {
 /// Groups the simplices of `hull` into logical facets.
 pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, ConvexHullError> {
     let ids: Vec<FacetId> = hull.facets.iter().map(|(id, _)| id).collect();
-    let dense: HashMap<FacetId, u32> = ids
+    let dense: IdMap<FacetId, u32> = ids
         .iter()
         .enumerate()
         .map(|(i, &id)| (id, i as u32))
@@ -101,7 +101,8 @@ pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, ConvexHu
     // Number groups by their smallest member, in arena order.
     let mut number_of_root: HashMap<u32, u32> = HashMap::new();
     let mut groups: Vec<Group> = Vec::new();
-    let mut group_of = HashMap::with_capacity(ids.len());
+    let mut group_of: IdMap<FacetId, u32> =
+        IdMap::with_capacity_and_hasher(ids.len(), Default::default());
     for (i, &id) in ids.iter().enumerate() {
         let root = sets.find(i as u32);
         let number = *number_of_root.entry(root).or_insert_with(|| {

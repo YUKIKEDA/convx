@@ -27,7 +27,7 @@ use rayon::prelude::*;
 
 use super::input::Input;
 use super::ConvexHullError;
-use crate::arena::{Arena, ArenaFull, FacetId};
+use crate::arena::{Arena, ArenaFull, FacetId, IdMap, IdSet};
 use crate::cull::CullPlane;
 use crate::normal::unit_normal;
 use crate::predicates::Sign;
@@ -337,7 +337,7 @@ impl<'a> SimplicialHull<'a> {
         &self,
         cache: &mut RegionCache,
     ) -> Result<Vec<(u32, FacetId, Region)>, ConvexHullError> {
-        let mut facets: HashSet<FacetId> = HashSet::new();
+        let mut facets: IdSet<FacetId> = IdSet::default();
         let mut ridges: HashSet<Vec<u32>> = HashSet::new();
         let mut taken: Vec<(u32, FacetId, Region)> = Vec::new();
         #[cfg(debug_assertions)]
@@ -471,7 +471,8 @@ impl<'a> SimplicialHull<'a> {
     /// slot) pairs.
     fn visible_region(&self, start: FacetId, apex: u32) -> Result<Region, ConvexHullError> {
         let mut visible = vec![start];
-        let mut is_visible: HashMap<FacetId, bool> = HashMap::from([(start, true)]);
+        let mut is_visible: IdMap<FacetId, bool> = IdMap::default();
+        is_visible.insert(start, true);
         let mut horizon: Vec<(FacetId, usize, FacetId)> = Vec::new();
         let mut cursor = 0;
         while cursor < visible.len() {
@@ -767,7 +768,7 @@ impl Region {
 #[derive(Default)]
 struct RegionCache {
     /// By (apex, start facet).
-    entries: HashMap<(u32, FacetId), Region>,
+    entries: IdMap<(u32, FacetId), Region>,
 }
 
 /// Packing order of design §6: a larger working distance first, ties by the
