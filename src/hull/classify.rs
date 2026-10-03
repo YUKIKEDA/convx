@@ -74,7 +74,15 @@ pub(crate) fn classify(
     input: Input<'_>,
     execution: Execution,
 ) -> Result<Classified<'_>, ConvexHullError> {
-    let hull = SimplicialHull::build(input, execution)?;
+    classify_built(SimplicialHull::build(input, execution)?, execution)
+}
+
+/// Classifies a built simplicial hull. Its `proved_interior` points go to
+/// `interior_points` without a scan.
+fn classify_built(
+    hull: SimplicialHull<'_>,
+    execution: Execution,
+) -> Result<Classified<'_>, ConvexHullError> {
     let groups = merge(&hull)?;
     let d = hull.input.dim();
 
@@ -95,12 +103,19 @@ pub(crate) fn classify(
     }
 
     // Distance signs of the other representatives against every group.
+    // Points construction proved strictly inside are interior already
+    // (design §3) and skip the scan.
+    let mut skipped = vec![false; hull.input.representative.len()];
+    for &p in &hull.proved_interior {
+        debug_assert!(!on_complex[p as usize], "a dropped point is not a vertex");
+        skipped[p as usize] = true;
+    }
     let others: Vec<u32> = hull
         .input
         .representatives
         .iter()
         .copied()
-        .filter(|&p| !on_complex[p as usize])
+        .filter(|&p| !on_complex[p as usize] && !skipped[p as usize])
         .collect();
     let mut on_boundary = vec![false; others.len()];
     let mut zero_points: Vec<Vec<u32>> = vec![Vec::new(); groups.groups.len()];
@@ -173,12 +188,14 @@ pub(crate) fn classify(
         )
         .collect();
     coplanar_points.sort_unstable();
-    let interior_points: Vec<u32> = others
+    let mut interior_points: Vec<u32> = others
         .iter()
         .zip(&on_boundary)
         .filter(|&(_, &b)| !b)
         .map(|(&p, _)| p)
+        .chain(hull.proved_interior.iter().copied())
         .collect();
+    interior_points.sort_unstable();
 
     // Boundary simplices: kept as built, or re-triangulated by placing.
     let mut simplices: Vec<ComplexSimplex> = Vec::new();
@@ -629,6 +646,80 @@ pub(crate) mod tests {
             }
         }
         classified(3, &points);
+    }
+
+    /// The partition with the proved points skipped, and without: the
+    /// reference scans every representative against every group.
+    fn with_and_without_reuse(dim: usize, points: &[f64]) -> (usize, Classified<'_>) {
+        let built =
+            |execution| SimplicialHull::build(accept(dim, points).unwrap(), execution).unwrap();
+        let sequential = built(Execution::Sequential);
+        let mut proved = sequential.proved_interior.clone();
+        let mut parallel = built(Execution::Parallel).proved_interior;
+        proved.sort_unstable();
+        parallel.sort_unstable();
+        assert_eq!(
+            proved, parallel,
+            "sequential and parallel prove the same points"
+        );
+
+        let reused = classify_built(sequential, Execution::Sequential).unwrap();
+        let mut reference = built(Execution::Sequential);
+        reference.proved_interior.clear();
+        let reference = classify_built(reference, Execution::Sequential).unwrap();
+        check(&reused);
+        assert_eq!(reused.vertices, reference.vertices);
+        assert_eq!(reused.coplanar_points, reference.coplanar_points);
+        assert_eq!(reused.interior_points, reference.interior_points);
+        for p in &proved {
+            assert!(
+                reference.interior_points.binary_search(p).is_ok(),
+                "{p} is interior"
+            );
+        }
+        (proved.len(), reused)
+    }
+
+    #[test]
+    fn reused_interior_proofs_change_no_partition() {
+        let mut rng = Rng(73);
+        let mut cases: Vec<(String, usize, Vec<f64>)> = Vec::new();
+        for dim in 2..=4 {
+            // Full integer grids: most points lie on facets, ridges, and
+            // edges, where construction sees a zero sign.
+            let side = 5_usize;
+            let count = side.pow(dim as u32);
+            let grid: Vec<f64> = (0..count)
+                .flat_map(|i| (0..dim).map(move |a| ((i / side.pow(a as u32)) % side) as f64))
+                .collect();
+            cases.push((format!("grid {dim}"), dim, grid));
+            // Random points of a small grid: duplicates and coplanar sets.
+            let coarse: Vec<f64> = (0..60 * dim).map(|_| (rng.next() % 4) as f64).collect();
+            cases.push((format!("coarse {dim}"), dim, coarse));
+            // General position.
+            let general: Vec<f64> = (0..200 * dim).map(|_| rng.unit()).collect();
+            cases.push((format!("general {dim}"), dim, general));
+        }
+        let mut ball = Vec::new();
+        for i in -3_i32..=3 {
+            for j in -3_i32..=3 {
+                for k in -3_i32..=3 {
+                    if i * i + j * j + k * k <= 9 {
+                        ball.extend([f64::from(i), f64::from(j), f64::from(k)]);
+                    }
+                }
+            }
+        }
+        cases.push(("ball".to_string(), 3, ball));
+        for (name, dim, points) in &cases {
+            let (proved, c) = with_and_without_reuse(*dim, points);
+            // Every case exercises the skip, and keeps scanned points too.
+            assert!(proved > 0, "{name}: no point was proved interior");
+            assert!(
+                proved < c.interior_points.len() + c.coplanar_points.len(),
+                "{name}: every non-vertex was proved interior"
+            );
+        }
     }
 }
 #[cfg(test)]
