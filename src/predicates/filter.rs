@@ -42,6 +42,11 @@ impl Approx {
         Self { value, error: 0.0 }
     }
 
+    /// A value and bound computed earlier and stored.
+    pub(super) fn stored(value: f64, error: f64) -> Self {
+        Self { value, error }
+    }
+
     pub(super) fn add(self, other: Self) -> Self {
         let value = self.value + other.value;
         let error = (self.error + other.error + value.abs() * UNIT_ROUNDOFF + ETA) * GROW;

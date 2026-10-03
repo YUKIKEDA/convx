@@ -283,7 +283,7 @@ fn determinant_of(rows: Rows<'_>) -> Result<BigInt, ExactEvaluationExhausted> {
         }
         Ok(sum)
     };
-    let origin_norm = if rows.lifted {
+    let origin_norm = if rows.lifted.is_some() {
         Some(squared_norm(&scaled_origin)?)
     } else {
         None
@@ -333,7 +333,7 @@ pub(super) fn cofactor_direction_exact(
             origin: facet[0],
             points: &facet[1..],
             direction: Some(&unit),
-            lifted: false,
+            lifted: None,
         })?);
         unit[j] = 0.0;
     }
