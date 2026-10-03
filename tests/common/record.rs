@@ -13,11 +13,28 @@
 //! coplanar_points
 //! interior_points 1 2 3
 //! facet 0 4 9
+//! delaunay_sites 0 1 2 3 4 9
+//! delaunay_simplex 0 1 4 9
+//! voronoi_vertex 0 1 4 9
+//! voronoi_ray 0 0 1
+//! voronoi_cell 0 0 3
+//! voronoi_cell_rays 0 0
+//! voronoi_interface 0 1 0
+//! voronoi_interface_rays 0 1 0
 //! ```
 //!
-//! Facets are listed by ascending vertex set, in lexicographic order.
+//! Facets are listed by ascending vertex set, in lexicographic order. Records
+//! of D <= 5 also hold the Delaunay and Voronoi observables (lines starting
+//! `delaunay_` and `voronoi_`), and only what the design promises across
+//! versions: every Voronoi vertex's `sites`; every ray as its apex and
+//! `hull_facet`, numbered in that order; each cell's vertices and ray
+//! numbers; each interface's sites, vertices, and ray numbers; the Delaunay
+//! sites; and the Delaunay simplices of the vertices with exactly D + 1
+//! sites. A cell or interface without rays has no `_rays` line. The split of a cospherical group into
+//! simplices (its diagonals) is not recorded (§7), nor are coordinates
+//! (§8).
 
-use convx::ConvexHull;
+use convx::{ConvexHull, VoronoiBuilder, VoronoiRay};
 
 use super::generator::Family;
 
@@ -59,6 +76,169 @@ pub struct Record {
     pub coplanar_points: Vec<u32>,
     pub interior_points: Vec<u32>,
     pub facets: Vec<Vec<u32>>,
+    /// The Delaunay and Voronoi observables, for D <= 5.
+    pub delaunay: Option<DelaunayRecord>,
+}
+
+/// The Delaunay and Voronoi observables the design promises across versions.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DelaunayRecord {
+    /// Sites that are vertices of the triangulation (the union of the
+    /// Voronoi vertices' sites), ascending.
+    pub sites: Vec<u32>,
+    /// Ascending vertex lists of the simplices whose Voronoi vertex has
+    /// exactly D + 1 sites, in lexicographic order.
+    pub simplices: Vec<Vec<u32>>,
+    /// Every Voronoi vertex's `sites`, in vertex order.
+    pub vertices: Vec<Vec<u32>>,
+    /// Every distinct ray as its apex followed by its `hull_facet`, in
+    /// order; a ray's number is its position here.
+    pub rays: Vec<Vec<u32>>,
+    /// Each cell as its site followed by its vertex numbers.
+    pub cells: Vec<Vec<u32>>,
+    /// Each cell with rays as its site followed by its ray numbers.
+    pub cell_rays: Vec<Vec<u32>>,
+    /// Each interface as its two sites followed by its vertex numbers.
+    pub interfaces: Vec<Vec<u32>>,
+    /// Each interface with rays as its two sites followed by its ray
+    /// numbers.
+    pub interface_rays: Vec<Vec<u32>>,
+}
+
+/// The largest dimension whose records hold Delaunay observables.
+pub const DELAUNAY_MAX_DIM: usize = 5;
+
+impl DelaunayRecord {
+    /// The observables of the sites `points` of dimension `dim`. A Voronoi
+    /// vertex with exactly D + 1 sites is one Delaunay simplex, so the
+    /// recorded simplices come from the vertices.
+    pub fn of(dim: usize, points: &[f64]) -> Result<Self, String> {
+        let v = VoronoiBuilder::new(dim, points)
+            .build()
+            .map_err(|e| e.to_string())?;
+        let mut sites: Vec<u32> = v
+            .vertices
+            .iter()
+            .flat_map(|x| x.sites.iter().copied())
+            .collect();
+        sites.sort_unstable();
+        sites.dedup();
+        let mut simplices: Vec<Vec<u32>> = v
+            .vertices
+            .iter()
+            .map(|x| x.sites.clone())
+            .filter(|x| x.len() == dim + 1)
+            .collect();
+        simplices.sort();
+        let ray = |r: &VoronoiRay| -> Vec<u32> {
+            core::iter::once(r.apex)
+                .chain(r.hull_facet.iter().copied())
+                .collect()
+        };
+        let mut rays: Vec<Vec<u32>> = v
+            .cells
+            .iter()
+            .flat_map(|c| &c.rays)
+            .chain(v.interfaces.iter().flat_map(|f| &f.rays))
+            .map(ray)
+            .collect();
+        rays.sort();
+        rays.dedup();
+        // Every ray is in `rays`, which is collected from the same lists.
+        let number =
+            |r: &VoronoiRay| -> u32 { rays.binary_search(&ray(r)).unwrap_or_default() as u32 };
+        Ok(Self {
+            sites,
+            simplices,
+            vertices: v.vertices.iter().map(|x| x.sites.clone()).collect(),
+            cells: v
+                .cells
+                .iter()
+                .map(|c| {
+                    core::iter::once(c.site)
+                        .chain(c.vertices.iter().copied())
+                        .collect()
+                })
+                .collect(),
+            cell_rays: v
+                .cells
+                .iter()
+                .filter(|c| !c.rays.is_empty())
+                .map(|c| {
+                    core::iter::once(c.site)
+                        .chain(c.rays.iter().map(&number))
+                        .collect()
+                })
+                .collect(),
+            interfaces: v
+                .interfaces
+                .iter()
+                .map(|f| f.sites.iter().chain(&f.vertices).copied().collect())
+                .collect(),
+            interface_rays: v
+                .interfaces
+                .iter()
+                .filter(|f| !f.rays.is_empty())
+                .map(|f| {
+                    f.sites
+                        .iter()
+                        .copied()
+                        .chain(f.rays.iter().map(&number))
+                        .collect()
+                })
+                .collect(),
+            rays,
+        })
+    }
+
+    pub fn to_text(&self) -> String {
+        let mut text = String::new();
+        text.push_str(&line("delaunay_sites", &self.sites));
+        for s in &self.simplices {
+            text.push_str(&line("delaunay_simplex", s));
+        }
+        for s in &self.vertices {
+            text.push_str(&line("voronoi_vertex", s));
+        }
+        for r in &self.rays {
+            text.push_str(&line("voronoi_ray", r));
+        }
+        for c in &self.cells {
+            text.push_str(&line("voronoi_cell", c));
+        }
+        for c in &self.cell_rays {
+            text.push_str(&line("voronoi_cell_rays", c));
+        }
+        for f in &self.interfaces {
+            text.push_str(&line("voronoi_interface", f));
+        }
+        for f in &self.interface_rays {
+            text.push_str(&line("voronoi_interface_rays", f));
+        }
+        text
+    }
+
+    /// Every mismatch against a fresh computation on the same points.
+    pub fn compare(&self, fresh: &Self) -> Vec<String> {
+        let mut errors = Vec::new();
+        let mut check = |name: &str, same: bool| {
+            if !same {
+                errors.push(format!("{name} differ"));
+            }
+        };
+        check("delaunay sites", self.sites == fresh.sites);
+        check("delaunay simplices", self.simplices == fresh.simplices);
+        check("voronoi vertices", self.vertices == fresh.vertices);
+        check("voronoi rays", self.rays == fresh.rays);
+        check("voronoi cells", self.cells == fresh.cells);
+        check("voronoi cell rays", self.cell_rays == fresh.cell_rays);
+        check("voronoi interfaces", self.interfaces == fresh.interfaces);
+        check(
+            "voronoi interface rays",
+            self.interface_rays == fresh.interface_rays,
+        );
+        errors
+    }
 }
 
 fn join(values: &[u32]) -> String {
@@ -103,6 +283,7 @@ impl Record {
             coplanar_points: hull.coplanar_points.clone(),
             interior_points: hull.interior_points.clone(),
             facets,
+            delaunay: None,
         }
     }
 
@@ -133,6 +314,9 @@ impl Record {
         for facet in &self.facets {
             text.push_str(&line("facet", facet));
         }
+        if let Some(delaunay) = &self.delaunay {
+            text.push_str(&delaunay.to_text());
+        }
         text
     }
 
@@ -147,6 +331,7 @@ impl Record {
         let mut coplanar_points = None;
         let mut interior_points = None;
         let mut facets = Vec::new();
+        let mut delaunay: Option<DelaunayRecord> = None;
         for raw in text.lines() {
             let mut words = raw.split_whitespace();
             let Some(key) = words.next() else {
@@ -191,6 +376,37 @@ impl Record {
                 "coplanar_points" => coplanar_points = Some(numbers()?),
                 "interior_points" => interior_points = Some(numbers()?),
                 "facet" => facets.push(numbers()?),
+                "delaunay_sites" => {
+                    delaunay.get_or_insert_with(Default::default).sites = numbers()?
+                }
+                "delaunay_simplex" => delaunay
+                    .get_or_insert_with(Default::default)
+                    .simplices
+                    .push(numbers()?),
+                "voronoi_vertex" => delaunay
+                    .get_or_insert_with(Default::default)
+                    .vertices
+                    .push(numbers()?),
+                "voronoi_ray" => delaunay
+                    .get_or_insert_with(Default::default)
+                    .rays
+                    .push(numbers()?),
+                "voronoi_cell" => delaunay
+                    .get_or_insert_with(Default::default)
+                    .cells
+                    .push(numbers()?),
+                "voronoi_cell_rays" => delaunay
+                    .get_or_insert_with(Default::default)
+                    .cell_rays
+                    .push(numbers()?),
+                "voronoi_interface_rays" => delaunay
+                    .get_or_insert_with(Default::default)
+                    .interface_rays
+                    .push(numbers()?),
+                "voronoi_interface" => delaunay
+                    .get_or_insert_with(Default::default)
+                    .interfaces
+                    .push(numbers()?),
                 other => return Err(format!("unknown key {other}")),
             }
         }
@@ -205,6 +421,7 @@ impl Record {
             coplanar_points: coplanar_points.ok_or("missing coplanar_points")?,
             interior_points: interior_points.ok_or("missing interior_points")?,
             facets,
+            delaunay,
         })
     }
 
