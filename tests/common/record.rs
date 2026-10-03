@@ -16,20 +16,25 @@
 //! delaunay_sites 0 1 2 3 4 9
 //! delaunay_simplex 0 1 4 9
 //! voronoi_vertex 0 1 4 9
+//! voronoi_ray 0 0 1
 //! voronoi_cell 0 0 3
-//! voronoi_interface 0 1
+//! voronoi_cell_rays 0 0
+//! voronoi_interface 0 1 0
+//! voronoi_interface_rays 0 1 0
 //! ```
 //!
 //! Facets are listed by ascending vertex set, in lexicographic order. Records
 //! of D <= 5 also hold the Delaunay and Voronoi observables (lines starting
 //! `delaunay_` and `voronoi_`), and only what the design promises across
-//! versions: every Voronoi vertex's `sites`, each cell's vertex list, each
-//! interface's sites, the Delaunay sites, and the Delaunay simplices of the
-//! vertices with exactly D + 1 sites. The split of a cospherical group into
+//! versions: every Voronoi vertex's `sites`; every ray as its apex and
+//! `hull_facet`, numbered in that order; each cell's vertices and ray
+//! numbers; each interface's sites, vertices, and ray numbers; the Delaunay
+//! sites; and the Delaunay simplices of the vertices with exactly D + 1
+//! sites. A cell or interface without rays has no `_rays` line. The split of a cospherical group into
 //! simplices (its diagonals) is not recorded (§7), nor are coordinates
 //! (§8).
 
-use convx::{ConvexHull, VoronoiBuilder};
+use convx::{ConvexHull, VoronoiBuilder, VoronoiRay};
 
 use super::generator::Family;
 
@@ -86,10 +91,18 @@ pub struct DelaunayRecord {
     pub simplices: Vec<Vec<u32>>,
     /// Every Voronoi vertex's `sites`, in vertex order.
     pub vertices: Vec<Vec<u32>>,
+    /// Every distinct ray as its apex followed by its `hull_facet`, in
+    /// order; a ray's number is its position here.
+    pub rays: Vec<Vec<u32>>,
     /// Each cell as its site followed by its vertex numbers.
     pub cells: Vec<Vec<u32>>,
-    /// Interface site pairs, in order.
+    /// Each cell with rays as its site followed by its ray numbers.
+    pub cell_rays: Vec<Vec<u32>>,
+    /// Each interface as its two sites followed by its vertex numbers.
     pub interfaces: Vec<Vec<u32>>,
+    /// Each interface with rays as its two sites followed by its ray
+    /// numbers.
+    pub interface_rays: Vec<Vec<u32>>,
 }
 
 /// The largest dimension whose records hold Delaunay observables.
@@ -117,6 +130,23 @@ impl DelaunayRecord {
             .filter(|x| x.len() == dim + 1)
             .collect();
         simplices.sort();
+        let ray = |r: &VoronoiRay| -> Vec<u32> {
+            core::iter::once(r.apex)
+                .chain(r.hull_facet.iter().copied())
+                .collect()
+        };
+        let mut rays: Vec<Vec<u32>> = v
+            .cells
+            .iter()
+            .flat_map(|c| &c.rays)
+            .chain(v.interfaces.iter().flat_map(|f| &f.rays))
+            .map(ray)
+            .collect();
+        rays.sort();
+        rays.dedup();
+        // Every ray is in `rays`, which is collected from the same lists.
+        let number =
+            |r: &VoronoiRay| -> u32 { rays.binary_search(&ray(r)).unwrap_or_default() as u32 };
         Ok(Self {
             sites,
             simplices,
@@ -130,7 +160,34 @@ impl DelaunayRecord {
                         .collect()
                 })
                 .collect(),
-            interfaces: v.interfaces.iter().map(|f| f.sites.to_vec()).collect(),
+            cell_rays: v
+                .cells
+                .iter()
+                .filter(|c| !c.rays.is_empty())
+                .map(|c| {
+                    core::iter::once(c.site)
+                        .chain(c.rays.iter().map(&number))
+                        .collect()
+                })
+                .collect(),
+            interfaces: v
+                .interfaces
+                .iter()
+                .map(|f| f.sites.iter().chain(&f.vertices).copied().collect())
+                .collect(),
+            interface_rays: v
+                .interfaces
+                .iter()
+                .filter(|f| !f.rays.is_empty())
+                .map(|f| {
+                    f.sites
+                        .iter()
+                        .copied()
+                        .chain(f.rays.iter().map(&number))
+                        .collect()
+                })
+                .collect(),
+            rays,
         })
     }
 
@@ -143,11 +200,20 @@ impl DelaunayRecord {
         for s in &self.vertices {
             text.push_str(&line("voronoi_vertex", s));
         }
+        for r in &self.rays {
+            text.push_str(&line("voronoi_ray", r));
+        }
         for c in &self.cells {
             text.push_str(&line("voronoi_cell", c));
         }
+        for c in &self.cell_rays {
+            text.push_str(&line("voronoi_cell_rays", c));
+        }
         for f in &self.interfaces {
             text.push_str(&line("voronoi_interface", f));
+        }
+        for f in &self.interface_rays {
+            text.push_str(&line("voronoi_interface_rays", f));
         }
         text
     }
@@ -163,8 +229,14 @@ impl DelaunayRecord {
         check("delaunay sites", self.sites == fresh.sites);
         check("delaunay simplices", self.simplices == fresh.simplices);
         check("voronoi vertices", self.vertices == fresh.vertices);
+        check("voronoi rays", self.rays == fresh.rays);
         check("voronoi cells", self.cells == fresh.cells);
+        check("voronoi cell rays", self.cell_rays == fresh.cell_rays);
         check("voronoi interfaces", self.interfaces == fresh.interfaces);
+        check(
+            "voronoi interface rays",
+            self.interface_rays == fresh.interface_rays,
+        );
         errors
     }
 }
@@ -315,9 +387,21 @@ impl Record {
                     .get_or_insert_with(Default::default)
                     .vertices
                     .push(numbers()?),
+                "voronoi_ray" => delaunay
+                    .get_or_insert_with(Default::default)
+                    .rays
+                    .push(numbers()?),
                 "voronoi_cell" => delaunay
                     .get_or_insert_with(Default::default)
                     .cells
+                    .push(numbers()?),
+                "voronoi_cell_rays" => delaunay
+                    .get_or_insert_with(Default::default)
+                    .cell_rays
+                    .push(numbers()?),
+                "voronoi_interface_rays" => delaunay
+                    .get_or_insert_with(Default::default)
+                    .interface_rays
                     .push(numbers()?),
                 "voronoi_interface" => delaunay
                     .get_or_insert_with(Default::default)
