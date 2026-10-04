@@ -1,0 +1,29 @@
+---
+description: Do not leave worktrees, profiles, downloads, or other scratch on this machine
+alwaysApply: true
+---
+
+# Do not leave scratch
+
+This machine is not a dump. Disk is finite. A file that the task did not name is scratch. Delete it before the turn ends. That includes paths outside the repo.
+
+Do not create, and do not leave, any of these:
+
+- A git worktree
+- A second checkout of this repo
+- A throwaway crate, a downloaded tool, or its build tree
+- A profile, a trace, or a `target/` directory that the task did not ask to keep
+- A draft Issue or PR body saved as a file
+
+The checkout already open is where the edit goes. `.dev/reviews/` is the only path under `.dev/` that stays. `docs/verification.md` names `.dev/perf/` for point files of a measurement the user asked to run. Profiles and anything else beside those files are removed in that same turn.
+
+A change that belongs in the repo is not finished as a local edit. It is finished only when its Issue has an open pull request (`.cursor/rules/workflow.mdc`).
+
+```text
+# BAD — a worktree, a timing crate, and a profile still on disk after the reply
+git worktree add .dev/wt-133
+.dev/time_main/target/
+.dev/perf/profile/
+
+# GOOD — the edit is in the open checkout; the measurement files are gone before the reply
+```

@@ -7,6 +7,8 @@ alwaysApply: true
 
 A question is not permission. Do not run history-changing git in the same turn as a yes/no. Scope and Issues: `.cursor/rules/consent.mdc`.
 
+A branch with no open Issue and no open pull request does not stay (`.cursor/rules/workflow.mdc`). That fact is not permission to delete it. `branch -D` still needs an imperative that names the branch.
+
 ## Stop. Do not execute
 
 Treat as a question. Reply only. Do not `reset`, `rebase`, `push --force`, `--force-with-lease`, `branch -D`, or discard work:

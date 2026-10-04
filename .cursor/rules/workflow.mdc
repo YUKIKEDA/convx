@@ -1,5 +1,5 @@
 ---
-description: Issue, branch, PR, human squash merge, then retrospective
+description: Issue, branch, and an open PR in the same turn. A branch with neither is deleted
 alwaysApply: true
 ---
 
@@ -18,9 +18,16 @@ Grill (when the design branches) → Issue → branch → work → PR → human 
 3. A change to the meaning of the spec is a `design` Issue that updates `docs/design.ja.md` and `docs/design.md` together, before any implementation Issue. `docs/design.md` carries the full English text. It is not a pointer page.
 4. Branch: `type/<issue-number>-<slug>`.
 5. Work that Issue only. Do not start a row whose status is `Set after Grill on #n`. The change that writes that row's Grill decision into its Issue body also sets the status to `Not started`. A row left `Set after Grill` blocks **Current work** when it points there.
-6. Open a PR with `.github/pull_request_template.md`. `Closes #N` on its own line under `## Related`.
+6. Open a PR with `.github/pull_request_template.md`. `Closes #N` on its own line under `## Related`. Open it in the same turn as the branch. Do not end the turn with the work still only on a local branch.
 7. A human reviews and squash-merges. Agents do not merge.
 8. Retrospective, below, before the next feature branch.
+
+A branch stays only while it is the head of an open pull request for its Issue. A branch with no open Issue and no open pull request is deleted. That includes a local branch whose pull request has already merged. An agent does not delete the branch unless that message names the branch (`.cursor/rules/git.mdc`). The agent does not leave it.
+
+```text
+# BAD — the pull request already merged, and the next edit stays on that branch with no new Issue
+# GOOD — Issue, branch type/<issue>-<slug>, and an open pull request before the turn ends
+```
 
 When a decision on an Issue changes (a Grill choice refined in review, a definition of done that moved), edit the Issue body. A comment alone leaves the acceptance text stale.
 
@@ -31,6 +38,7 @@ Each PR sets its own roadmap row's status to `Done` and updates **Current work**
 ## Forbidden
 
 - Starting implementation without an Issue number and a branch
+- Ending the turn on a branch that is not the head of an open pull request for its Issue
 - Copying acceptance text onto the roadmap. The roadmap keeps ID, title, Issue, and status. Acceptance text stays on the Issue and in the design
 - Writing pass/fail numbers, formats, or file layouts into the roadmap before Grill on that row finishes
 - Adding or removing a roadmap row, or editing **Intentionally out of scope**, without Grill → Issue (`.cursor/rules/consent.mdc`)
