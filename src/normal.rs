@@ -12,11 +12,13 @@
 //! whichever sign of the QR vector lies nearer the certified direction; the
 //! chosen side is positive because that distance is below 1.
 //!
-//! QR can lose a direction: when an edge is nearly parallel to the span of
-//! the others, a Householder step whose remaining column norm is at rounding
-//! level is skipped, and the last column of Q is orthogonal to the edges only
-//! up to that rounding, possibly far from the true normal while still on the
-//! correct side. So the QR result is checked against the unit direction of
+//! QR can lose a direction. Householder QR is backward stable: the computed
+//! last column of Q is the exact null direction of a matrix within rounding of
+//! the edge matrix (a reflector is skipped only when the rest of its column is
+//! exactly zero). When an edge is nearly parallel to the span of the others,
+//! the smallest singular value of the edges approaches that rounding, and the
+//! null direction of the perturbed matrix can lie far from the true normal
+//! while still on the correct side. So the QR result is checked against the unit direction of
 //! the facet's cofactor vector, which is certified by the predicate filter or
 //! computed exactly. When the two differ by more than the certified error
 //! plus `QR_TOLERANCE`, the cofactor direction is returned instead.
@@ -694,9 +696,10 @@ mod tests {
     fn nearly_parallel_edges_keep_the_true_normal() {
         // Review of #33: edges (0, 0, 1) and (t, t, 1). The normal is
         // (-1, 1, 0) / sqrt(2) for every t > 0 for which both 1 + t and
-        // 2 + t are exact; QR alone returned (-1, 0, 0) for t = 2^-48 ..
-        // 2^-51. Below that the rounded points have other normals, which the
-        // exact cofactors give.
+        // 2 + t are exact; `faer`'s QR alone returned (-1, 0, 0) for
+        // t = 2^-48 .. 2^-51 (the crate's QR, since #135, returns the
+        // diagonal there). Below that the rounded points have other normals,
+        // which the exact cofactors give.
         let diagonal = [-0.5_f64.sqrt(), 0.5_f64.sqrt(), 0.0];
         for e in 40..=60 {
             let t = 2f64.powi(-e);
@@ -736,9 +739,10 @@ mod tests {
 
     #[test]
     fn working_normal_follows_the_cofactor_direction_when_qr_tilts() {
-        // t = 2^-50. The true normal is the diagonal. QR alone returns a
-        // vector near (-1, 0, 0), about 0.77 from the diagonal. The working
-        // normal is the cofactor direction, so it stays on the diagonal.
+        // t = 2^-50. The true normal is the diagonal. `faer`'s QR, before
+        // #135, returned a vector near (-1, 0, 0), about 0.77 from it; the
+        // crate's QR returns the diagonal here. The working normal is the
+        // cofactor direction, so it stays on the diagonal either way.
         let t = 2f64.powi(-50);
         let points = vec![
             vec![1.0, 2.0, 3.0],
