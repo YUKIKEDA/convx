@@ -41,4 +41,6 @@ The current row's ID lives only in [docs/roadmap.md](docs/roadmap.md).
 
 Grill, when the design branches: [`.agents/skills/grilling/SKILL.md`](.agents/skills/grilling/SKILL.md).
 
+CPU profile on this machine: [`.agents/skills/cpu-profile/SKILL.md`](.agents/skills/cpu-profile/SKILL.md).
+
 External sources: [API Guidelines](https://rust-lang.github.io/api-guidelines/), [rustdoc book](https://doc.rust-lang.org/stable/rustdoc/how-to-write-documentation.html).
