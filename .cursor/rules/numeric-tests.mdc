@@ -11,6 +11,7 @@ A test of a floating-point geometric result must be able to fail when the result
 - Use a fixed tolerance written in the test. Do not derive it from the constant the test is guarding.
 - Show that a soundness test bites: mutate the guarded term (loosen a bound, drop a term, set τ to 0) and confirm the test fails, then restore it. Say in the PR which mutation you tried.
 - When a mutation survives, print per-case statistics first (proved, open, zero signs) to see whether the test builds the situation it claims. #112's first cocircular case had no cocircular facet at all.
+- A test of an error bound includes inputs where each term of the bound dominates, such as thin facets whose cofactors cancel. In #128, dropping the cofactor-error term survived random integer facets.
 - A guard whose removal fails no test is a finding. Either the guard is redundant (remove it and write down why), or a test is missing (add it).
 - A change that moves a check into debug builds records a `cargo test --release` run in the PR. Debug assertions hide the release path.
 - Every path that discards a point or decides a side on a proof is checked against the exact sign in debug builds, not only the path through `side`. #112 checked `proved_side` and missed the scan that drops culled points.
