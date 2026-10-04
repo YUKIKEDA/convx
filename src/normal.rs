@@ -1,8 +1,9 @@
 //! Unit normal of a hyperplane through D points of dimension D.
 //!
-//! The published direction comes from the Householder QR factorization
-//! (`faer`) of the D x (D - 1) matrix of edge vectors: the last column of the
-//! full Q is orthogonal to the column space of the edges. The working normal
+//! The published direction comes from this crate's Householder QR
+//! factorization of the D x (D - 1) matrix of edge vectors, in every
+//! dimension: the last column of the full Q is orthogonal to the column space
+//! of the edges (#135). The working normal
 //! used by distance scans is the certified cofactor direction, not that QR.
 //! Which of the two opposite directions is returned is proved from the
 //! certified error, and the orientation determinant is not evaluated: a
@@ -11,11 +12,13 @@
 //! whichever sign of the QR vector lies nearer the certified direction; the
 //! chosen side is positive because that distance is below 1.
 //!
-//! QR can lose a direction: when an edge is nearly parallel to the span of
-//! the others, a Householder step whose remaining column norm is at rounding
-//! level is skipped, and the last column of Q is orthogonal to the edges only
-//! up to that rounding, possibly far from the true normal while still on the
-//! correct side. So the QR result is checked against the unit direction of
+//! QR can lose a direction. Householder QR is backward stable: the computed
+//! last column of Q is the exact null direction of a matrix within rounding of
+//! the edge matrix (a reflector is skipped only when the rest of its column is
+//! exactly zero). When an edge is nearly parallel to the span of the others,
+//! the smallest singular value of the edges approaches that rounding, and the
+//! null direction of the perturbed matrix can lie far from the true normal
+//! while still on the correct side. So the QR result is checked against the unit direction of
 //! the facet's cofactor vector, which is certified by the predicate filter or
 //! computed exactly. When the two differ by more than the certified error
 //! plus `QR_TOLERANCE`, the cofactor direction is returned instead.
@@ -25,8 +28,6 @@
 //! finite input. The edges, taken relative to the first point, are then
 //! scaled by the power of two that brings their width into [1, 2). Both
 //! scalings are exact except for components that underflow.
-
-use faer::Mat;
 
 use crate::predicates::{
     certified_cofactor_direction, cofactor_direction_from, direction_cofactors, orient_direction,
@@ -384,6 +385,14 @@ pub(crate) fn lifted_facet_cofactors(
 }
 
 /// The null direction of the edge matrix, unit length, of either sign.
+///
+/// Coordinates are scaled by one power of two so that the largest
+/// magnitude lies in [1, 2), the edges are taken relative to the first
+/// point, and they are scaled again by the power of two that brings their
+/// width into [1, 2) (design §5). Both scalings are exact except for
+/// components that underflow. The edges go straight into one buffer, the
+/// column-major D x (D - 1) edge matrix followed by the result and the
+/// reflector scales, and [`householder_null`] factors it (#135).
 fn qr_normal(facet: &[&[f64]]) -> Option<Vec<f64>> {
     let d = facet.len();
     let largest = facet
@@ -395,34 +404,81 @@ fn qr_normal(facet: &[&[f64]]) -> Option<Vec<f64>> {
         return None;
     }
     let shift = -binary_exponent(largest);
-    let scaled: Vec<Vec<f64>> = facet
-        .iter()
-        .map(|p| p.iter().map(|&x| scale_by_power_of_two(x, shift)).collect())
-        .collect();
-    // Translate to the first point, then scale uniformly by the coordinate
-    // width (design §5), again by an exact power of two.
-    let origin = &scaled[0];
-    let differences: Vec<Vec<f64>> = scaled[1..]
-        .iter()
-        .map(|p| p.iter().zip(origin).map(|(x, o)| x - o).collect())
-        .collect();
-    let width = differences
-        .iter()
-        .flat_map(|e| e.iter())
-        .map(|x| x.abs())
-        .fold(0.0_f64, f64::max);
+    // Column j is edge j: row i holds coordinate i of that edge.
+    let mut buffer = vec![0.0; d * d + d - 1];
+    let (edges, rest) = buffer.split_at_mut(d * (d - 1));
+    let (null, taus) = rest.split_at_mut(d);
+    let origin = facet[0];
+    for (column, p) in edges.chunks_exact_mut(d).zip(&facet[1..]) {
+        for ((entry, &x), &o) in column.iter_mut().zip(p.iter()).zip(origin) {
+            *entry = scale_by_power_of_two(x, shift) - scale_by_power_of_two(o, shift);
+        }
+    }
+    let width = edges.iter().map(|x| x.abs()).fold(0.0_f64, f64::max);
     if width == 0.0 {
         return None;
     }
     let width_shift = -binary_exponent(width);
-    let edges = Mat::from_fn(d, d - 1, |i, j| {
-        scale_by_power_of_two(differences[j][i], width_shift)
-    });
-    let q = edges.qr().compute_Q();
-    let column: Vec<f64> = (0..d).map(|i| q[(i, d - 1)]).collect();
-    let norm = column.iter().map(|x| x * x).sum::<f64>().sqrt();
-    let normal: Vec<f64> = column.iter().map(|x| x / norm).collect();
+    for entry in edges.iter_mut() {
+        *entry = scale_by_power_of_two(*entry, width_shift);
+    }
+    householder_null(d, edges, null, taus);
+    let norm = null.iter().map(|x| x * x).sum::<f64>().sqrt();
+    let normal: Vec<f64> = null.iter().map(|x| x / norm).collect();
     normal.iter().all(|x| x.is_finite()).then_some(normal)
+}
+
+/// The last column of Q in the Householder QR factorization of the
+/// column-major `d x (d - 1)` matrix `edges`, written into `null`: the
+/// direction orthogonal to every column, up to rounding (#135).
+///
+/// Reflector `j` maps the trailing part `x` of column `j` to
+/// `-sign(x_0) |x| e_0`, with `v = x + sign(x_0) |x| e_0` and
+/// `tau = 2 / (v . v)`, and is applied to the later columns. A column whose
+/// trailing part is exactly zero has no reflector. Q's last column is then
+/// `H_0 H_1 ... H_{d-2} e_{d-1}`, applied from the right end. `edges` is
+/// overwritten with the reflectors and `taus` (`d - 1` entries) with their
+/// scales, 0 for a skipped one.
+fn householder_null(d: usize, edges: &mut [f64], null: &mut [f64], taus: &mut [f64]) {
+    let columns = d - 1;
+    debug_assert!(edges.len() == d * columns && null.len() == d && taus.len() == columns);
+    taus.fill(0.0);
+    for j in 0..columns {
+        let (done, rest) = edges.split_at_mut((j + 1) * d);
+        let x = &mut done[j * d + j..(j + 1) * d];
+        let norm = x.iter().map(|v| v * v).sum::<f64>().sqrt();
+        if norm == 0.0 {
+            continue;
+        }
+        let alpha = if x[0] >= 0.0 { norm } else { -norm };
+        x[0] += alpha;
+        let vv: f64 = x.iter().map(|v| v * v).sum();
+        let tau = 2.0 / vv;
+        taus[j] = tau;
+        for column in rest.chunks_exact_mut(d) {
+            let y = &mut column[j..];
+            let dot: f64 = x.iter().zip(y.iter()).map(|(a, b)| a * b).sum();
+            let factor = tau * dot;
+            for (yi, &vi) in y.iter_mut().zip(x.iter()) {
+                *yi -= factor * vi;
+            }
+        }
+    }
+    null.fill(0.0);
+    null[d - 1] = 1.0;
+    for j in (0..columns).rev() {
+        let tau = taus[j];
+        if tau == 0.0 {
+            continue;
+        }
+        let v = &edges[j * d + j..(j + 1) * d];
+        let y = &mut null[j..];
+        let dot: f64 = v.iter().zip(y.iter()).map(|(a, b)| a * b).sum();
+        let factor = tau * dot;
+        for (yi, &vi) in y.iter_mut().zip(v) {
+            *yi -= factor * vi;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -549,13 +605,101 @@ mod tests {
         }
     }
 
+    /// The published QR normal as `faer` computed it before #135: the same
+    /// scalings, then the last column of `Mat::qr().compute_Q()`.
+    fn faer_qr_normal(facet: &[&[f64]]) -> Option<Vec<f64>> {
+        let d = facet.len();
+        let largest = facet
+            .iter()
+            .flat_map(|p| p.iter())
+            .map(|x| x.abs())
+            .fold(0.0_f64, f64::max);
+        if largest == 0.0 {
+            return None;
+        }
+        let shift = -binary_exponent(largest);
+        let scaled: Vec<Vec<f64>> = facet
+            .iter()
+            .map(|p| p.iter().map(|&x| scale_by_power_of_two(x, shift)).collect())
+            .collect();
+        let differences: Vec<Vec<f64>> = scaled[1..]
+            .iter()
+            .map(|p| p.iter().zip(&scaled[0]).map(|(x, o)| x - o).collect())
+            .collect();
+        let width = differences
+            .iter()
+            .flat_map(|e| e.iter())
+            .map(|x| x.abs())
+            .fold(0.0_f64, f64::max);
+        if width == 0.0 {
+            return None;
+        }
+        let width_shift = -binary_exponent(width);
+        let edges = faer::Mat::from_fn(d, d - 1, |i, j| {
+            scale_by_power_of_two(differences[j][i], width_shift)
+        });
+        let q = edges.qr().compute_Q();
+        let column: Vec<f64> = (0..d).map(|i| q[(i, d - 1)]).collect();
+        let norm = column.iter().map(|x| x * x).sum::<f64>().sqrt();
+        Some(column.iter().map(|x| x / norm).collect())
+    }
+
+    #[test]
+    fn the_crate_householder_matches_faer_where_the_tilt_check_accepts() {
+        // D = 2..10, so dimensions above the inline range are covered.
+        // Half the facets are thin (one edge about 2^-20 long), where QR
+        // loses digits; a facet whose faer normal the tilt check would
+        // reject is not a comparison case, and the test counts the rest.
+        let mut state = 0x0135_0135_u64;
+        let mut unit = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 11) as f64 / (1_u64 << 53) as f64 * 2.0 - 1.0
+        };
+        let mut compared = 0;
+        for d in 2..=10 {
+            for trial in 0..60 {
+                let scale = [1.0, 1e-120, 1e120][trial % 3];
+                let mut points: Vec<Vec<f64>> = (0..d)
+                    .map(|_| (0..d).map(|_| unit() * scale).collect())
+                    .collect();
+                if trial % 2 == 1 {
+                    let step: Vec<f64> = points[d - 2]
+                        .iter()
+                        .map(|x| x + 2f64.powi(-20) * scale * unit())
+                        .collect();
+                    points[d - 1] = step;
+                }
+                let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+                let reference = faer_qr_normal(&refs).unwrap();
+                let ours = qr_normal(&refs).unwrap();
+                let Some((direction, err)) =
+                    cofactor_reference(&refs, facet_cofactors(&refs).as_deref()).unwrap()
+                else {
+                    panic!("d = {d}, trial {trial}: independent points");
+                };
+                if distance_up_to_sign(&reference, &direction) > err + QR_TOLERANCE {
+                    continue;
+                }
+                compared += 1;
+                assert!(
+                    distance_up_to_sign(&ours, &reference) <= 1e-8,
+                    "d = {d}, trial {trial}: {ours:?} vs {reference:?}"
+                );
+            }
+        }
+        assert!(compared >= 500, "only {compared} facets compared");
+    }
+
     #[test]
     fn nearly_parallel_edges_keep_the_true_normal() {
         // Review of #33: edges (0, 0, 1) and (t, t, 1). The normal is
         // (-1, 1, 0) / sqrt(2) for every t > 0 for which both 1 + t and
-        // 2 + t are exact; QR alone returned (-1, 0, 0) for t = 2^-48 ..
-        // 2^-51. Below that the rounded points have other normals, which the
-        // exact cofactors give.
+        // 2 + t are exact; `faer`'s QR alone returned (-1, 0, 0) for
+        // t = 2^-48 .. 2^-51 (the crate's QR, since #135, returns the
+        // diagonal there). Below that the rounded points have other normals,
+        // which the exact cofactors give.
         let diagonal = [-0.5_f64.sqrt(), 0.5_f64.sqrt(), 0.0];
         for e in 40..=60 {
             let t = 2f64.powi(-e);
@@ -595,9 +739,10 @@ mod tests {
 
     #[test]
     fn working_normal_follows_the_cofactor_direction_when_qr_tilts() {
-        // t = 2^-50. The true normal is the diagonal. QR alone returns a
-        // vector near (-1, 0, 0), about 0.77 from the diagonal. The working
-        // normal is the cofactor direction, so it stays on the diagonal.
+        // t = 2^-50. The true normal is the diagonal. `faer`'s QR, before
+        // #135, returned a vector near (-1, 0, 0), about 0.77 from it; the
+        // crate's QR returns the diagonal here. The working normal is the
+        // cofactor direction, so it stays on the diagonal either way.
         let t = 2f64.powi(-50);
         let points = vec![
             vec![1.0, 2.0, 3.0],

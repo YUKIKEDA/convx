@@ -95,6 +95,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-14 | Feat | Skip the visibility walk for candidates a round rejects       | #110  | Done                   |
 | P5-15 | Feat | One shared elimination for a facet's cofactors                | #111  | Done                   |
 | P5-16 | Feat | Hull cube D6 10^4 within 1.39 s on one core                   | #120  | In progress            |
+| P5-19 | Feat | Factor the published normal with one Householder QR           | #135  | In progress            |
 
 ## Intentionally out of scope
 
