@@ -15,8 +15,10 @@ pub(crate) fn pair_equal_keys(
     count: usize,
     fingerprint: impl Fn(&[u32]) -> u64,
 ) -> Vec<(usize, usize)> {
-    const EMPTY: u32 = u32::MAX;
-    const PAIRED: u32 = u32::MAX - 1;
+    // Indices are below `count`, which a slice length keeps far below
+    // these two markers.
+    const EMPTY: usize = usize::MAX;
+    const PAIRED: usize = usize::MAX - 1;
     let width = keys.len().checked_div(count).unwrap_or(0);
     let key = |i: usize| &keys[i * width..(i + 1) * width];
     let size = (2 * count).next_power_of_two().max(2);
@@ -28,12 +30,12 @@ pub(crate) fn pair_equal_keys(
         loop {
             match table[slot] {
                 EMPTY => {
-                    table[slot] = i as u32;
+                    table[slot] = i;
                     break;
                 }
                 PAIRED => {}
-                other if key(other as usize) == key(i) => {
-                    pairs.push((other as usize, i));
+                other if key(other) == key(i) => {
+                    pairs.push((other, i));
                     table[slot] = PAIRED;
                     break;
                 }
@@ -44,8 +46,19 @@ pub(crate) fn pair_equal_keys(
     }
     debug_assert!(
         table.iter().all(|&e| e == EMPTY || e == PAIRED),
-        "every key occurs exactly twice"
+        "every key occurs an even number of times"
     );
+    // A key occurring four times would pair twice, through two slots;
+    // distinct pairs have distinct keys exactly when each occurs twice.
+    #[cfg(debug_assertions)]
+    {
+        let mut paired: Vec<&[u32]> = pairs.iter().map(|&(a, _)| key(a)).collect();
+        paired.sort_unstable();
+        debug_assert!(
+            paired.windows(2).all(|w| w[0] != w[1]),
+            "every key occurs exactly twice"
+        );
+    }
     pairs
 }
 
@@ -92,5 +105,14 @@ mod tests {
         // Width 0 (D = 2): the two empty keys are equal.
         assert_eq!(sorted_pairs(&[], 2, false), vec![(0, 1)]);
         assert_eq!(sorted_pairs(&[], 2, true), vec![(0, 1)]);
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "every key occurs exactly twice")]
+    fn a_key_occurring_four_times_fails_the_debug_check() {
+        // [1,2] four times: the table pairs it twice, through two slots.
+        let keys = [1, 2, 3, 4, 1, 2, 1, 2, 3, 4, 1, 2];
+        sorted_pairs(&keys, 6, false);
     }
 }
