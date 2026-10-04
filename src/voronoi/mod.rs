@@ -193,7 +193,7 @@ fn build(
     for_each_facet_normal(&hull.input, &queries, |basis, normal| {
         hull_facets.push(HullFacet {
             vertices: hull.faces[hull_facets.len()].vertices.clone(),
-            basis,
+            basis: basis.to_vec(),
             normal,
         });
         Ok(())
