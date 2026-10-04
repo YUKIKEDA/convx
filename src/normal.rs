@@ -91,18 +91,26 @@ pub(crate) fn facet_cofactors(facet: &[&[f64]]) -> Option<Cofactors> {
 /// share one elimination in lanes. The scaling is exact, so one product by
 /// `2^shift`, when that is a normal number, gives the scaled copy's
 /// coordinates; a facet without a shift is evaluated unscaled, times 1.
+/// The coordinates must not be NaN.
 pub(crate) fn facet_cofactors_in_lanes(
     facets: [&[&[f64]]; COFACTOR_LANES],
 ) -> [Option<Cofactors>; COFACTOR_LANES] {
     let k = facets[0].len();
     if k > 4 && facets.iter().all(|f| f.len() == k) {
-        let factors = facets.map(|f| match unit_scaling_shift(f) {
-            Some(shift) if (-1022..=1023).contains(&shift) => Some(power_of_two(shift)),
-            Some(_) => None,
-            None => Some(1.0),
-        });
-        if let [Some(a), Some(b), Some(c), Some(d)] = factors {
-            return scaled_direction_cofactors_in_lanes(facets, [a, b, c, d]);
+        let factors = |largest: [f64; COFACTOR_LANES]| {
+            let mut factors = [1.0; COFACTOR_LANES];
+            for ((factor, largest), facet) in factors.iter_mut().zip(largest).zip(facets) {
+                if let Some(shift) = scaling_shift_of(facet, largest) {
+                    if !(-1022..=1023).contains(&shift) {
+                        return None;
+                    }
+                    *factor = power_of_two(shift);
+                }
+            }
+            Some(factors)
+        };
+        if let Some(cofactors) = scaled_direction_cofactors_in_lanes(facets, factors) {
+            return cofactors;
         }
     }
     facets.map(facet_cofactors)
@@ -289,6 +297,12 @@ pub(crate) fn unit_scaling_shift(facet: &[&[f64]]) -> Option<i32> {
         .flat_map(|p| p.iter())
         .map(|x| x.abs())
         .fold(0.0_f64, f64::max);
+    scaling_shift_of(facet, largest)
+}
+
+/// [`unit_scaling_shift`] of `facet`, whose largest coordinate magnitude is
+/// `largest`.
+fn scaling_shift_of(facet: &[&[f64]], largest: f64) -> Option<i32> {
     if largest == 0.0 {
         return None;
     }
@@ -563,6 +577,12 @@ mod tests {
                         let mut facet: Vec<Vec<f64>> = (0..k)
                             .map(|_| (0..k).map(|_| unit() * scale).collect())
                             .collect();
+                        // One coordinate of one point alone sets the
+                        // largest magnitude, so a scan that misses it
+                        // scales by another power of two.
+                        if (group + lane) % 3 == 1 {
+                            facet[(group + lane) % k][lane % k] = 4.0 * scale;
+                        }
                         if (group + lane) % 5 == 0 {
                             facet[k - 1] = facet[0].clone();
                         }

@@ -83,7 +83,7 @@ impl Approx {
         }
         // A lower bound on |b| - e_b: the subtraction rounds by at most a
         // factor (1 + u), and the product by (1 - 4u) undoes it. The lanes
-        // of [`cofactors_in_lanes`] repeat these steps (see `Ops::div`).
+        // of [`edge_cofactors_in_lanes`] repeat these steps (see `Ops::div`).
         let denominator = (other.value.abs() - other.error) * (1.0 - 4.0 * UNIT_ROUNDOFF);
         let denominator_positive = denominator > 0.0;
         if !denominator_positive {
@@ -207,229 +207,256 @@ pub(super) fn cofactors(
     }
 }
 
-/// Facets per call of [`cofactors_in_lanes`].
+/// Facets per call of [`edge_cofactors_in_lanes`].
 pub(super) const FACET_LANES: usize = 4;
 
-/// [`cofactors`] of `FACET_LANES` matrices at once: `entry(lane, i, j)` is entry
-/// `(i, j)` of matrix `lane`, and result `lane` is bit for bit what
-/// [`cofactors`] returns for it.
+/// The cofactors of each lane's facet, `None` where they are not certified.
+pub(super) type LaneCofactors = [Option<Small<(f64, f64), 10>>; FACET_LANES];
+
+/// The finite [`cofactors`] of the edge rows of `FACET_LANES` facets of
+/// `k` points of dimension `k`, facet `lane` with every coordinate
+/// multiplied by `factors(largest)[lane]`, where `largest[lane]` is the
+/// largest coordinate magnitude of that facet. Result `lane` is bit for bit
+/// what [`cofactors`] returns for the rows
+/// `exact(p_(i+1) * f).sub(exact(p_0 * f))` of that facet, `None` when that
+/// is `None` or a value or bound is not finite.
 ///
 /// One elimination is a chain of dependent operations, column after
 /// column. With four `f64` lanes per vector, each lane runs that chain for
-/// its own matrix, with the same operations in the same order, so the
-/// chains of the four matrices take the time of one. A lane whose divisor
-/// is not certain keeps computing values that are not read, and returns
-/// `None`. Without such vectors, or for other sizes, each matrix goes
-/// through [`cofactors`].
-pub(super) fn cofactors_in_lanes(
-    k: usize,
-    entry: impl Fn(usize, usize, usize) -> Approx,
-) -> [Option<Small<Approx, 10>>; FACET_LANES] {
+/// its own facet, with the same operations in the same order, so the
+/// chains of the four facets take the time of one. The coordinates are
+/// gathered, scaled, and differenced in the same vectors. A lane whose
+/// divisor is not certain keeps computing values that are not read.
+///
+/// Returns `None` without such vectors, for `k` outside 5 to 9, and when
+/// `factors` returns `None`; the caller then evaluates each facet alone.
+/// The coordinates must not be NaN.
+pub(super) fn edge_cofactors_in_lanes(
+    facets: [&[&[f64]]; FACET_LANES],
+    factors: impl Fn([f64; FACET_LANES]) -> Option<[f64; FACET_LANES]>,
+) -> Option<LaneCofactors> {
+    debug_assert!(
+        facets.iter().all(|f| f
+            .iter()
+            .all(|p| p.len() == f.len() && p.iter().all(|x| !x.is_nan()))),
+        "each facet has k points of dimension k, none NaN"
+    );
     #[cfg(target_arch = "x86_64")]
     if let Some(simd) = pulp::x86::V3::try_new() {
-        match k {
-            5 => return Simd::vectorize(simd, Lanes(lane_rows::<4, 5>(&entry))),
-            6 => return Simd::vectorize(simd, Lanes(lane_rows::<5, 6>(&entry))),
-            7 => return Simd::vectorize(simd, Lanes(lane_rows::<6, 7>(&entry))),
-            8 => return Simd::vectorize(simd, Lanes(lane_rows::<7, 8>(&entry))),
-            9 => return Simd::vectorize(simd, Lanes(lane_rows::<8, 9>(&entry))),
-            _ => {}
-        }
+        let factors = &factors;
+        return match facets[0].len() {
+            5 => Simd::vectorize(simd, lanes::Edges::<4, 5, _>(simd, facets, factors)),
+            6 => Simd::vectorize(simd, lanes::Edges::<5, 6, _>(simd, facets, factors)),
+            7 => Simd::vectorize(simd, lanes::Edges::<6, 7, _>(simd, facets, factors)),
+            8 => Simd::vectorize(simd, lanes::Edges::<7, 8, _>(simd, facets, factors)),
+            9 => Simd::vectorize(simd, lanes::Edges::<8, 9, _>(simd, facets, factors)),
+            _ => None,
+        };
     }
-    core::array::from_fn(|lane| cofactors(k, |i, j| entry(lane, i, j)))
+    #[cfg(not(target_arch = "x86_64"))]
+    let _ = (facets, factors);
+    None
 }
 
-/// One entry of every lane: values and bounds apart.
-#[derive(Clone, Copy)]
-struct Wide {
-    value: [f64; FACET_LANES],
-    error: [f64; FACET_LANES],
-}
+/// The lane elimination of [`edge_cofactors_in_lanes`] on AVX2 vectors of
+/// four `f64`, written with `V3`'s own operations, each inlined into the
+/// one vectorized call.
+#[cfg(target_arch = "x86_64")]
+mod lanes {
+    use pulp::x86::V3;
+    use pulp::{cast, f64x4, i64x4, m64x4, Simd, WithSimd};
 
-impl Wide {
-    #[inline(always)]
-    fn lane(self, lane: usize) -> Approx {
-        Approx {
-            value: self.value[lane],
-            error: self.error[lane],
-        }
+    use super::{LaneCofactors, ETA, FACET_LANES, GROW, UNIT_ROUNDOFF};
+
+    /// One entry of every lane in two vectors.
+    #[derive(Clone, Copy)]
+    struct Pair {
+        value: f64x4,
+        error: f64x4,
     }
-}
 
-/// `R` rows of `C` entries of every lane.
-#[inline(always)]
-fn lane_rows<const R: usize, const C: usize>(
-    entry: &impl Fn(usize, usize, usize) -> Approx,
-) -> [[Wide; C]; R] {
-    core::array::from_fn(|i| {
-        core::array::from_fn(|j| {
-            let mut wide = Wide {
-                value: [0.0; FACET_LANES],
-                error: [0.0; FACET_LANES],
-            };
-            for lane in 0..FACET_LANES {
-                let a = entry(lane, i, j);
-                wide.value[lane] = a.value;
-                wide.error[lane] = a.error;
+    /// The [`super::Approx`] operations on vectors of lanes. Each lane
+    /// rounds as the scalar operation does: the same terms, added in the
+    /// same order.
+    #[derive(Clone, Copy)]
+    struct Ops(V3);
+
+    impl Ops {
+        #[inline(always)]
+        fn splat(self, x: f64) -> f64x4 {
+            self.0.splat_f64x4(x)
+        }
+
+        #[inline(always)]
+        fn exact(self, value: f64x4) -> Pair {
+            Pair {
+                value,
+                error: self.splat(0.0),
             }
-            wide
-        })
-    })
-}
+        }
 
-/// One entry of every lane in two vectors.
-struct Pair<S: Simd> {
-    value: S::f64s,
-    error: S::f64s,
-}
+        #[inline(always)]
+        fn sub(self, a: Pair, b: Pair) -> Pair {
+            let s = self.0;
+            let value = s.sub_f64x4(a.value, b.value);
+            let terms = s.add_f64x4(a.error, b.error);
+            let terms = s.add_f64x4(
+                terms,
+                s.mul_f64x4(s.abs_f64x4(value), self.splat(UNIT_ROUNDOFF)),
+            );
+            let error = s.mul_f64x4(s.add_f64x4(terms, self.splat(ETA)), self.splat(GROW));
+            Pair { value, error }
+        }
 
-impl<S: Simd> Clone for Pair<S> {
-    fn clone(&self) -> Self {
-        *self
+        #[inline(always)]
+        fn mul(self, a: Pair, b: Pair) -> Pair {
+            let s = self.0;
+            let value = s.mul_f64x4(a.value, b.value);
+            let terms = s.mul_f64x4(s.abs_f64x4(a.value), b.error);
+            let terms = s.add_f64x4(terms, s.mul_f64x4(s.abs_f64x4(b.value), a.error));
+            let terms = s.add_f64x4(terms, s.mul_f64x4(a.error, b.error));
+            let terms = s.add_f64x4(
+                terms,
+                s.mul_f64x4(s.abs_f64x4(value), self.splat(UNIT_ROUNDOFF)),
+            );
+            let error = s.mul_f64x4(s.add_f64x4(terms, self.splat(ETA)), self.splat(GROW));
+            Pair { value, error }
+        }
+
+        /// [`super::Approx::div`]; `certain` is cleared in the lanes whose
+        /// divisor's sign is not certain.
+        #[inline(always)]
+        fn div(self, a: Pair, b: Pair, certain: &mut m64x4) -> Pair {
+            let s = self.0;
+            let divisor = s.abs_f64x4(b.value);
+            let divisor_certain = s.cmp_gt_f64x4(divisor, b.error);
+            let denominator = s.mul_f64x4(
+                s.sub_f64x4(divisor, b.error),
+                self.splat(1.0 - 4.0 * UNIT_ROUNDOFF),
+            );
+            let denominator_positive = s.cmp_gt_f64x4(denominator, self.splat(0.0));
+            *certain = s.and_m64x4(*certain, s.and_m64x4(divisor_certain, denominator_positive));
+            let value = s.div_f64x4(a.value, b.value);
+            let magnitude = s.abs_f64x4(value);
+            let spread = s.add_f64x4(a.error, s.mul_f64x4(magnitude, b.error));
+            let terms = s.add_f64x4(
+                s.div_f64x4(spread, denominator),
+                s.mul_f64x4(magnitude, self.splat(UNIT_ROUNDOFF)),
+            );
+            let error = s.mul_f64x4(s.add_f64x4(terms, self.splat(ETA)), self.splat(GROW));
+            Pair { value, error }
+        }
+
+        /// `-value`, by flipping the sign bit as the scalar negation does.
+        #[inline(always)]
+        fn negated(self, value: f64x4) -> f64x4 {
+            self.0.xor_f64x4(value, self.splat(-0.0))
+        }
+
+        #[inline(always)]
+        fn select(self, mask: m64x4, if_true: Pair, if_false: Pair) -> Pair {
+            Pair {
+                value: self.0.select_f64x4(mask, if_true.value, if_false.value),
+                error: self.0.select_f64x4(mask, if_true.error, if_false.error),
+            }
+        }
+
+        /// The bits of `|value|`. Their sign bit is clear, so they order as
+        /// `f64::total_cmp` orders the magnitudes.
+        #[inline(always)]
+        fn magnitude_bits(self, value: f64x4) -> i64x4 {
+            cast(self.0.abs_f64x4(value))
+        }
+
+        #[inline(always)]
+        fn index(self, i: usize) -> i64x4 {
+            self.0.splat_i64x4(i as i64)
+        }
     }
-}
 
-impl<S: Simd> Copy for Pair<S> {}
+    /// The lanes of [`super::edge_cofactors_in_lanes`] for facets of `C`
+    /// points, whose edges make `R = C - 1` rows. A method, not a closure:
+    /// `vectorize` inlines `with_simd`, and a closure is not always
+    /// inlined, which leaves every `V3` operation a call.
+    pub(super) struct Edges<'a, const R: usize, const C: usize, F>(
+        pub(super) V3,
+        pub(super) [&'a [&'a [f64]]; FACET_LANES],
+        pub(super) &'a F,
+    );
 
-/// The [`Approx`] operations on vectors of lanes. Each lane rounds as the
-/// scalar operation does: the same terms, added in the same order.
-#[derive(Clone, Copy)]
-struct Ops<S: Simd>(S);
+    impl<const R: usize, const C: usize, F> WithSimd for Edges<'_, R, C, F>
+    where
+        F: Fn([f64; FACET_LANES]) -> Option<[f64; FACET_LANES]>,
+    {
+        type Output = Option<LaneCofactors>;
 
-impl<S: Simd> Ops<S> {
-    #[inline(always)]
-    fn splat(self, x: f64) -> S::f64s {
-        self.0.splat_f64s(x)
-    }
-
-    #[inline(always)]
-    fn exact(self, x: f64) -> Pair<S> {
-        Pair {
-            value: self.splat(x),
-            error: self.splat(0.0),
+        #[inline(always)]
+        fn with_simd<S: Simd>(self, _: S) -> Self::Output {
+            let Self(simd, facets, factors) = self;
+            edges::<R, C>(simd, facets, factors)
         }
     }
 
     #[inline(always)]
-    fn sub(self, a: Pair<S>, b: Pair<S>) -> Pair<S> {
-        let s = self.0;
-        let value = s.sub_f64s(a.value, b.value);
-        let terms = s.add_f64s(a.error, b.error);
-        let terms = s.add_f64s(
-            terms,
-            s.mul_f64s(s.abs_f64s(value), self.splat(UNIT_ROUNDOFF)),
-        );
-        let error = s.mul_f64s(s.add_f64s(terms, self.splat(ETA)), self.splat(GROW));
-        Pair { value, error }
-    }
-
-    #[inline(always)]
-    fn mul(self, a: Pair<S>, b: Pair<S>) -> Pair<S> {
-        let s = self.0;
-        let value = s.mul_f64s(a.value, b.value);
-        let terms = s.mul_f64s(s.abs_f64s(a.value), b.error);
-        let terms = s.add_f64s(terms, s.mul_f64s(s.abs_f64s(b.value), a.error));
-        let terms = s.add_f64s(terms, s.mul_f64s(a.error, b.error));
-        let terms = s.add_f64s(
-            terms,
-            s.mul_f64s(s.abs_f64s(value), self.splat(UNIT_ROUNDOFF)),
-        );
-        let error = s.mul_f64s(s.add_f64s(terms, self.splat(ETA)), self.splat(GROW));
-        Pair { value, error }
-    }
-
-    /// [`Approx::div`]; `certain` is cleared in the lanes whose
-    /// divisor's sign is not certain.
-    #[inline(always)]
-    fn div(self, a: Pair<S>, b: Pair<S>, certain: &mut S::m64s) -> Pair<S> {
-        let s = self.0;
-        let divisor = s.abs_f64s(b.value);
-        let divisor_certain = s.greater_than_f64s(divisor, b.error);
-        let denominator = s.mul_f64s(
-            s.sub_f64s(divisor, b.error),
-            self.splat(1.0 - 4.0 * UNIT_ROUNDOFF),
-        );
-        let denominator_positive = s.greater_than_f64s(denominator, self.splat(0.0));
-        *certain = s.and_m64s(*certain, s.and_m64s(divisor_certain, denominator_positive));
-        let value = s.div_f64s(a.value, b.value);
-        let magnitude = s.abs_f64s(value);
-        let spread = s.add_f64s(a.error, s.mul_f64s(magnitude, b.error));
-        let terms = s.add_f64s(
-            s.div_f64s(spread, denominator),
-            s.mul_f64s(magnitude, self.splat(UNIT_ROUNDOFF)),
-        );
-        let error = s.mul_f64s(s.add_f64s(terms, self.splat(ETA)), self.splat(GROW));
-        Pair { value, error }
-    }
-
-    /// `-value`, by flipping the sign bit as the scalar negation does.
-    #[inline(always)]
-    fn negated(self, value: S::f64s) -> S::f64s {
-        self.0.xor_f64s(value, self.splat(-0.0))
-    }
-
-    #[inline(always)]
-    fn select(self, mask: S::m64s, if_true: Pair<S>, if_false: Pair<S>) -> Pair<S> {
-        Pair {
-            value: self.0.select_f64s(mask, if_true.value, if_false.value),
-            error: self.0.select_f64s(mask, if_true.error, if_false.error),
-        }
-    }
-
-    /// The bits of `|value|`. Their sign bit is clear, so they order as
-    /// `f64::total_cmp` orders the magnitudes.
-    #[inline(always)]
-    fn magnitude_bits(self, value: S::f64s) -> S::i64s {
-        self.0.transmute_i64s_f64s(self.0.abs_f64s(value))
-    }
-
-    #[inline(always)]
-    fn index(self, i: usize) -> S::i64s {
-        self.0.splat_i64s(i as i64)
-    }
-}
-
-/// [`cofactors_in_lanes`] of `R` rows of `C = R + 1` entries in vectors of
-/// `FACET_LANES` lanes.
-struct Lanes<const R: usize, const C: usize>([[Wide; C]; R]);
-
-impl<const R: usize, const C: usize> WithSimd for Lanes<R, C> {
-    type Output = [Option<Small<Approx, 10>>; FACET_LANES];
-
-    #[inline(always)]
-    fn with_simd<S: Simd>(self, simd: S) -> Self::Output {
-        let rows = self.0;
-        if S::F64_LANES != FACET_LANES {
-            return core::array::from_fn(|lane| cofactors(C, |i, j| rows[i][j].lane(lane)));
+    fn edges<const R: usize, const C: usize>(
+        simd: V3,
+        facets: [&[&[f64]]; FACET_LANES],
+        factors: &impl Fn([f64; FACET_LANES]) -> Option<[f64; FACET_LANES]>,
+    ) -> Option<LaneCofactors> {
+        if facets
+            .iter()
+            .any(|f| f.len() != C || f.iter().any(|p| p.len() != C))
+        {
+            return None;
         }
         let ops = Ops(simd);
-        let load = |lanes: &[f64; FACET_LANES]| S::as_simd_f64s(lanes).0[0];
-        let mut m: [[Pair<S>; C]; R] = rows.map(|row| {
-            row.map(|w| Pair {
-                value: load(&w.value),
-                error: load(&w.error),
-            })
-        });
-        let all = simd.equal_i64s(ops.index(0), ops.index(0));
+        let zero = ops.splat(0.0);
+        let mut x = [[zero; C]; C];
+        // The maximum of magnitudes that are not NaN does not depend on the
+        // order, so it equals the scalar fold of each facet.
+        let mut largest = zero;
+        for (i, row) in x.iter_mut().enumerate() {
+            for (j, v) in row.iter_mut().enumerate() {
+                *v = cast([
+                    facets[0][i][j],
+                    facets[1][i][j],
+                    facets[2][i][j],
+                    facets[3][i][j],
+                ]);
+                largest = simd.max_f64x4(largest, simd.abs_f64x4(*v));
+            }
+        }
+        let scale: f64x4 = cast(factors(cast(largest))?);
+        let mut m = [[ops.exact(zero); C]; R];
+        for (row, point) in m.iter_mut().zip(&x[1..]) {
+            for ((entry, &p), &o) in row.iter_mut().zip(point).zip(&x[0]) {
+                *entry = ops.sub(
+                    ops.exact(simd.mul_f64x4(p, scale)),
+                    ops.exact(simd.mul_f64x4(o, scale)),
+                );
+            }
+        }
+        let all = simd.cmp_eq_i64x4(ops.index(0), ops.index(0));
         let mut certain = all;
-        let mut odd = simd.not_m64s(all);
+        let mut odd = simd.xor_m64x4(all, all);
         for col in 0..R {
             // The pivot of each lane: the last row of largest magnitude.
             let mut best = ops.index(col);
             let mut most = ops.magnitude_bits(m[col][col].value);
             for (r, row) in m.iter().enumerate().skip(col + 1) {
                 let bits = ops.magnitude_bits(row[col].value);
-                let take = simd.not_m64s(simd.greater_than_i64s(most, bits));
-                most = simd.select_i64s(take, bits, most);
-                best = simd.select_i64s(take, ops.index(r), best);
+                let take = simd.cmp_ge_i64x4(bits, most);
+                most = simd.select_i64x4(take, bits, most);
+                best = simd.select_i64x4(take, ops.index(r), best);
             }
-            let swapped = simd.not_m64s(simd.equal_i64s(best, ops.index(col)));
-            odd = simd.xor_m64s(odd, swapped);
+            // `best` starts at `col` and only moves down.
+            let swapped = simd.cmp_gt_i64x4(best, ops.index(col));
+            odd = simd.xor_m64x4(odd, swapped);
             // Each lane swaps its pivot row in, by selection.
             let (above, below) = m.split_at_mut(col + 1);
             let pivot_row = &mut above[col];
             for (offset, row) in below.iter_mut().enumerate() {
-                let swap = simd.equal_i64s(best, ops.index(col + 1 + offset));
+                let swap = simd.cmp_eq_i64x4(best, ops.index(col + 1 + offset));
                 for (a, b) in pivot_row.iter_mut().zip(row.iter_mut()) {
                     let (old_a, old_b) = (*a, *b);
                     *a = ops.select(swap, old_b, old_a);
@@ -447,13 +474,13 @@ impl<const R: usize, const C: usize> WithSimd for Lanes<R, C> {
                 }
             }
         }
-        let mut det = ops.exact(1.0);
+        let mut det = ops.exact(ops.splat(1.0));
         for (i, row) in m.iter().enumerate() {
             det = ops.mul(det, row[i]);
         }
-        det.value = simd.select_f64s(odd, ops.negated(det.value), det.value);
+        det.value = simd.select_f64x4(odd, ops.negated(det.value), det.value);
         // Back substitution for T x = u, u the last column.
-        let mut out = [ops.exact(0.0); C];
+        let mut out = [ops.exact(zero); C];
         for i in (0..R).rev() {
             let mut sum = m[i][R];
             for j in i + 1..R {
@@ -467,20 +494,28 @@ impl<const R: usize, const C: usize> WithSimd for Lanes<R, C> {
             value.error = product.error;
         }
         out[R] = det;
-        let store = |v: S::f64s| {
-            let mut lanes = [0.0; FACET_LANES];
-            S::as_mut_simd_f64s(&mut lanes).0[0] = v;
-            lanes
-        };
-        let mut sure = [0_u64; FACET_LANES];
-        S::as_mut_simd_u64s(&mut sure).0[0] = simd.transmute_u64s_m64s(certain);
-        let out: [Wide; C] = out.map(|p| Wide {
-            value: store(p.value),
-            error: store(p.error),
-        });
-        core::array::from_fn(|lane| {
-            (sure[lane] != 0).then(|| out.iter().map(|w| w.lane(lane)).collect())
-        })
+        // A value or bound is finite when its magnitude is below infinity;
+        // NaN compares false.
+        let infinity = ops.splat(f64::INFINITY);
+        for p in &out {
+            let finite = simd.and_m64x4(
+                simd.cmp_lt_f64x4(simd.abs_f64x4(p.value), infinity),
+                simd.cmp_lt_f64x4(simd.abs_f64x4(p.error), infinity),
+            );
+            certain = simd.and_m64x4(certain, finite);
+        }
+        let sure: [u64; FACET_LANES] = cast(certain);
+        let values: [[f64; FACET_LANES]; C] = out.map(|p| cast(p.value));
+        let errors: [[f64; FACET_LANES]; C] = out.map(|p| cast(p.error));
+        Some(core::array::from_fn(|lane| {
+            (sure[lane] != 0).then(|| {
+                values
+                    .iter()
+                    .zip(&errors)
+                    .map(|(v, e)| (v[lane], e[lane]))
+                    .collect()
+            })
+        }))
     }
 }
 
