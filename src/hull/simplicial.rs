@@ -21,14 +21,17 @@
 //!    set.
 //! 3. The batch is applied in ascending input index.
 
+#[cfg(any(test, debug_assertions))]
 use core::convert::Infallible;
+#[cfg(debug_assertions)]
 use std::collections::HashSet;
 
 use rayon::prelude::*;
 
 use super::input::Input;
+use super::ridge::{fingerprint, pair_equal_keys};
 use super::ConvexHullError;
-use crate::arena::{Arena, ArenaFull, FacetId, IdMap, IdSet};
+use crate::arena::{Arena, ArenaFull, FacetId, SlotMarks};
 use crate::cull::CullPlane;
 use crate::normal::{facet_cofactors, lifted_facet_cofactors, working_normal};
 use crate::predicates::Sign;
@@ -39,7 +42,8 @@ pub(crate) struct Simplex {
     pub(crate) neighbors: Vec<FacetId>,
     /// The sign of `orient(vertices, q)` for a point `q` outside.
     pub(crate) outward: Sign,
-    /// Working unit normal, when one could be certified.
+    /// Working unit normal, when one could be certified but no cull plane,
+    /// which otherwise carries it (see [`Simplex::normal`]).
     normal: Option<Vec<f64>>,
     cull: Option<CullPlane>,
     /// Points assigned to this facet that are strictly outside it.
@@ -47,6 +51,14 @@ pub(crate) struct Simplex {
 }
 
 impl Simplex {
+    /// Working unit normal, when one could be certified.
+    fn normal(&self) -> Option<&[f64]> {
+        match &self.cull {
+            Some(cull) => Some(cull.normal()),
+            None => self.normal.as_deref(),
+        }
+    }
+
     /// The cull plane of this simplex, when one could be certified.
     pub(crate) fn cull(&self) -> Option<&CullPlane> {
         self.cull.as_ref()
@@ -147,6 +159,9 @@ impl<'a> SimplicialHull<'a> {
                 CullPlane::with_cofactors(&points, n, outward, cofactors.as_deref())
             }
         });
+        // The cull plane carries the normal; it is kept apart only without
+        // one.
+        let normal = if cull.is_some() { None } else { normal };
         Ok(Simplex {
             vertices,
             neighbors,
@@ -224,6 +239,7 @@ impl<'a> SimplicialHull<'a> {
         facets: &[FacetId],
     ) -> Result<(), ConvexHullError> {
         let mut strict = vec![true; remaining.len()];
+        let mut inside = Vec::new();
         for &id in facets {
             if remaining.is_empty() {
                 break;
@@ -231,7 +247,7 @@ impl<'a> SimplicialHull<'a> {
             let Some(facet) = self.facets.get_mut(id) else {
                 continue;
             };
-            take_outside(&self.input, &mut remaining, &mut strict, facet)?;
+            take_outside(&self.input, &mut remaining, &mut strict, &mut inside, facet)?;
         }
         self.proved_interior.extend(
             remaining
@@ -246,7 +262,7 @@ impl<'a> SimplicialHull<'a> {
     /// The working distance of `point` from `facet`, or `None` without a
     /// certified working normal.
     fn working_distance(&self, facet: &Simplex, point: u32) -> Option<f64> {
-        let normal = facet.normal.as_ref()?;
+        let normal = facet.normal()?;
         let origin = self.input.coords(facet.vertices[0]);
         Some(
             self.input
@@ -299,23 +315,29 @@ impl<'a> SimplicialHull<'a> {
     /// thread or on rayon's pool, and the plans are committed in ascending
     /// input index. Both executions run the same plans and the same commits.
     fn absorb(&mut self, execution: Execution) -> Result<(), ConvexHullError> {
-        let mut cache = RegionCache::default();
+        let mut scratch = WalkScratch::default();
         loop {
-            let batch = self.next_batch_with(&mut cache)?;
+            let batch = self.next_batch_with(&mut scratch)?;
             if batch.is_empty() {
                 return Ok(());
             }
+            let (keys, regions): (Vec<(u32, FacetId)>, Vec<Region>) = batch
+                .into_iter()
+                .map(|(point, start, region)| ((point, start), region))
+                .unzip();
             let plans: Vec<Plan> = match execution {
-                Execution::Sequential => batch
+                Execution::Sequential => keys
                     .iter()
-                    .map(|(point, _, region)| self.plan_region(*point, region.clone()))
+                    .zip(regions)
+                    .map(|(&(point, _), region)| self.plan_region(point, region))
                     .collect::<Result<_, _>>()?,
-                Execution::Parallel => batch
+                Execution::Parallel => keys
                     .par_iter()
-                    .map(|(point, _, region)| self.plan_region(*point, region.clone()))
+                    .zip(regions)
+                    .map(|(&(point, _), region)| self.plan_region(point, region))
                     .collect::<Result<_, _>>()?,
             };
-            for (plan, &(point, start, _)) in plans.into_iter().zip(&batch) {
+            for (plan, &(point, start)) in plans.into_iter().zip(&keys) {
                 // Debug check of §6: applying the batch sequentially in index
                 // order, planning each point against the hull as the earlier
                 // commits left it, gives the same mutation as the plan made
@@ -332,10 +354,6 @@ impl<'a> SimplicialHull<'a> {
                 let _ = (point, start);
                 self.commit(plan);
             }
-            // Entries of removed facets can never be looked up again.
-            cache
-                .entries
-                .retain(|&(_, start), _| self.facets.get(start).is_some());
         }
     }
 
@@ -350,51 +368,54 @@ impl<'a> SimplicialHull<'a> {
     /// other; that never holds once T and H are free (see
     /// [`Self::conflicts`]), so it skips no candidate. A skipped candidate
     /// stays in its outside set for a later round. This wraps
-    /// [`Self::next_batch_with`] with an empty cache for tests.
+    /// [`Self::next_batch_with`] with fresh scratch for tests.
     #[cfg(test)]
     fn next_batch(&self) -> Result<Vec<(u32, FacetId)>, ConvexHullError> {
         Ok(self
-            .next_batch_with(&mut RegionCache::default())?
+            .next_batch_with(&mut WalkScratch::default())?
             .into_iter()
             .map(|(p, f, _)| (p, f))
             .collect())
     }
 
     /// The batch of the next round, with each point's visible region, in
-    /// ascending point index. Regions come from `cache` when no commit has
-    /// touched them since they were computed.
+    /// ascending point index.
     ///
-    /// The prospective-simplex conflict test of §6 never holds once T and H
-    /// are free (see [`Self::conflicts`]), so it runs only as a debug
-    /// assertion, like the sequential replay of a parallel round.
+    /// A horizon ridge lies in exactly two facets, one of V and one of N,
+    /// so two regions with disjoint T share no horizon ridge: the H test of
+    /// §6 never rejects a candidate T admits, and runs only as a debug
+    /// assertion. Nor does the prospective-simplex conflict test (see
+    /// [`Self::conflicts`]), like the sequential replay of a parallel round.
     fn next_batch_with(
         &self,
-        cache: &mut RegionCache,
+        scratch: &mut WalkScratch,
     ) -> Result<Vec<(u32, FacetId, Region)>, ConvexHullError> {
-        let mut facets: IdSet<FacetId> = IdSet::default();
+        let WalkScratch { visited, taken } = scratch;
+        taken.clear();
+        #[cfg(debug_assertions)]
         let mut ridges: HashSet<Vec<u32>> = HashSet::new();
-        let mut taken: Vec<(u32, FacetId, Region)> = Vec::new();
+        let mut batch: Vec<(u32, FacetId, Region)> = Vec::new();
         #[cfg(debug_assertions)]
         let mut taken_prospective: Vec<(u32, Vec<Vec<u32>>)> = Vec::new();
         for (point, start, _) in self.candidates() {
-            // A candidate whose V or N meets a taken facet is rejected
-            // below; once that is certain, its walk stops (#110). Its start
-            // facet is in its V, so a taken start needs no walk at all.
-            if facets.contains(&start) {
+            // A candidate whose V or N meets a taken facet is rejected; once
+            // that is certain, its walk stops (#110). Its start facet is in
+            // its V, so a taken start needs no walk at all.
+            if taken.contains(start) {
                 continue;
             }
-            let Some(region) = self.cached_region(cache, start, point, &facets)? else {
+            let stop = |id: FacetId| if taken.contains(id) { Err(()) } else { Ok(()) };
+            let Ok(region) = self.walk_region(start, point, visited, stop)? else {
                 continue;
             };
-            let touched: Vec<FacetId> = region.touched().collect();
-            let horizon = self.horizon_ridges(&region);
-            if touched.iter().any(|f| facets.contains(f))
-                || horizon.iter().any(|r| ridges.contains(r))
-            {
-                continue;
-            }
             #[cfg(debug_assertions)]
             {
+                let horizon = self.horizon_ridges(&region);
+                debug_assert!(
+                    horizon.iter().all(|r| !ridges.contains(r)),
+                    "point {point} shares a horizon ridge although T is free"
+                );
+                ridges.extend(horizon);
                 let prospective = self.prospective(&region, point);
                 for (other, other_prospective) in &taken_prospective {
                     debug_assert!(
@@ -404,47 +425,17 @@ impl<'a> SimplicialHull<'a> {
                 }
                 taken_prospective.push((point, prospective));
             }
-            facets.extend(touched);
-            ridges.extend(horizon);
-            taken.push((point, start, region));
-        }
-        taken.sort_unstable_by_key(|&(point, _, _)| point);
-        Ok(taken)
-    }
-
-    /// The visible region of `apex` from `start`, reused from `cache` while
-    /// every facet of its V and N is alive. That is enough: the search reads
-    /// the vertices of V and N, which never change, and the neighbor lists of
-    /// V. A commit changes a neighbor list only by replacing a removed facet,
-    /// and a removed neighbor of a facet in V was itself in V or N.
-    ///
-    /// A walk stops at the first facet of V or N in `taken` and returns
-    /// `None`: the candidate is then rejected whatever the rest of its region
-    /// is. A stopped walk is not cached.
-    fn cached_region(
-        &self,
-        cache: &mut RegionCache,
-        start: FacetId,
-        apex: u32,
-        taken: &IdSet<FacetId>,
-    ) -> Result<Option<Region>, ConvexHullError> {
-        if let Some(cached) = cache.entries.get(&(apex, start)) {
-            if cached.touched().all(|id| self.facets.get(id).is_some()) {
-                debug_assert!(
-                    self.visible_region(start, apex)? == *cached,
-                    "the cached region of point {apex} is stale"
-                );
-                return Ok(Some(cached.clone()));
+            for id in region.touched() {
+                taken.insert(id, ());
             }
+            batch.push((point, start, region));
         }
-        let Some(region) = self.visible_region_unless(start, apex, taken)? else {
-            return Ok(None);
-        };
-        cache.entries.insert((apex, start), region.clone());
-        Ok(Some(region))
+        batch.sort_unstable_by_key(|&(point, _, _)| point);
+        Ok(batch)
     }
 
     /// The horizon ridges H of `region`, each as its sorted vertex list.
+    #[cfg(any(test, debug_assertions))]
     fn horizon_ridges(&self, region: &Region) -> Vec<Vec<u32>> {
         region
             .horizon
@@ -518,39 +509,31 @@ impl<'a> SimplicialHull<'a> {
     /// The facets visible from `apex`, found by breadth-first search over
     /// neighbors from `start`, and the horizon ridges as (visible facet,
     /// slot) pairs.
+    #[cfg(any(test, debug_assertions))]
     fn visible_region(&self, start: FacetId, apex: u32) -> Result<Region, ConvexHullError> {
-        match self.walk_region(start, apex, |_| Ok::<(), Infallible>(()))? {
+        let mut visited = SlotMarks::default();
+        match self.walk_region(start, apex, &mut visited, |_| Ok::<(), Infallible>(()))? {
             Ok(region) => Ok(region),
             Err(never) => match never {},
         }
     }
 
-    /// [`Self::visible_region`], or `None` as soon as the walk meets a facet
-    /// of V or N that is in `taken`.
-    fn visible_region_unless(
-        &self,
-        start: FacetId,
-        apex: u32,
-        taken: &IdSet<FacetId>,
-    ) -> Result<Option<Region>, ConvexHullError> {
-        let stop = |id: FacetId| if taken.contains(&id) { Err(()) } else { Ok(()) };
-        Ok(self.walk_region(start, apex, stop)?.ok())
-    }
-
     /// The walk of [`Self::visible_region`]. `stop` sees every facet of V and
-    /// N as the walk reaches it; an `Err` from it ends the walk.
+    /// N as the walk reaches it; an `Err` from it ends the walk. `visited`
+    /// is scratch, cleared here.
     fn walk_region<E>(
         &self,
         start: FacetId,
         apex: u32,
+        visited: &mut SlotMarks<bool>,
         stop: impl Fn(FacetId) -> Result<(), E>,
     ) -> Result<Result<Region, E>, ConvexHullError> {
         if let Err(e) = stop(start) {
             return Ok(Err(e));
         }
+        visited.clear();
         let mut visible = vec![start];
-        let mut is_visible: IdMap<FacetId, bool> = IdMap::default();
-        is_visible.insert(start, true);
+        visited.insert(start, true);
         let mut horizon: Vec<(FacetId, usize, FacetId)> = Vec::new();
         let mut cursor = 0;
         while cursor < visible.len() {
@@ -564,14 +547,14 @@ impl<'a> SimplicialHull<'a> {
                 if let Err(e) = stop(neighbor) {
                     return Ok(Err(e));
                 }
-                let seen = match is_visible.get(&neighbor) {
-                    Some(&v) => v,
+                let seen = match visited.get(neighbor) {
+                    Some(v) => v,
                     None => {
                         let v = match self.facets.get(neighbor) {
                             Some(n) => self.side(n, apex)? == Sign::Positive,
                             None => false,
                         };
-                        is_visible.insert(neighbor, v);
+                        visited.insert(neighbor, v);
                         if v {
                             visible.push(neighbor);
                         }
@@ -647,18 +630,9 @@ impl<'a> SimplicialHull<'a> {
                 replaces: visible_id,
             });
         }
-        let key = |i: usize| &keys[i * width..(i + 1) * width];
-        let mut order: Vec<usize> = (0..owners.len()).collect();
-        order.sort_unstable_by(|&a, &b| key(a).cmp(key(b)));
-        debug_assert!(
-            order.len().is_multiple_of(2)
-                && order.chunks(2).all(|pair| key(pair[0]) == key(pair[1]))
-                && order.windows(3).step_by(2).all(|w| key(w[1]) != key(w[2])),
-            "every new ridge is shared by exactly two new simplices"
-        );
-        for pair in order.chunks_exact(2) {
-            let (a, a_slot) = owners[pair[0]];
-            let (b, b_slot) = owners[pair[1]];
+        for (first, second) in pair_equal_keys(&keys, owners.len(), fingerprint) {
+            let (a, a_slot) = owners[first];
+            let (b, b_slot) = owners[second];
             created[a].links[a_slot] = Link::New(b);
             created[b].links[b_slot] = Link::New(a);
         }
@@ -689,11 +663,18 @@ impl<'a> SimplicialHull<'a> {
         orphans.extend(lost);
         orphans.sort_unstable();
         let mut strict = vec![true; orphans.len()];
+        let mut inside = Vec::new();
         for planned in &mut created {
             if orphans.is_empty() {
                 break;
             }
-            take_outside(&self.input, &mut orphans, &mut strict, &mut planned.simplex)?;
+            take_outside(
+                &self.input,
+                &mut orphans,
+                &mut strict,
+                &mut inside,
+                &mut planned.simplex,
+            )?;
         }
         // An orphan strictly inside every new simplex lies in the open cone
         // from the apex over the hull, before the visible facet it was
@@ -868,21 +849,25 @@ fn oriented_side(input: &Input<'_>, facet: &Simplex, point: u32) -> Result<Sign,
 /// set, keeping the order of both lists. `strict[i]` belongs to
 /// `remaining[i]` and is cleared when that point is on the supporting
 /// hyperplane of `facet`; a culled point is proved strictly inside.
+/// `inside` is scratch for the scan.
 fn take_outside(
     input: &Input<'_>,
     remaining: &mut Vec<u32>,
     strict: &mut Vec<bool>,
+    inside: &mut Vec<bool>,
     facet: &mut Simplex,
 ) -> Result<(), ConvexHullError> {
-    let mut inside = vec![false; remaining.len()];
+    inside.clear();
+    inside.resize(remaining.len(), false);
     if let Some(cull) = &facet.cull {
         let (rows, stride) = input.engine_rows();
-        cull.mark_inside(rows, stride, remaining, &mut inside);
+        cull.mark_inside(rows, stride, remaining, inside);
     }
-    let mut kept = Vec::with_capacity(remaining.len());
-    let mut kept_strict = Vec::with_capacity(remaining.len());
-    for ((&p, &culled), &s) in remaining.iter().zip(&inside).zip(strict.iter()) {
-        let sign = if culled {
+    // Kept points move down in place, in order.
+    let mut kept = 0;
+    for k in 0..remaining.len() {
+        let p = remaining[k];
+        let sign = if inside[k] {
             // A culled point is dropped without `side`, so debug builds check
             // the scan's proof here, as `side` checks `proved_side`.
             #[cfg(debug_assertions)]
@@ -898,12 +883,13 @@ fn take_outside(
         if sign == Sign::Positive {
             facet.outside.push(p);
         } else {
-            kept.push(p);
-            kept_strict.push(s && sign == Sign::Negative);
+            remaining[kept] = p;
+            strict[kept] = strict[k] && sign == Sign::Negative;
+            kept += 1;
         }
     }
-    *remaining = kept;
-    *strict = kept_strict;
+    remaining.truncate(kept);
+    strict.truncate(kept);
     Ok(())
 }
 
@@ -926,12 +912,14 @@ impl Region {
     }
 }
 
-/// Visible regions of candidates, kept across rounds (see
-/// [`SimplicialHull::cached_region`]).
+/// Per-search marks reused across walks and rounds, so neither hashes nor
+/// allocates per facet (#120).
 #[derive(Default)]
-struct RegionCache {
-    /// By (apex, start facet).
-    entries: IdMap<(u32, FacetId), Region>,
+struct WalkScratch {
+    /// Facets the current walk has decided: visible or not.
+    visited: SlotMarks<bool>,
+    /// T of the candidates taken in the current round.
+    taken: SlotMarks<()>,
 }
 
 /// Packing order of design §6: a larger working distance first, ties by the
@@ -1154,7 +1142,7 @@ pub(crate) mod tests {
         let hull = SimplicialHull::build(input, Execution::Sequential).unwrap();
         let mut checked = 0;
         for (_, facet) in hull.facets.iter() {
-            let Some(normal) = facet.normal.as_ref() else {
+            let Some(normal) = facet.normal() else {
                 continue;
             };
             assert_eq!(normal.len(), 3);
