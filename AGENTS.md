@@ -20,7 +20,7 @@ The current row's ID lives only in [docs/roadmap.md](docs/roadmap.md).
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `.cursor/rules/scope.mdc`                | Concept and requirements decide. Ease and size do not. A half build is worse than not building |
 | `.cursor/rules/defer.mdc`                | A postponement names when. Do not leave one path finished and its pair unfinished              |
-| `.cursor/rules/workflow.mdc`             | Issue, branch, PR, human squash merge, then retrospective                                      |
+| `.cursor/rules/workflow.mdc`             | Open the PR in the same turn. After it merges, delete the branch. Do not leave it.             |
 | `.cursor/rules/consent.mdc`              | A question is not a decision                                                                   |
 | `.cursor/rules/git.mdc`                  | Destructive git, commit, and push need an explicit ask                                         |
 | `.cursor/rules/conventional-commits.mdc` | Commit messages                                                                                |
@@ -30,6 +30,7 @@ The current row's ID lives only in [docs/roadmap.md](docs/roadmap.md).
 | `.cursor/rules/record-corrections.mdc`   | Ongoing corrections become rules in the same change                                            |
 | `.cursor/rules/similar-findings.mdc`     | Fix the same kind of gap together                                                              |
 | `.cursor/rules/layout.mdc`               | Single crate. Do not copy the public surface into a rule                                       |
+| `.cursor/rules/scratch.mdc`              | Do not leave worktrees, profiles, downloads, or other scratch on this machine                  |
 | `.cursor/rules/bench.mdc`                | Measure before speeding up. No speedup target before Qhull                                     |
 | `.cursor/rules/hpc.mdc`                  | Row-major points and column-major `faer`. A kernel does not invent a second layout             |
 | `.cursor/rules/rust.mdc`                 | Safety, Clippy, floats, no `unsafe` in this crate                                              |

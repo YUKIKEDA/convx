@@ -1,5 +1,5 @@
 ---
-description: Issue, branch, PR, human squash merge, then retrospective
+description: Open the PR in the same turn. After it merges, delete the branch. Do not leave it.
 alwaysApply: true
 ---
 
@@ -18,9 +18,18 @@ Grill (when the design branches) → Issue → branch → work → PR → human 
 3. A change to the meaning of the spec is a `design` Issue that updates `docs/design.ja.md` and `docs/design.md` together, before any implementation Issue. `docs/design.md` carries the full English text. It is not a pointer page.
 4. Branch: `type/<issue-number>-<slug>`.
 5. Work that Issue only. Do not start a row whose status is `Set after Grill on #n`. The change that writes that row's Grill decision into its Issue body also sets the status to `Not started`. A row left `Set after Grill` blocks **Current work** when it points there.
-6. Open a PR with `.github/pull_request_template.md`. `Closes #N` on its own line under `## Related`.
+6. Open a PR with `.github/pull_request_template.md`. `Closes #N` on its own line under `## Related`. Open it in the same turn as the branch. Do not end the turn with the work still only on a local branch.
 7. A human reviews and squash-merges. Agents do not merge.
 8. Retrospective, below, before the next feature branch.
+
+A branch stays only while it is the head of an open pull request for its Issue. A branch with no open Issue and no open pull request is deleted.
+
+After the pull request merges, that branch is unnecessary. Delete the local branch and the remote branch in the turn that learns of the merge. Do not leave either. `main` stays. A branch that is still the head of an open pull request stays. This deletion does not wait for a later message that names the branch (`.cursor/rules/git.mdc`).
+
+```text
+# BAD — the pull request merged, and its local branch is still there for the next edit
+# GOOD — the pull request merged, and that branch is deleted locally and on the remote before the next edit
+```
 
 When a decision on an Issue changes (a Grill choice refined in review, a definition of done that moved), edit the Issue body. A comment alone leaves the acceptance text stale.
 
@@ -31,6 +40,8 @@ Each PR sets its own roadmap row's status to `Done` and updates **Current work**
 ## Forbidden
 
 - Starting implementation without an Issue number and a branch
+- Ending the turn on a branch that is not the head of an open pull request for its Issue
+- Leaving a local or remote branch after its pull request has merged
 - Copying acceptance text onto the roadmap. The roadmap keeps ID, title, Issue, and status. Acceptance text stays on the Issue and in the design
 - Writing pass/fail numbers, formats, or file layouts into the roadmap before Grill on that row finishes
 - Adding or removing a roadmap row, or editing **Intentionally out of scope**, without Grill → Issue (`.cursor/rules/consent.mdc`)
@@ -57,7 +68,7 @@ When a PR is opened on top of another, its base is the earlier branch. After any
 
 ## Retrospective
 
-After the squash merge, write three points on the merged PR. Write "none" when a point is empty.
+After the squash merge, delete that pull request's branch locally and on the remote. Do not leave it. Then write three points on the merged PR. Write "none" when a point is empty.
 
 1. A lesson for `.cursor/rules/`, both design files, or one ADR under `docs/adr/`
 2. The Issue that will carry it, if any

@@ -15,8 +15,10 @@ Grill (when the design branches) → Issue → branch → work → PR → human 
 3. **Acceptance** — write the text decided in Grill on that Issue. Do not copy it onto the roadmap. The roadmap keeps ID, title, Issue, and status.
 4. **Branch** — `type/<issue-number>-<slug>` (example: `docs/12-roadmap-rows`).
 5. **Work** — that Issue only. The current row is the first not-done row in [docs/roadmap.md](docs/roadmap.md).
-6. **PR** — [`.github/pull_request_template.md`](.github/pull_request_template.md). `Closes #N` on its own line under `## Related`. A human reviews and squash-merges. Agents do not merge.
+6. **PR** — [`.github/pull_request_template.md`](.github/pull_request_template.md). `Closes #N` on its own line under `## Related`. Open it in the same turn as the branch. A human reviews and squash-merges. Agents do not merge.
 7. **Retrospective** — on the merged PR, record the three points below. The next feature branch waits until they are written.
+
+A branch stays only while it is the head of an open pull request for its Issue. After that pull request merges, the branch is unnecessary. Delete it locally and on the remote. Do not leave it. See [`.cursor/rules/workflow.mdc`](.cursor/rules/workflow.mdc).
 
 「進めなさい」 is work on an Issue that already exists. It is not a substitute for creating an Issue or deciding scope.
 
@@ -70,3 +72,5 @@ Identifiers, rustdoc, commit subjects, Issue bodies, and this file are English. 
 ## Layout of local files
 
 `.dev/reviews/` stays in git. Other files under `.dev/` do not. Do not rewrite a review into the design's figure or math format.
+
+This machine is not a dump for agent files. Disk is finite. A worktree, a second checkout, a throwaway crate, a downloaded tool, a profile, a `target/` directory, or a draft note is deleted in the same turn that created it. The open checkout is where the edit goes. `.dev/reviews/` is the only path under `.dev/` that stays. See [`.cursor/rules/scratch.mdc`](.cursor/rules/scratch.mdc).
