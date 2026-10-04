@@ -117,8 +117,9 @@ impl<V: Copy + Default> SlotMarks<V> {
 const CHUNK_SIZE: usize = 1024;
 
 /// A reference to an arena entry that cannot reach a reused slot.
-/// The default id fills unused inline storage and names no entry a caller
-/// was given.
+/// The default id fills unused inline storage, which lies outside the
+/// slice a list reads, so it is never read as a facet. It equals the id of
+/// the first slot's first entry, so it is no marker for a missing facet.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct FacetId {
     index: u32,
