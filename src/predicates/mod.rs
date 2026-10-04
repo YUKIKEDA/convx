@@ -369,26 +369,36 @@ pub(crate) fn cofactor_direction_from(
     facet: &[&[f64]],
     cofactors: Option<&[(f64, f64)]>,
 ) -> Result<Option<(Vec<f64>, f64)>, ExactEvaluationExhausted> {
-    let k = facet.len() as f64;
-    if let Some(cofactors) = cofactors {
-        let bound: f64 = cofactors.iter().map(|&(_, e)| e).sum::<f64>() * (1.0 + k * UNIT_ROUNDOFF);
-        let length = cofactors.iter().map(|&(c, _)| c * c).sum::<f64>().sqrt();
-        let length_low = length * (1.0 - (k + 3.0) * UNIT_ROUNDOFF);
-        if length_low.is_finite() && length_low > 0.0 {
-            // |c/|c| - c^/|c^|| <= 2|c - c^| / |c^|, plus the rounding of
-            // the normalization.
-            let err = (2.0 * bound / length_low + 4.0 * (k + 4.0) * UNIT_ROUNDOFF)
-                * (1.0 + 8.0 * UNIT_ROUNDOFF);
-            // A loose certificate is not a useful reference; the exact
-            // cofactors are.
-            if err <= FILTERED_DIRECTION_LIMIT {
-                let direction = cofactors.iter().map(|&(c, _)| c / length).collect();
-                return Ok(Some((direction, err)));
-            }
-        }
+    if let Some(certified) = certified_cofactor_direction(facet.len(), cofactors) {
+        return Ok(Some(certified));
     }
-    let err = k * 2f64.powi(-49);
+    let err = facet.len() as f64 * 2f64.powi(-49);
     Ok(exact::cofactor_direction_exact(facet)?.map(|d| (d, err)))
+}
+
+/// The filtered half of [`cofactor_direction_from`]: the unit direction of
+/// `cofactors` (of k points) with its certified error, or `None` when the
+/// cofactors are missing or their certificate is looser than the limit at
+/// which the exact direction is used instead.
+pub(crate) fn certified_cofactor_direction(
+    k: usize,
+    cofactors: Option<&[(f64, f64)]>,
+) -> Option<(Vec<f64>, f64)> {
+    let k = k as f64;
+    let cofactors = cofactors?;
+    let bound: f64 = cofactors.iter().map(|&(_, e)| e).sum::<f64>() * (1.0 + k * UNIT_ROUNDOFF);
+    let length = cofactors.iter().map(|&(c, _)| c * c).sum::<f64>().sqrt();
+    let length_low = length * (1.0 - (k + 3.0) * UNIT_ROUNDOFF);
+    if !(length_low.is_finite() && length_low > 0.0) {
+        return None;
+    }
+    // |c/|c| - c^/|c^|| <= 2|c - c^| / |c^|, plus the rounding of the
+    // normalization.
+    let err =
+        (2.0 * bound / length_low + 4.0 * (k + 4.0) * UNIT_ROUNDOFF) * (1.0 + 8.0 * UNIT_ROUNDOFF);
+    // A loose certificate is not a useful reference; the exact cofactors are.
+    (err <= FILTERED_DIRECTION_LIMIT)
+        .then(|| (cofactors.iter().map(|&(c, _)| c / length).collect(), err))
 }
 
 #[cfg(test)]
