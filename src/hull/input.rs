@@ -89,35 +89,52 @@ impl<'a> Input<'a> {
     /// the engine space: the plain orientation, or the lifted one with the
     /// lifted coordinate as the polynomial `|p|^2`.
     pub(crate) fn orient(&self, indices: &[u32]) -> Result<Sign, ExactEvaluationExhausted> {
+        self.orient_of(indices.iter().copied())
+    }
+
+    /// [`Self::orient`] of `vertices` followed by `point`, without building
+    /// that index list (#134).
+    pub(crate) fn orient_with(
+        &self,
+        vertices: &[u32],
+        point: u32,
+    ) -> Result<Sign, ExactEvaluationExhausted> {
+        self.orient_of(vertices.iter().copied().chain(core::iter::once(point)))
+    }
+
+    /// [`Self::orient`] of the indices `indices` yields.
+    fn orient_of(
+        &self,
+        indices: impl Iterator<Item = u32> + Clone,
+    ) -> Result<Sign, ExactEvaluationExhausted> {
         // Up to INLINE points are gathered on the stack; a call does not
         // allocate for them.
         const INLINE: usize = 17;
-        let n = indices.len();
+        let n = indices.clone().count();
         match &self.lifted {
             None if n <= INLINE => {
                 let mut points: [&[f64]; INLINE] = [&[]; INLINE];
-                for (slot, &i) in points.iter_mut().zip(indices) {
+                for (slot, i) in points.iter_mut().zip(indices) {
                     *slot = self.point(i);
                 }
                 orient(&points[..n])
             }
             None => {
-                let points: Vec<&[f64]> = indices.iter().map(|&i| self.point(i)).collect();
+                let points: Vec<&[f64]> = indices.map(|i| self.point(i)).collect();
                 orient(&points)
             }
             Some(lifted) if n <= INLINE => {
                 let mut points: [&[f64]; INLINE] = [&[]; INLINE];
                 let mut heights = [LiftedHeight::of(&[]); INLINE];
-                for ((slot, height), &i) in points.iter_mut().zip(&mut heights).zip(indices) {
+                for ((slot, height), i) in points.iter_mut().zip(&mut heights).zip(indices) {
                     *slot = lifted.site(i);
                     *height = lifted.height(i);
                 }
                 orient_lifted_with(&points[..n], &heights[..n])
             }
             Some(lifted) => {
-                let points: Vec<&[f64]> = indices.iter().map(|&i| lifted.site(i)).collect();
-                let heights: Vec<LiftedHeight> =
-                    indices.iter().map(|&i| lifted.height(i)).collect();
+                let points: Vec<&[f64]> = indices.clone().map(|i| lifted.site(i)).collect();
+                let heights: Vec<LiftedHeight> = indices.map(|i| lifted.height(i)).collect();
                 orient_lifted_with(&points, &heights)
             }
         }

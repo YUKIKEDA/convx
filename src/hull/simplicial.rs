@@ -279,11 +279,11 @@ impl<'a> SimplicialHull<'a> {
     /// is filled from the whole arena when `seeded` is false. Commits add
     /// the candidates of the facets they insert (see [`Self::absorb`]), so
     /// a round does not read every facet (#120).
-    fn candidates(
+    fn candidates<'p>(
         &self,
-        pending: &mut Vec<(u32, FacetId, Option<f64>)>,
+        pending: &'p mut Vec<(u32, FacetId, Option<f64>)>,
         seeded: &mut bool,
-    ) -> Vec<(u32, FacetId, Option<f64>)> {
+    ) -> &'p [(u32, FacetId, Option<f64>)] {
         if *seeded {
             pending.retain(|&(_, id, _)| self.facets.get(id).is_some());
         } else {
@@ -320,13 +320,13 @@ impl<'a> SimplicialHull<'a> {
                 "the pending candidates differ from the arena's"
             );
         }
-        pending.clone()
+        pending
     }
 
     /// [`Self::candidates`] read from the whole arena, for tests.
     #[cfg(test)]
     fn all_candidates(&self) -> Vec<(u32, FacetId, Option<f64>)> {
-        self.candidates(&mut Vec::new(), &mut false)
+        self.candidates(&mut Vec::new(), &mut false).to_vec()
     }
 
     /// Absorbs every outside point in rounds of batches (design §6). Each
@@ -414,7 +414,7 @@ impl<'a> SimplicialHull<'a> {
         scratch: &mut WalkScratch,
     ) -> Result<Vec<(u32, FacetId, Region)>, ConvexHullError> {
         let WalkScratch {
-            visited,
+            walk,
             taken,
             pending,
             seeded,
@@ -425,7 +425,7 @@ impl<'a> SimplicialHull<'a> {
         let mut batch: Vec<(u32, FacetId, Region)> = Vec::new();
         #[cfg(debug_assertions)]
         let mut taken_prospective: Vec<(u32, Vec<Vec<u32>>)> = Vec::new();
-        for (point, start, _) in self.candidates(pending, seeded) {
+        for &(point, start, _) in self.candidates(pending, seeded) {
             // A candidate whose V or N meets a taken facet is rejected; once
             // that is certain, its walk stops (#110). Its start facet is in
             // its V, so a taken start needs no walk at all.
@@ -433,9 +433,10 @@ impl<'a> SimplicialHull<'a> {
                 continue;
             }
             let stop = |id: FacetId| if taken.contains(id) { Err(()) } else { Ok(()) };
-            let Ok(region) = self.walk_region(start, point, visited, stop)? else {
+            if self.walk_region(start, point, walk, stop)?.is_err() {
                 continue;
-            };
+            }
+            let region = walk.region();
             #[cfg(debug_assertions)]
             {
                 let horizon = self.horizon_ridges(&region);
@@ -539,30 +540,38 @@ impl<'a> SimplicialHull<'a> {
     /// slot) pairs.
     #[cfg(any(test, debug_assertions))]
     fn visible_region(&self, start: FacetId, apex: u32) -> Result<Region, ConvexHullError> {
-        let mut visited = SlotMarks::default();
-        match self.walk_region(start, apex, &mut visited, |_| Ok::<(), Infallible>(()))? {
-            Ok(region) => Ok(region),
+        let mut walk = WalkBuffers::default();
+        match self.walk_region(start, apex, &mut walk, |_| Ok::<(), Infallible>(()))? {
+            Ok(()) => Ok(walk.region()),
             Err(never) => match never {},
         }
     }
 
     /// The walk of [`Self::visible_region`]. `stop` sees every facet of V and
-    /// N as the walk reaches it; an `Err` from it ends the walk. `visited`
-    /// is scratch, cleared here.
+    /// N as the walk reaches it; an `Err` from it ends the walk. The walk
+    /// clears `walk` first and leaves its region there (see
+    /// [`WalkBuffers::region`]); its lists keep their capacity for the next
+    /// walk (#134).
     fn walk_region<E>(
         &self,
         start: FacetId,
         apex: u32,
-        visited: &mut SlotMarks<bool>,
+        walk: &mut WalkBuffers,
         stop: impl Fn(FacetId) -> Result<(), E>,
-    ) -> Result<Result<Region, E>, ConvexHullError> {
+    ) -> Result<Result<(), E>, ConvexHullError> {
+        let WalkBuffers {
+            visited,
+            visible,
+            horizon,
+        } = walk;
+        visited.clear();
+        visible.clear();
+        horizon.clear();
         if let Err(e) = stop(start) {
             return Ok(Err(e));
         }
-        visited.clear();
-        let mut visible = vec![start];
+        visible.push(start);
         visited.insert(start, true);
-        let mut horizon: Vec<(FacetId, usize, FacetId)> = Vec::new();
         let mut cursor = 0;
         while cursor < visible.len() {
             let id = visible[cursor];
@@ -594,7 +603,7 @@ impl<'a> SimplicialHull<'a> {
                 }
             }
         }
-        Ok(Ok(Region { visible, horizon }))
+        Ok(Ok(()))
     }
 
     /// Inserts one point now: [`Self::plan`] then [`Self::commit`].
@@ -864,9 +873,7 @@ fn side(input: &Input<'_>, facet: &Simplex, point: u32) -> Result<Sign, ConvexHu
 
 /// The side of `point` relative to `facet` by orientation alone.
 fn oriented_side(input: &Input<'_>, facet: &Simplex, point: u32) -> Result<Sign, ConvexHullError> {
-    let mut indices = facet.vertices.to_vec();
-    indices.push(point);
-    let sign = input.orient(&indices)?;
+    let sign = input.orient_with(&facet.vertices, point)?;
     Ok(if facet.outward == Sign::Positive {
         sign
     } else {
@@ -979,8 +986,8 @@ impl Region {
 /// allocates per facet (#120).
 #[derive(Default)]
 struct WalkScratch {
-    /// Facets the current walk has decided: visible or not.
-    visited: SlotMarks<bool>,
+    /// The current walk, reused by every walk of every round.
+    walk: WalkBuffers,
     /// T of the candidates taken in the current round.
     taken: SlotMarks<()>,
     /// Candidates of the facets with outside points; see
@@ -988,6 +995,28 @@ struct WalkScratch {
     pending: Vec<(u32, FacetId, Option<f64>)>,
     /// Whether `pending` has been filled from the arena.
     seeded: bool,
+}
+
+/// The state of one visibility walk, kept for the next (#134).
+#[derive(Default)]
+struct WalkBuffers {
+    /// Facets the current walk has decided: visible or not.
+    visited: SlotMarks<bool>,
+    /// V of the current walk, in the order it was reached.
+    visible: Vec<FacetId>,
+    /// The horizon ridges of the current walk, as in [`Region::horizon`].
+    horizon: Vec<(FacetId, usize, FacetId)>,
+}
+
+impl WalkBuffers {
+    /// The region of the last walk that ran to its end, in a copy that a
+    /// plan can own while these lists serve the next walk.
+    fn region(&self) -> Region {
+        Region {
+            visible: self.visible.clone(),
+            horizon: self.horizon.clone(),
+        }
+    }
 }
 
 /// Packing order of design §6: a larger working distance first, ties by the
@@ -1321,12 +1350,28 @@ pub(crate) mod tests {
     /// and H miss every taken candidate's T and H and neither it nor a taken
     /// candidate is strictly outside a prospective simplex of the other.
     /// Batches are in ascending index, and the final hull is valid.
+    ///
+    /// One scratch serves every round, as in `absorb`, so a walk that kept
+    /// a facet of an earlier walk in its reused lists, or a mark of an
+    /// earlier round, gives a region that differs from a fresh walk (#134).
     fn check_rounds(dim: usize, points: &[f64]) -> Rounds {
         let mut hull = initial(dim, points);
         let mut stats = Rounds::default();
+        let mut scratch = WalkScratch::default();
         loop {
             let candidates = hull.all_candidates();
-            let batch = hull.next_batch().unwrap();
+            // Commits below go through `insert_point`, which does not feed
+            // the pending list; it is read from the arena again.
+            scratch.seeded = false;
+            let planned = hull.next_batch_with(&mut scratch).unwrap();
+            for (p, f, region) in &planned {
+                assert_eq!(
+                    *region,
+                    hull.visible_region(*f, *p).unwrap(),
+                    "the reused walk of point {p} differs from a fresh one"
+                );
+            }
+            let batch: Vec<(u32, FacetId)> = planned.into_iter().map(|(p, f, _)| (p, f)).collect();
             if batch.is_empty() {
                 assert!(candidates.is_empty());
                 break;
