@@ -19,6 +19,12 @@ Build both sides of a comparison with the same profile and the same flags (debug
 
 After the first speed change, profile again before opening the PR: what remains may be a different cost (#99: allocation was half of what was left). Every count and time in the PR comes from a build of the head it ships (#92 once reported a count from an earlier commit).
 
+Measure the external reference on the machine that times convx, and translate the Issue's target by the ratio before reading a result. Record the reference's own work counters too (`qconvex Qt Ts`: points processed, facets created, distance tests): they say whether a gap is the amount of work or its cost per operation. In #120 the owner's Qhull took 1.32 s and the agent machine's 2.95 s, and Qhull created about as many facets as convx.
+
+A profile at a smaller input, and a cache-miss count, point at candidates; neither prices them. Before working on a cost, time it with phase timers at the size the Issue names. In #128, cachegrind charged 9 M last-level misses to a sequential scan whose removal saved 0.3 s, while inline storage that a 2000-point profile did not point to saved a quarter of the run (#130).
+
+A change whose gain stays inside the spread is reverted, not shipped with others.
+
 Time the sets the Issue names. Before adding a larger set, estimate its time from a smaller one; a single run longer than a few minutes needs a reason in the PR. In #116, `main` took 32 minutes for one D = 7 run that no Issue asked for.
 
 When instruction counts drop but wall time stays inside the spread, the PR reports both and claims no speedup. Whether to merge is the owner's call on those numbers (#92).
