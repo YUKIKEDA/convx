@@ -4,10 +4,12 @@
 //! (`faer`) of the D x (D - 1) matrix of edge vectors: the last column of the
 //! full Q is orthogonal to the column space of the edges. The working normal
 //! used by distance scans is the certified cofactor direction, not that QR.
-//! Which of the two opposite directions is returned follows from the
-//! certified error alone: a vector within distance 1 of the unit direction of
-//! the exact cofactors has a positive [`orient_direction`] sign, so neither
-//! the sign nor a floating-point comparison decides it (#120).
+//! Which of the two opposite directions is returned is proved from the
+//! certified error, and the orientation determinant is not evaluated: a
+//! vector within distance 1 of the unit direction of the exact cofactors has
+//! a positive [`orient_direction`] sign (#120). The published normal takes
+//! whichever sign of the QR vector lies nearer the certified direction; the
+//! chosen side is positive because that distance is below 1.
 //!
 //! QR can lose a direction: when an edge is nearly parallel to the span of
 //! the others, a Householder step whose remaining column norm is at rounding
@@ -177,11 +179,17 @@ fn orient_by_proof(facet: &[&[f64]], candidate: Vec<f64>, outward: Sign) -> Opti
         outward != Sign::Zero,
         "the outward side must be a nonzero sign"
     );
-    debug_assert_eq!(
-        orient_direction(facet, &candidate).ok(),
-        Some(Sign::Positive),
-        "a certified direction lies on the positive side"
-    );
+    // An exhausted exact evaluation proves nothing either way; release
+    // builds never evaluate it.
+    if cfg!(debug_assertions) {
+        if let Ok(sign) = orient_direction(facet, &candidate) {
+            debug_assert_eq!(
+                sign,
+                Sign::Positive,
+                "a certified direction lies on the positive side"
+            );
+        }
+    }
     match outward {
         Sign::Positive => Some(candidate),
         Sign::Negative => Some(candidate.into_iter().map(|x| -x).collect()),
