@@ -64,6 +64,20 @@ pub(crate) struct Simplex {
 }
 
 impl Simplex {
+    /// A simplex with no neighbors, planes, or outside points yet; see
+    /// [`SimplicialHull::set_planes`].
+    fn bare(vertices: Small<u32, 8>, outward: Sign) -> Self {
+        Self {
+            vertices,
+            neighbors: Small::new(),
+            outward,
+            normal: None,
+            cull: None,
+            outside: Vec::new(),
+            farthest: None,
+        }
+    }
+
     /// Working unit normal, when one could be certified.
     fn normal(&self) -> Option<&[f64]> {
         match &self.cull {
@@ -131,25 +145,6 @@ impl<'a> SimplicialHull<'a> {
     /// strictly outside, [`Sign::Zero`] on the supporting hyperplane.
     pub(crate) fn side(&self, facet: &Simplex, point: u32) -> Result<Sign, ConvexHullError> {
         side(&self.input, facet, point)
-    }
-
-    fn make_simplex(
-        &self,
-        vertices: Small<u32, 8>,
-        neighbors: Vec<FacetId>,
-        outward: Sign,
-    ) -> Result<Simplex, ConvexHullError> {
-        let mut simplex = Simplex {
-            vertices,
-            neighbors: neighbors.into(),
-            outward,
-            normal: None,
-            cull: None,
-            outside: Vec::new(),
-            farthest: None,
-        };
-        self.set_planes(core::slice::from_mut(&mut simplex))?;
-        Ok(simplex)
     }
 
     /// Sets the working normal and the cull plane of each simplex from its
@@ -252,10 +247,14 @@ impl<'a> SimplicialHull<'a> {
                 high = r;
             }
         }
-        let low_facet = self.make_simplex([low].as_slice().into(), Vec::new(), Sign::Negative)?;
-        let high_facet = self.make_simplex([high].as_slice().into(), Vec::new(), Sign::Positive)?;
-        insert_or_abort(&mut self.facets, low_facet);
-        insert_or_abort(&mut self.facets, high_facet);
+        let mut ends = [
+            Simplex::bare([low].as_slice().into(), Sign::Negative),
+            Simplex::bare([high].as_slice().into(), Sign::Positive),
+        ];
+        self.set_planes(&mut ends)?;
+        for end in ends {
+            insert_or_abort(&mut self.facets, end);
+        }
         Ok(())
     }
 
@@ -275,12 +274,15 @@ impl<'a> SimplicialHull<'a> {
             ordered.push((i, vertices));
         }
         // Reserve ids first so neighbors can refer to them.
-        let mut ids = Vec::with_capacity(d + 1);
-        for (_, vertices) in &ordered {
-            let simplex =
-                self.make_simplex(vertices.as_slice().into(), Vec::new(), Sign::Positive)?;
-            ids.push(insert_or_abort(&mut self.facets, simplex));
-        }
+        let mut facets: Vec<Simplex> = ordered
+            .iter()
+            .map(|(_, vertices)| Simplex::bare(vertices.as_slice().into(), Sign::Positive))
+            .collect();
+        self.set_planes(&mut facets)?;
+        let ids: Vec<FacetId> = facets
+            .into_iter()
+            .map(|simplex| insert_or_abort(&mut self.facets, simplex))
+            .collect();
         // The facet omitting simplex[i] has id ids[i]; across the ridge
         // opposite vertex v lies the facet omitting v.
         for (i, vertices) in &ordered {
@@ -767,15 +769,7 @@ impl<'a> SimplicialHull<'a> {
                 owners.push((k, other));
             }
             created.push(Planned {
-                simplex: Simplex {
-                    vertices,
-                    neighbors: Small::new(),
-                    outward: Sign::Positive,
-                    normal: None,
-                    cull: None,
-                    outside: Vec::new(),
-                    farthest: None,
-                },
+                simplex: Simplex::bare(vertices, Sign::Positive),
                 links: (0..d).map(|_| Link::Old(across)).collect(),
                 across,
                 replaces: visible_id,
