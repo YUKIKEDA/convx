@@ -62,13 +62,8 @@ pub(crate) fn binary_exponent(x: f64) -> i32 {
     }
 }
 
-/// Unit normal of the hyperplane through `facet`: D affinely independent
-/// points of dimension D.
-///
-/// The returned vector `n` satisfies `orient_direction(facet, n) == outward`.
-/// `outward` must be [`Sign::Positive`] or [`Sign::Negative`]. Returns
-/// `Ok(None)` when no finite vector with that certified orientation could be
-/// formed, for example when the points are not affinely independent.
+/// [`unit_normal_with`] evaluating the cofactors itself.
+#[cfg(test)]
 pub(crate) fn unit_normal(
     facet: &[&[f64]],
     outward: Sign,
@@ -79,14 +74,21 @@ pub(crate) fn unit_normal(
 /// The filtered cofactors of `facet` (k points of dimension k) as the
 /// certification of its normal reads them: of the facet scaled by one power
 /// of two when that is exact for every coordinate (see
-/// [`unit_scaling_shift`]), otherwise of the facet itself. [`unit_normal`]
+/// [`unit_scaling_shift`]), otherwise of the facet itself. [`unit_normal_with`]
 /// and [`crate::cull::CullPlane::with_cofactors`] both certify against these, so a
 /// caller that needs both evaluates them once and passes them on (#86).
 pub(crate) fn facet_cofactors(facet: &[&[f64]]) -> Option<Vec<(f64, f64)>> {
     with_unit_scaling(facet, direction_cofactors)
 }
 
-/// [`unit_normal`] with `cofactors`, the [`facet_cofactors`] of `facet`.
+/// Unit normal of the hyperplane through `facet`: D affinely independent
+/// points of dimension D. `cofactors` are the [`facet_cofactors`] of
+/// `facet`.
+///
+/// The returned vector `n` satisfies `orient_direction(facet, n) == outward`.
+/// `outward` must be [`Sign::Positive`] or [`Sign::Negative`]. Returns
+/// `Ok(None)` when no finite vector with that certified orientation could be
+/// formed, for example when the points are not affinely independent.
 pub(crate) fn unit_normal_with(
     facet: &[&[f64]],
     outward: Sign,
@@ -128,7 +130,7 @@ pub(crate) fn unit_normal_with(
 /// direction, oriented so that `orient_direction(facet, n) == outward`.
 ///
 /// Distance scans use this vector. It does not run Householder QR. The
-/// published plane still does, in [`unit_normal`]. `cofactors` are the
+/// published plane still does, in [`unit_normal_with`]. `cofactors` are the
 /// [`facet_cofactors`] of `facet`.
 pub(crate) fn working_normal(
     facet: &[&[f64]],
@@ -186,6 +188,54 @@ fn orient_by_proof(facet: &[&[f64]], candidate: Vec<f64>, outward: Sign) -> Opti
         Sign::Positive => Some(candidate),
         Sign::Negative => Some(candidate.into_iter().map(|x| -x).collect()),
         Sign::Zero => None,
+    }
+}
+
+/// The sign of `orient(facet, x)` (the facet's points followed by `x`)
+/// proved from `cofactors`, the [`facet_cofactors`] of `facet`, or `None`
+/// when their bounds do not decide it (#120).
+///
+/// The orientation determinant is linear in its last row, so it equals
+/// `c . (x - p0)` for the cofactors `c` of the facet's edge rows; the
+/// filtered cofactors are those of the facet scaled by a power of two,
+/// which multiplies `c` by a positive number. With `d^ = fl(x - p0)`,
+/// `|d - d^| <= 2u |d^|`, `|c - c^| <= e`, and the recursive sum of `k`
+/// products within `gamma_k sum |c^ d^|` of the exact sum,
+///
+/// `|c . d - fl(c^ . d^)| <= (1 + 2u) sum e |d^| + (2u + gamma_k) sum |c^ d^|`,
+///
+/// plus one underflow `eta` per product. The bound is rounded up.
+pub(crate) fn certified_side(
+    facet: &[&[f64]],
+    cofactors: &[(f64, f64)],
+    x: &[f64],
+) -> Option<Sign> {
+    let k = facet.len();
+    debug_assert!(cofactors.len() == k && x.len() == k);
+    let mut sum = 0.0;
+    let mut magnitude = 0.0;
+    let mut spread = 0.0;
+    for ((&xi, &oi), &(c, e)) in x.iter().zip(facet[0]).zip(cofactors) {
+        let d = xi - oi;
+        sum += c * d;
+        magnitude += (c * d).abs();
+        spread += e * d.abs();
+    }
+    let n = k as f64;
+    let gamma = n * UNIT_ROUNDOFF / (1.0 - n * UNIT_ROUNDOFF);
+    let bound = ((1.0 + 2.0 * UNIT_ROUNDOFF) * spread
+        + (2.0 * UNIT_ROUNDOFF + gamma) * magnitude
+        + 2.0 * n * ETA)
+        * (1.0 + 4.0 * (n + 2.0) * UNIT_ROUNDOFF);
+    if !(sum.is_finite() && bound.is_finite()) {
+        return None;
+    }
+    if sum > bound {
+        Some(Sign::Positive)
+    } else if sum < -bound {
+        Some(Sign::Negative)
+    } else {
+        None
     }
 }
 
@@ -756,6 +806,93 @@ mod tests {
         assert_eq!(unit_scaling_shift(&refs), None);
         let same = with_unit_scaling(&refs, |f| f[0][1]);
         assert_eq!(same, ETA / 2.0);
+    }
+
+    #[test]
+    fn certified_side_matches_an_independent_exact_sign() {
+        // Integer facets and query points, the reference sign from the i128
+        // Laplace cofactors: c . (x - p0) is the orientation determinant.
+        let mut state = 0x5eed_0120_u64;
+        let mut next = |bound: i64| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % (2 * bound as u64 + 1)) as i64 - bound
+        };
+        let (mut decided, mut coplanar) = (0, 0);
+        for d in 2..=6 {
+            let bound: i64 = match d {
+                2 | 3 => 1 << 30,
+                4 => 1 << 25,
+                5 => 1 << 20,
+                _ => 1 << 16,
+            };
+            for trial in 0..400 {
+                let mut points: Vec<Vec<i64>> = (0..d)
+                    .map(|_| (0..d).map(|_| next(bound)).collect())
+                    .collect();
+                // Half the facets are thin: the last point is one step from
+                // the one before, so the cofactors cancel and their filter
+                // bounds matter.
+                if trial % 2 == 1 {
+                    let step: Vec<i64> = (0..d).map(|_| next(1)).collect();
+                    points[d - 1] = points[d - 2]
+                        .iter()
+                        .zip(&step)
+                        .map(|(a, b)| a + b)
+                        .collect();
+                }
+                let c = integer_cofactors(&points);
+                if c.iter().all(|&v| v == 0) {
+                    continue;
+                }
+                // Every third query lies on the plane: an affine combination
+                // with integer weights; the others are near it or anywhere.
+                let x: Vec<i64> = match (trial / 2) % 3 {
+                    0 => (0..d)
+                        .map(|j| points[0][j] + (points[1][j] - points[0][j]) * 2)
+                        .collect(),
+                    1 => (0..d)
+                        .map(|j| points[0][j] + (points[1][j] - points[0][j]) * 2 + next(1))
+                        .collect(),
+                    _ => (0..d).map(|_| next(bound)).collect(),
+                };
+                let exact: i128 = c
+                    .iter()
+                    .zip(&x)
+                    .zip(&points[0])
+                    .map(|((&cj, &xj), &oj)| cj * i128::from(xj - oj))
+                    .sum();
+                let expected = match exact.signum() {
+                    1 => Sign::Positive,
+                    -1 => Sign::Negative,
+                    _ => Sign::Zero,
+                };
+                let floats: Vec<Vec<f64>> = points
+                    .iter()
+                    .map(|p| p.iter().map(|&v| v as f64).collect())
+                    .collect();
+                let refs: Vec<&[f64]> = floats.iter().map(Vec::as_slice).collect();
+                let query: Vec<f64> = x.iter().map(|&v| v as f64).collect();
+                let Some(cofactors) = facet_cofactors(&refs) else {
+                    continue;
+                };
+                match certified_side(&refs, &cofactors, &query) {
+                    Some(sign) => {
+                        assert_eq!(sign, expected, "d = {d}, trial {trial}");
+                        decided += 1;
+                    }
+                    None => {}
+                }
+                if expected == Sign::Zero {
+                    coplanar += 1;
+                    assert_eq!(certified_side(&refs, &cofactors, &query), None);
+                }
+            }
+        }
+        // The proof is not vacuous, and the exact zeros were exercised.
+        assert!(decided > 1000, "decided {decided}");
+        assert!(coplanar > 400, "coplanar {coplanar}");
     }
 
     #[test]

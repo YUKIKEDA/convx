@@ -4,7 +4,7 @@ use super::classify::{classify, Classified};
 use super::input::{accept, minimum_basis, Input};
 use super::simplicial::Execution;
 use super::ConvexHullError;
-use crate::normal::unit_normal;
+use crate::normal::{certified_side, facet_cofactors, unit_normal_with};
 use crate::predicates::{orient, Sign};
 
 /// Builds a [`ConvexHull`] from row-major coordinates.
@@ -351,11 +351,27 @@ pub(crate) fn facet_normal(
             .collect()
     };
     let mut points: Vec<&[f64]> = basis.iter().map(|&v| point(v)).collect();
+    // The cofactors certify the normal and usually prove the side of
+    // `inner` too, without the orientation determinant.
+    let cofactors = facet_cofactors(&points);
+    let proved = cofactors
+        .as_deref()
+        .and_then(|c| certified_side(&points, c, point(inner)));
     points.push(point(inner));
-    let inside = orient(&points)?;
+    let inside = match proved {
+        Some(sign) => {
+            debug_assert_eq!(
+                sign,
+                orient(&points)?,
+                "the cofactors proved the wrong side"
+            );
+            sign
+        }
+        None => orient(&points)?,
+    };
     points.pop();
-    let normal =
-        unit_normal(&points, inside.reversed())?.ok_or(ConvexHullError::NonFiniteFacetPlane)?;
+    let normal = unit_normal_with(&points, inside.reversed(), cofactors.as_deref())?
+        .ok_or(ConvexHullError::NonFiniteFacetPlane)?;
     Ok((basis, normal))
 }
 

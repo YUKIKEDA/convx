@@ -3,7 +3,7 @@
 //!
 //! The scan evaluates, for each point `x`, the working distance
 //! `w = sum_j (x_j - o_j) n_j` against the facet's working unit normal `n`
-//! (from [`crate::normal::unit_normal`]) and origin vertex `o`, together with
+//! (from [`crate::normal::unit_normal_with`]) and origin vertex `o`, together with
 //! `l = sum_j |x_j - o_j|`. A point is culled only when
 //!
 //! ```text
