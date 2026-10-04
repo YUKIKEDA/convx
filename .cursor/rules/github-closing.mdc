@@ -1,0 +1,28 @@
+---
+description: GitHub closes an issue when a closing verb sits next to its number, including inside a negation
+alwaysApply: true
+---
+
+# GitHub closing keywords
+
+Merging a pull request completes every issue whose number is preceded by a closing verb in the title, the body, or the squash commit message. The verb is matched as text. A negation still matches.
+
+The verbs are `close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves`, and `resolved`.
+
+## When the PR finishes the issue
+
+`Closes #N` is the only closing line. It stands alone under `## Related`. The same verb does not appear again next to that number.
+
+## When the PR does not finish the issue
+
+Name the issue as `#N` with no closing verb anywhere before that number. Say that the acceptance text is still unmet.
+
+```text
+# BAD — #122 merged and completed #120
+This does not close #120.
+
+# GOOD — #120 stays open
+The acceptance text on #120 is still unmet.
+```
+
+Before `gh pr create`, read the title and the body. If a closing verb sits next to an issue you are not finishing, rewrite that sentence. Do not paste the bad example above into a pull request.

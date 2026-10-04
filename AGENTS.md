@@ -25,6 +25,7 @@ The current row's ID lives only in [docs/roadmap.md](docs/roadmap.md).
 | `.cursor/rules/git.mdc`                  | Destructive git, commit, and push need an explicit ask                                         |
 | `.cursor/rules/conventional-commits.mdc` | Commit messages                                                                                |
 | `.cursor/rules/pull-requests.mdc`        | PR title and body                                                                              |
+| `.cursor/rules/github-closing.mdc`       | A closing verb before an issue number completes it, including inside a negation               |
 | `.cursor/rules/powershell-shell.mdc`     | PowerShell syntax for git and gh                                                               |
 | `.cursor/rules/record-corrections.mdc`   | Ongoing corrections become rules in the same change                                            |
 | `.cursor/rules/similar-findings.mdc`     | Fix the same kind of gap together                                                              |
@@ -42,5 +43,7 @@ The current row's ID lives only in [docs/roadmap.md](docs/roadmap.md).
 Grill, when the design branches: [`.agents/skills/grilling/SKILL.md`](.agents/skills/grilling/SKILL.md).
 
 CPU profile on this machine: [`.agents/skills/cpu-profile/SKILL.md`](.agents/skills/cpu-profile/SKILL.md).
+
+Issue numbers in a PR: [`.agents/skills/github-closing/SKILL.md`](.agents/skills/github-closing/SKILL.md).
 
 External sources: [API Guidelines](https://rust-lang.github.io/api-guidelines/), [rustdoc book](https://doc.rust-lang.org/stable/rustdoc/how-to-write-documentation.html).
