@@ -25,7 +25,7 @@ use faer::Mat;
 use crate::delaunay::complex;
 use crate::hull::classify::classify;
 use crate::hull::input::accept;
-use crate::hull::publish::{facet_normal, inner_reference};
+use crate::hull::publish::{for_each_facet_normal, inner_reference};
 use crate::hull::simplicial::Execution;
 use crate::hull::ConvexHullError;
 use crate::normal::{binary_exponent, scale_by_power_of_two};
@@ -181,16 +181,23 @@ fn build(
 
     // The site hull of the original sites, for the rays' facets.
     let hull = classify(accept(dim, points)?, execution)?;
+    let queries: Vec<(&[u32], u32)> = hull
+        .faces
+        .iter()
+        .map(|face| {
+            let vertices = face.vertices.as_slice();
+            (vertices, inner_reference(&hull.vertices, vertices))
+        })
+        .collect();
     let mut hull_facets = Vec::with_capacity(hull.faces.len());
-    for face in &hull.faces {
-        let inner = inner_reference(&hull.vertices, &face.vertices);
-        let (basis, normal) = facet_normal(&hull.input, &face.vertices, inner)?;
+    for_each_facet_normal(&hull.input, &queries, |basis, normal| {
         hull_facets.push(HullFacet {
-            vertices: face.vertices.clone(),
+            vertices: hull.faces[hull_facets.len()].vertices.clone(),
             basis,
             normal,
         });
-    }
+        Ok(())
+    })?;
 
     let mut groups = complex.groups;
     groups.sort_unstable_by(|a, b| a.sites.cmp(&b.sites));

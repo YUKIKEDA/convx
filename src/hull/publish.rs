@@ -4,10 +4,10 @@ use super::classify::{classify, Classified};
 use super::input::{accept, minimum_basis, Input};
 use super::simplicial::Execution;
 use super::ConvexHullError;
-use crate::normal::{certified_side, facet_cofactors, unit_normal_with};
-use crate::predicates::orient;
+use crate::normal::{certified_side, facet_cofactors, facet_cofactors_in_lanes, unit_normal_with};
 #[cfg(debug_assertions)]
 use crate::predicates::Sign;
+use crate::predicates::{orient, Cofactors, COFACTOR_LANES};
 
 /// Builds a [`ConvexHull`] from row-major coordinates.
 ///
@@ -321,15 +321,15 @@ pub(crate) fn inner_reference(vertices: &[u32], facet_vertices: &[u32]) -> u32 {
         .unwrap_or(vertices[0])
 }
 
-/// The public plane of a facet (design §5): the first D affinely independent
-/// vertices in lexicographic order, translated, scaled, normal by QR, made
-/// unit, and oriented by the exact sign so that the inside is negative.
+/// The public plane of a facet (design §5) from its [`for_each_facet_normal`]
+/// basis and normal: the first D affinely independent vertices in
+/// lexicographic order, translated, scaled, normal by QR, made unit, and
+/// oriented by the exact sign so that the inside is negative.
 fn facet_plane(
     input: &Input<'_>,
-    facet_vertices: &[u32],
-    inner: u32,
+    basis: &[u32],
+    normal: Vec<f64>,
 ) -> Result<FacetPlane, ConvexHullError> {
-    let (basis, normal) = facet_normal(input, facet_vertices, inner)?;
     let point = |i: u32| input.point(i);
     // The plane passes through the first basis point r: offset = -n . r.
     let offset = -normal
@@ -343,19 +343,53 @@ fn facet_plane(
     Ok(FacetPlane { normal, offset })
 }
 
-/// The outward unit normal of a facet (design §5), with the basis it is
+/// The outward unit normal of each facet (design §5), with the basis it is
 /// built on: the first D affinely independent vertices in lexicographic
-/// order, oriented by the exact sign so that `inner` is inside.
-pub(crate) fn facet_normal(
+/// order, oriented by the exact sign so that the facet's inner point is
+/// inside. `facets` holds each facet's vertices and inner point; `f`
+/// receives the basis and the normal of each, in order, and the first error
+/// of a facet or of `f` ends the walk. The cofactors of four bases at a
+/// time share one elimination in lanes, bit for bit those of each alone.
+pub(crate) fn for_each_facet_normal(
     input: &Input<'_>,
-    facet_vertices: &[u32],
-    inner: u32,
-) -> Result<(Vec<u32>, Vec<f64>), ConvexHullError> {
+    facets: &[(&[u32], u32)],
+    mut f: impl FnMut(Vec<u32>, Vec<f64>) -> Result<(), ConvexHullError>,
+) -> Result<(), ConvexHullError> {
+    let point = |i: u32| input.point(i);
+    for chunk in facets.chunks(COFACTOR_LANES) {
+        let bases: Vec<Result<Vec<u32>, ConvexHullError>> = chunk
+            .iter()
+            .map(|&(vertices, _)| facet_basis(input, vertices))
+            .collect();
+        let points: Vec<Vec<&[f64]>> = bases
+            .iter()
+            .map(|basis| basis.iter().flatten().map(|&v| point(v)).collect())
+            .collect();
+        let cofactors: Vec<Option<Cofactors>> =
+            if chunk.len() == COFACTOR_LANES && bases.iter().all(Result::is_ok) {
+                facet_cofactors_in_lanes(core::array::from_fn(|lane| &*points[lane])).to_vec()
+            } else {
+                points.iter().map(|p| facet_cofactors(p)).collect()
+            };
+        for (((&(_, inner), basis), points), cofactors) in
+            chunk.iter().zip(bases).zip(&points).zip(cofactors)
+        {
+            let basis = basis?;
+            let normal = oriented_normal(input, points, inner, cofactors)?;
+            f(basis, normal)?;
+        }
+    }
+    Ok(())
+}
+
+/// The first D affinely independent vertices of a facet in lexicographic
+/// order.
+fn facet_basis(input: &Input<'_>, facet_vertices: &[u32]) -> Result<Vec<u32>, ConvexHullError> {
     let d = input.dim();
     let point = |i: u32| input.point(i);
     // A facet with exactly D vertices spans its (D - 1)-flat, so they are
     // affinely independent and the walk of `minimum_basis` takes them all.
-    let basis: Vec<u32> = if facet_vertices.len() == d {
+    Ok(if facet_vertices.len() == d {
         debug_assert_eq!(minimum_basis(d, facet_vertices, point)?, facet_vertices);
         facet_vertices.to_vec()
     } else {
@@ -363,11 +397,22 @@ pub(crate) fn facet_normal(
             .into_iter()
             .take(d)
             .collect()
-    };
-    let mut points: Vec<&[f64]> = basis.iter().map(|&v| point(v)).collect();
+    })
+}
+
+/// The unit normal of the hyperplane through the basis `points`, oriented
+/// by the exact sign so that `inner` is inside. `cofactors` are the
+/// [`facet_cofactors`] of `points`.
+fn oriented_normal(
+    input: &Input<'_>,
+    points: &[&[f64]],
+    inner: u32,
+    cofactors: Option<Cofactors>,
+) -> Result<Vec<f64>, ConvexHullError> {
+    let point = |i: u32| input.point(i);
+    let mut points = points.to_vec();
     // The cofactors certify the normal and usually prove the side of
     // `inner` too, without the orientation determinant.
-    let cofactors = facet_cofactors(&points);
     let proved = cofactors
         .as_deref()
         .and_then(|c| certified_side(&points, c, point(inner)));
@@ -384,9 +429,8 @@ pub(crate) fn facet_normal(
         None => orient(&points)?,
     };
     points.pop();
-    let normal = unit_normal_with(&points, inside.reversed(), cofactors.as_deref())?
-        .ok_or(ConvexHullError::NonFiniteFacetPlane)?;
-    Ok((basis, normal))
+    unit_normal_with(&points, inside.reversed(), cofactors.as_deref())?
+        .ok_or(ConvexHullError::NonFiniteFacetPlane)
 }
 
 /// Numbers facets and simplices in the public order and builds the planes.
@@ -401,18 +445,25 @@ fn publish(c: Classified<'_>) -> Result<ConvexHull, ConvexHullError> {
         number[internal] = public as u32;
     }
 
+    let queries: Vec<(&[u32], u32)> = order
+        .iter()
+        .map(|&internal| {
+            let vertices = &c.faces[internal].vertices;
+            (vertices.as_slice(), inner_reference(&c.vertices, vertices))
+        })
+        .collect();
     let mut facets = Vec::with_capacity(order.len());
-    for &internal in &order {
-        let face = &c.faces[internal];
-        let inner = inner_reference(&c.vertices, &face.vertices);
+    for_each_facet_normal(&c.input, &queries, |basis, normal| {
+        let face = &c.faces[order[facets.len()]];
         let mut neighbors: Vec<u32> = face.neighbors.iter().map(|&n| number[n as usize]).collect();
         neighbors.sort_unstable();
         facets.push(LogicalFacet {
             vertices: face.vertices.clone(),
-            plane: facet_plane(&c.input, &face.vertices, inner)?,
+            plane: facet_plane(&c.input, &basis, normal)?,
             neighbors,
         });
-    }
+        Ok(())
+    })?;
 
     // Boundary simplices: ascending vertex lists, ordered lexicographically,
     // then the last two swapped where that makes the order outward. Every
