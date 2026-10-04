@@ -1,10 +1,11 @@
 //! Unit normal of a hyperplane through D points of dimension D.
 //!
-//! The direction comes from the Householder QR factorization (`faer`) of the
-//! D x (D - 1) matrix of edge vectors: the last column of the full Q is
-//! orthogonal to the column space of the edges. Which of the two opposite
-//! directions is returned is decided only by the exact sign of
-//! [`orient_direction`] against the computed vector, never by a
+//! The published direction comes from the Householder QR factorization
+//! (`faer`) of the D x (D - 1) matrix of edge vectors: the last column of the
+//! full Q is orthogonal to the column space of the edges. The working normal
+//! used by distance scans is the certified cofactor direction, not that QR.
+//! Which of the two opposite directions is returned is decided only by the
+//! exact sign of [`orient_direction`] against the computed vector, never by a
 //! floating-point comparison.
 //!
 //! QR can lose a direction: when an edge is nearly parallel to the span of
@@ -95,12 +96,71 @@ pub(crate) fn unit_normal_with(
     outward: Sign,
     cofactors: Option<&[(f64, f64)]>,
 ) -> Result<Option<Vec<f64>>, ExactEvaluationExhausted> {
+    debug_assert!(
+        facet.iter().all(|p| p.len() == facet.len()),
+        "facet needs D points of dimension D"
+    );
+    if facet.len() == 1 {
+        return orient_outward(facet, vec![1.0], outward);
+    }
+    let Some((direction, err)) = cofactor_reference(facet, cofactors)? else {
+        return Ok(None);
+    };
+    let candidate = match qr_normal(facet) {
+        Some(n) if distance_up_to_sign(&n, &direction) <= err + QR_TOLERANCE => n,
+        _ => direction,
+    };
+    orient_outward(facet, candidate, outward)
+}
+
+/// Working normal of the hyperplane through `facet`: the certified cofactor
+/// direction, oriented so that `orient_direction(facet, n) == outward`.
+///
+/// Distance scans use this vector. It does not run Householder QR. The
+/// published plane still does, in [`unit_normal`]. `cofactors` are the
+/// [`facet_cofactors`] of `facet`.
+pub(crate) fn working_normal(
+    facet: &[&[f64]],
+    outward: Sign,
+    cofactors: Option<&[(f64, f64)]>,
+) -> Result<Option<Vec<f64>>, ExactEvaluationExhausted> {
+    let Some((direction, _)) = cofactor_reference(facet, cofactors)? else {
+        return Ok(None);
+    };
+    orient_outward(facet, direction, outward)
+}
+
+/// The certified cofactor direction of `facet`, before it is oriented.
+/// `None` when every cofactor is zero. `outward` is checked by the caller.
+fn cofactor_reference(
+    facet: &[&[f64]],
+    cofactors: Option<&[(f64, f64)]>,
+) -> Result<Option<(Vec<f64>, f64)>, ExactEvaluationExhausted> {
     let d = facet.len();
     debug_assert!(d >= 1, "a hyperplane needs at least one point");
     debug_assert!(
         facet.iter().all(|p| p.len() == d),
         "facet needs D points of dimension D"
     );
+    if d == 1 {
+        return Ok(Some((vec![1.0], 0.0)));
+    }
+    let scaled = exact_unit_scaling(facet);
+    match &scaled {
+        Some(points) => {
+            let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+            cofactor_direction_from(&refs, cofactors)
+        }
+        None => cofactor_direction_from(facet, cofactors),
+    }
+}
+
+/// `candidate` flipped so that its exact orientation sign is `outward`.
+fn orient_outward(
+    facet: &[&[f64]],
+    candidate: Vec<f64>,
+    outward: Sign,
+) -> Result<Option<Vec<f64>>, ExactEvaluationExhausted> {
     debug_assert!(
         outward != Sign::Zero,
         "the outward side must be a nonzero sign"
@@ -108,30 +168,6 @@ pub(crate) fn unit_normal_with(
     if outward == Sign::Zero {
         return Ok(None);
     }
-
-    let candidate = if d == 1 {
-        vec![1.0]
-    } else {
-        // The certified direction of the cofactor vector checks the QR
-        // result (see the module documentation).
-        let scaled = exact_unit_scaling(facet);
-        let reference = match &scaled {
-            Some(points) => {
-                let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
-                cofactor_direction_from(&refs, cofactors)?
-            }
-            None => cofactor_direction_from(facet, cofactors)?,
-        };
-        let Some((direction, err)) = reference else {
-            // Every cofactor is zero: the points are affinely dependent.
-            return Ok(None);
-        };
-        match qr_normal(facet) {
-            Some(n) if distance_up_to_sign(&n, &direction) <= err + QR_TOLERANCE => n,
-            _ => direction,
-        }
-    };
-
     let sign = orient_direction(facet, &candidate)?;
     Ok(if sign == outward {
         Some(candidate)
@@ -453,6 +489,46 @@ mod tests {
             let side = orient_direction(&refs, &[1.0, 2.0, 0.0]).unwrap();
             assert_eq!(dot > 0.0, side == Sign::Positive, "t = 2^-{e}");
         }
+    }
+
+    #[test]
+    fn working_normal_follows_the_cofactor_direction_when_qr_tilts() {
+        // t = 2^-50. The true normal is the diagonal. QR alone returns a
+        // vector near (-1, 0, 0), about 0.77 from the diagonal. The working
+        // normal is the cofactor direction, so it stays on the diagonal.
+        let t = 2f64.powi(-50);
+        let points = vec![
+            vec![1.0, 2.0, 3.0],
+            vec![1.0, 2.0, 4.0],
+            vec![1.0 + t, 2.0 + t, 4.0],
+        ];
+        let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+        let n = working_normal(&refs, Sign::Positive, facet_cofactors(&refs).as_deref())
+            .unwrap()
+            .expect("the three points are affinely independent");
+        let diagonal = [-0.5_f64.sqrt(), 0.5_f64.sqrt(), 0.0];
+        assert!(distance_up_to_sign(&n, &diagonal) <= 1e-8, "{n:?}");
+        let inside = [
+            points[0][0] - diagonal[0],
+            points[0][1] - diagonal[1],
+            points[0][2] - diagonal[2],
+        ];
+        let plane = crate::cull::CullPlane::with_cofactors(
+            &refs,
+            &n,
+            Sign::Positive,
+            facet_cofactors(&refs).as_deref(),
+        )
+        .expect("the cofactor direction certifies a plane");
+        assert_eq!(plane.proved_side(&inside, 0.0), Some(Sign::Negative));
+        let mut with_point = points.clone();
+        with_point.push(inside.to_vec());
+        let rows: Vec<&[f64]> = with_point.iter().map(Vec::as_slice).collect();
+        assert_eq!(
+            crate::predicates::orient(&rows).unwrap(),
+            Sign::Negative,
+            "a point the plane proves inside is strictly inside"
+        );
     }
 
     #[test]
