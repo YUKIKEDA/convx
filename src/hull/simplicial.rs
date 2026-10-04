@@ -33,9 +33,18 @@ use super::ridge::{fingerprint, pair_equal_keys};
 use super::ConvexHullError;
 use crate::arena::{Arena, ArenaFull, FacetId, SlotMarks};
 use crate::cull::CullPlane;
-use crate::normal::{facet_cofactors, lifted_facet_cofactors, working_normal};
-use crate::predicates::Sign;
+use crate::normal::{
+    facet_cofactors, facet_cofactors_in_lanes, lifted_facet_cofactors, working_normal,
+};
+use crate::predicates::{Cofactors, Sign, COFACTOR_LANES};
 use crate::small::Small;
+
+/// Whether every coordinate of `points` is finite. Rounded lifted
+/// coordinates can be infinite; that facet then has no working normal, and
+/// the farthest point falls back to index order.
+fn all_finite(points: &[&[f64]]) -> bool {
+    points.iter().all(|p| p.iter().all(|x| x.is_finite()))
+}
 
 /// A simplicial facet during construction.
 pub(crate) struct Simplex {
@@ -130,21 +139,76 @@ impl<'a> SimplicialHull<'a> {
         neighbors: Vec<FacetId>,
         outward: Sign,
     ) -> Result<Simplex, ConvexHullError> {
-        let points = self.coords_of(&vertices);
-        // Rounded lifted coordinates can be infinite; that facet then has no
-        // working normal, and the farthest point falls back to index order.
-        let finite = points.iter().all(|p| p.iter().all(|x| x.is_finite()));
-        // The cofactors certify both the working normal and the cull plane;
-        // they are evaluated once (#86).
+        let mut simplex = Simplex {
+            vertices,
+            neighbors: neighbors.into(),
+            outward,
+            normal: None,
+            cull: None,
+            outside: Vec::new(),
+            farthest: None,
+        };
+        self.set_planes(core::slice::from_mut(&mut simplex))?;
+        Ok(simplex)
+    }
+
+    /// Sets the working normal and the cull plane of each simplex from its
+    /// vertices and orientation. The cofactors of four simplices at a time
+    /// share one elimination in lanes, bit for bit those of each alone.
+    fn set_planes<T: AsMut<Simplex>>(&self, simplices: &mut [T]) -> Result<(), ConvexHullError> {
+        let mut chunks = simplices.chunks_exact_mut(COFACTOR_LANES);
+        for chunk in &mut chunks {
+            let points: [Small<&[f64], 10>; COFACTOR_LANES] =
+                core::array::from_fn(|lane| self.coords_of(&chunk[lane].as_mut().vertices));
+            if points.iter().all(|p| all_finite(p)) {
+                let cofactors = facet_cofactors_in_lanes(points.each_ref().map(|p| &**p));
+                for ((simplex, points), cofactors) in chunk.iter_mut().zip(&points).zip(cofactors) {
+                    self.set_planes_with(simplex.as_mut(), points, true, cofactors)?;
+                }
+            } else {
+                for (simplex, points) in chunk.iter_mut().zip(&points) {
+                    self.set_planes_alone(simplex.as_mut(), points)?;
+                }
+            }
+        }
+        for simplex in chunks.into_remainder() {
+            let points = self.coords_of(&simplex.as_mut().vertices);
+            self.set_planes_alone(simplex.as_mut(), &points)?;
+        }
+        Ok(())
+    }
+
+    /// [`Self::set_planes_with`] evaluating the cofactors itself.
+    fn set_planes_alone(
+        &self,
+        simplex: &mut Simplex,
+        points: &[&[f64]],
+    ) -> Result<(), ConvexHullError> {
+        let finite = all_finite(points);
         let cofactors = if finite {
-            facet_cofactors(&points)
+            facet_cofactors(points)
         } else {
             None
         };
+        self.set_planes_with(simplex, points, finite, cofactors)
+    }
+
+    /// [`Self::set_planes`] of one simplex whose vertices are at `points`,
+    /// with the [`facet_cofactors`] of those points.
+    fn set_planes_with(
+        &self,
+        simplex: &mut Simplex,
+        points: &[&[f64]],
+        finite: bool,
+        cofactors: Option<Cofactors>,
+    ) -> Result<(), ConvexHullError> {
+        let (vertices, outward) = (&simplex.vertices, simplex.outward);
+        // The cofactors certify both the working normal and the cull plane;
+        // they are evaluated once (#86).
         // The working normal is the certified cofactor direction. Published
         // planes still run Householder QR (design §1).
         let normal = if finite {
-            working_normal(&points, outward, cofactors.as_deref())?
+            working_normal(points, outward, cofactors.as_deref())?
         } else {
             None
         };
@@ -157,28 +221,21 @@ impl<'a> SimplicialHull<'a> {
                     .iter()
                     .map(|&v| self.input.height_bound(v))
                     .collect();
-                let widened = lifted_facet_cofactors(&points, cofactors.as_deref()?, &bounds);
-                CullPlane::with_lifted_cofactors(&points, n, outward, widened.as_deref(), bounds[0])
+                let widened = lifted_facet_cofactors(points, cofactors.as_deref()?, &bounds);
+                CullPlane::with_lifted_cofactors(points, n, outward, widened.as_deref(), bounds[0])
             } else {
-                CullPlane::with_cofactors(&points, n, outward, cofactors.as_deref())
+                CullPlane::with_cofactors(points, n, outward, cofactors.as_deref())
             }
         });
         // The cull plane carries the normal; it is kept apart only without
         // one.
-        let normal = if cull.is_some() {
+        simplex.normal = if cull.is_some() {
             None
         } else {
             normal.map(|n| n.to_vec())
         };
-        Ok(Simplex {
-            vertices,
-            neighbors: neighbors.into(),
-            outward,
-            normal,
-            cull,
-            outside: Vec::new(),
-            farthest: None,
-        })
+        simplex.cull = cull;
+        Ok(())
     }
 
     /// D = 1: the hull is the two extreme representatives.
@@ -710,12 +767,21 @@ impl<'a> SimplicialHull<'a> {
                 owners.push((k, other));
             }
             created.push(Planned {
-                simplex: self.make_simplex(vertices, Vec::new(), Sign::Positive)?,
+                simplex: Simplex {
+                    vertices,
+                    neighbors: Small::new(),
+                    outward: Sign::Positive,
+                    normal: None,
+                    cull: None,
+                    outside: Vec::new(),
+                    farthest: None,
+                },
                 links: (0..d).map(|_| Link::Old(across)).collect(),
                 across,
                 replaces: visible_id,
             });
         }
+        self.set_planes(&mut created)?;
         for (first, second) in pair_equal_keys(&keys, owners.len(), fingerprint) {
             let (a, a_slot) = owners[first];
             let (b, b_slot) = owners[second];
@@ -891,6 +957,18 @@ struct Planned {
     across: FacetId,
     /// The visible facet that `across` points at until the commit.
     replaces: FacetId,
+}
+
+impl AsMut<Simplex> for Planned {
+    fn as_mut(&mut self) -> &mut Simplex {
+        &mut self.simplex
+    }
+}
+
+impl AsMut<Simplex> for Simplex {
+    fn as_mut(&mut self) -> &mut Simplex {
+        self
+    }
 }
 
 /// A neighbor reference inside a plan.

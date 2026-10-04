@@ -31,7 +31,8 @@
 
 use crate::predicates::{
     certified_cofactor_direction, cofactor_direction_from, direction_cofactors, orient_direction,
-    Cofactors, Direction, ExactEvaluationExhausted, Sign,
+    scaled_direction_cofactors_in_lanes, Cofactors, Direction, ExactEvaluationExhausted, Sign,
+    COFACTOR_LANES,
 };
 use crate::small::Small;
 
@@ -83,6 +84,28 @@ pub(crate) fn unit_normal(
 /// caller that needs both evaluates them once and passes them on (#86).
 pub(crate) fn facet_cofactors(facet: &[&[f64]]) -> Option<Cofactors> {
     with_unit_scaling(facet, direction_cofactors)
+}
+
+/// [`facet_cofactors`] of `COFACTOR_LANES` facets of one size, result
+/// `lane` bit for bit that of facet `lane`. Facets of more than four points
+/// share one elimination in lanes. The scaling is exact, so one product by
+/// `2^shift`, when that is a normal number, gives the scaled copy's
+/// coordinates; a facet without a shift is evaluated unscaled, times 1.
+pub(crate) fn facet_cofactors_in_lanes(
+    facets: [&[&[f64]]; COFACTOR_LANES],
+) -> [Option<Cofactors>; COFACTOR_LANES] {
+    let k = facets[0].len();
+    if k > 4 && facets.iter().all(|f| f.len() == k) {
+        let factors = facets.map(|f| match unit_scaling_shift(f) {
+            Some(shift) if (-1022..=1023).contains(&shift) => Some(power_of_two(shift)),
+            Some(_) => None,
+            None => Some(1.0),
+        });
+        if let [Some(a), Some(b), Some(c), Some(d)] = factors {
+            return scaled_direction_cofactors_in_lanes(facets, [a, b, c, d]);
+        }
+    }
+    facets.map(facet_cofactors)
 }
 
 /// Unit normal of the hyperplane through `facet`: D affinely independent
@@ -505,6 +528,82 @@ mod tests {
         for (x, y) in a.iter().zip(b) {
             assert!((x - y).abs() < 1e-14, "{a:?} != {b:?}");
         }
+    }
+
+    #[test]
+    fn cofactors_in_lanes_match_each_facet_bit_for_bit() {
+        // Sizes with and without lanes; scales that take one product, that
+        // need none (all zero), and whose shift leaves the normal range
+        // (subnormal coordinates), so a group also falls back; and
+        // repeated points, whose divisor is not certain.
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut unit = move || {
+            state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            ((z ^ (z >> 31)) >> 11) as f64 / (1_u64 << 53) as f64 * 2.0 - 1.0
+        };
+        let scales = [
+            1.0,
+            3.7,
+            1e-200,
+            1e200,
+            0.0,
+            1e-310,
+            1.0,
+            2.0f64.powi(-1000),
+        ];
+        let (mut in_lanes, mut alone, mut uncertain) = (0, 0, 0);
+        for k in 4..=10 {
+            for group in 0..24 {
+                let facets: Vec<Vec<Vec<f64>>> = (0..COFACTOR_LANES)
+                    .map(|lane| {
+                        let scale = scales[(group + 3 * lane) % scales.len()];
+                        let mut facet: Vec<Vec<f64>> = (0..k)
+                            .map(|_| (0..k).map(|_| unit() * scale).collect())
+                            .collect();
+                        if (group + lane) % 5 == 0 {
+                            facet[k - 1] = facet[0].clone();
+                        }
+                        facet
+                    })
+                    .collect();
+                let refs: Vec<Vec<&[f64]>> = facets
+                    .iter()
+                    .map(|f| f.iter().map(Vec::as_slice).collect())
+                    .collect();
+                let four: [&[&[f64]]; COFACTOR_LANES] = core::array::from_fn(|l| &*refs[l]);
+                let lanes_used = k > 4
+                    && k <= 9
+                    && four
+                        .iter()
+                        .all(|f| unit_scaling_shift(f).is_none_or(|s| (-1022..=1023).contains(&s)));
+                if lanes_used {
+                    in_lanes += 1;
+                } else {
+                    alone += 1;
+                }
+                let bits = |c: Option<Cofactors>| {
+                    c.map(|c| {
+                        c.iter()
+                            .map(|&(v, e)| (v.to_bits(), e.to_bits()))
+                            .collect::<Vec<_>>()
+                    })
+                };
+                for (lane, got) in facet_cofactors_in_lanes(four).into_iter().enumerate() {
+                    let expected = facet_cofactors(four[lane]);
+                    uncertain += usize::from(lanes_used && expected.is_none());
+                    assert_eq!(
+                        bits(got),
+                        bits(expected),
+                        "k = {k}, group {group}, lane {lane}"
+                    );
+                }
+            }
+        }
+        assert!(in_lanes > 0 && alone > 0, "both paths run");
+        assert!(uncertain > 0, "some lane has no certified cofactors");
     }
 
     #[test]

@@ -419,7 +419,7 @@ The only conversion from `[[f64; D]]` to `&[f64]` is `as_flattened()`. There is 
 
 Dependencies are `faer`, `rayon`, `pulp`, and `thiserror`. The implementation language is Rust. Parallelism is switched by the runtime `parallel` flag. The build assumes `std`.
 
-The distance kernel is runtime CPU detection through `pulp`, up to AVX-512 (`x86-v4`). Every instruction-set level returns the same cull set.
+The distance kernel is runtime CPU detection through `pulp`, up to AVX-512 (`x86-v4`). Every instruction-set level returns the same cull set. The cofactor elimination of facets with 5 to 9 points runs four facets at once, one per lane of a `pulp` AVX2 (`x86-v3`) vector, when the CPU has it, and one facet at a time otherwise. Each lane performs the operations of the single elimination in the same order, so the cofactors and their bounds are bitwise identical on every CPU.
 
 ---
 
