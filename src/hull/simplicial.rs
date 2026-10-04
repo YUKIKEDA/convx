@@ -48,6 +48,9 @@ pub(crate) struct Simplex {
     cull: Option<CullPlane>,
     /// Points assigned to this facet that are strictly outside it.
     outside: Vec<u32>,
+    /// The candidate of `outside` for a round, fixed with it (#120): see
+    /// [`farthest`].
+    farthest: Option<(u32, Option<f64>)>,
 }
 
 impl Simplex {
@@ -169,6 +172,7 @@ impl<'a> SimplicialHull<'a> {
             normal,
             cull,
             outside: Vec::new(),
+            farthest: None,
         })
     }
 
@@ -261,53 +265,66 @@ impl<'a> SimplicialHull<'a> {
 
     /// The working distance of `point` from `facet`, or `None` without a
     /// certified working normal.
+    #[cfg(test)]
     fn working_distance(&self, facet: &Simplex, point: u32) -> Option<f64> {
-        let normal = facet.normal()?;
-        let origin = self.input.coords(facet.vertices[0]);
-        Some(
-            self.input
-                .coords(point)
-                .iter()
-                .zip(origin)
-                .zip(normal)
-                .map(|((x, o), n)| (x - o) * n)
-                .sum(),
-        )
-    }
-
-    /// The point of `facet.outside` farthest by working distance, ties by
-    /// the smaller index, with its distance. Without a working normal (or
-    /// with a NaN distance) the smallest index is taken, and its distance is
-    /// `None`, which packs after every finite distance.
-    fn farthest(&self, facet: &Simplex) -> Option<(u32, Option<f64>)> {
-        let mut best: Option<(u32, Option<f64>)> = None;
-        for &p in &facet.outside {
-            let d = self.working_distance(facet, p).filter(|d| !d.is_nan());
-            best = match best {
-                Some((b, bd)) if !packs_before((p, d), (b, bd)) => Some((b, bd)),
-                _ => Some((p, d)),
-            };
-        }
-        best
+        working_distance(&self.input, facet, point)
     }
 
     /// One candidate per facet with outside points, in packing order.
-    fn candidates(&self) -> Vec<(u32, FacetId, Option<f64>)> {
-        let mut candidates: Vec<(u32, FacetId, Option<f64>)> = self
-            .facets
-            .iter()
-            .filter_map(|(id, facet)| self.farthest(facet).map(|(p, d)| (p, id, d)))
-            .collect();
+    ///
+    /// `pending` holds the candidates of every facet with outside points,
+    /// possibly with entries of removed facets, which are dropped here; it
+    /// is filled from the whole arena when `seeded` is false. Commits add
+    /// the candidates of the facets they insert (see [`Self::absorb`]), so
+    /// a round does not read every facet (#120).
+    fn candidates(
+        &self,
+        pending: &mut Vec<(u32, FacetId, Option<f64>)>,
+        seeded: &mut bool,
+    ) -> Vec<(u32, FacetId, Option<f64>)> {
+        if *seeded {
+            pending.retain(|&(_, id, _)| self.facets.get(id).is_some());
+        } else {
+            pending.clear();
+            pending.extend(
+                self.facets
+                    .iter()
+                    .filter_map(|(id, facet)| facet.farthest.map(|(p, d)| (p, id, d))),
+            );
+            *seeded = true;
+        }
         // Outside sets are disjoint, so a point is the candidate of at most
-        // one facet.
-        candidates.sort_by(|&(p, _, dp), &(q, _, dq)| {
+        // one facet, and the order does not depend on the order of
+        // `pending`.
+        pending.sort_by(|&(p, _, dp), &(q, _, dq)| {
             if packs_before((p, dp), (q, dq)) {
                 core::cmp::Ordering::Less
             } else {
                 core::cmp::Ordering::Greater
             }
         });
-        candidates
+        #[cfg(debug_assertions)]
+        {
+            let mut whole: Vec<(u32, FacetId)> = self
+                .facets
+                .iter()
+                .filter_map(|(id, facet)| facet.farthest.map(|(p, _)| (p, id)))
+                .collect();
+            let mut kept: Vec<(u32, FacetId)> = pending.iter().map(|&(p, id, _)| (p, id)).collect();
+            whole.sort_unstable();
+            kept.sort_unstable();
+            debug_assert!(
+                kept == whole,
+                "the pending candidates differ from the arena's"
+            );
+        }
+        pending.clone()
+    }
+
+    /// [`Self::candidates`] read from the whole arena, for tests.
+    #[cfg(test)]
+    fn all_candidates(&self) -> Vec<(u32, FacetId, Option<f64>)> {
+        self.candidates(&mut Vec::new(), &mut false)
     }
 
     /// Absorbs every outside point in rounds of batches (design §6). Each
@@ -352,7 +369,11 @@ impl<'a> SimplicialHull<'a> {
                 }
                 #[cfg(not(debug_assertions))]
                 let _ = (point, start);
-                self.commit(plan);
+                for id in self.commit(plan) {
+                    if let Some((p, d)) = self.facets.get(id).and_then(|f| f.farthest) {
+                        scratch.pending.push((p, id, d));
+                    }
+                }
             }
         }
     }
@@ -390,14 +411,19 @@ impl<'a> SimplicialHull<'a> {
         &self,
         scratch: &mut WalkScratch,
     ) -> Result<Vec<(u32, FacetId, Region)>, ConvexHullError> {
-        let WalkScratch { visited, taken } = scratch;
+        let WalkScratch {
+            visited,
+            taken,
+            pending,
+            seeded,
+        } = scratch;
         taken.clear();
         #[cfg(debug_assertions)]
         let mut ridges: HashSet<Vec<u32>> = HashSet::new();
         let mut batch: Vec<(u32, FacetId, Region)> = Vec::new();
         #[cfg(debug_assertions)]
         let mut taken_prospective: Vec<(u32, Vec<Vec<u32>>)> = Vec::new();
-        for (point, start, _) in self.candidates() {
+        for (point, start, _) in self.candidates(pending, seeded) {
             // A candidate whose V or N meets a taken facet is rejected; once
             // that is certain, its walk stops (#110). Its start facet is in
             // its V, so a taken start needs no walk at all.
@@ -702,7 +728,7 @@ impl<'a> SimplicialHull<'a> {
     /// Applies a plan: inserts the new simplices, turns local links into
     /// arena ids, points each facet across the horizon at its new neighbor,
     /// and removes the visible facets.
-    fn commit(&mut self, plan: Plan) {
+    fn commit(&mut self, plan: Plan) -> Vec<FacetId> {
         let Plan {
             visible,
             created,
@@ -735,6 +761,7 @@ impl<'a> SimplicialHull<'a> {
         for id in visible {
             self.facets.remove(id);
         }
+        ids
     }
 }
 
@@ -845,6 +872,38 @@ fn oriented_side(input: &Input<'_>, facet: &Simplex, point: u32) -> Result<Sign,
     })
 }
 
+/// The working distance of `point` from `facet`, or `None` without a
+/// certified working normal.
+fn working_distance(input: &Input<'_>, facet: &Simplex, point: u32) -> Option<f64> {
+    let normal = facet.normal()?;
+    let origin = input.coords(facet.vertices[0]);
+    Some(
+        input
+            .coords(point)
+            .iter()
+            .zip(origin)
+            .zip(normal)
+            .map(|((x, o), n)| (x - o) * n)
+            .sum(),
+    )
+}
+
+/// The point of `facet.outside` farthest by working distance, ties by
+/// the smaller index, with its distance. Without a working normal (or
+/// with a NaN distance) the smallest index is taken, and its distance is
+/// `None`, which packs after every finite distance.
+fn farthest(input: &Input<'_>, facet: &Simplex) -> Option<(u32, Option<f64>)> {
+    let mut best: Option<(u32, Option<f64>)> = None;
+    for &p in &facet.outside {
+        let d = working_distance(input, facet, p).filter(|d| !d.is_nan());
+        best = match best {
+            Some((b, bd)) if !packs_before((p, d), (b, bd)) => Some((b, bd)),
+            _ => Some((p, d)),
+        };
+    }
+    best
+}
+
 /// Moves the points of `remaining` strictly outside `facet` into its outside
 /// set, keeping the order of both lists. `strict[i]` belongs to
 /// `remaining[i]` and is cleared when that point is on the supporting
@@ -890,6 +949,8 @@ fn take_outside(
     }
     remaining.truncate(kept);
     strict.truncate(kept);
+    // The outside set is final: points leave it only with the facet.
+    facet.farthest = farthest(input, facet);
     Ok(())
 }
 
@@ -920,6 +981,11 @@ struct WalkScratch {
     visited: SlotMarks<bool>,
     /// T of the candidates taken in the current round.
     taken: SlotMarks<()>,
+    /// Candidates of the facets with outside points; see
+    /// [`SimplicialHull::candidates`].
+    pending: Vec<(u32, FacetId, Option<f64>)>,
+    /// Whether `pending` has been filled from the arena.
+    seeded: bool,
 }
 
 /// Packing order of design §6: a larger working distance first, ties by the
@@ -1214,7 +1280,7 @@ pub(crate) mod tests {
             0.0, 0.0, 4.0, 0.0, 0.0, 4.0, 0.5, -1.0, 2.0, -3.0, 3.0, -3.0,
         ];
         let hull = initial(2, &points);
-        let candidates = hull.candidates();
+        let candidates = hull.all_candidates();
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].0, 4);
         assert_eq!(candidates[0].2, Some(3.0));
@@ -1231,7 +1297,7 @@ pub(crate) mod tests {
         assert_eq!(batch.len(), 1);
         assert_eq!(batch[0].0, 3);
         hull.insert_point(batch[0].1, 3).unwrap();
-        let next: Vec<u32> = hull.candidates().iter().map(|c| c.0).collect();
+        let next: Vec<u32> = hull.all_candidates().iter().map(|c| c.0).collect();
         assert_eq!(next, vec![4], "the deferred point is proposed again");
     }
 
@@ -1257,7 +1323,7 @@ pub(crate) mod tests {
         let mut hull = initial(dim, points);
         let mut stats = Rounds::default();
         loop {
-            let candidates = hull.candidates();
+            let candidates = hull.all_candidates();
             let batch = hull.next_batch().unwrap();
             if batch.is_empty() {
                 assert!(candidates.is_empty());
@@ -1352,7 +1418,7 @@ pub(crate) mod tests {
         let mut hull = initial(2, &points);
         let mut seen = false;
         loop {
-            let candidates: Vec<u32> = hull.candidates().iter().map(|c| c.0).collect();
+            let candidates: Vec<u32> = hull.all_candidates().iter().map(|c| c.0).collect();
             let batch = hull.next_batch().unwrap();
             if batch.is_empty() {
                 break;
