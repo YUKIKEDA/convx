@@ -11,6 +11,7 @@ mod delaunay;
 mod hull;
 mod normal;
 mod predicates;
+mod small;
 mod static_api;
 mod voronoi;
 

@@ -97,7 +97,7 @@ fn classify_built(
                 for &v in &s.vertices {
                     on_complex[v as usize] = true;
                 }
-                members.push(s.vertices.clone());
+                members.push(s.vertices.to_vec());
             }
         }
         group_simplices.push(members);

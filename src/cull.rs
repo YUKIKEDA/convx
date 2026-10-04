@@ -70,6 +70,7 @@ use pulp::{Arch, Simd, WithSimd};
 #[cfg(test)]
 use crate::normal::facet_cofactors;
 use crate::predicates::Sign;
+use crate::small::Small;
 
 const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
 /// 2^-1073.
@@ -77,8 +78,9 @@ const ETA: f64 = f64::from_bits(2);
 
 /// A facet prepared for culling.
 pub(crate) struct CullPlane {
-    /// The origin vertex, then the working unit normal: one allocation.
-    frame: Box<[f64]>,
+    /// The origin vertex, then the working unit normal, inline up to
+    /// dimension 8.
+    frame: Small<f64, 16>,
     slope: f64,
     floor: f64,
     /// A facet of sites lifted to the paraboloid: the last coordinate of
