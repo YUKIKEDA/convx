@@ -17,7 +17,7 @@
 //! polytope; the diagonals inside a group are not edges, so they get no
 //! interface.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use faer::linalg::solvers::Solve;
 use faer::Mat;
@@ -26,10 +26,12 @@ use crate::delaunay::complex;
 use crate::hull::classify::classify;
 use crate::hull::input::accept;
 use crate::hull::publish::{for_each_facet_normal, inner_reference};
+use crate::hull::ridge::{fingerprint, pair_equal_keys_with_border};
 use crate::hull::simplicial::Execution;
 use crate::hull::ConvexHullError;
 use crate::normal::{binary_exponent, scale_by_power_of_two};
 use crate::predicates::{orient, Sign};
+use crate::small::Small;
 
 /// Builds a [`VoronoiDiagram`].
 ///
@@ -175,7 +177,7 @@ fn build(
     let d = complex.dim;
     let point = |i: u32| &points[i as usize * d..(i as usize + 1) * d];
     let orient_of = |set: &[u32]| -> Result<Sign, ConvexHullError> {
-        let refs: Vec<&[f64]> = set.iter().map(|&v| point(v)).collect();
+        let refs: Small<&[f64], 10> = set.iter().map(|&v| point(v)).collect();
         Ok(orient(&refs)?)
     };
 
@@ -202,20 +204,63 @@ fn build(
     let mut groups = complex.groups;
     groups.sort_unstable_by(|a, b| a.sites.cmp(&b.sites));
 
-    // How many cells of the whole complex contain each face of D sites: one
-    // means the face is on the boundary of the site hull.
-    let mut face_count: HashMap<Vec<u32>, usize> = HashMap::new();
+    // Every face of D sites of every cell, as sorted keys in cell order. A
+    // face that no other cell shares is on the boundary of the site hull.
+    let mut face_keys: Vec<u32> = Vec::new();
     for group in &groups {
         for cell in &group.cells {
-            for face in faces_of(cell) {
-                *face_count.entry(face).or_insert(0) += 1;
-            }
+            push_faces(&mut face_keys, cell);
         }
     }
+    let faces = face_keys.len() / d;
+    let mut on_hull = vec![true; faces];
+    for (a, b) in pair_equal_keys_with_border(&face_keys, faces, fingerprint) {
+        on_hull[a] = false;
+        on_hull[b] = false;
+    }
+
+    // The site-hull facets incident to each hull vertex, as offsets into one
+    // list.
+    let mut incident_start = vec![0_usize; points.len() / d + 1];
+    for facet in &hull_facets {
+        for &v in &facet.vertices {
+            incident_start[v as usize + 1] += 1;
+        }
+    }
+    for i in 1..incident_start.len() {
+        incident_start[i] += incident_start[i - 1];
+    }
+    let mut incident = vec![0_u32; incident_start[incident_start.len() - 1]];
+    let mut next = incident_start.clone();
+    for (f, facet) in hull_facets.iter().enumerate() {
+        for &v in &facet.vertices {
+            incident[next[v as usize]] = f as u32;
+            next[v as usize] += 1;
+        }
+    }
+    let contains_face = |hull_facet: &HullFacet, face: &[u32]| -> Result<bool, ConvexHullError> {
+        for &s in face {
+            let set: Small<u32, 10> = hull_facet.basis.iter().copied().chain([s]).collect();
+            if !on_hyperplane(&orient_of, &set)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    };
+    let scan_hull = |face: &[u32]| -> Result<Option<usize>, ConvexHullError> {
+        for (f, hull_facet) in hull_facets.iter().enumerate() {
+            if contains_face(hull_facet, face)? {
+                return Ok(Some(f));
+            }
+        }
+        Ok(None)
+    };
 
     let mut vertices = Vec::with_capacity(groups.len());
     let mut rays_of: Vec<Vec<GroupRay>> = Vec::with_capacity(groups.len());
     let mut interfaces: BTreeMap<[u32; 2], (Vec<u32>, Vec<VoronoiRay>)> = BTreeMap::new();
+    let mut first_face = 0;
+    let mut tile_keys: Vec<u32> = Vec::new();
     for (index, group) in groups.iter().enumerate() {
         let apex = index as u32;
         vertices.push(VoronoiVertex {
@@ -226,55 +271,67 @@ fn build(
         // Facets of the group's polytope: each face of a cell that no other
         // cell of the group shares tiles one; the facet is every site of the
         // group on that face's hyperplane.
-        let mut tiles: HashMap<Vec<u32>, usize> = HashMap::new();
+        tile_keys.clear();
         for cell in &group.cells {
-            for face in faces_of(cell) {
-                *tiles.entry(face).or_insert(0) += 1;
-            }
+            push_faces(&mut tile_keys, cell);
         }
-        let mut tile_list: Vec<Vec<u32>> = tiles
-            .into_iter()
-            .filter(|&(_, count)| count == 1)
-            .map(|(face, _)| face)
-            .collect();
-        tile_list.sort_unstable();
+        let group_faces = tile_keys.len() / d;
+        let mut tiled = vec![true; group_faces];
+        for (a, b) in pair_equal_keys_with_border(&tile_keys, group_faces, fingerprint) {
+            tiled[a] = false;
+            tiled[b] = false;
+        }
+        let key = |i: usize| &tile_keys[i * d..(i + 1) * d];
+        let mut tile_list: Vec<usize> = (0..group_faces).filter(|&i| tiled[i]).collect();
+        tile_list.sort_unstable_by(|&a, &b| key(a).cmp(key(b)));
         let mut facets: Vec<(Vec<u32>, bool)> = Vec::new();
-        for tile in tile_list {
-            let mut facet = Vec::new();
-            for &s in &group.sites {
-                let mut set = tile.clone();
-                set.push(s);
-                if tile.contains(&s) || on_hyperplane(&orient_of, &set)? {
-                    facet.push(s);
+        for i in tile_list {
+            let tile = key(i);
+            // A simplex has no site on the hyperplane of a face but the face's.
+            let facet = if group.cells.len() == 1 {
+                tile.to_vec()
+            } else {
+                let mut facet = Vec::new();
+                for &s in &group.sites {
+                    let set: Small<u32, 10> = tile.iter().copied().chain([s]).collect();
+                    if tile.contains(&s) || on_hyperplane(&orient_of, &set)? {
+                        facet.push(s);
+                    }
                 }
-            }
+                facet
+            };
             if facets.iter().any(|(f, _)| *f == facet) {
                 continue;
             }
-            let on_hull = face_count.get(&tile).copied() == Some(1);
-            facets.push((facet, on_hull));
+            facets.push((facet, on_hull[first_face + i]));
         }
+        first_face += group_faces;
 
         // One ray per boundary facet, along the site-hull facet it lies in.
+        // The face spans D - 1 dimensions, so one logical facet holds it; a
+        // site that is a hull vertex is a vertex of that facet.
         let mut group_rays = Vec::new();
         for (face, _) in facets.iter().filter(|(_, on_hull)| *on_hull) {
             let mut found = None;
-            for hull_facet in &hull_facets {
-                let mut inside = true;
-                for &s in face {
-                    let mut set = hull_facet.basis.clone();
-                    set.push(s);
-                    if !on_hyperplane(&orient_of, &set)? {
-                        inside = false;
+            if let Some(&v) = face
+                .iter()
+                .find(|&&v| incident_start[v as usize] < incident_start[v as usize + 1])
+            {
+                for &f in &incident[incident_start[v as usize]..incident_start[v as usize + 1]] {
+                    if contains_face(&hull_facets[f as usize], face)? {
+                        found = Some(f as usize);
                         break;
                     }
                 }
-                if inside {
-                    found = Some(hull_facet);
-                    break;
-                }
+                debug_assert_eq!(
+                    found,
+                    scan_hull(face)?,
+                    "the incident facets hold the boundary face"
+                );
+            } else {
+                found = scan_hull(face)?;
             }
-            let Some(hull_facet) = found else {
+            let Some(hull_facet) = found.map(|f| &hull_facets[f]) else {
                 debug_assert!(false, "a boundary face lies in a site-hull facet");
                 continue;
             };
@@ -309,26 +366,37 @@ fn build(
     let representatives: Vec<u32> = (0..complex.representative.len() as u32)
         .filter(|&i| complex.representative[i as usize] == i)
         .collect();
-    let cells = representatives
+    // Each cell's vertices in group order and its rays in the order of
+    // `rays_of`, from one pass; every site of a group is a representative.
+    let mut cell_of = vec![u32::MAX; complex.representative.len()];
+    for (c, &site) in representatives.iter().enumerate() {
+        cell_of[site as usize] = c as u32;
+    }
+    let mut cells: Vec<VoronoiCell> = representatives
         .iter()
-        .map(|&site| {
-            let vertices: Vec<u32> = (0..groups.len() as u32)
-                .filter(|&v| groups[v as usize].sites.binary_search(&site).is_ok())
-                .collect();
-            let mut rays: Vec<VoronoiRay> = rays_of
-                .iter()
-                .flatten()
-                .filter(|r| r.face.contains(&site))
-                .map(|r| r.ray.clone())
-                .collect();
-            sort_rays(&mut rays);
-            VoronoiCell {
-                site,
-                vertices,
-                rays,
-            }
+        .map(|&site| VoronoiCell {
+            site,
+            vertices: Vec::new(),
+            rays: Vec::new(),
         })
         .collect();
+    for (v, group) in groups.iter().enumerate() {
+        for &site in &group.sites {
+            cells[cell_of[site as usize] as usize]
+                .vertices
+                .push(v as u32);
+        }
+    }
+    for group_ray in rays_of.iter().flatten() {
+        for &site in &group_ray.face {
+            cells[cell_of[site as usize] as usize]
+                .rays
+                .push(group_ray.ray.clone());
+        }
+    }
+    for cell in &mut cells {
+        sort_rays(&mut cell.rays);
+    }
     let interfaces = interfaces
         .into_iter()
         .map(|(sites, (mut vertices, mut rays))| {
@@ -351,18 +419,18 @@ fn build(
     })
 }
 
-/// The faces of D sites of a cell of D + 1 sites, each ascending.
-fn faces_of(cell: &[u32]) -> impl Iterator<Item = Vec<u32>> + '_ {
-    (0..cell.len()).map(move |skip| {
-        let mut face: Vec<u32> = cell
-            .iter()
-            .enumerate()
-            .filter(|&(i, _)| i != skip)
-            .map(|(_, &v)| v)
-            .collect();
-        face.sort_unstable();
-        face
-    })
+/// Appends the faces of D sites of a cell of D + 1 ascending sites to
+/// `keys`, each ascending, the face without site `i` at position `i`.
+fn push_faces(keys: &mut Vec<u32>, cell: &[u32]) {
+    debug_assert!(cell.windows(2).all(|w| w[0] < w[1]), "a cell is ascending");
+    for skip in 0..cell.len() {
+        keys.extend(
+            cell.iter()
+                .enumerate()
+                .filter(|&(i, _)| i != skip)
+                .map(|(_, &v)| v),
+        );
+    }
 }
 
 /// Whether the last site of `set` lies on the hyperplane through the first
