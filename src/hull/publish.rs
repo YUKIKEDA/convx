@@ -5,7 +5,9 @@ use super::input::{accept, minimum_basis, Input};
 use super::simplicial::Execution;
 use super::ConvexHullError;
 use crate::normal::{certified_side, facet_cofactors, unit_normal_with};
-use crate::predicates::{orient, Sign};
+use crate::predicates::orient;
+#[cfg(debug_assertions)]
+use crate::predicates::Sign;
 
 /// Builds a [`ConvexHull`] from row-major coordinates.
 ///
@@ -297,6 +299,18 @@ fn determinant(mut m: Vec<Vec<f64>>) -> f64 {
     det
 }
 
+/// Whether sorting `vertices` (distinct) ascending is an odd permutation:
+/// the parity of its inversions.
+fn odd_permutation(vertices: &[u32]) -> bool {
+    let mut odd = false;
+    for (i, a) in vertices.iter().enumerate() {
+        for b in &vertices[i + 1..] {
+            odd ^= a > b;
+        }
+    }
+    odd
+}
+
 /// A point strictly inside relative to `facet_vertices`: the smallest hull
 /// vertex that is not on that facet.
 pub(crate) fn inner_reference(vertices: &[u32], facet_vertices: &[u32]) -> u32 {
@@ -401,25 +415,40 @@ fn publish(c: Classified<'_>) -> Result<ConvexHull, ConvexHullError> {
     }
 
     // Boundary simplices: ascending vertex lists, ordered lexicographically,
-    // then the last two swapped where that makes the order outward.
-    let mut simplices: Vec<(Vec<u32>, u32)> = c
+    // then the last two swapped where that makes the order outward. Every
+    // simplex of the complex is in outward order, so the ascending list is
+    // outward exactly when the sort is an even permutation: a transposition
+    // of two vertices reverses the orientation sign.
+    let mut simplices: Vec<(Vec<u32>, u32, bool)> = c
         .simplices
         .iter()
         .map(|s| {
             let mut sorted = s.vertices.clone();
             sorted.sort_unstable();
-            (sorted, number[s.face as usize])
+            (
+                sorted,
+                number[s.face as usize],
+                odd_permutation(&s.vertices),
+            )
         })
         .collect();
     simplices.sort();
     let mut simplex_vertices = Vec::with_capacity(simplices.len() * d);
     let mut simplex_facets = Vec::with_capacity(simplices.len());
-    for (mut vertices, facet) in simplices {
+    for (mut vertices, facet, odd) in simplices {
         if d >= 2 {
-            let inner = inner_reference(&c.vertices, &facets[facet as usize].vertices);
-            let mut points: Vec<&[f64]> = vertices.iter().map(|&v| c.input.point(v)).collect();
-            points.push(c.input.point(inner));
-            if orient(&points)? == Sign::Positive {
+            #[cfg(debug_assertions)]
+            {
+                let inner = inner_reference(&c.vertices, &facets[facet as usize].vertices);
+                let mut points: Vec<&[f64]> = vertices.iter().map(|&v| c.input.point(v)).collect();
+                points.push(c.input.point(inner));
+                debug_assert_eq!(
+                    orient(&points)? == Sign::Positive,
+                    odd,
+                    "the parity of the sort decides the outward order"
+                );
+            }
+            if odd {
                 vertices.swap(d - 2, d - 1);
             }
         }
