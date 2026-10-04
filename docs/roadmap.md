@@ -104,6 +104,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-26 | Feat | Build the ridge keys of a new simplex from one sorted horizon ridge | #154  | Done                   |
 | P5-27 | Feat | Find the vertices an insertion loses without sorting the region's vertices | #156  | Done                   |
 | P5-28 | Feat | Examine only the first 64 candidates of each round            | #159  | Done                   |
+| P5-29 | Feat | Classify and publish without per-facet copies; pair Delaunay faces without a hash map | #163  | Done                   |
 
 ## Intentionally out of scope
 

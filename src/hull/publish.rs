@@ -471,7 +471,7 @@ fn oriented_normal(
 }
 
 /// Numbers facets and simplices in the public order and builds the planes.
-fn publish(c: Classified<'_>) -> Result<ConvexHull, ConvexHullError> {
+fn publish(mut c: Classified<'_>) -> Result<ConvexHull, ConvexHullError> {
     let d = c.input.dim();
 
     // Facets ordered by vertex list.
@@ -485,6 +485,11 @@ fn publish(c: Classified<'_>) -> Result<ConvexHull, ConvexHullError> {
         number[internal as usize] = public as u32;
     }
 
+    let mut neighbor_lists: Vec<Vec<u32>> = c
+        .faces
+        .iter_mut()
+        .map(|face| core::mem::take(&mut face.neighbors))
+        .collect();
     let queries: Vec<(&[u32], u32)> = order
         .iter()
         .map(|&internal| {
@@ -494,8 +499,10 @@ fn publish(c: Classified<'_>) -> Result<ConvexHull, ConvexHullError> {
         .collect();
     let mut facets = Vec::with_capacity(order.len());
     for_each_facet_normal(&c.input, &queries, |basis, normal| {
-        let face = &c.faces[order[facets.len()] as usize];
-        let mut neighbors: Vec<u32> = face.neighbors.iter().map(|&n| number[n as usize]).collect();
+        let mut neighbors = core::mem::take(&mut neighbor_lists[order[facets.len()] as usize]);
+        for n in &mut neighbors {
+            *n = number[*n as usize];
+        }
         neighbors.sort_unstable();
         facets.push(LogicalFacet {
             vertices: Vec::new(),

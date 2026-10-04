@@ -27,7 +27,8 @@
 //! kept as built and a re-triangulated neighbor can disagree there, and so
 //! can two neighbors triangulated basis-first. The placing triangulation
 //! restricts to the placing triangulation of every face in the same order, so
-//! all facets agree. Neighbors are then recomputed from the updated simplices.
+//! all facets agree. Simplex neighbors are then linked across the updated
+//! simplices; face neighbors are those of the merged groups.
 
 use std::collections::HashMap;
 
@@ -58,8 +59,6 @@ pub(crate) struct Face {
     pub(crate) vertices: Vec<u32>,
     /// Neighboring faces, ascending.
     pub(crate) neighbors: Vec<u32>,
-    /// Indices into [`Classified::simplices`].
-    pub(crate) simplices: Vec<u32>,
 }
 
 /// The hull after classification. Faces are in construction order; the
@@ -88,23 +87,25 @@ fn classify_built(
     hull: SimplicialHull<'_>,
     execution: Execution,
 ) -> Result<Classified<'_>, ConvexHullError> {
-    let groups = merge(&hull)?;
+    let mut groups = merge(&hull)?;
     let d = hull.input.dim();
+    // A group's member simplices, in outward order.
+    let members = |g: usize| {
+        groups.groups[g]
+            .simplices
+            .iter()
+            .filter_map(|id| hull.facets.get(*id))
+            .map(|s| &s.vertices[..])
+    };
 
-    // Simplicial vertices, and each group's member simplices in outward order.
+    // Simplicial vertices.
     let mut on_complex = vec![false; hull.input.representative.len()];
-    let mut group_simplices: Vec<Vec<Vec<u32>>> = Vec::with_capacity(groups.groups.len());
-    for group in &groups.groups {
-        let mut members = Vec::with_capacity(group.simplices.len());
-        for id in &group.simplices {
-            if let Some(s) = hull.facets.get(*id) {
-                for &v in &s.vertices {
-                    on_complex[v as usize] = true;
-                }
-                members.push(s.vertices.to_vec());
+    for g in 0..groups.groups.len() {
+        for vertices in members(g) {
+            for &v in vertices {
+                on_complex[v as usize] = true;
             }
         }
-        group_simplices.push(members);
     }
 
     // Distance signs of the other representatives against every group.
@@ -150,25 +151,30 @@ fn classify_built(
         }
     }
 
-    // Extreme points of each group.
-    let mut extremes: Vec<Vec<u32>> = Vec::with_capacity(groups.groups.len());
+    // Extreme points of each group; `None` when they are the group's
+    // vertices, a single simplex with no other point on its plane.
+    let mut extremes: Vec<Option<Vec<u32>>> = Vec::with_capacity(groups.groups.len());
     for (g, group) in groups.groups.iter().enumerate() {
         if group.simplices.len() == 1 && zero_points[g].is_empty() {
-            // A single simplex: every vertex is extreme.
-            extremes.push(group.vertices.clone());
+            extremes.push(None);
             continue;
         }
         let mut candidates = group.vertices.clone();
         candidates.extend_from_slice(&zero_points[g]);
         candidates.sort_unstable();
         candidates.dedup();
-        let plane = &group_simplices[g][0];
-        extremes.push(face_extremes(&hull.input, plane, &candidates, execution)?);
+        let plane = members(g).next().unwrap_or(&[]);
+        extremes.push(Some(face_extremes(
+            &hull.input,
+            plane,
+            &candidates,
+            execution,
+        )?));
     }
 
     let mut is_vertex = vec![false; hull.input.representative.len()];
-    for e in &extremes {
-        for &v in e {
+    for (g, e) in extremes.iter().enumerate() {
+        for &v in e.as_deref().unwrap_or(&groups.groups[g].vertices) {
             is_vertex[v as usize] = true;
         }
     }
@@ -210,35 +216,42 @@ fn classify_built(
     let mut kept: Vec<(u32, FacetId)> = Vec::new();
     let unlinked = if d == 1 { 0 } else { d };
     for (g, extreme) in extremes.into_iter().enumerate() {
-        let original = &groups.groups[g].vertices;
-        // A single simplex whose vertices are all extreme is kept; every
-        // other facet is re-triangulated by placing, so facets that share a
-        // lower face split it the same way.
-        let members: Vec<Vec<u32>> = if &extreme == original && group_simplices[g].len() == 1 {
-            if let Some(&id) = groups.groups[g].simplices.first() {
-                kept.push((simplices.len() as u32, id));
-            }
-            group_simplices[g].clone()
-        } else {
-            let q = vertices
-                .iter()
-                .copied()
-                .find(|v| extreme.binary_search(v).is_err())
-                .unwrap_or(extreme[0]);
-            place(&hull.input, &extreme, q)?
-        };
+        let group = &mut groups.groups[g];
         let first = simplices.len() as u32;
-        for vertices in members {
+        let mut push = |vertices: Vec<u32>| {
             simplices.push(ComplexSimplex {
                 vertices,
                 face: g as u32,
                 neighbors: vec![UNLINKED; unlinked],
             });
-        }
+        };
+        // A single simplex whose vertices are all extreme is kept; every
+        // other facet is re-triangulated by placing, so facets that share a
+        // lower face split it the same way.
+        let single = group.simplices.len() == 1;
+        let extreme = match extreme {
+            Some(extreme) if !(single && extreme == group.vertices) => {
+                let q = vertices
+                    .iter()
+                    .copied()
+                    .find(|v| extreme.binary_search(v).is_err())
+                    .unwrap_or(extreme[0]);
+                for members in place(&hull.input, &extreme, q)? {
+                    push(members);
+                }
+                extreme
+            }
+            _ => {
+                if let Some(s) = hull.facets.get(group.simplices[0]) {
+                    kept.push((first, group.simplices[0]));
+                    push(s.vertices.to_vec());
+                }
+                core::mem::take(&mut group.vertices)
+            }
+        };
         faces.push(Face {
             vertices: extreme,
-            neighbors: Vec::new(),
-            simplices: (first..simplices.len() as u32).collect(),
+            neighbors: core::mem::take(&mut group.neighbors),
         });
     }
     // A kept simplex has its construction vertex order, so its neighbor
@@ -259,13 +272,13 @@ fn classify_built(
     }
     #[cfg(debug_assertions)]
     let mut paired_all = (simplices.clone(), faces.clone());
-    link_neighbors(d, &mut simplices, &mut faces);
+    link_neighbors(d, &mut simplices, &faces);
     #[cfg(debug_assertions)]
     {
         for simplex in &mut paired_all.0 {
             simplex.neighbors.fill(UNLINKED);
         }
-        link_neighbors(d, &mut paired_all.0, &mut paired_all.1);
+        link_neighbors(d, &mut paired_all.0, &paired_all.1);
         debug_assert!(
             simplices
                 .iter()
@@ -466,9 +479,15 @@ fn oriented(
 /// A neighbor slot of a [`ComplexSimplex`] not linked yet.
 const UNLINKED: u32 = u32::MAX;
 
-/// Links every [`UNLINKED`] simplex neighbor through its shared ridge, then
-/// the face neighbors.
-fn link_neighbors(d: usize, simplices: &mut [ComplexSimplex], faces: &mut [Face]) {
+/// Links every [`UNLINKED`] simplex neighbor through its shared ridge.
+///
+/// The face neighbors are those of the merged groups. Two simplices of
+/// different facets meet in a ridge of dimension D - 2 on both facets'
+/// planes, so the facets share a (D - 2)-face; and a (D - 2)-face of a
+/// polytope lies on exactly two facets, so the simplex across any ridge on
+/// it belongs to the other. Groups and faces are therefore adjacent alike,
+/// however the faces are triangulated; debug builds check it.
+fn link_neighbors(d: usize, simplices: &mut [ComplexSimplex], faces: &[Face]) {
     if d == 1 {
         return;
     }
@@ -501,19 +520,28 @@ fn link_neighbors(d: usize, simplices: &mut [ComplexSimplex], faces: &mut [Face]
         simplices[a as usize].neighbors[slot_a] = b;
         simplices[b as usize].neighbors[slot_b] = a;
     }
-    for face in faces.iter_mut() {
-        let mut neighbors: Vec<u32> = face
-            .simplices
-            .iter()
-            .flat_map(|&s| simplices[s as usize].neighbors.iter())
-            .filter_map(|&n| simplices.get(n as usize).map(|t| t.face))
-            .collect();
-        neighbors.sort_unstable();
-        neighbors.dedup();
-        face.neighbors = neighbors;
-    }
-    for (f, face) in faces.iter_mut().enumerate() {
-        face.neighbors.retain(|&n| n as usize != f);
+    #[cfg(not(debug_assertions))]
+    let _ = faces;
+    #[cfg(debug_assertions)]
+    {
+        let mut across: Vec<Vec<u32>> = vec![Vec::new(); faces.len()];
+        for simplex in simplices.iter() {
+            across[simplex.face as usize].extend(
+                simplex
+                    .neighbors
+                    .iter()
+                    .filter_map(|&n| simplices.get(n as usize).map(|t| t.face))
+                    .filter(|&n| n != simplex.face),
+            );
+        }
+        for (f, (face, mut neighbors)) in faces.iter().zip(across).enumerate() {
+            neighbors.sort_unstable();
+            neighbors.dedup();
+            debug_assert_eq!(
+                face.neighbors, neighbors,
+                "face {f}: the group neighbors differ from the triangulation's"
+            );
+        }
     }
 }
 
@@ -582,9 +610,6 @@ pub(crate) mod tests {
                 })
                 .collect();
             assert!(!(signs.contains(&Sign::Positive) && signs.contains(&Sign::Negative)));
-            assert!(c.faces[simplex.face as usize]
-                .simplices
-                .contains(&(s as u32)));
             for v in &simplex.vertices {
                 assert!(c.faces[simplex.face as usize].vertices.contains(v));
             }
