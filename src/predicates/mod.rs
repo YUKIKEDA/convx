@@ -340,20 +340,24 @@ pub(crate) const COFACTOR_LANES: usize = filter::FACET_LANES;
 
 /// [`direction_cofactors`] of `COFACTOR_LANES` facets of the same size
 /// `k > 4`, facet `lane` with every coordinate multiplied by
-/// `factors[lane]`. Result `lane` is bit for bit [`direction_cofactors`] of
-/// that facet scaled, when every product is exact.
+/// `factors(largest)[lane]`, where `largest[lane]` is that facet's largest
+/// coordinate magnitude. Result `lane` is bit for bit
+/// [`direction_cofactors`] of that facet scaled, when every product is
+/// exact.
+///
+/// Returns `None` when the lanes do not take the facets (no AVX2, or `k`
+/// above 9) or `factors` returns `None`. The coordinates must not be NaN.
 pub(crate) fn scaled_direction_cofactors_in_lanes(
     facets: [&[&[f64]]; COFACTOR_LANES],
-    factors: [f64; COFACTOR_LANES],
-) -> [Option<Cofactors>; COFACTOR_LANES] {
-    let k = facets[0].len();
-    debug_assert!(k > 4, "the elimination is for k > 4");
-    debug_assert!(facets.iter().all(|f| f.len() == k), "one size per call");
-    let entry = |lane: usize, i: usize, j: usize| {
-        let (facet, factor) = (facets[lane], factors[lane]);
-        Approx::exact(facet[i + 1][j] * factor).sub(Approx::exact(facet[0][j] * factor))
-    };
-    filter::cofactors_in_lanes(k, entry).map(|values| finite_cofactors(values?))
+    factors: impl Fn([f64; COFACTOR_LANES]) -> Option<[f64; COFACTOR_LANES]>,
+) -> Option<[Option<Cofactors>; COFACTOR_LANES]> {
+    debug_assert!(
+        facets
+            .iter()
+            .all(|f| f.len() == facets[0].len() && f.len() > 4),
+        "one size above four per call"
+    );
+    filter::edge_cofactors_in_lanes(facets, factors)
 }
 
 /// The filtered cofactors, when every value and bound is finite.
@@ -557,6 +561,14 @@ mod tests {
 
     /// Entry `(i, j)` of a test matrix; odd trials carry an input bound, so
     /// every term of the running bound is nonzero.
+    /// Whether [`filter::edge_cofactors_in_lanes`] has vectors here.
+    fn lanes_on_this_cpu() -> bool {
+        #[cfg(target_arch = "x86_64")]
+        return pulp::x86::V3::try_new().is_some();
+        #[cfg(not(target_arch = "x86_64"))]
+        return false;
+    }
+
     fn input_entry(m: &[Vec<f64>], trial: usize, i: usize, j: usize) -> Approx {
         let x = m[i][j];
         if trial % 2 == 1 {
@@ -622,10 +634,13 @@ mod tests {
         // same magnitudes, ties, and repeated rows and columns as the
         // determinant.
         // The same matrices, four trials at a time, also go through the
-        // lanes: each lane must equal the reference of its own matrix.
+        // lanes as facet edges: each lane must equal the reference of its
+        // own facet, and none where a value or bound is not finite.
         let mut rng = Rng(73);
         let mut uncertain = 0;
         let mut mixed = 0;
+        let mut not_finite = 0;
+        let lanes_available = lanes_on_this_cpu();
         let bits = |a: Option<Vec<Approx>>| {
             a.map(|a| {
                 a.iter()
@@ -649,6 +664,12 @@ mod tests {
                 if trial % 5 == 0 {
                     m[k - 2] = m[0].clone();
                 }
+                // Dependent up to rounding: the last pivot is a small
+                // residue whose sign is not certain, and only the back
+                // substitution divides by it.
+                if trial % 6 == 2 {
+                    m[k - 2] = (0..k).map(|j| 0.3 * m[0][j] + 0.7 * m[1][j]).collect();
+                }
                 if trial % 7 == 0 {
                     for row in &mut m {
                         row[1] = row[0];
@@ -668,19 +689,59 @@ mod tests {
                     reference,
                     "k = {k}, trial {trial}"
                 );
-                cases.push((m, trial, reference));
+                cases.push(m);
             }
+            // The rows as the edges of a facet from the origin, unscaled;
+            // the 1e120 rows overflow, so some lanes are not finite.
             for (group, lanes) in cases.chunks_exact(filter::FACET_LANES).enumerate() {
-                let entry = |lane: usize, i: usize, j: usize| {
-                    let (m, trial, _) = &lanes[lane];
-                    input_entry(m, *trial, i, j)
-                };
-                let failed = lanes.iter().filter(|(_, _, r)| r.is_none()).count();
+                let facets: Vec<Vec<Vec<f64>>> = lanes
+                    .iter()
+                    .map(|m| {
+                        core::iter::once(vec![0.0; k])
+                            .chain(m.iter().cloned())
+                            .collect()
+                    })
+                    .collect();
+                let refs: Vec<Vec<&[f64]>> = facets
+                    .iter()
+                    .map(|f| f.iter().map(Vec::as_slice).collect())
+                    .collect();
+                let four: [&[&[f64]]; filter::FACET_LANES] = core::array::from_fn(|l| &*refs[l]);
+                let mut expected = Vec::new();
+                for f in four {
+                    let rows = (0..k - 1)
+                        .map(|i| {
+                            (0..k)
+                                .map(|j| Approx::exact(f[i + 1][j]).sub(Approx::exact(f[0][j])))
+                                .collect()
+                        })
+                        .collect();
+                    let reference = bits(cofactors_of_rows(rows));
+                    let finite = reference.clone().filter(|c| {
+                        c.iter().all(|&(v, e)| {
+                            f64::from_bits(v).is_finite() && f64::from_bits(e).is_finite()
+                        })
+                    });
+                    not_finite += usize::from(reference.is_some() && finite.is_none());
+                    expected.push(finite);
+                }
+                let got =
+                    filter::edge_cofactors_in_lanes(four, |_| Some([1.0; filter::FACET_LANES]));
+                if !(lanes_available && (5..=9).contains(&k)) {
+                    assert!(got.is_none(), "k = {k}: no lanes");
+                    continue;
+                }
+                let got = got.expect("the lanes take k = 5 to 9");
+                let failed = expected.iter().filter(|e| e.is_none()).count();
                 mixed += usize::from(failed > 0 && failed < filter::FACET_LANES);
-                for (lane, values) in filter::cofactors_in_lanes(k, entry).into_iter().enumerate() {
+                for (lane, values) in got.into_iter().enumerate() {
+                    let values = values.map(|c| {
+                        c.iter()
+                            .map(|&(v, e)| (v.to_bits(), e.to_bits()))
+                            .collect::<Vec<_>>()
+                    });
                     assert_eq!(
-                        bits(values.map(|s| s.to_vec())),
-                        lanes[lane].2,
+                        values, expected[lane],
                         "k = {k}, group {group}, lane {lane}"
                     );
                 }
@@ -688,8 +749,9 @@ mod tests {
         }
         assert!(uncertain > 0, "some divisor is uncertain");
         assert!(
-            mixed > 0,
-            "some group has a lane that fails beside one that does not"
+            !lanes_available || (mixed > 0 && not_finite > 0),
+            "some group has a lane that fails beside one that does not, \
+             and some lane fails only on a bound that is not finite"
         );
     }
 
