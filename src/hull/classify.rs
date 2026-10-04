@@ -714,12 +714,16 @@ pub(crate) mod tests {
         cases.push(("ball".to_string(), 3, ball));
         for (name, dim, points) in &cases {
             let (proved, c) = with_and_without_reuse(*dim, points);
-            // Every case exercises the skip, and keeps scanned points too.
+            let non_vertices = c.interior_points.len() + c.coplanar_points.len();
             assert!(proved > 0, "{name}: no point was proved interior");
-            assert!(
-                proved < c.interior_points.len() + c.coplanar_points.len(),
-                "{name}: every non-vertex was proved interior"
-            );
+            if name.starts_with("general") {
+                // No zero sign: every non-vertex is proved, including the
+                // vertices a later insertion swallowed (design §3).
+                assert_eq!(proved, non_vertices, "{name}");
+            } else {
+                // Zero signs leave points to the scan.
+                assert!(proved < non_vertices, "{name}: no point was scanned");
+            }
         }
     }
 }

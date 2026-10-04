@@ -22,7 +22,7 @@
 //! 3. The batch is applied in ascending input index.
 
 use core::convert::Infallible;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use rayon::prelude::*;
 
@@ -611,7 +611,14 @@ impl<'a> SimplicialHull<'a> {
         // with the vertex opposite the ridge replaced by the apex keeps the
         // outward orientation.
         let mut created: Vec<Planned> = Vec::with_capacity(horizon.len());
-        let mut ridges: HashMap<Vec<u32>, (usize, usize)> = HashMap::new();
+        // Each ridge between two new simplices holds the apex and D - 2
+        // vertices of a horizon ridge. Its key is those D - 2 vertices,
+        // sorted, in one flat buffer; sorting the keys pairs the two
+        // simplices that share each ridge, with no hashing and no
+        // allocation per key.
+        let width = self.input.engine_dim().saturating_sub(2);
+        let mut keys: Vec<u32> = Vec::new();
+        let mut owners: Vec<(usize, usize)> = Vec::new();
         for &(visible_id, slot, across) in &horizon {
             let Some(old) = self.facets.get(visible_id) else {
                 continue;
@@ -619,34 +626,42 @@ impl<'a> SimplicialHull<'a> {
             let mut vertices = old.vertices.clone();
             vertices[slot] = apex;
             let d = vertices.len();
+            debug_assert_eq!(d, width + 2, "a simplex has D vertices");
             let k = created.len();
-            let mut links = vec![Link::Old(across); d];
             for other in (0..d).filter(|&m| m != slot) {
-                let mut key: Vec<u32> = vertices
-                    .iter()
-                    .enumerate()
-                    .filter(|&(m, _)| m != other)
-                    .map(|(_, &v)| v)
-                    .collect();
-                key.sort_unstable();
-                if let Some((twin, twin_slot)) = ridges.remove(&key) {
-                    links[other] = Link::New(twin);
-                    created[twin].links[twin_slot] = Link::New(k);
-                } else {
-                    ridges.insert(key, (k, other));
-                }
+                let start = keys.len();
+                keys.extend(
+                    vertices
+                        .iter()
+                        .enumerate()
+                        .filter(|&(m, _)| m != other && m != slot)
+                        .map(|(_, &v)| v),
+                );
+                keys[start..].sort_unstable();
+                owners.push((k, other));
             }
             created.push(Planned {
                 simplex: self.make_simplex(vertices, Vec::new(), Sign::Positive)?,
-                links,
+                links: vec![Link::Old(across); d],
                 across,
                 replaces: visible_id,
             });
         }
+        let key = |i: usize| &keys[i * width..(i + 1) * width];
+        let mut order: Vec<usize> = (0..owners.len()).collect();
+        order.sort_unstable_by(|&a, &b| key(a).cmp(key(b)));
         debug_assert!(
-            ridges.is_empty(),
-            "every new ridge is shared by two new simplices"
+            order.len().is_multiple_of(2)
+                && order.chunks(2).all(|pair| key(pair[0]) == key(pair[1]))
+                && order.windows(3).step_by(2).all(|w| key(w[1]) != key(w[2])),
+            "every new ridge is shared by exactly two new simplices"
         );
+        for pair in order.chunks_exact(2) {
+            let (a, a_slot) = owners[pair[0]];
+            let (b, b_slot) = owners[pair[1]];
+            created[a].links[a_slot] = Link::New(b);
+            created[b].links[b_slot] = Link::New(a);
+        }
 
         // Reassign the outside points of the visible facets.
         let mut orphans: Vec<u32> = visible
@@ -655,6 +670,23 @@ impl<'a> SimplicialHull<'a> {
             .flat_map(|f| f.outside.iter().copied())
             .filter(|&p| p != apex)
             .collect();
+        // A vertex of only visible facets stops being a vertex. It is
+        // proved interior on the same terms as an orphan (design §3).
+        let mut lost: Vec<u32> = visible
+            .iter()
+            .filter_map(|&id| self.facets.get(id))
+            .flat_map(|f| f.vertices.iter().copied())
+            .collect();
+        lost.sort_unstable();
+        lost.dedup();
+        let mut kept: Vec<u32> = created
+            .iter()
+            .flat_map(|p| p.simplex.vertices.iter().copied())
+            .collect();
+        kept.sort_unstable();
+        kept.dedup();
+        lost.retain(|v| kept.binary_search(v).is_err());
+        orphans.extend(lost);
         orphans.sort_unstable();
         let mut strict = vec![true; orphans.len()];
         for planned in &mut created {
@@ -669,6 +701,10 @@ impl<'a> SimplicialHull<'a> {
         // strictly inside every kept facet too: on one only if the apex is,
         // and then a new simplex shares that plane. So it is interior to the
         // hull with the apex, and to the final hull (design §3).
+        // A lost vertex is in the hull and on no kept facet's plane: the
+        // simplices of that plane around it would share the kept facet's
+        // sign against the apex and keep it a vertex. Strictly inside every
+        // new simplex, it is interior too.
         let interior = orphans
             .iter()
             .zip(&strict)
