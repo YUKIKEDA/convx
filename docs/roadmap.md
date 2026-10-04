@@ -98,6 +98,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-19 | Feat | Factor the published normal with one Householder QR           | #135  | In progress            |
 | P5-20 | Feat | Run the k > 4 elimination in lanes with inline cofactors      | #143  | Done                   |
 | P5-21 | Feat | Cut per-insertion allocation and relinking in the hull build  | #145  | Done                   |
+| P5-22 | Feat | Evaluate the cofactors of four new simplices at once in lanes | #147  | Done                   |
 
 ## Intentionally out of scope
 

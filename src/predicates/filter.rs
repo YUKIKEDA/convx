@@ -82,7 +82,8 @@ impl Approx {
             return None;
         }
         // A lower bound on |b| - e_b: the subtraction rounds by at most a
-        // factor (1 + u), and the product by (1 - 4u) undoes it.
+        // factor (1 + u), and the product by (1 - 4u) undoes it. The lanes
+        // of [`cofactors_in_lanes`] repeat these steps (see `Ops::div`).
         let denominator = (other.value.abs() - other.error) * (1.0 - 4.0 * UNIT_ROUNDOFF);
         let denominator_positive = denominator > 0.0;
         if !denominator_positive {
@@ -203,6 +204,283 @@ pub(super) fn cofactors(
         8 => Arch::new().dispatch(Shared(Stack::<7, 2>::load(7, 8, entry))),
         9 => Arch::new().dispatch(Shared(Stack::<8, 3>::load(8, 9, entry))),
         _ => Arch::new().dispatch(Shared(Heap::load(k - 1, k, entry))),
+    }
+}
+
+/// Facets per call of [`cofactors_in_lanes`].
+pub(super) const FACET_LANES: usize = 4;
+
+/// [`cofactors`] of `FACET_LANES` matrices at once: `entry(lane, i, j)` is entry
+/// `(i, j)` of matrix `lane`, and result `lane` is bit for bit what
+/// [`cofactors`] returns for it.
+///
+/// One elimination is a chain of dependent operations, column after
+/// column. With four `f64` lanes per vector, each lane runs that chain for
+/// its own matrix, with the same operations in the same order, so the
+/// chains of the four matrices take the time of one. A lane whose divisor
+/// is not certain keeps computing values that are not read, and returns
+/// `None`. Without such vectors, or for other sizes, each matrix goes
+/// through [`cofactors`].
+pub(super) fn cofactors_in_lanes(
+    k: usize,
+    entry: impl Fn(usize, usize, usize) -> Approx,
+) -> [Option<Small<Approx, 10>>; FACET_LANES] {
+    #[cfg(target_arch = "x86_64")]
+    if let Some(simd) = pulp::x86::V3::try_new() {
+        match k {
+            5 => return Simd::vectorize(simd, Lanes(lane_rows::<4, 5>(&entry))),
+            6 => return Simd::vectorize(simd, Lanes(lane_rows::<5, 6>(&entry))),
+            7 => return Simd::vectorize(simd, Lanes(lane_rows::<6, 7>(&entry))),
+            8 => return Simd::vectorize(simd, Lanes(lane_rows::<7, 8>(&entry))),
+            9 => return Simd::vectorize(simd, Lanes(lane_rows::<8, 9>(&entry))),
+            _ => {}
+        }
+    }
+    core::array::from_fn(|lane| cofactors(k, |i, j| entry(lane, i, j)))
+}
+
+/// One entry of every lane: values and bounds apart.
+#[derive(Clone, Copy)]
+struct Wide {
+    value: [f64; FACET_LANES],
+    error: [f64; FACET_LANES],
+}
+
+impl Wide {
+    #[inline(always)]
+    fn lane(self, lane: usize) -> Approx {
+        Approx {
+            value: self.value[lane],
+            error: self.error[lane],
+        }
+    }
+}
+
+/// `R` rows of `C` entries of every lane.
+#[inline(always)]
+fn lane_rows<const R: usize, const C: usize>(
+    entry: &impl Fn(usize, usize, usize) -> Approx,
+) -> [[Wide; C]; R] {
+    core::array::from_fn(|i| {
+        core::array::from_fn(|j| {
+            let mut wide = Wide {
+                value: [0.0; FACET_LANES],
+                error: [0.0; FACET_LANES],
+            };
+            for lane in 0..FACET_LANES {
+                let a = entry(lane, i, j);
+                wide.value[lane] = a.value;
+                wide.error[lane] = a.error;
+            }
+            wide
+        })
+    })
+}
+
+/// One entry of every lane in two vectors.
+struct Pair<S: Simd> {
+    value: S::f64s,
+    error: S::f64s,
+}
+
+impl<S: Simd> Clone for Pair<S> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<S: Simd> Copy for Pair<S> {}
+
+/// The [`Approx`] operations on vectors of lanes. Each lane rounds as the
+/// scalar operation does: the same terms, added in the same order.
+#[derive(Clone, Copy)]
+struct Ops<S: Simd>(S);
+
+impl<S: Simd> Ops<S> {
+    #[inline(always)]
+    fn splat(self, x: f64) -> S::f64s {
+        self.0.splat_f64s(x)
+    }
+
+    #[inline(always)]
+    fn exact(self, x: f64) -> Pair<S> {
+        Pair {
+            value: self.splat(x),
+            error: self.splat(0.0),
+        }
+    }
+
+    #[inline(always)]
+    fn sub(self, a: Pair<S>, b: Pair<S>) -> Pair<S> {
+        let s = self.0;
+        let value = s.sub_f64s(a.value, b.value);
+        let terms = s.add_f64s(a.error, b.error);
+        let terms = s.add_f64s(
+            terms,
+            s.mul_f64s(s.abs_f64s(value), self.splat(UNIT_ROUNDOFF)),
+        );
+        let error = s.mul_f64s(s.add_f64s(terms, self.splat(ETA)), self.splat(GROW));
+        Pair { value, error }
+    }
+
+    #[inline(always)]
+    fn mul(self, a: Pair<S>, b: Pair<S>) -> Pair<S> {
+        let s = self.0;
+        let value = s.mul_f64s(a.value, b.value);
+        let terms = s.mul_f64s(s.abs_f64s(a.value), b.error);
+        let terms = s.add_f64s(terms, s.mul_f64s(s.abs_f64s(b.value), a.error));
+        let terms = s.add_f64s(terms, s.mul_f64s(a.error, b.error));
+        let terms = s.add_f64s(
+            terms,
+            s.mul_f64s(s.abs_f64s(value), self.splat(UNIT_ROUNDOFF)),
+        );
+        let error = s.mul_f64s(s.add_f64s(terms, self.splat(ETA)), self.splat(GROW));
+        Pair { value, error }
+    }
+
+    /// [`Approx::div`]; `certain` is cleared in the lanes whose
+    /// divisor's sign is not certain.
+    #[inline(always)]
+    fn div(self, a: Pair<S>, b: Pair<S>, certain: &mut S::m64s) -> Pair<S> {
+        let s = self.0;
+        let divisor = s.abs_f64s(b.value);
+        let divisor_certain = s.greater_than_f64s(divisor, b.error);
+        let denominator = s.mul_f64s(
+            s.sub_f64s(divisor, b.error),
+            self.splat(1.0 - 4.0 * UNIT_ROUNDOFF),
+        );
+        let denominator_positive = s.greater_than_f64s(denominator, self.splat(0.0));
+        *certain = s.and_m64s(*certain, s.and_m64s(divisor_certain, denominator_positive));
+        let value = s.div_f64s(a.value, b.value);
+        let magnitude = s.abs_f64s(value);
+        let spread = s.add_f64s(a.error, s.mul_f64s(magnitude, b.error));
+        let terms = s.add_f64s(
+            s.div_f64s(spread, denominator),
+            s.mul_f64s(magnitude, self.splat(UNIT_ROUNDOFF)),
+        );
+        let error = s.mul_f64s(s.add_f64s(terms, self.splat(ETA)), self.splat(GROW));
+        Pair { value, error }
+    }
+
+    /// `-value`, by flipping the sign bit as the scalar negation does.
+    #[inline(always)]
+    fn negated(self, value: S::f64s) -> S::f64s {
+        self.0.xor_f64s(value, self.splat(-0.0))
+    }
+
+    #[inline(always)]
+    fn select(self, mask: S::m64s, if_true: Pair<S>, if_false: Pair<S>) -> Pair<S> {
+        Pair {
+            value: self.0.select_f64s(mask, if_true.value, if_false.value),
+            error: self.0.select_f64s(mask, if_true.error, if_false.error),
+        }
+    }
+
+    /// The bits of `|value|`. Their sign bit is clear, so they order as
+    /// `f64::total_cmp` orders the magnitudes.
+    #[inline(always)]
+    fn magnitude_bits(self, value: S::f64s) -> S::i64s {
+        self.0.transmute_i64s_f64s(self.0.abs_f64s(value))
+    }
+
+    #[inline(always)]
+    fn index(self, i: usize) -> S::i64s {
+        self.0.splat_i64s(i as i64)
+    }
+}
+
+/// [`cofactors_in_lanes`] of `R` rows of `C = R + 1` entries in vectors of
+/// `FACET_LANES` lanes.
+struct Lanes<const R: usize, const C: usize>([[Wide; C]; R]);
+
+impl<const R: usize, const C: usize> WithSimd for Lanes<R, C> {
+    type Output = [Option<Small<Approx, 10>>; FACET_LANES];
+
+    #[inline(always)]
+    fn with_simd<S: Simd>(self, simd: S) -> Self::Output {
+        let rows = self.0;
+        if S::F64_LANES != FACET_LANES {
+            return core::array::from_fn(|lane| cofactors(C, |i, j| rows[i][j].lane(lane)));
+        }
+        let ops = Ops(simd);
+        let load = |lanes: &[f64; FACET_LANES]| S::as_simd_f64s(lanes).0[0];
+        let mut m: [[Pair<S>; C]; R] = rows.map(|row| {
+            row.map(|w| Pair {
+                value: load(&w.value),
+                error: load(&w.error),
+            })
+        });
+        let all = simd.equal_i64s(ops.index(0), ops.index(0));
+        let mut certain = all;
+        let mut odd = simd.not_m64s(all);
+        for col in 0..R {
+            // The pivot of each lane: the last row of largest magnitude.
+            let mut best = ops.index(col);
+            let mut most = ops.magnitude_bits(m[col][col].value);
+            for (r, row) in m.iter().enumerate().skip(col + 1) {
+                let bits = ops.magnitude_bits(row[col].value);
+                let take = simd.not_m64s(simd.greater_than_i64s(most, bits));
+                most = simd.select_i64s(take, bits, most);
+                best = simd.select_i64s(take, ops.index(r), best);
+            }
+            let swapped = simd.not_m64s(simd.equal_i64s(best, ops.index(col)));
+            odd = simd.xor_m64s(odd, swapped);
+            // Each lane swaps its pivot row in, by selection.
+            let (above, below) = m.split_at_mut(col + 1);
+            let pivot_row = &mut above[col];
+            for (offset, row) in below.iter_mut().enumerate() {
+                let swap = simd.equal_i64s(best, ops.index(col + 1 + offset));
+                for (a, b) in pivot_row.iter_mut().zip(row.iter_mut()) {
+                    let (old_a, old_b) = (*a, *b);
+                    *a = ops.select(swap, old_b, old_a);
+                    *b = ops.select(swap, old_a, old_b);
+                }
+            }
+            let pivot_row = &*pivot_row;
+            let pivot = pivot_row[col];
+            for row in below.iter_mut() {
+                let factor = ops.div(row[col], pivot, &mut certain);
+                // The whole row, a loop of fixed length; the entries at and
+                // left of the pivot column are never read again.
+                for (entry, &up) in row.iter_mut().zip(pivot_row) {
+                    *entry = ops.sub(*entry, ops.mul(factor, up));
+                }
+            }
+        }
+        let mut det = ops.exact(1.0);
+        for (i, row) in m.iter().enumerate() {
+            det = ops.mul(det, row[i]);
+        }
+        det.value = simd.select_f64s(odd, ops.negated(det.value), det.value);
+        // Back substitution for T x = u, u the last column.
+        let mut out = [ops.exact(0.0); C];
+        for i in (0..R).rev() {
+            let mut sum = m[i][R];
+            for j in i + 1..R {
+                sum = ops.sub(sum, ops.mul(m[i][j], out[j]));
+            }
+            out[i] = ops.div(sum, m[i][i], &mut certain);
+        }
+        for value in out.iter_mut().take(R) {
+            let product = ops.mul(det, *value);
+            value.value = ops.negated(product.value);
+            value.error = product.error;
+        }
+        out[R] = det;
+        let store = |v: S::f64s| {
+            let mut lanes = [0.0; FACET_LANES];
+            S::as_mut_simd_f64s(&mut lanes).0[0] = v;
+            lanes
+        };
+        let mut sure = [0_u64; FACET_LANES];
+        S::as_mut_simd_u64s(&mut sure).0[0] = simd.transmute_u64s_m64s(certain);
+        let out: [Wide; C] = out.map(|p| Wide {
+            value: store(p.value),
+            error: store(p.error),
+        });
+        core::array::from_fn(|lane| {
+            (sure[lane] != 0).then(|| out.iter().map(|w| w.lane(lane)).collect())
+        })
     }
 }
 

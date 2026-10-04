@@ -312,13 +312,7 @@ pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Cofactors> {
         // One elimination shared by every cofactor (#111).
         let entry =
             |i: usize, j: usize| Approx::exact(facet[i + 1][j]).sub(Approx::exact(facet[0][j]));
-        let values = filter::cofactors(k, entry)?;
-        return values
-            .into_iter()
-            .map(|c| {
-                (c.value().is_finite() && c.error().is_finite()).then(|| (c.value(), c.error()))
-            })
-            .collect();
+        return finite_cofactors(filter::cofactors(k, entry)?);
     }
     let mut unit = [0.0; 4];
     let unit = &mut unit[..k];
@@ -339,6 +333,35 @@ pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Cofactors> {
         *cofactor = (value.value(), value.error());
     }
     Some(cofactors[..k].into())
+}
+
+/// Facets per call of [`scaled_direction_cofactors_in_lanes`].
+pub(crate) const COFACTOR_LANES: usize = filter::FACET_LANES;
+
+/// [`direction_cofactors`] of `COFACTOR_LANES` facets of the same size
+/// `k > 4`, facet `lane` with every coordinate multiplied by
+/// `factors[lane]`. Result `lane` is bit for bit [`direction_cofactors`] of
+/// that facet scaled, when every product is exact.
+pub(crate) fn scaled_direction_cofactors_in_lanes(
+    facets: [&[&[f64]]; COFACTOR_LANES],
+    factors: [f64; COFACTOR_LANES],
+) -> [Option<Cofactors>; COFACTOR_LANES] {
+    let k = facets[0].len();
+    debug_assert!(k > 4, "the elimination is for k > 4");
+    debug_assert!(facets.iter().all(|f| f.len() == k), "one size per call");
+    let entry = |lane: usize, i: usize, j: usize| {
+        let (facet, factor) = (facets[lane], factors[lane]);
+        Approx::exact(facet[i + 1][j] * factor).sub(Approx::exact(facet[0][j] * factor))
+    };
+    filter::cofactors_in_lanes(k, entry).map(|values| finite_cofactors(values?))
+}
+
+/// The filtered cofactors, when every value and bound is finite.
+fn finite_cofactors(values: Small<Approx, 10>) -> Option<Cofactors> {
+    values
+        .into_iter()
+        .map(|c| (c.value().is_finite() && c.error().is_finite()).then(|| (c.value(), c.error())))
+        .collect()
 }
 
 /// The cofactors of one hyperplane, inline up to ten points (#143).
@@ -598,9 +621,20 @@ mod tests {
         // Orders on the stack (5..=9) and on the heap (10..=18), with the
         // same magnitudes, ties, and repeated rows and columns as the
         // determinant.
+        // The same matrices, four trials at a time, also go through the
+        // lanes: each lane must equal the reference of its own matrix.
         let mut rng = Rng(73);
         let mut uncertain = 0;
+        let mut mixed = 0;
+        let bits = |a: Option<Vec<Approx>>| {
+            a.map(|a| {
+                a.iter()
+                    .map(|a| (a.value().to_bits(), a.error().to_bits()))
+                    .collect::<Vec<_>>()
+            })
+        };
         for k in 5..=18 {
+            let mut cases = Vec::new();
             for trial in 0..40 {
                 let scale = [1.0, 1e-120, 1e120, 3.0][trial % 4];
                 let mut m: Vec<Vec<f64>> = (0..k - 1)
@@ -627,22 +661,36 @@ mod tests {
                         .collect(),
                 );
                 let stored = filter::cofactors(k, entry);
-                let bits = |a: Option<Vec<Approx>>| {
-                    a.map(|a| {
-                        a.iter()
-                            .map(|a| (a.value().to_bits(), a.error().to_bits()))
-                            .collect::<Vec<_>>()
-                    })
-                };
                 uncertain += usize::from(reference.is_none());
+                let reference = bits(reference);
                 assert_eq!(
                     bits(stored.map(|s| s.to_vec())),
-                    bits(reference),
+                    reference,
                     "k = {k}, trial {trial}"
                 );
+                cases.push((m, trial, reference));
+            }
+            for (group, lanes) in cases.chunks_exact(filter::FACET_LANES).enumerate() {
+                let entry = |lane: usize, i: usize, j: usize| {
+                    let (m, trial, _) = &lanes[lane];
+                    input_entry(m, *trial, i, j)
+                };
+                let failed = lanes.iter().filter(|(_, _, r)| r.is_none()).count();
+                mixed += usize::from(failed > 0 && failed < filter::FACET_LANES);
+                for (lane, values) in filter::cofactors_in_lanes(k, entry).into_iter().enumerate() {
+                    assert_eq!(
+                        bits(values.map(|s| s.to_vec())),
+                        lanes[lane].2,
+                        "k = {k}, group {group}, lane {lane}"
+                    );
+                }
             }
         }
         assert!(uncertain > 0, "some divisor is uncertain");
+        assert!(
+            mixed > 0,
+            "some group has a lane that fails beside one that does not"
+        );
     }
 
     #[test]
