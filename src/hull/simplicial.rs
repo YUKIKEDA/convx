@@ -33,7 +33,9 @@ use super::ridge::{fingerprint, pair_equal_keys};
 use super::ConvexHullError;
 use crate::arena::{Arena, ArenaFull, FacetId, SlotMarks};
 use crate::cull::CullPlane;
-use crate::normal::{facet_cofactors, lifted_facet_cofactors, working_normal};
+use crate::normal::{
+    child_cofactors, cofactor_shift, facet_cofactors, lifted_facet_cofactors, working_normal,
+};
 use crate::predicates::Sign;
 use crate::small::Small;
 
@@ -52,6 +54,47 @@ pub(crate) struct Simplex {
     /// The candidate of `outside` for a round, fixed with it (#120): see
     /// [`farthest`].
     farthest: Option<(u32, Option<f64>)>,
+    /// The filtered cofactors the working normal and the cull plane were
+    /// certified against (the lifted ones before their widening), kept so
+    /// that a simplex replacing one of this simplex's vertices, or keeping
+    /// a ridge with it, can update them (#133).
+    factor: Option<Factor>,
+}
+
+/// The cofactors of a simplex in the frame of [`cofactor_shift`].
+#[derive(Clone, Debug)]
+pub(crate) struct Factor {
+    cofactors: Small<(f64, f64), 8>,
+    shift: i32,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Cofactor sets this thread took from an update and from a fresh
+    /// elimination, for tests (#133).
+    static COFACTOR_COUNTS: core::cell::Cell<(u64, u64)> = const { core::cell::Cell::new((0, 0)) };
+}
+
+/// Counts one cofactor set, updated or eliminated, in test builds.
+fn count_cofactors(updated: bool) {
+    #[cfg(test)]
+    COFACTOR_COUNTS.with(|c| {
+        let (u, f) = c.get();
+        c.set(if updated { (u + 1, f) } else { (u, f + 1) });
+    });
+    #[cfg(not(test))]
+    let _ = updated;
+}
+
+/// Where a new simplex comes from, for the update of its cofactors (#133):
+/// it replaces vertex `slot` of `parent` (id `parent_id`) by the apex and
+/// keeps the ridge `parent` shares with `neighbor`.
+#[derive(Clone, Copy)]
+struct Origin<'a> {
+    parent: &'a Simplex,
+    parent_id: FacetId,
+    neighbor: Option<&'a Simplex>,
+    slot: usize,
 }
 
 impl Simplex {
@@ -129,18 +172,29 @@ impl<'a> SimplicialHull<'a> {
         vertices: Small<u32, 8>,
         neighbors: Vec<FacetId>,
         outward: Sign,
+        origin: Option<Origin<'_>>,
     ) -> Result<Simplex, ConvexHullError> {
         let points = self.coords_of(&vertices);
         // Rounded lifted coordinates can be infinite; that facet then has no
         // working normal, and the farthest point falls back to index order.
         let finite = points.iter().all(|p| p.iter().all(|x| x.is_finite()));
         // The cofactors certify both the working normal and the cull plane;
-        // they are evaluated once (#86).
+        // they are evaluated once (#86), from the parent's when it allows
+        // (#133).
         let cofactors = if finite {
-            facet_cofactors(&points)
+            origin
+                .and_then(|o| self.updated_cofactors(&points, o))
+                .or_else(|| {
+                    count_cofactors(false);
+                    facet_cofactors(&points)
+                })
         } else {
             None
         };
+        let factor = cofactors.as_deref().map(|c| Factor {
+            cofactors: c.into(),
+            shift: cofactor_shift(&points),
+        });
         // The working normal is the certified cofactor direction. Published
         // planes still run Householder QR (design §1).
         let normal = if finite {
@@ -174,7 +228,51 @@ impl<'a> SimplicialHull<'a> {
             cull,
             outside: Vec::new(),
             farthest: None,
+            factor,
         })
+    }
+
+    /// The cofactors of the new simplex on `points` from its parent's and
+    /// its neighbor's (#133), or `None` when the update does not apply: an
+    /// order the shared elimination does not cover (k <= 4, where the
+    /// dedicated formulas are cheaper), a replaced origin, a missing
+    /// factor, or an update [`child_cofactors`] does not certify tightly.
+    fn updated_cofactors(&self, points: &[&[f64]], origin: Origin<'_>) -> Option<Vec<(f64, f64)>> {
+        let k = points.len();
+        if k <= 4 || origin.slot == 0 {
+            return None;
+        }
+        let parent = origin.parent.factor.as_ref()?;
+        let neighbor = origin.neighbor?;
+        let neighbor_factor = neighbor.factor.as_ref()?;
+        // The neighbor's vertex off the shared ridge is the one opposite the
+        // parent in its neighbor list.
+        let q_slot = neighbor
+            .neighbors
+            .iter()
+            .position(|&n| n == origin.parent_id)?;
+        let old = self.input.coords(origin.parent.vertices[origin.slot]);
+        let q = self.input.coords(neighbor.vertices[q_slot]);
+        let cofactors = child_cofactors(
+            points,
+            &parent.cofactors,
+            &neighbor_factor.cofactors,
+            neighbor_factor.shift,
+            origin.slot,
+            old,
+            q,
+        )?;
+        count_cofactors(true);
+        #[cfg(debug_assertions)]
+        if let Some(fresh) = facet_cofactors(points) {
+            for (&(u, ue), &(f, fe)) in cofactors.iter().zip(&fresh) {
+                debug_assert!(
+                    (u - f).abs() <= (ue + fe) * (1.0 + 1e-12),
+                    "updated cofactor {u} +- {ue} misses eliminated {f} +- {fe}"
+                );
+            }
+        }
+        Some(cofactors)
     }
 
     /// D = 1: the hull is the two extreme representatives.
@@ -191,8 +289,10 @@ impl<'a> SimplicialHull<'a> {
                 high = r;
             }
         }
-        let low_facet = self.make_simplex([low].as_slice().into(), Vec::new(), Sign::Negative)?;
-        let high_facet = self.make_simplex([high].as_slice().into(), Vec::new(), Sign::Positive)?;
+        let low_facet =
+            self.make_simplex([low].as_slice().into(), Vec::new(), Sign::Negative, None)?;
+        let high_facet =
+            self.make_simplex([high].as_slice().into(), Vec::new(), Sign::Positive, None)?;
         insert_or_abort(&mut self.facets, low_facet);
         insert_or_abort(&mut self.facets, high_facet);
         Ok(())
@@ -217,7 +317,7 @@ impl<'a> SimplicialHull<'a> {
         let mut ids = Vec::with_capacity(d + 1);
         for (_, vertices) in &ordered {
             let simplex =
-                self.make_simplex(vertices.as_slice().into(), Vec::new(), Sign::Positive)?;
+                self.make_simplex(vertices.as_slice().into(), Vec::new(), Sign::Positive, None)?;
             ids.push(insert_or_abort(&mut self.facets, simplex));
         }
         // The facet omitting simplex[i] has id ids[i]; across the ridge
@@ -652,7 +752,17 @@ impl<'a> SimplicialHull<'a> {
                 owners.push((k, other));
             }
             created.push(Planned {
-                simplex: self.make_simplex(vertices, Vec::new(), Sign::Positive)?,
+                simplex: self.make_simplex(
+                    vertices,
+                    Vec::new(),
+                    Sign::Positive,
+                    Some(Origin {
+                        parent: old,
+                        parent_id: visible_id,
+                        neighbor: self.facets.get(across),
+                        slot,
+                    }),
+                )?,
                 links: vec![Link::Old(across); d],
                 across,
                 replaces: visible_id,

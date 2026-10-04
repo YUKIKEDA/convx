@@ -315,6 +315,61 @@ pub(crate) fn with_unit_scaling<R>(facet: &[&[f64]], f: impl FnOnce(&[&[f64]]) -
     }
 }
 
+/// The frame of [`facet_cofactors`]: the power of two the facet's
+/// coordinates were multiplied by, 0 when they were taken as they are.
+pub(crate) fn cofactor_shift(facet: &[&[f64]]) -> i32 {
+    unit_scaling_shift(facet).unwrap_or(0)
+}
+
+/// The largest certified direction error at which updated cofactors are
+/// kept (#133). Each update adds the errors of two stored factors, so a
+/// chain of updates loosens; past this limit the child runs the shared
+/// elimination, and its own children start from that tight factor.
+const UPDATE_LIMIT: f64 = 1.0 / (1_u64 << 40) as f64;
+
+/// The [`facet_cofactors`] of `child`, which replaces vertex `old` of a
+/// facet with stored cofactors `parent` and keeps the ridge it shares with
+/// a facet whose cofactors `neighbor` are stored in frame `neighbor_shift`;
+/// `q` is that facet's vertex off the ridge (#133). `child[0]` must be the
+/// parent's origin. See [`crate::predicates::updated_cofactors`].
+///
+/// The update comes out in the neighbor's frame, `2^(s_N (k - 1))` times the
+/// child's cofactors; it is moved to the child's own frame by the exact
+/// power of two `2^((k - 1)(s_C - s_N))`. Returns `None`, and the caller
+/// eliminates instead, when the update has no certificate, when a moved
+/// value or bound would leave the normal range, or when the certified
+/// direction error exceeds `UPDATE_LIMIT`.
+pub(crate) fn child_cofactors(
+    child: &[&[f64]],
+    parent: &[(f64, f64)],
+    neighbor: &[(f64, f64)],
+    neighbor_shift: i32,
+    apex_slot: usize,
+    old: &[f64],
+    q: &[f64],
+) -> Option<Vec<(f64, f64)>> {
+    let k = child.len();
+    debug_assert!(apex_slot >= 1 && apex_slot < k, "the origin is kept");
+    let updated =
+        crate::predicates::updated_cofactors(parent, neighbor, child[0], child[apex_slot], old, q)?;
+    let exponent = (k as i64 - 1) * (i64::from(cofactor_shift(child)) - i64::from(neighbor_shift));
+    let exponent = i32::try_from(exponent)
+        .ok()
+        .filter(|e| e.abs() <= 2 * 1022)?;
+    // A power of two is exact on a normal result; a value or bound that
+    // would be subnormal, or overflow, is not moved.
+    let moved = |x: f64| {
+        let y = scale_by_power_of_two(x, exponent);
+        (x == 0.0 || (y.is_normal() && y.is_finite())).then_some(y)
+    };
+    let cofactors: Vec<(f64, f64)> = updated
+        .into_iter()
+        .map(|(value, bound)| Some((moved(value)?, moved(bound)?)))
+        .collect::<Option<_>>()?;
+    let (_, err) = certified_cofactor_direction(k, Some(&cofactors))?;
+    (err <= UPDATE_LIMIT).then_some(cofactors)
+}
+
 /// The [`facet_cofactors`] of a lifted facet widened to bound the cofactors
 /// of the exact lift (#109). `facet` holds the rounded lifted coordinates,
 /// only the last of which is rounded, and `bounds[i]` bounds the rounding of

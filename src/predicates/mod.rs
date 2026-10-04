@@ -338,6 +338,61 @@ pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Vec<(f64, f64)>> {
     Some(cofactors)
 }
 
+/// The cofactors of a facet `C` that replaces one non-origin vertex of a
+/// facet `P` with `apex`, from the stored cofactors of `P` and of the
+/// facet `N` across the ridge that `C` keeps (#133).
+///
+/// Let `R` be the edge rows that `P` and `C` share (relative to `P`'s
+/// origin `p0`), `u = old - p0` the row `C` replaces, `w = apex - p0` and
+/// `v = q - p0`, `q` the vertex of `N` off the ridge. The cofactor vector
+/// `c(R, x)` of the rows `R` with `x` in the replaced row is linear in `x`
+/// and orthogonal to `R`, and with `alpha = c(R, u)` (the cofactors of
+/// `P`) and `beta = c(R, v)`,
+///
+/// `c(R, w) = ((alpha . w) beta - (beta . w) alpha) / (alpha . v)`,
+///
+/// because both sides are linear in `w`, vanish on `R`, and agree at `u`
+/// and `v`, which span the rest. The cofactors of `N` are `beta` up to a
+/// sign `epsilon` (its vertex order and origin) and a positive power-of-two
+/// frame; `alpha . u = 0` and `c(R, w) . u = -(alpha . w)` give
+/// `epsilon = -sign(beta' . u) sign(alpha . v)`. Every product carries its
+/// running bound (`filter::Approx`), so each returned `(value, bound)`
+/// contains the exact cofactor of `C` scaled by `N`'s frame. Returns `None`
+/// when `alpha . w`, `alpha . v`, or `beta' . u` has no certified sign, or a
+/// bound is not finite.
+pub(crate) fn updated_cofactors(
+    parent: &[(f64, f64)],
+    neighbor: &[(f64, f64)],
+    p0: &[f64],
+    apex: &[f64],
+    old: &[f64],
+    q: &[f64],
+) -> Option<Vec<(f64, f64)>> {
+    let k = parent.len();
+    debug_assert!(neighbor.len() == k && p0.len() == k && apex.len() == k);
+    let difference = |x: &[f64], j: usize| Approx::exact(x[j]).sub(Approx::exact(p0[j]));
+    let dot = |c: &[(f64, f64)], x: &[f64]| {
+        (0..k).fold(Approx::exact(0.0), |sum, j| {
+            sum.add(Approx::stored(c[j].0, c[j].1).mul(difference(x, j)))
+        })
+    };
+    let aw = dot(parent, apex);
+    let av = dot(parent, q);
+    let bw = dot(neighbor, apex);
+    let bu = dot(neighbor, old);
+    aw.certified_sign()?;
+    let negate = av.certified_sign()? == bu.certified_sign()?;
+    (0..k)
+        .map(|j| {
+            let alpha = Approx::stored(parent[j].0, parent[j].1);
+            let beta = Approx::stored(neighbor[j].0, neighbor[j].1);
+            let m = aw.mul(beta).sub(bw.mul(alpha)).div(av)?;
+            let m = if negate { m.negated() } else { m };
+            (m.value().is_finite() && m.error().is_finite()).then(|| (m.value(), m.error()))
+        })
+        .collect()
+}
+
 const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
 
 /// The largest error bound at which a filtered cofactor direction is used.
