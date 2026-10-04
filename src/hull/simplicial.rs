@@ -13,11 +13,14 @@
 //!
 //! 1. Each facet with outside points proposes its farthest one.
 //! 2. Candidates are packed by working distance, largest first, ties by the
-//!    smaller index. A candidate is taken when its facets T = V ∪ N (visible
-//!    facets and the facets across its horizon) and its horizon ridges H are
-//!    not yet reserved, and when neither it nor a taken candidate is strictly
-//!    outside a prospective simplex (a horizon ridge joined with the point)
-//!    of the other. Otherwise it waits for the next round in its outside
+//!    smaller index, and a round examines only the first
+//!    [`ROUND_CANDIDATES`]; the others wait in their outside sets. Points
+//!    late in the order lie near the hull, and farther points would remove
+//!    most of their simplices again. A candidate is taken when its facets
+//!    T = V ∪ N (visible facets and the facets across its horizon) and its
+//!    horizon ridges H are not yet reserved, and when neither it nor a taken
+//!    candidate is strictly outside a prospective simplex (a horizon ridge
+//!    joined with the point) of the other. Otherwise it waits for the next round in its outside
 //!    set.
 //! 3. The batch is applied in ascending input index.
 
@@ -335,7 +338,9 @@ impl<'a> SimplicialHull<'a> {
         working_distance(&self.input, facet, point)
     }
 
-    /// One candidate per facet with outside points, in packing order.
+    /// The candidates a round examines: of the one candidate per facet with
+    /// outside points, the first [`ROUND_CANDIDATES`] in packing order, in
+    /// that order. Only those are ordered; the others stay in `pending`.
     ///
     /// `pending` holds the candidates of every facet with outside points,
     /// possibly with entries of removed facets, which are dropped here; it
@@ -361,13 +366,19 @@ impl<'a> SimplicialHull<'a> {
         // Outside sets are disjoint, so a point is the candidate of at most
         // one facet, and the order does not depend on the order of
         // `pending`.
-        pending.sort_by(|&(p, _, dp), &(q, _, dq)| {
+        let order = |&(p, _, dp): &(u32, FacetId, Option<f64>),
+                     &(q, _, dq): &(u32, FacetId, Option<f64>)| {
             if packs_before((p, dp), (q, dq)) {
                 core::cmp::Ordering::Less
             } else {
                 core::cmp::Ordering::Greater
             }
-        });
+        };
+        if pending.len() > ROUND_CANDIDATES {
+            pending.select_nth_unstable_by(ROUND_CANDIDATES - 1, order);
+        }
+        let round = pending.len().min(ROUND_CANDIDATES);
+        pending[..round].sort_unstable_by(order);
         #[cfg(debug_assertions)]
         {
             let mut whole: Vec<(u32, FacetId)> = self
@@ -383,12 +394,12 @@ impl<'a> SimplicialHull<'a> {
                 "the pending candidates differ from the arena's"
             );
         }
-        pending.clone()
+        pending[..round].to_vec()
     }
 
     /// [`Self::candidates`] read from the whole arena, for tests.
     #[cfg(test)]
-    fn all_candidates(&self) -> Vec<(u32, FacetId, Option<f64>)> {
+    fn round_candidates(&self) -> Vec<(u32, FacetId, Option<f64>)> {
         self.candidates(&mut Vec::new(), &mut false)
     }
 
@@ -458,9 +469,10 @@ impl<'a> SimplicialHull<'a> {
     /// index (design §6). The first candidate always fits, so a round with
     /// candidates is never empty.
     ///
-    /// Candidates are packed in [`packs_before`] order. A candidate is taken
-    /// when none of its facets T = V ∪ N and none of its horizon ridges H is
-    /// already reserved. A debug build also asserts that neither it nor a
+    /// The first [`ROUND_CANDIDATES`] candidates are packed in
+    /// [`packs_before`] order; the others are not examined. A candidate is
+    /// taken when none of its facets T = V ∪ N and none of its horizon ridges
+    /// H is already reserved. A debug build also asserts that neither it nor a
     /// taken candidate is strictly outside a prospective simplex of the
     /// other; that never holds once T and H are free (see
     /// [`Self::conflicts`]), so it skips no candidate. A skipped candidate
@@ -1196,6 +1208,10 @@ struct WalkScratch {
     region: Region,
 }
 
+/// The candidates a round examines, the first in packing order (design §6).
+/// The rest wait in their outside sets for a later round.
+const ROUND_CANDIDATES: usize = 64;
+
 /// Packing order of design §6: a larger working distance first, ties by the
 /// smaller index; a missing distance packs after every present one.
 fn packs_before(a: (u32, Option<f64>), b: (u32, Option<f64>)) -> bool {
@@ -1488,7 +1504,7 @@ pub(crate) mod tests {
             0.0, 0.0, 4.0, 0.0, 0.0, 4.0, 0.5, -1.0, 2.0, -3.0, 3.0, -3.0,
         ];
         let hull = initial(2, &points);
-        let candidates = hull.all_candidates();
+        let candidates = hull.round_candidates();
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].0, 4);
         assert_eq!(candidates[0].2, Some(3.0));
@@ -1505,7 +1521,7 @@ pub(crate) mod tests {
         assert_eq!(batch.len(), 1);
         assert_eq!(batch[0].0, 3);
         hull.insert_point(batch[0].1, 3).unwrap();
-        let next: Vec<u32> = hull.all_candidates().iter().map(|c| c.0).collect();
+        let next: Vec<u32> = hull.round_candidates().iter().map(|c| c.0).collect();
         assert_eq!(next, vec![4], "the deferred point is proposed again");
     }
 
@@ -1520,27 +1536,52 @@ pub(crate) mod tests {
         /// Candidates whose T and H were free but that were dropped for a
         /// prospective-simplex conflict.
         prospective_drops: usize,
+        /// Rounds whose 64th candidate is taken.
+        last_taken: usize,
+        /// Rounds whose 65th candidate would be taken if it were examined.
+        next_free: usize,
     }
 
     /// Replays every round against an independent statement of the §6
-    /// packing: in packing order, a candidate is taken exactly when its T
-    /// and H miss every taken candidate's T and H and neither it nor a taken
-    /// candidate is strictly outside a prospective simplex of the other.
-    /// Batches are in ascending index, and the final hull is valid.
+    /// packing: of every facet's farthest point, ordered by distance then
+    /// index, only the first 64 are examined; in that order, a candidate is
+    /// taken exactly when its T and H miss every taken candidate's T and H
+    /// and neither it nor a taken candidate is strictly outside a
+    /// prospective simplex of the other. Batches are in ascending index, and
+    /// the final hull is valid.
     fn check_rounds(dim: usize, points: &[f64]) -> Rounds {
         let mut hull = initial(dim, points);
         let mut stats = Rounds::default();
         loop {
-            let candidates = hull.all_candidates();
+            let mut every: Vec<(u32, FacetId, Option<f64>)> = hull
+                .facets
+                .iter()
+                .filter_map(|(id, facet)| facet.farthest.map(|(p, d)| (p, id, d)))
+                .collect();
+            every.sort_by(|a, b| {
+                if packs_before((a.0, a.2), (b.0, b.2)) {
+                    core::cmp::Ordering::Less
+                } else {
+                    core::cmp::Ordering::Greater
+                }
+            });
+            let examined = every.len().min(64);
+            assert_eq!(hull.round_candidates(), every[..examined]);
             let batch = hull.next_batch().unwrap();
             if batch.is_empty() {
-                assert!(candidates.is_empty());
+                assert!(every.is_empty());
                 break;
             }
             stats.largest = stats.largest.max(batch.len());
             assert!(batch.windows(2).all(|w| w[0].0 < w[1].0));
+            assert!(
+                batch
+                    .iter()
+                    .all(|&(p, f)| every[..examined].iter().any(|&(q, g, _)| (q, g) == (p, f))),
+                "the batch takes a candidate past the first 64"
+            );
             let mut taken: Vec<Taken> = Vec::new();
-            for &(p, f, _) in &candidates {
+            for (rank, &(p, f, _)) in every.iter().enumerate().take(65) {
                 let region = hull.visible_region(f, p).unwrap();
                 let t: HashSet<FacetId> = region.touched().collect();
                 let h: HashSet<Vec<u32>> = hull.horizon_ridges(&region).into_iter().collect();
@@ -1552,7 +1593,16 @@ pub(crate) mod tests {
                     hull.outside_any(qp, p).unwrap() || hull.outside_any(&prospective, *q).unwrap()
                 });
                 let expected = free && !conflict;
+                if rank == 64 {
+                    assert!(
+                        !batch.contains(&(p, f)),
+                        "candidate {p} is past the first 64"
+                    );
+                    stats.next_free += usize::from(expected);
+                    break;
+                }
                 assert_eq!(batch.contains(&(p, f)), expected, "candidate {p}");
+                stats.last_taken += usize::from(rank == 63 && expected);
                 if free && conflict {
                     stats.prospective_drops += 1;
                 }
@@ -1585,6 +1635,22 @@ pub(crate) mod tests {
         // With T and H free, a prospective conflict cannot occur (see
         // `conflicts`); the replay above would have counted one.
         assert_eq!(drops, 0);
+    }
+
+    #[test]
+    fn a_round_examines_only_the_first_64_candidates() {
+        // On a sphere every point is a vertex and the regions are small, so
+        // rounds have more than 64 candidates and many of them fit. The
+        // replay fails if a 65th is examined or the 64th is not.
+        let mut rng = Rng(22);
+        let mut points: Vec<f64> = (0..3 * 1000).map(|_| rng.unit()).collect();
+        for p in points.chunks_exact_mut(3) {
+            let norm = p.iter().map(|x| x * x).sum::<f64>().sqrt();
+            p.iter_mut().for_each(|x| *x /= norm);
+        }
+        let stats = check_rounds(3, &points);
+        assert!(stats.last_taken > 0, "no round takes its 64th candidate");
+        assert!(stats.next_free > 0, "no round's 65th candidate fits");
     }
 
     #[test]
@@ -1626,7 +1692,7 @@ pub(crate) mod tests {
         let mut hull = initial(2, &points);
         let mut seen = false;
         loop {
-            let candidates: Vec<u32> = hull.all_candidates().iter().map(|c| c.0).collect();
+            let candidates: Vec<u32> = hull.round_candidates().iter().map(|c| c.0).collect();
             let batch = hull.next_batch().unwrap();
             if batch.is_empty() {
                 break;
