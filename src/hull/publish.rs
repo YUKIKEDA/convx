@@ -1,5 +1,7 @@
 //! The published convex hull (design §5, §9).
 
+use core::cmp::Ordering;
+
 use super::classify::{classify, Classified};
 use super::input::{accept, minimum_basis, Input};
 use super::simplicial::Execution;
@@ -8,6 +10,7 @@ use crate::normal::{certified_side, facet_cofactors, facet_cofactors_in_lanes, u
 #[cfg(debug_assertions)]
 use crate::predicates::Sign;
 use crate::predicates::{orient, Cofactors, COFACTOR_LANES};
+use crate::small::Small;
 
 /// Builds a [`ConvexHull`] from row-major coordinates.
 ///
@@ -299,6 +302,30 @@ fn determinant(mut m: Vec<Vec<f64>>) -> f64 {
     det
 }
 
+/// The numbers `0..n` ordered by `list` lexicographically, equal lists by
+/// `ties`.
+///
+/// A key of the first two items, a missing item read as zero, orders two
+/// lists whenever the keys differ, so the lists are read only on equal keys.
+fn lexicographic_order<'a>(
+    n: usize,
+    list: impl Fn(usize) -> &'a [u32],
+    ties: impl Fn(usize, usize) -> Ordering,
+) -> Vec<u32> {
+    let key = |items: &[u32]| {
+        let item = |k: usize| u64::from(items.get(k).copied().unwrap_or(0));
+        item(0) << 32 | item(1)
+    };
+    let mut keyed: Vec<(u64, u32)> = (0..n).map(|i| (key(list(i)), i as u32)).collect();
+    keyed.sort_unstable_by(|&(ka, a), &(kb, b)| {
+        let (a, b) = (a as usize, b as usize);
+        ka.cmp(&kb)
+            .then_with(|| list(a).cmp(list(b)))
+            .then_with(|| ties(a, b))
+    });
+    keyed.into_iter().map(|(_, i)| i).collect()
+}
+
 /// Whether sorting `vertices` (distinct) ascending is an odd permutation:
 /// the parity of its inversions.
 fn odd_permutation(vertices: &[u32]) -> bool {
@@ -353,45 +380,56 @@ fn facet_plane(
 pub(crate) fn for_each_facet_normal(
     input: &Input<'_>,
     facets: &[(&[u32], u32)],
-    mut f: impl FnMut(Vec<u32>, Vec<f64>) -> Result<(), ConvexHullError>,
+    mut f: impl FnMut(&[u32], Vec<f64>) -> Result<(), ConvexHullError>,
 ) -> Result<(), ConvexHullError> {
     let point = |i: u32| input.point(i);
     for chunk in facets.chunks(COFACTOR_LANES) {
-        let bases: Vec<Result<Vec<u32>, ConvexHullError>> = chunk
-            .iter()
-            .map(|&(vertices, _)| facet_basis(input, vertices))
-            .collect();
-        let points: Vec<Vec<&[f64]>> = bases
-            .iter()
-            .map(|basis| basis.iter().flatten().map(|&v| point(v)).collect())
-            .collect();
-        let cofactors: Vec<Option<Cofactors>> =
+        let bases: [Result<Basis, ConvexHullError>; COFACTOR_LANES] =
+            core::array::from_fn(|lane| match chunk.get(lane) {
+                Some(&(vertices, _)) => facet_basis(input, vertices),
+                None => Ok(Basis::new()),
+            });
+        let points: [BasisPoints<'_>; COFACTOR_LANES] =
+            core::array::from_fn(|lane| match &bases[lane] {
+                Ok(basis) => basis.iter().map(|&v| point(v)).collect(),
+                Err(_) => BasisPoints::new(),
+            });
+        let cofactors: [Option<Cofactors>; COFACTOR_LANES] =
             if chunk.len() == COFACTOR_LANES && bases.iter().all(Result::is_ok) {
-                facet_cofactors_in_lanes(core::array::from_fn(|lane| &*points[lane])).to_vec()
+                facet_cofactors_in_lanes(core::array::from_fn(|lane| &*points[lane]))
             } else {
-                points.iter().map(|p| facet_cofactors(p)).collect()
+                core::array::from_fn(|lane| {
+                    let basis = lane < chunk.len() && bases[lane].is_ok();
+                    basis.then(|| facet_cofactors(&points[lane])).flatten()
+                })
             };
         for (((&(_, inner), basis), points), cofactors) in
             chunk.iter().zip(bases).zip(&points).zip(cofactors)
         {
             let basis = basis?;
             let normal = oriented_normal(input, points, inner, cofactors)?;
-            f(basis, normal)?;
+            f(&basis, normal)?;
         }
     }
     Ok(())
 }
 
+/// A facet basis: D vertex numbers, inline up to the lane range.
+type Basis = Small<u32, 10>;
+
+/// The points of a [`Basis`], with room for the inner point.
+type BasisPoints<'a> = Small<&'a [f64], 11>;
+
 /// The first D affinely independent vertices of a facet in lexicographic
 /// order.
-fn facet_basis(input: &Input<'_>, facet_vertices: &[u32]) -> Result<Vec<u32>, ConvexHullError> {
+fn facet_basis(input: &Input<'_>, facet_vertices: &[u32]) -> Result<Basis, ConvexHullError> {
     let d = input.dim();
     let point = |i: u32| input.point(i);
     // A facet with exactly D vertices spans its (D - 1)-flat, so they are
     // affinely independent and the walk of `minimum_basis` takes them all.
     Ok(if facet_vertices.len() == d {
         debug_assert_eq!(minimum_basis(d, facet_vertices, point)?, facet_vertices);
-        facet_vertices.to_vec()
+        Basis::from(facet_vertices)
     } else {
         minimum_basis(d, facet_vertices, point)?
             .into_iter()
@@ -410,26 +448,25 @@ fn oriented_normal(
     cofactors: Option<Cofactors>,
 ) -> Result<Vec<f64>, ConvexHullError> {
     let point = |i: u32| input.point(i);
-    let mut points = points.to_vec();
+    let with_inner =
+        || -> BasisPoints<'_> { points.iter().copied().chain([point(inner)]).collect() };
     // The cofactors certify the normal and usually prove the side of
     // `inner` too, without the orientation determinant.
     let proved = cofactors
         .as_deref()
-        .and_then(|c| certified_side(&points, c, point(inner)));
-    points.push(point(inner));
+        .and_then(|c| certified_side(points, c, point(inner)));
     let inside = match proved {
         Some(sign) => {
             debug_assert_eq!(
                 sign,
-                orient(&points)?,
+                orient(&with_inner())?,
                 "the cofactors proved the wrong side"
             );
             sign
         }
-        None => orient(&points)?,
+        None => orient(&with_inner())?,
     };
-    points.pop();
-    unit_normal_with(&points, inside.reversed(), cofactors.as_deref())?
+    unit_normal_with(points, inside.reversed(), cofactors.as_deref())?
         .ok_or(ConvexHullError::NonFiniteFacetPlane)
 }
 
@@ -438,60 +475,75 @@ fn publish(c: Classified<'_>) -> Result<ConvexHull, ConvexHullError> {
     let d = c.input.dim();
 
     // Facets ordered by vertex list.
-    let mut order: Vec<usize> = (0..c.faces.len()).collect();
-    order.sort_by(|&a, &b| c.faces[a].vertices.cmp(&c.faces[b].vertices));
+    let order = lexicographic_order(
+        c.faces.len(),
+        |i| c.faces[i].vertices.as_slice(),
+        |a, b| a.cmp(&b),
+    );
     let mut number = vec![0_u32; c.faces.len()];
     for (public, &internal) in order.iter().enumerate() {
-        number[internal] = public as u32;
+        number[internal as usize] = public as u32;
     }
 
     let queries: Vec<(&[u32], u32)> = order
         .iter()
         .map(|&internal| {
-            let vertices = &c.faces[internal].vertices;
+            let vertices = &c.faces[internal as usize].vertices;
             (vertices.as_slice(), inner_reference(&c.vertices, vertices))
         })
         .collect();
     let mut facets = Vec::with_capacity(order.len());
     for_each_facet_normal(&c.input, &queries, |basis, normal| {
-        let face = &c.faces[order[facets.len()]];
+        let face = &c.faces[order[facets.len()] as usize];
         let mut neighbors: Vec<u32> = face.neighbors.iter().map(|&n| number[n as usize]).collect();
         neighbors.sort_unstable();
         facets.push(LogicalFacet {
-            vertices: face.vertices.clone(),
-            plane: facet_plane(&c.input, &basis, normal)?,
+            vertices: Vec::new(),
+            plane: facet_plane(&c.input, basis, normal)?,
             neighbors,
         });
         Ok(())
     })?;
+    drop(queries);
+    let mut faces = c.faces;
+    for (facet, &internal) in facets.iter_mut().zip(&order) {
+        facet.vertices = core::mem::take(&mut faces[internal as usize].vertices);
+    }
 
     // Boundary simplices: ascending vertex lists, ordered lexicographically,
     // then the last two swapped where that makes the order outward. Every
     // simplex of the complex is in outward order, so the ascending list is
     // outward exactly when the sort is an even permutation: a transposition
     // of two vertices reverses the orientation sign.
-    let mut simplices: Vec<(Vec<u32>, u32, bool)> = c
-        .simplices
-        .iter()
-        .map(|s| {
-            let mut sorted = s.vertices.clone();
-            sorted.sort_unstable();
-            (
-                sorted,
-                number[s.face as usize],
-                odd_permutation(&s.vertices),
-            )
-        })
-        .collect();
-    simplices.sort();
-    let mut simplex_vertices = Vec::with_capacity(simplices.len() * d);
-    let mut simplex_facets = Vec::with_capacity(simplices.len());
-    for (mut vertices, facet, odd) in simplices {
+    let mut sorted = Vec::with_capacity(c.simplices.len() * d);
+    let mut simplex_number = Vec::with_capacity(c.simplices.len());
+    let mut simplex_odd = Vec::with_capacity(c.simplices.len());
+    for s in &c.simplices {
+        debug_assert_eq!(s.vertices.len(), d);
+        let start = sorted.len();
+        sorted.extend_from_slice(&s.vertices);
+        sorted[start..].sort_unstable();
+        simplex_number.push(number[s.face as usize]);
+        simplex_odd.push(odd_permutation(&s.vertices));
+    }
+    let row = |i: usize| &sorted[i * d..(i + 1) * d];
+    // Equal vertex lists then go by facet and parity, the order of the
+    // tuples `(sorted, facet, odd)`.
+    let simplex_order = lexicographic_order(c.simplices.len(), row, |a, b| {
+        (simplex_number[a], simplex_odd[a]).cmp(&(simplex_number[b], simplex_odd[b]))
+    });
+    let mut simplex_vertices = Vec::with_capacity(sorted.len());
+    let mut simplex_facets = Vec::with_capacity(simplex_order.len());
+    for &i in &simplex_order {
+        let i = i as usize;
+        let (facet, odd) = (simplex_number[i], simplex_odd[i]);
+        let start = simplex_vertices.len();
+        simplex_vertices.extend_from_slice(row(i));
         if d >= 2 {
             #[cfg(debug_assertions)]
             {
                 let inner = inner_reference(&c.vertices, &facets[facet as usize].vertices);
-                let mut points: Vec<&[f64]> = vertices.iter().map(|&v| c.input.point(v)).collect();
+                let mut points: Vec<&[f64]> = row(i).iter().map(|&v| c.input.point(v)).collect();
                 points.push(c.input.point(inner));
                 debug_assert_eq!(
                     orient(&points)? == Sign::Positive,
@@ -500,10 +552,9 @@ fn publish(c: Classified<'_>) -> Result<ConvexHull, ConvexHullError> {
                 );
             }
             if odd {
-                vertices.swap(d - 2, d - 1);
+                simplex_vertices.swap(start + d - 2, start + d - 1);
             }
         }
-        simplex_vertices.extend(vertices);
         simplex_facets.push(facet);
     }
 
@@ -523,4 +574,52 @@ fn publish(c: Classified<'_>) -> Result<ConvexHull, ConvexHullError> {
         simplex_facets,
         vertex_coordinates,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hull::simplicial::tests::Rng;
+
+    #[test]
+    fn lexicographic_order_is_the_order_of_the_lists_then_the_ties() {
+        let mut rng = Rng(151);
+        let alphabet = [0, 1, 2, u32::MAX - 1, u32::MAX];
+        for trial in 0..400 {
+            // Short alphabets and a shared stem make long common prefixes,
+            // lists that are prefixes of others, and equal lists.
+            let stem: Vec<u32> = (0..rng.next() % 4)
+                .map(|_| alphabet[(rng.next() % 5) as usize])
+                .collect();
+            let n = 1 + (rng.next() % 40) as usize;
+            let lists: Vec<Vec<u32>> = (0..n)
+                .map(|_| {
+                    let mut list = if rng.next().is_multiple_of(2) {
+                        stem.clone()
+                    } else {
+                        Vec::new()
+                    };
+                    let extra = rng.next() % 4;
+                    list.extend((0..extra).map(|_| alphabet[(rng.next() % 5) as usize]));
+                    list
+                })
+                .collect();
+            let tag: Vec<u64> = (0..n).map(|_| rng.next() % 3).collect();
+            let order = lexicographic_order(
+                n,
+                |i| lists[i].as_slice(),
+                |a, b| tag[a].cmp(&tag[b]).then(b.cmp(&a)),
+            );
+            let mut expected: Vec<u32> = (0..n as u32).collect();
+            expected.sort_by(|&a, &b| {
+                let (a, b) = (a as usize, b as usize);
+                (&lists[a], tag[a], core::cmp::Reverse(a)).cmp(&(
+                    &lists[b],
+                    tag[b],
+                    core::cmp::Reverse(b),
+                ))
+            });
+            assert_eq!(order, expected, "trial {trial}: {lists:?} {tag:?}");
+        }
+    }
 }
