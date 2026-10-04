@@ -756,16 +756,24 @@ impl<'a> SimplicialHull<'a> {
             let d = vertices.len();
             debug_assert_eq!(d, width + 2, "a simplex has D vertices");
             let k = created.len();
-            for other in (0..d).filter(|&m| m != slot) {
-                let start = keys.len();
+            // The horizon ridge, sorted once with each vertex's slot; the
+            // key of the ridge opposite one of them is the rest, still
+            // sorted.
+            let mut ridge: Small<(u32, usize), 8> = vertices
+                .iter()
+                .enumerate()
+                .filter(|&(m, _)| m != slot)
+                .map(|(m, &v)| (v, m))
+                .collect();
+            ridge.sort_unstable();
+            for (skip, &(_, other)) in ridge.iter().enumerate() {
                 keys.extend(
-                    vertices
+                    ridge
                         .iter()
                         .enumerate()
-                        .filter(|&(m, _)| m != other && m != slot)
-                        .map(|(_, &v)| v),
+                        .filter(|&(i, _)| i != skip)
+                        .map(|(_, &(v, _))| v),
                 );
-                keys[start..].sort_unstable();
                 owners.push((k, other));
             }
             created.push(Planned {
