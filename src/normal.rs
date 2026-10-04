@@ -4,9 +4,10 @@
 //! (`faer`) of the D x (D - 1) matrix of edge vectors: the last column of the
 //! full Q is orthogonal to the column space of the edges. The working normal
 //! used by distance scans is the certified cofactor direction, not that QR.
-//! Which of the two opposite directions is returned is decided only by the
-//! exact sign of [`orient_direction`] against the computed vector, never by a
-//! floating-point comparison.
+//! Which of the two opposite directions is returned follows from the
+//! certified error alone: a vector within distance 1 of the unit direction of
+//! the exact cofactors has a positive [`orient_direction`] sign, so neither
+//! the sign nor a floating-point comparison decides it (#120).
 //!
 //! QR can lose a direction: when an edge is nearly parallel to the span of
 //! the others, a Householder step whose remaining column norm is at rounding
@@ -26,7 +27,8 @@
 use faer::Mat;
 
 use crate::predicates::{
-    cofactor_direction_from, direction_cofactors, orient_direction, ExactEvaluationExhausted, Sign,
+    certified_cofactor_direction, cofactor_direction_from, direction_cofactors, orient_direction,
+    ExactEvaluationExhausted, Sign,
 };
 
 const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
@@ -77,17 +79,11 @@ pub(crate) fn unit_normal(
 /// The filtered cofactors of `facet` (k points of dimension k) as the
 /// certification of its normal reads them: of the facet scaled by one power
 /// of two when that is exact for every coordinate (see
-/// [`exact_unit_scaling`]), otherwise of the facet itself. [`unit_normal`]
+/// [`unit_scaling_shift`]), otherwise of the facet itself. [`unit_normal`]
 /// and [`crate::cull::CullPlane::with_cofactors`] both certify against these, so a
 /// caller that needs both evaluates them once and passes them on (#86).
 pub(crate) fn facet_cofactors(facet: &[&[f64]]) -> Option<Vec<(f64, f64)>> {
-    match exact_unit_scaling(facet) {
-        Some(points) => {
-            let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
-            direction_cofactors(&refs)
-        }
-        None => direction_cofactors(facet),
-    }
+    with_unit_scaling(facet, direction_cofactors)
 }
 
 /// [`unit_normal`] with `cofactors`, the [`facet_cofactors`] of `facet`.
@@ -100,17 +96,32 @@ pub(crate) fn unit_normal_with(
         facet.iter().all(|p| p.len() == facet.len()),
         "facet needs D points of dimension D"
     );
-    if facet.len() == 1 {
-        return orient_outward(facet, vec![1.0], outward);
-    }
     let Some((direction, err)) = cofactor_reference(facet, cofactors)? else {
         return Ok(None);
     };
-    let candidate = match qr_normal(facet) {
-        Some(n) if distance_up_to_sign(&n, &direction) <= err + QR_TOLERANCE => n,
-        _ => direction,
-    };
-    orient_outward(facet, candidate, outward)
+    if facet.len() == 1 {
+        return Ok(orient_by_proof(facet, direction, outward));
+    }
+    let candidate = qr_normal(facet).and_then(|n| {
+        let minus = squared_distance(&n, &direction, 1.0);
+        let plus = squared_distance(&n, &direction, -1.0);
+        // The QR vector with the sign that lies near the direction: within
+        // err + QR_TOLERANCE of a vector within err of the exact cofactor
+        // direction, so it lies on the same side of the facet (see
+        // `orient_by_proof`).
+        if minus.min(plus).sqrt() > err + QR_TOLERANCE {
+            None
+        } else if minus <= plus {
+            Some(n)
+        } else {
+            Some(n.into_iter().map(|x| -x).collect())
+        }
+    });
+    Ok(orient_by_proof(
+        facet,
+        candidate.unwrap_or(direction),
+        outward,
+    ))
 }
 
 /// Working normal of the hyperplane through `facet`: the certified cofactor
@@ -127,11 +138,12 @@ pub(crate) fn working_normal(
     let Some((direction, _)) = cofactor_reference(facet, cofactors)? else {
         return Ok(None);
     };
-    orient_outward(facet, direction, outward)
+    Ok(orient_by_proof(facet, direction, outward))
 }
 
-/// The certified cofactor direction of `facet`, before it is oriented.
-/// `None` when every cofactor is zero. `outward` is checked by the caller.
+/// The certified cofactor direction of `facet`, before it is oriented, with
+/// its error bound, which is below 1. `None` when every cofactor is zero.
+/// The facet is scaled only when the exact cofactors are needed.
 fn cofactor_reference(
     facet: &[&[f64]],
     cofactors: Option<&[(f64, f64)]>,
@@ -145,58 +157,54 @@ fn cofactor_reference(
     if d == 1 {
         return Ok(Some((vec![1.0], 0.0)));
     }
-    let scaled = exact_unit_scaling(facet);
-    match &scaled {
-        Some(points) => {
-            let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
-            cofactor_direction_from(&refs, cofactors)
-        }
-        None => cofactor_direction_from(facet, cofactors),
+    if let Some(certified) = certified_cofactor_direction(d, cofactors) {
+        return Ok(Some(certified));
     }
+    with_unit_scaling(facet, |points| cofactor_direction_from(points, None))
 }
 
-/// `candidate` flipped so that its exact orientation sign is `outward`.
-fn orient_outward(
-    facet: &[&[f64]],
-    candidate: Vec<f64>,
-    outward: Sign,
-) -> Result<Option<Vec<f64>>, ExactEvaluationExhausted> {
+/// `candidate`, which lies within distance 1 of the unit direction of the
+/// exact cofactor vector `c` of `facet`, flipped to the `outward` side.
+///
+/// `orient_direction(facet, v)` is the sign of `v . c`. For `u = c / |c|`
+/// and `|v - u| = e < 1`, `|v| >= 1 - e` and
+/// `v . u = (|v|^2 + 1 - e^2) / 2 >= 1 - e > 0`, so the sign of the
+/// candidate is positive without evaluating the determinant. Scaling the
+/// facet by a power of two multiplies `c` by a positive number and keeps
+/// that sign.
+fn orient_by_proof(facet: &[&[f64]], candidate: Vec<f64>, outward: Sign) -> Option<Vec<f64>> {
     debug_assert!(
         outward != Sign::Zero,
         "the outward side must be a nonzero sign"
     );
-    if outward == Sign::Zero {
-        return Ok(None);
+    debug_assert_eq!(
+        orient_direction(facet, &candidate).ok(),
+        Some(Sign::Positive),
+        "a certified direction lies on the positive side"
+    );
+    match outward {
+        Sign::Positive => Some(candidate),
+        Sign::Negative => Some(candidate.into_iter().map(|x| -x).collect()),
+        Sign::Zero => None,
     }
-    let sign = orient_direction(facet, &candidate)?;
-    Ok(if sign == outward {
-        Some(candidate)
-    } else if sign == outward.reversed() {
-        Some(candidate.into_iter().map(|x| -x).collect())
-    } else {
-        None
-    })
 }
 
 /// How far the QR normal may lie from the certified cofactor direction,
 /// beyond that direction's own error bound, before it is rejected.
 const QR_TOLERANCE: f64 = 1e-8;
 
-/// `min(|a - b|, |a + b|)`.
-fn distance_up_to_sign(a: &[f64], b: &[f64]) -> f64 {
-    let minus: f64 = a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum();
-    let plus: f64 = a.iter().zip(b).map(|(x, y)| (x + y) * (x + y)).sum();
-    minus.min(plus).sqrt()
+/// `|a - sign * b|^2`.
+fn squared_distance(a: &[f64], b: &[f64], sign: f64) -> f64 {
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (x - sign * y) * (x - sign * y))
+        .sum()
 }
 
-/// The facet scaled by the power of two that brings its largest magnitude
-/// into [1, 2), when that scaling is exact for every coordinate.
-pub(crate) fn exact_unit_scaling(facet: &[&[f64]]) -> Option<Vec<Vec<f64>>> {
-    exact_unit_scaling_with_shift(facet).map(|(_, scaled)| scaled)
-}
-
-/// [`exact_unit_scaling`] with the power of two `shift` it multiplied by.
-fn exact_unit_scaling_with_shift(facet: &[&[f64]]) -> Option<(i32, Vec<Vec<f64>>)> {
+/// The power of two that brings the largest magnitude of `facet` into
+/// [1, 2), when multiplying every coordinate by it is exact. Nothing is
+/// allocated.
+pub(crate) fn unit_scaling_shift(facet: &[&[f64]]) -> Option<i32> {
     let largest = facet
         .iter()
         .flat_map(|p| p.iter())
@@ -206,18 +214,47 @@ fn exact_unit_scaling_with_shift(facet: &[&[f64]]) -> Option<(i32, Vec<Vec<f64>>
         return None;
     }
     let shift = -binary_exponent(largest);
-    let scaled: Vec<Vec<f64>> = facet
-        .iter()
-        .map(|p| p.iter().map(|&x| scale_by_power_of_two(x, shift)).collect())
-        .collect();
     // Bit equality after the round trip is the test for an exact scaling; it
     // does not decide a geometric sign.
-    let exact = facet.iter().zip(&scaled).all(|(p, q)| {
-        p.iter()
-            .zip(q)
-            .all(|(&x, &y)| scale_by_power_of_two(y, -shift) == x)
-    });
-    exact.then_some((shift, scaled))
+    let exact = facet
+        .iter()
+        .flat_map(|p| p.iter())
+        .all(|&x| scale_by_power_of_two(scale_by_power_of_two(x, shift), -shift) == x);
+    exact.then_some(shift)
+}
+
+/// Largest number of points per facet whose scaled copy lives on the stack.
+const STACK_POINTS: usize = 10;
+
+/// `f` of the facet scaled by [`unit_scaling_shift`] when that is exact,
+/// otherwise of the facet itself. Facets of up to `STACK_POINTS` points
+/// are scaled into stack buffers.
+pub(crate) fn with_unit_scaling<R>(facet: &[&[f64]], f: impl FnOnce(&[&[f64]]) -> R) -> R {
+    let Some(shift) = unit_scaling_shift(facet) else {
+        return f(facet);
+    };
+    let k = facet.len();
+    let scale = |x: f64| scale_by_power_of_two(x, shift);
+    if k <= STACK_POINTS && facet.iter().all(|p| p.len() <= STACK_POINTS) {
+        let mut values = [[0.0; STACK_POINTS]; STACK_POINTS];
+        for (row, p) in values.iter_mut().zip(facet) {
+            for (y, &x) in row.iter_mut().zip(p.iter()) {
+                *y = scale(x);
+            }
+        }
+        let mut refs: [&[f64]; STACK_POINTS] = [&[]; STACK_POINTS];
+        for ((r, row), p) in refs.iter_mut().zip(&values).zip(facet) {
+            *r = &row[..p.len()];
+        }
+        f(&refs[..k])
+    } else {
+        let values: Vec<Vec<f64>> = facet
+            .iter()
+            .map(|p| p.iter().map(|&x| scale(x)).collect())
+            .collect();
+        let refs: Vec<&[f64]> = values.iter().map(Vec::as_slice).collect();
+        f(&refs)
+    }
 }
 
 /// The [`facet_cofactors`] of a lifted facet widened to bound the cofactors
@@ -232,7 +269,7 @@ fn exact_unit_scaling_with_shift(facet: &[&[f64]]) -> Option<(i32, Vec<Vec<f64>>
 /// `j` moves by at most `sum_i eta_i |M_ij|`. `M_ij` is a determinant of
 /// the spatial parts of the other edges and a unit row, so by Hadamard
 /// `|M_ij| <= prod_{k != i} |R'_k|`. Every term is taken in the frame of
-/// [`exact_unit_scaling`], as the cofactors are, and rounded up.
+/// [`unit_scaling_shift`], as the cofactors are, and rounded up.
 pub(crate) fn lifted_facet_cofactors(
     facet: &[&[f64]],
     cofactors: &[(f64, f64)],
@@ -240,7 +277,7 @@ pub(crate) fn lifted_facet_cofactors(
 ) -> Option<Vec<(f64, f64)>> {
     let d = facet.len();
     debug_assert!(d >= 2 && cofactors.len() == d && bounds.len() == d);
-    let shift = exact_unit_scaling_with_shift(facet).map_or(0, |(shift, _)| shift);
+    let shift = unit_scaling_shift(facet).unwrap_or(0);
     let grow = 1.0 + 4.0 * (d as f64 + 4.0) * UNIT_ROUNDOFF;
     // Upper bounds on the spatial edge lengths and on the height errors of
     // the edges, in the scaled frame.
@@ -333,6 +370,13 @@ fn qr_normal(facet: &[&[f64]]) -> Option<Vec<f64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `min(|a - b|, |a + b|)`.
+    fn distance_up_to_sign(a: &[f64], b: &[f64]) -> f64 {
+        squared_distance(a, b, 1.0)
+            .min(squared_distance(a, b, -1.0))
+            .sqrt()
+    }
 
     fn normal_of(points: &[Vec<f64>], outward: Sign) -> Option<Vec<f64>> {
         let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
@@ -652,24 +696,66 @@ mod tests {
                     .iter()
                     .map(|p| p.iter().map(|&x| x as f64).collect())
                     .collect();
-                let n = normal_of(&floats, Sign::Positive);
-                if cofactors.iter().all(|&c| c == 0) {
-                    assert!(n.is_none());
-                    continue;
-                }
-                let n = n.unwrap();
+                let refs: Vec<&[f64]> = floats.iter().map(Vec::as_slice).collect();
+                let cofactors_f = facet_cofactors(&refs);
                 let length = cofactors
                     .iter()
                     .map(|&c| (c as f64) * (c as f64))
                     .sum::<f64>()
                     .sqrt();
-                let reference: Vec<f64> = cofactors.iter().map(|&c| c as f64 / length).collect();
-                assert!(
-                    distance_up_to_sign(&n, &reference) <= 2e-8,
-                    "d = {d}: {n:?} vs {reference:?}"
-                );
+                // `orient_direction(facet, v)` is the sign of `v . c`, so the
+                // outward normal lies near `sign * c / |c|`, not only up to
+                // sign: the side is checked as well as the direction (#120).
+                for (outward, sign) in [(Sign::Positive, 1.0), (Sign::Negative, -1.0)] {
+                    let published = unit_normal(&refs, outward).unwrap();
+                    let working = working_normal(&refs, outward, cofactors_f.as_deref()).unwrap();
+                    if cofactors.iter().all(|&c| c == 0) {
+                        assert!(published.is_none() && working.is_none());
+                        continue;
+                    }
+                    let reference: Vec<f64> = cofactors
+                        .iter()
+                        .map(|&c| sign * c as f64 / length)
+                        .collect();
+                    for n in [published.unwrap(), working.unwrap()] {
+                        assert!(
+                            squared_distance(&n, &reference, 1.0).sqrt() <= 2e-8,
+                            "d = {d}: {n:?} vs {reference:?}"
+                        );
+                    }
+                }
             }
         }
+    }
+
+    #[test]
+    fn unit_scaling_is_the_same_on_the_stack_and_the_heap() {
+        // 3 points use the stack buffers; 11 points exceed them.
+        for k in [3, STACK_POINTS + 1] {
+            let points: Vec<Vec<f64>> = (0..k)
+                .map(|i| (0..k).map(|j| (i * k + j) as f64 * 1e5 - 3.0).collect())
+                .collect();
+            let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+            let largest = points.iter().flatten().fold(0.0_f64, |m, x| m.max(x.abs()));
+            // Every coordinate is an integer below 2^53, so the scaling is exact.
+            let shift = unit_scaling_shift(&refs).unwrap();
+            assert_eq!(shift, -binary_exponent(largest));
+            let scaled =
+                with_unit_scaling(&refs, |f| f.iter().map(|p| p.to_vec()).collect::<Vec<_>>());
+            for (p, q) in points.iter().zip(&scaled) {
+                assert_eq!(p.len(), q.len());
+                for (&x, &y) in p.iter().zip(q) {
+                    assert_eq!(y, x * 2f64.powi(shift), "k = {k}");
+                }
+            }
+        }
+        // The smallest subnormal does not survive the scaling of 2^1000:
+        // the facet is passed on as it is.
+        let points = [vec![2f64.powi(1000), ETA / 2.0], vec![1.0, 1.0]];
+        let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+        assert_eq!(unit_scaling_shift(&refs), None);
+        let same = with_unit_scaling(&refs, |f| f[0][1]);
+        assert_eq!(same, ETA / 2.0);
     }
 
     #[test]

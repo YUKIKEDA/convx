@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P5-4 (#28): the owner asked to take the remaining measured costs in turn. The measurement on #28 bounds its gain on the `cube` sets.
+P5-16 (#120): hull `cube` D6 10^4 on one core within 1.39 s, taken in measured steps. P5-4 (#28) follows; the measurement on #28 bounds its gain on the `cube` sets.
 
 ## Dependencies
 
@@ -94,6 +94,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-13 | Feat | Certified cull and strict-side proof for lifted facets        | #109  | Done                   |
 | P5-14 | Feat | Skip the visibility walk for candidates a round rejects       | #110  | Done                   |
 | P5-15 | Feat | One shared elimination for a facet's cofactors                | #111  | Done                   |
+| P5-16 | Feat | Hull cube D6 10^4 within Qhull's time                         | #120  | In progress            |
 
 ## Intentionally out of scope
 
