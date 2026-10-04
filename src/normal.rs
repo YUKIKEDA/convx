@@ -31,8 +31,9 @@
 
 use crate::predicates::{
     certified_cofactor_direction, cofactor_direction_from, direction_cofactors, orient_direction,
-    ExactEvaluationExhausted, Sign,
+    Cofactors, Direction, ExactEvaluationExhausted, Sign,
 };
+use crate::small::Small;
 
 const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
 /// 2^-1073.
@@ -80,7 +81,7 @@ pub(crate) fn unit_normal(
 /// [`unit_scaling_shift`]), otherwise of the facet itself. [`unit_normal_with`]
 /// and [`crate::cull::CullPlane::with_cofactors`] both certify against these, so a
 /// caller that needs both evaluates them once and passes them on (#86).
-pub(crate) fn facet_cofactors(facet: &[&[f64]]) -> Option<Vec<(f64, f64)>> {
+pub(crate) fn facet_cofactors(facet: &[&[f64]]) -> Option<Cofactors> {
     with_unit_scaling(facet, direction_cofactors)
 }
 
@@ -105,7 +106,7 @@ pub(crate) fn unit_normal_with(
         return Ok(None);
     };
     if facet.len() == 1 {
-        return Ok(orient_by_proof(facet, direction, outward));
+        return Ok(orient_by_proof(facet, direction, outward).map(|n| n.to_vec()));
     }
     let candidate = qr_normal(facet).and_then(|n| {
         let minus = squared_distance(&n, &direction, 1.0);
@@ -117,16 +118,12 @@ pub(crate) fn unit_normal_with(
         if minus.min(plus).sqrt() > err + QR_TOLERANCE {
             None
         } else if minus <= plus {
-            Some(n)
+            Some(n.into())
         } else {
             Some(n.into_iter().map(|x| -x).collect())
         }
     });
-    Ok(orient_by_proof(
-        facet,
-        candidate.unwrap_or(direction),
-        outward,
-    ))
+    Ok(orient_by_proof(facet, candidate.unwrap_or(direction), outward).map(|n| n.to_vec()))
 }
 
 /// Working normal of the hyperplane through `facet`: the certified cofactor
@@ -139,7 +136,7 @@ pub(crate) fn working_normal(
     facet: &[&[f64]],
     outward: Sign,
     cofactors: Option<&[(f64, f64)]>,
-) -> Result<Option<Vec<f64>>, ExactEvaluationExhausted> {
+) -> Result<Option<Direction>, ExactEvaluationExhausted> {
     let Some((direction, _)) = cofactor_reference(facet, cofactors)? else {
         return Ok(None);
     };
@@ -152,7 +149,7 @@ pub(crate) fn working_normal(
 fn cofactor_reference(
     facet: &[&[f64]],
     cofactors: Option<&[(f64, f64)]>,
-) -> Result<Option<(Vec<f64>, f64)>, ExactEvaluationExhausted> {
+) -> Result<Option<(Direction, f64)>, ExactEvaluationExhausted> {
     let d = facet.len();
     debug_assert!(d >= 1, "a hyperplane needs at least one point");
     debug_assert!(
@@ -160,7 +157,7 @@ fn cofactor_reference(
         "facet needs D points of dimension D"
     );
     if d == 1 {
-        return Ok(Some((vec![1.0], 0.0)));
+        return Ok(Some(([1.0].as_slice().into(), 0.0)));
     }
     if let Some(certified) = certified_cofactor_direction(d, cofactors) {
         return Ok(Some(certified));
@@ -177,7 +174,7 @@ fn cofactor_reference(
 /// candidate is positive without evaluating the determinant. Scaling the
 /// facet by a power of two multiplies `c` by a positive number and keeps
 /// that sign.
-fn orient_by_proof(facet: &[&[f64]], candidate: Vec<f64>, outward: Sign) -> Option<Vec<f64>> {
+fn orient_by_proof(facet: &[&[f64]], candidate: Direction, outward: Sign) -> Option<Direction> {
     debug_assert!(
         outward != Sign::Zero,
         "the outward side must be a nonzero sign"
@@ -195,7 +192,7 @@ fn orient_by_proof(facet: &[&[f64]], candidate: Vec<f64>, outward: Sign) -> Opti
     }
     match outward {
         Sign::Positive => Some(candidate),
-        Sign::Negative => Some(candidate.into_iter().map(|x| -x).collect()),
+        Sign::Negative => Some(candidate.iter().map(|x| -x).collect()),
         Sign::Zero => None,
     }
 }
@@ -273,12 +270,15 @@ pub(crate) fn unit_scaling_shift(facet: &[&[f64]]) -> Option<i32> {
         return None;
     }
     let shift = -binary_exponent(largest);
-    // Bit equality after the round trip is the test for an exact scaling; it
-    // does not decide a geometric sign.
-    let exact = facet
-        .iter()
-        .flat_map(|p| p.iter())
-        .all(|&x| scale_by_power_of_two(scale_by_power_of_two(x, shift), -shift) == x);
+    // Scaling up never rounds: the largest magnitude lands below 2. Scaling
+    // down rounds only a value that lands below the normal range; bit
+    // equality after the round trip is the test there, and it does not
+    // decide a geometric sign.
+    let exact = shift >= 0
+        || facet
+            .iter()
+            .flat_map(|p| p.iter())
+            .all(|&x| scale_by_power_of_two(scale_by_power_of_two(x, shift), -shift) == x);
     exact.then_some(shift)
 }
 
@@ -333,27 +333,31 @@ pub(crate) fn lifted_facet_cofactors(
     facet: &[&[f64]],
     cofactors: &[(f64, f64)],
     bounds: &[f64],
-) -> Option<Vec<(f64, f64)>> {
+) -> Option<Cofactors> {
     let d = facet.len();
     debug_assert!(d >= 2 && cofactors.len() == d && bounds.len() == d);
     let shift = unit_scaling_shift(facet).unwrap_or(0);
     let grow = 1.0 + 4.0 * (d as f64 + 4.0) * UNIT_ROUNDOFF;
     // Upper bounds on the spatial edge lengths and on the height errors of
     // the edges, in the scaled frame.
-    let mut norms = Vec::with_capacity(d - 1);
-    let mut etas = Vec::with_capacity(d - 1);
-    for (p, &bound) in facet[1..].iter().zip(&bounds[1..]) {
-        let squares: f64 = p[..d - 1]
-            .iter()
-            .zip(&facet[0][..d - 1])
-            .map(|(&x, &o)| {
-                let diff = scale_by_power_of_two(x - o, shift);
-                diff * diff
-            })
-            .sum();
-        norms.push(squares.sqrt() * grow + ETA);
-        etas.push(scale_by_power_of_two(bound + bounds[0], shift) * grow + ETA);
-    }
+    let norms: Small<f64, 10> = facet[1..]
+        .iter()
+        .map(|p| {
+            let squares: f64 = p[..d - 1]
+                .iter()
+                .zip(&facet[0][..d - 1])
+                .map(|(&x, &o)| {
+                    let diff = scale_by_power_of_two(x - o, shift);
+                    diff * diff
+                })
+                .sum();
+            squares.sqrt() * grow + ETA
+        })
+        .collect();
+    let etas: Small<f64, 10> = bounds[1..]
+        .iter()
+        .map(|&bound| scale_by_power_of_two(bound + bounds[0], shift) * grow + ETA)
+        .collect();
     let mut shift_bound = 0.0;
     for (i, &eta) in etas.iter().enumerate() {
         let others: f64 = norms
@@ -920,7 +924,7 @@ mod tests {
                         .iter()
                         .map(|&c| sign * c as f64 / length)
                         .collect();
-                    for n in [published.unwrap(), working.unwrap()] {
+                    for n in [published.unwrap(), working.unwrap().to_vec()] {
                         assert!(
                             squared_distance(&n, &reference, 1.0).sqrt() <= 2e-8,
                             "d = {d}: {n:?} vs {reference:?}"

@@ -165,7 +165,11 @@ impl<'a> SimplicialHull<'a> {
         });
         // The cull plane carries the normal; it is kept apart only without
         // one.
-        let normal = if cull.is_some() { None } else { normal };
+        let normal = if cull.is_some() {
+            None
+        } else {
+            normal.map(|n| n.to_vec())
+        };
         Ok(Simplex {
             vertices,
             neighbors: neighbors.into(),
