@@ -7,7 +7,7 @@ alwaysApply: true
 
 A question is not permission. Do not run history-changing git in the same turn as a yes/no. Scope and Issues: `.cursor/rules/consent.mdc`.
 
-A branch with no open Issue and no open pull request does not stay (`.cursor/rules/workflow.mdc`). That fact is not permission to delete it. `branch -D` still needs an imperative that names the branch.
+After a pull request merges, that branch is unnecessary. Delete it locally and on the remote in the turn that learns of the merge. Do not leave it. That deletion is required by `.cursor/rules/workflow.mdc` and does not need a separate imperative. Any other `branch -D`, and deleting a branch that still has an open pull request, still needs an imperative that names the branch.
 
 ## Stop. Do not execute
 
@@ -16,6 +16,8 @@ Treat as a question. Reply only. Do not `reset`, `rebase`, `push --force`, `--fo
 - 「消していい？」「戻していい？」「force push していい？」
 - 「これ不要では？」「取り消さない？」
 - Any yes/no about deleting commits, rewriting the branch, or moving the remote
+
+Deleting a branch whose pull request has already merged is required above. This list does not apply to that deletion.
 
 The reply must include, then wait for a later message:
 

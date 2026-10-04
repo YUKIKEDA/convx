@@ -18,7 +18,7 @@ Grill (when the design branches) → Issue → branch → work → PR → human 
 6. **PR** — [`.github/pull_request_template.md`](.github/pull_request_template.md). `Closes #N` on its own line under `## Related`. Open it in the same turn as the branch. A human reviews and squash-merges. Agents do not merge.
 7. **Retrospective** — on the merged PR, record the three points below. The next feature branch waits until they are written.
 
-A branch stays only while it is the head of an open pull request for its Issue. A branch with no open Issue and no open pull request is deleted, including a local branch whose pull request has already merged. See [`.cursor/rules/workflow.mdc`](.cursor/rules/workflow.mdc).
+A branch stays only while it is the head of an open pull request for its Issue. After that pull request merges, the branch is unnecessary. Delete it locally and on the remote. Do not leave it. See [`.cursor/rules/workflow.mdc`](.cursor/rules/workflow.mdc).
 
 「進めなさい」 is work on an Issue that already exists. It is not a substitute for creating an Issue or deciding scope.
 

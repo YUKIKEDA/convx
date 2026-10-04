@@ -20,7 +20,7 @@ The current row's ID lives only in [docs/roadmap.md](docs/roadmap.md).
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `.cursor/rules/scope.mdc`                | Concept and requirements decide. Ease and size do not. A half build is worse than not building |
 | `.cursor/rules/defer.mdc`                | A postponement names when. Do not leave one path finished and its pair unfinished              |
-| `.cursor/rules/workflow.mdc`             | Issue, branch, and an open PR in the same turn. A branch with neither is deleted               |
+| `.cursor/rules/workflow.mdc`             | Open the PR in the same turn. After it merges, delete the branch. Do not leave it.             |
 | `.cursor/rules/consent.mdc`              | A question is not a decision                                                                   |
 | `.cursor/rules/git.mdc`                  | Destructive git, commit, and push need an explicit ask                                         |
 | `.cursor/rules/conventional-commits.mdc` | Commit messages                                                                                |
