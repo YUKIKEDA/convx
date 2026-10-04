@@ -3,7 +3,9 @@
 //! In a closed simplicial boundary every ridge lies in exactly two
 //! simplices. Construction and classification both find those pairs from
 //! the sorted vertex lists of the ridges, packed in one buffer, without a
-//! hash map keyed by allocated lists.
+//! hash map keyed by allocated lists. A Delaunay triangulation has a
+//! border, the boundary of the site hull, whose faces lie in one simplex;
+//! it pairs its faces the same way and leaves those single.
 
 /// The pairs of equal keys among `count` keys of equal width packed in
 /// `keys`, each key occurring exactly twice. An open-addressing table
@@ -15,6 +17,28 @@ pub(crate) fn pair_equal_keys(
     count: usize,
     fingerprint: impl Fn(&[u32]) -> u64,
 ) -> Vec<(usize, usize)> {
+    let (pairs, single) = pair_keys(keys, count, fingerprint);
+    debug_assert!(single == 0, "every key occurs an even number of times");
+    pairs
+}
+
+/// [`pair_equal_keys`] for a boundary with a border: each key occurs once
+/// or twice, and the pairs are those that occur twice.
+pub(crate) fn pair_equal_keys_with_border(
+    keys: &[u32],
+    count: usize,
+    fingerprint: impl Fn(&[u32]) -> u64,
+) -> Vec<(usize, usize)> {
+    pair_keys(keys, count, fingerprint).0
+}
+
+/// The pairs of equal keys, and the number of keys left unpaired. Debug
+/// builds check that no key occurs more than twice.
+fn pair_keys(
+    keys: &[u32],
+    count: usize,
+    fingerprint: impl Fn(&[u32]) -> u64,
+) -> (Vec<(usize, usize)>, usize) {
     // Indices are below `count`, which a slice length keeps far below
     // these two markers.
     const EMPTY: usize = usize::MAX;
@@ -44,22 +68,29 @@ pub(crate) fn pair_equal_keys(
             slot = (slot + 1) & mask;
         }
     }
-    debug_assert!(
-        table.iter().all(|&e| e == EMPTY || e == PAIRED),
-        "every key occurs an even number of times"
-    );
-    // A key occurring four times would pair twice, through two slots;
-    // distinct pairs have distinct keys exactly when each occurs twice.
+    let single = table.iter().filter(|&&e| e != EMPTY && e != PAIRED).count();
+    // A key occurring three or four times would pair once and stay single,
+    // or pair twice, through two slots; each key occurs at most twice
+    // exactly when the keys of the pairs and of the singles are distinct.
     #[cfg(debug_assertions)]
     {
-        let mut paired: Vec<&[u32]> = pairs.iter().map(|&(a, _)| key(a)).collect();
-        paired.sort_unstable();
+        let mut seen: Vec<&[u32]> = pairs
+            .iter()
+            .map(|&(a, _)| key(a))
+            .chain(
+                table
+                    .iter()
+                    .filter(|&&e| e != EMPTY && e != PAIRED)
+                    .map(|&e| key(e)),
+            )
+            .collect();
+        seen.sort_unstable();
         debug_assert!(
-            paired.windows(2).all(|w| w[0] != w[1]),
-            "every key occurs exactly twice"
+            seen.windows(2).all(|w| w[0] != w[1]),
+            "a key occurs more than twice"
         );
     }
-    pairs
+    (pairs, single)
 }
 
 /// A hash of a sorted vertex list, for the table of [`pair_equal_keys`].
@@ -109,10 +140,44 @@ mod tests {
 
     #[test]
     #[cfg(debug_assertions)]
-    #[should_panic(expected = "every key occurs exactly twice")]
+    #[should_panic(expected = "a key occurs more than twice")]
     fn a_key_occurring_four_times_fails_the_debug_check() {
         // [1,2] four times: the table pairs it twice, through two slots.
         let keys = [1, 2, 3, 4, 1, 2, 1, 2, 3, 4, 1, 2];
         sorted_pairs(&keys, 6, false);
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "every key occurs an even number of times")]
+    fn a_single_key_fails_the_closed_debug_check() {
+        pair_equal_keys(&[1, 2, 3, 4, 1, 2], 3, fingerprint);
+    }
+
+    #[test]
+    fn a_border_leaves_single_keys_unpaired() {
+        // Width 2: [1,2] [3,4] [1,2] [5,6] [3,4]; [5,6] is on the border.
+        let keys = [1, 2, 3, 4, 1, 2, 5, 6, 3, 4];
+        for constant in [false, true] {
+            let mut pairs = if constant {
+                pair_equal_keys_with_border(&keys, 5, |_| 7)
+            } else {
+                pair_equal_keys_with_border(&keys, 5, fingerprint)
+            };
+            pairs.sort_unstable();
+            assert_eq!(
+                pairs,
+                vec![(0, 2), (1, 4)],
+                "constant fingerprint {constant}"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "a key occurs more than twice")]
+    fn a_key_occurring_three_times_fails_the_border_debug_check() {
+        let keys = [1, 2, 1, 2, 1, 2];
+        pair_equal_keys_with_border(&keys, 3, fingerprint);
     }
 }

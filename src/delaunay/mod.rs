@@ -25,14 +25,16 @@
 //! not used: the site hull is filled by the pulling triangulation of §7, on
 //! the boundary that the hull core finds for the original sites.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::hull::classify::placing;
 use crate::hull::input::{accept, minimum_basis, Input};
 use crate::hull::merge::merge;
+use crate::hull::ridge::{fingerprint, pair_equal_keys_with_border};
 use crate::hull::simplicial::{Execution, SimplicialHull};
 use crate::hull::ConvexHullError;
 use crate::predicates::{orient, Sign};
+use crate::small::Small;
 
 /// A neighbor slot with no simplex across it. Point and simplex numbers are
 /// below `u32::MAX`, so this value names neither.
@@ -216,19 +218,14 @@ pub(crate) fn lower_hull(
     );
 
     let mut groups = Vec::new();
-    for group in &logical.groups {
-        let Some(outward) = group
-            .simplices
-            .first()
-            .and_then(|&id| hull.facets.get(id))
-            .map(|s| s.vertices.clone())
-        else {
+    for group in logical.groups {
+        let Some(outward) = group.simplices.first().and_then(|&id| hull.facets.get(id)) else {
             continue;
         };
-        if lift_side(input, &outward)? != Sign::Negative {
+        if lift_side(input, &outward.vertices)? != Sign::Negative {
             continue;
         }
-        let sites = group.vertices.clone();
+        let sites = group.vertices;
         let cells = if sites.len() == d + 1 {
             vec![sites.clone()]
         } else {
@@ -257,7 +254,7 @@ pub(crate) fn lower_hull(
 /// [`Sign::Negative`] is the lower side, [`Sign::Positive`] the upper side,
 /// and [`Sign::Zero`] a facet of zero volume in the original space.
 fn lift_side(input: &Input<'_>, outward: &[u32]) -> Result<Sign, ConvexHullError> {
-    let points: Vec<&[f64]> = outward.iter().map(|&v| input.point(v)).collect();
+    let points: Small<&[f64], 11> = outward.iter().map(|&v| input.point(v)).collect();
     Ok(orient(&points)?)
 }
 
@@ -272,23 +269,28 @@ fn publish(
     let point = |i: u32| &points[i as usize * d..(i as usize + 1) * d];
     let mut oriented = Vec::with_capacity(cells.len());
     for mut vertices in cells {
-        let points: Vec<&[f64]> = vertices.iter().map(|&v| point(v)).collect();
+        let points: Small<&[f64], 11> = vertices.iter().map(|&v| point(v)).collect();
         if orient(&points)? == Sign::Negative {
             vertices.swap(d - 1, d);
         }
         oriented.push(vertices);
     }
-    let mut faces: HashMap<Vec<u32>, Vec<(usize, usize)>> = HashMap::new();
+    // Each face as its sorted vertex list, packed in one buffer, with its
+    // owner; a face lies in at most two simplices.
+    let mut keys: Vec<u32> = Vec::with_capacity(oriented.len() * (d + 1) * d);
+    let mut owners: Vec<(usize, usize)> = Vec::with_capacity(oriented.len() * (d + 1));
     for (s, vertices) in oriented.iter().enumerate() {
         for slot in 0..vertices.len() {
-            let mut face: Vec<u32> = vertices
-                .iter()
-                .enumerate()
-                .filter(|&(i, _)| i != slot)
-                .map(|(_, &v)| v)
-                .collect();
-            face.sort_unstable();
-            faces.entry(face).or_default().push((s, slot));
+            let start = keys.len();
+            keys.extend(
+                vertices
+                    .iter()
+                    .enumerate()
+                    .filter(|&(i, _)| i != slot)
+                    .map(|(_, &v)| v),
+            );
+            keys[start..].sort_unstable();
+            owners.push((s, slot));
         }
     }
     let mut simplices: Vec<DelaunaySimplex> = oriented
@@ -298,12 +300,11 @@ fn publish(
             vertices,
         })
         .collect();
-    for sharing in faces.values() {
-        debug_assert!(sharing.len() <= 2, "a face lies in at most two simplices");
-        if let [(a, slot_a), (b, slot_b)] = sharing[..] {
-            simplices[a].neighbors[slot_a] = b as u32;
-            simplices[b].neighbors[slot_b] = a as u32;
-        }
+    for (first, second) in pair_equal_keys_with_border(&keys, owners.len(), fingerprint) {
+        let (a, slot_a) = owners[first];
+        let (b, slot_b) = owners[second];
+        simplices[a].neighbors[slot_a] = b as u32;
+        simplices[b].neighbors[slot_b] = a as u32;
     }
     Ok(simplices)
 }
