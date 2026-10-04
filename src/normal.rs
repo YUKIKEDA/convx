@@ -877,12 +877,9 @@ mod tests {
                 let Some(cofactors) = facet_cofactors(&refs) else {
                     continue;
                 };
-                match certified_side(&refs, &cofactors, &query) {
-                    Some(sign) => {
-                        assert_eq!(sign, expected, "d = {d}, trial {trial}");
-                        decided += 1;
-                    }
-                    None => {}
+                if let Some(sign) = certified_side(&refs, &cofactors, &query) {
+                    assert_eq!(sign, expected, "d = {d}, trial {trial}");
+                    decided += 1;
                 }
                 if expected == Sign::Zero {
                     coplanar += 1;
