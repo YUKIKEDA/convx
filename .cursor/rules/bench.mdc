@@ -25,6 +25,8 @@ A profile at a smaller input, and a cache-miss count, point at candidates; neith
 
 A change whose gain stays inside the spread is reverted, not shipped with others.
 
+A speedup that keeps new state per object (per facet, per point) first times a build that only stores that state. In #140, storing each simplex's cofactors for its children cost 0.7–1.1 s on `cube` D6 10^4, more than the elimination the update was to save.
+
 Time the sets the Issue names. Before adding a larger set, estimate its time from a smaller one; a single run longer than a few minutes needs a reason in the PR. In #116, `main` took 32 minutes for one D = 7 run that no Issue asked for.
 
 When instruction counts drop but wall time stays inside the spread, the PR reports both and claims no speedup. Whether to merge is the owner's call on those numbers (#92).
