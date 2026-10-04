@@ -24,7 +24,7 @@ Follow `.github/pull_request_template.md`. Same section headings, in this order:
 
 - Headings and body text are English.
 - Empty optional fields: write `N/A`. Do not delete the section.
-- `Closes #N` is on its own line under `## Related` when the PR finishes that Issue.
+- `Closes #N` is on its own line under `## Related` when the PR finishes that Issue. A PR that does not finish the issue names `#N` with no closing verb before the number (`.cursor/rules/github-closing.mdc`).
 - When using `gh pr create`, pass a body that matches this template. Use a PowerShell here-string (`.cursor/rules/powershell-shell.mdc`).
 - Do not invent alternate section names.
 
