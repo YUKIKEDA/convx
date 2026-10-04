@@ -35,11 +35,12 @@ use crate::arena::{Arena, ArenaFull, FacetId, SlotMarks};
 use crate::cull::CullPlane;
 use crate::normal::{facet_cofactors, lifted_facet_cofactors, working_normal};
 use crate::predicates::Sign;
+use crate::small::Small;
 
 /// A simplicial facet during construction.
 pub(crate) struct Simplex {
-    pub(crate) vertices: Vec<u32>,
-    pub(crate) neighbors: Vec<FacetId>,
+    pub(crate) vertices: Small<u32, 8>,
+    pub(crate) neighbors: Small<FacetId, 8>,
     /// The sign of `orient(vertices, q)` for a point `q` outside.
     pub(crate) outward: Sign,
     /// Working unit normal, when one could be certified but no cull plane,
@@ -125,7 +126,7 @@ impl<'a> SimplicialHull<'a> {
 
     fn make_simplex(
         &self,
-        vertices: Vec<u32>,
+        vertices: Small<u32, 8>,
         neighbors: Vec<FacetId>,
         outward: Sign,
     ) -> Result<Simplex, ConvexHullError> {
@@ -167,7 +168,7 @@ impl<'a> SimplicialHull<'a> {
         let normal = if cull.is_some() { None } else { normal };
         Ok(Simplex {
             vertices,
-            neighbors,
+            neighbors: neighbors.into(),
             outward,
             normal,
             cull,
@@ -190,8 +191,8 @@ impl<'a> SimplicialHull<'a> {
                 high = r;
             }
         }
-        let low_facet = self.make_simplex(vec![low], Vec::new(), Sign::Negative)?;
-        let high_facet = self.make_simplex(vec![high], Vec::new(), Sign::Positive)?;
+        let low_facet = self.make_simplex([low].as_slice().into(), Vec::new(), Sign::Negative)?;
+        let high_facet = self.make_simplex([high].as_slice().into(), Vec::new(), Sign::Positive)?;
         insert_or_abort(&mut self.facets, low_facet);
         insert_or_abort(&mut self.facets, high_facet);
         Ok(())
@@ -215,7 +216,8 @@ impl<'a> SimplicialHull<'a> {
         // Reserve ids first so neighbors can refer to them.
         let mut ids = Vec::with_capacity(d + 1);
         for (_, vertices) in &ordered {
-            let simplex = self.make_simplex(vertices.clone(), Vec::new(), Sign::Positive)?;
+            let simplex =
+                self.make_simplex(vertices.as_slice().into(), Vec::new(), Sign::Positive)?;
             ids.push(insert_or_abort(&mut self.facets, simplex));
         }
         // The facet omitting simplex[i] has id ids[i]; across the ridge
@@ -226,7 +228,7 @@ impl<'a> SimplicialHull<'a> {
                 .map(|v| ids[simplex.iter().position(|s| s == v).unwrap_or(0)])
                 .collect();
             if let Some(facet) = self.facets.get_mut(ids[*i]) {
-                facet.neighbors = neighbors;
+                facet.neighbors = neighbors.into();
             }
         }
         Ok(ids)
@@ -491,7 +493,7 @@ impl<'a> SimplicialHull<'a> {
             .filter_map(|&(id, slot, _)| {
                 let mut vertices = self.facets.get(id)?.vertices.clone();
                 vertices[slot] = apex;
-                Some(vertices)
+                Some(vertices.to_vec())
             })
             .collect()
     }
@@ -750,7 +752,7 @@ impl<'a> SimplicialHull<'a> {
                 })
                 .collect();
             if let Some(f) = self.facets.get_mut(id) {
-                f.neighbors = neighbors;
+                f.neighbors = neighbors.into();
             }
             if let Some(n) = self.facets.get_mut(across) {
                 if let Some(back) = n.neighbors.iter_mut().find(|f| **f == replaces) {
@@ -797,7 +799,7 @@ impl Plan {
                 .iter()
                 .map(|c| {
                     (
-                        c.simplex.vertices.clone(),
+                        c.simplex.vertices.to_vec(),
                         c.links.clone(),
                         c.across,
                         c.replaces,
@@ -862,7 +864,7 @@ fn side(input: &Input<'_>, facet: &Simplex, point: u32) -> Result<Sign, ConvexHu
 
 /// The side of `point` relative to `facet` by orientation alone.
 fn oriented_side(input: &Input<'_>, facet: &Simplex, point: u32) -> Result<Sign, ConvexHullError> {
-    let mut indices = facet.vertices.clone();
+    let mut indices = facet.vertices.to_vec();
     indices.push(point);
     let sign = input.orient(&indices)?;
     Ok(if facet.outward == Sign::Positive {
@@ -1233,7 +1235,7 @@ pub(crate) mod tests {
         let mut v: Vec<u32> = hull
             .facets
             .iter()
-            .flat_map(|(_, f)| f.vertices.clone())
+            .flat_map(|(_, f)| f.vertices.to_vec())
             .collect();
         v.sort_unstable();
         v.dedup();
@@ -1468,8 +1470,8 @@ pub(crate) mod tests {
             .map(|(id, f)| {
                 (
                     id,
-                    f.vertices.clone(),
-                    f.neighbors.clone(),
+                    f.vertices.to_vec(),
+                    f.neighbors.to_vec(),
                     f.outward,
                     f.outside.clone(),
                 )
