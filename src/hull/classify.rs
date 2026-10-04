@@ -33,6 +33,7 @@ use std::collections::HashMap;
 
 use super::input::{accept, Input};
 use super::merge::merge;
+use super::ridge::{fingerprint, pair_equal_keys};
 use super::simplicial::{Execution, SimplicialHull};
 use super::ConvexHullError;
 use crate::predicates::{orient, orient_direction, Sign};
@@ -425,33 +426,33 @@ fn link_neighbors(d: usize, simplices: &mut [ComplexSimplex], faces: &mut [Face]
     if d == 1 {
         return;
     }
-    let mut ridges: HashMap<Vec<u32>, Vec<(u32, usize)>> = HashMap::new();
+    // Ridges as sorted vertex lists packed in one buffer, with their owner.
+    let mut keys: Vec<u32> = Vec::with_capacity(simplices.len() * d * (d - 1));
+    let mut owners: Vec<(u32, usize)> = Vec::with_capacity(simplices.len() * d);
     for (s, simplex) in simplices.iter().enumerate() {
         for slot in 0..d {
-            let mut ridge: Vec<u32> = simplex
-                .vertices
-                .iter()
-                .enumerate()
-                .filter(|&(i, _)| i != slot)
-                .map(|(_, &v)| v)
-                .collect();
-            ridge.sort_unstable();
-            ridges.entry(ridge).or_default().push((s as u32, slot));
+            let start = keys.len();
+            keys.extend(
+                simplex
+                    .vertices
+                    .iter()
+                    .enumerate()
+                    .filter(|&(i, _)| i != slot)
+                    .map(|(_, &v)| v),
+            );
+            keys[start..].sort_unstable();
+            owners.push((s as u32, slot));
         }
     }
     for simplex in simplices.iter_mut() {
         simplex.neighbors = vec![u32::MAX; d];
     }
-    for sides in ridges.values() {
-        debug_assert_eq!(
-            sides.len(),
-            2,
-            "every ridge of a closed boundary has two sides"
-        );
-        if let [(a, slot_a), (b, slot_b)] = sides[..] {
-            simplices[a as usize].neighbors[slot_a] = b;
-            simplices[b as usize].neighbors[slot_b] = a;
-        }
+    // Every ridge of a closed boundary has two sides.
+    for (first, second) in pair_equal_keys(&keys, owners.len(), fingerprint) {
+        let (a, slot_a) = owners[first];
+        let (b, slot_b) = owners[second];
+        simplices[a as usize].neighbors[slot_a] = b;
+        simplices[b as usize].neighbors[slot_b] = a;
     }
     for face in faces.iter_mut() {
         let mut neighbors: Vec<u32> = face

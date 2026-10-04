@@ -77,8 +77,8 @@ const ETA: f64 = f64::from_bits(2);
 
 /// A facet prepared for culling.
 pub(crate) struct CullPlane {
-    origin: Vec<f64>,
-    normal: Vec<f64>,
+    /// The origin vertex, then the working unit normal: one allocation.
+    frame: Box<[f64]>,
     slope: f64,
     floor: f64,
     /// A facet of sites lifted to the paraboloid: the last coordinate of
@@ -120,8 +120,7 @@ impl CullPlane {
         let slope = (4.0 * (n + 1.0) * UNIT_ROUNDOFF + 2.0 * tau) * (1.0 + 4.0 * UNIT_ROUNDOFF);
         let floor = (n + 1.0) * ETA;
         slope.is_finite().then(|| Self {
-            origin: facet[0].to_vec(),
-            normal: normal.to_vec(),
+            frame: facet[0].iter().chain(normal).copied().collect(),
             slope,
             floor,
             lifted: false,
@@ -151,11 +150,26 @@ impl CullPlane {
         })
     }
 
+    /// The dimension of the plane's points.
+    fn dim(&self) -> usize {
+        self.frame.len() / 2
+    }
+
+    /// The origin vertex.
+    fn origin(&self) -> &[f64] {
+        &self.frame[..self.dim()]
+    }
+
+    /// The working unit normal.
+    pub(crate) fn normal(&self) -> &[f64] {
+        &self.frame[self.dim()..]
+    }
+
     /// The working distance and the L1 distance of one point.
     fn scalar_terms(&self, point: &[f64]) -> (f64, f64) {
         let mut w = 0.0;
         let mut l = 0.0;
-        for ((&x, &o), &n) in point.iter().zip(&self.origin).zip(&self.normal) {
+        for ((&x, &o), &n) in point.iter().zip(self.origin()).zip(self.normal()) {
             let diff = x - o;
             w += diff * n;
             l += diff.abs();
@@ -213,30 +227,25 @@ impl CullPlane {
         indices: &[u32],
         inside: &mut [bool],
     ) {
-        let d = self.origin.len();
+        let d = self.dim();
         debug_assert!(
             stride >= d + usize::from(self.lifted),
             "a row holds the point, and its bound when lifted"
         );
-        let mut w = vec![0.0; indices.len()];
-        let mut l = vec![0.0; indices.len()];
+        debug_assert_eq!(inside.len(), indices.len());
         Arch::new().dispatch(Scan {
             plane: self,
             points: rows,
             stride,
             indices,
-            w: &mut w,
-            l: &mut l,
+            out: ScanOut::Inside(inside),
         });
-        for (((flag, &w), &l), &index) in inside.iter_mut().zip(&w).zip(&l).zip(indices) {
-            *flag = self.is_proved_inside(w, l, self.bound_of(rows, stride, index));
-        }
     }
 
     /// The height bound of point `index` in `rows`, or 0 for a plain plane.
     fn bound_of(&self, rows: &[f64], stride: usize, index: u32) -> f64 {
         if self.lifted {
-            rows[index as usize * stride + self.origin.len()]
+            rows[index as usize * stride + self.dim()]
         } else {
             0.0
         }
@@ -252,7 +261,7 @@ impl CullPlane {
         indices: &[u32],
         inside: &mut [bool],
     ) {
-        let d = self.origin.len();
+        let d = self.dim();
         for (flag, &index) in inside.iter_mut().zip(indices) {
             let start = index as usize * stride;
             let (w, l) = self.scalar_terms(&rows[start..start + d]);
@@ -287,25 +296,63 @@ fn plane_error(cofactors: &[(f64, f64)], normal: &[f64], side: f64) -> Option<f6
     tau.is_finite().then_some(tau)
 }
 
+/// Widest SIMD register in f64 lanes (AVX-512). A wider one runs the
+/// scalar terms.
+const MAX_LANES: usize = 8;
+
 /// One lane per point; the per-lane sequence matches [`CullPlane::scalar_terms`].
+/// Each block's flags are decided as soon as its terms are known, so the
+/// scan keeps no per-point buffer (#120).
 struct Scan<'a> {
     plane: &'a CullPlane,
     points: &'a [f64],
     stride: usize,
     indices: &'a [u32],
-    w: &'a mut [f64],
-    l: &'a mut [f64],
+    out: ScanOut<'a>,
+}
+
+/// Where a scan puts each point's result.
+enum ScanOut<'a> {
+    /// Whether the point is proved strictly inside.
+    Inside(&'a mut [bool]),
+    /// The terms themselves, for the per-level test.
+    #[cfg(test)]
+    Terms(&'a mut [f64], &'a mut [f64]),
+}
+
+impl Scan<'_> {
+    fn put(&mut self, i: usize, w: f64, l: f64) {
+        match &mut self.out {
+            ScanOut::Inside(inside) => {
+                let bound = self
+                    .plane
+                    .bound_of(self.points, self.stride, self.indices[i]);
+                inside[i] = self.plane.is_proved_inside(w, l, bound);
+            }
+            #[cfg(test)]
+            ScanOut::Terms(w_out, l_out) => {
+                w_out[i] = w;
+                l_out[i] = l;
+            }
+        }
+    }
 }
 
 impl WithSimd for Scan<'_> {
     type Output = ();
 
     #[inline(always)]
-    fn with_simd<S: Simd>(self, simd: S) -> Self::Output {
-        let d = self.plane.origin.len();
+    fn with_simd<S: Simd>(mut self, simd: S) -> Self::Output {
+        let d = self.plane.dim();
         let lanes = S::F64_LANES;
-        let blocks = self.indices.len() / lanes;
-        let mut column = vec![0.0; lanes];
+        let blocks = if lanes <= MAX_LANES {
+            self.indices.len() / lanes
+        } else {
+            0
+        };
+        let mut column = [0.0; MAX_LANES];
+        let mut w_lanes = [0.0; MAX_LANES];
+        let mut l_lanes = [0.0; MAX_LANES];
         for block in 0..blocks {
             let indices = &self.indices[block * lanes..(block + 1) * lanes];
             let mut w = simd.splat_f64s(0.0);
@@ -314,25 +361,26 @@ impl WithSimd for Scan<'_> {
                 for (slot, &index) in column.iter_mut().zip(indices) {
                     *slot = self.points[index as usize * self.stride + j];
                 }
-                let (x, _) = S::as_simd_f64s(&column);
-                let diff = simd.sub_f64s(x[0], simd.splat_f64s(self.plane.origin[j]));
+                let (x, _) = S::as_simd_f64s(&column[..lanes]);
+                let diff = simd.sub_f64s(x[0], simd.splat_f64s(self.plane.origin()[j]));
                 w = simd.add_f64s(
                     w,
-                    simd.mul_f64s(diff, simd.splat_f64s(self.plane.normal[j])),
+                    simd.mul_f64s(diff, simd.splat_f64s(self.plane.normal()[j])),
                 );
                 l = simd.add_f64s(l, simd.abs_f64s(diff));
             }
-            let range = block * lanes..(block + 1) * lanes;
-            let (w_out, _) = S::as_mut_simd_f64s(&mut self.w[range.clone()]);
+            let (w_out, _) = S::as_mut_simd_f64s(&mut w_lanes[..lanes]);
             w_out[0] = w;
-            let (l_out, _) = S::as_mut_simd_f64s(&mut self.l[range]);
+            let (l_out, _) = S::as_mut_simd_f64s(&mut l_lanes[..lanes]);
             l_out[0] = l;
+            for lane in 0..lanes {
+                self.put(block * lanes + lane, w_lanes[lane], l_lanes[lane]);
+            }
         }
         for i in blocks * lanes..self.indices.len() {
             let start = self.indices[i] as usize * self.stride;
             let (w, l) = self.plane.scalar_terms(&self.points[start..start + d]);
-            self.w[i] = w;
-            self.l[i] = l;
+            self.put(i, w, l);
         }
     }
 }
@@ -380,8 +428,8 @@ mod tests {
         let indices: Vec<u32> = (0..n as u32).collect();
         let mut fast = vec![false; n];
         let mut slow = vec![false; n];
-        plane.mark_inside(points, plane.origin.len(), &indices, &mut fast);
-        plane.mark_inside_scalar(points, plane.origin.len(), &indices, &mut slow);
+        plane.mark_inside(points, plane.dim(), &indices, &mut fast);
+        plane.mark_inside_scalar(points, plane.dim(), &indices, &mut slow);
         assert_eq!(fast, slow, "SIMD and scalar paths disagree");
         let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
         for (i, &culled) in fast.iter().enumerate() {
@@ -444,7 +492,7 @@ mod tests {
             let points: Vec<f64> = (0..300).map(|_| rng.unit() * scale).collect();
             let indices: Vec<u32> = (0..100).collect();
             let mut inside = vec![false; 100];
-            plane.mark_inside(&points, plane.origin.len(), &indices, &mut inside);
+            plane.mark_inside(&points, plane.dim(), &indices, &mut inside);
             for (i, &culled) in inside.iter().enumerate() {
                 if culled {
                     let sign = distance_sign(&refs, &points[i * 3..i * 3 + 3]).unwrap();
@@ -464,7 +512,7 @@ mod tests {
         let flat: Vec<f64> = points.iter().flatten().copied().collect();
         let indices: Vec<u32> = (0..points.len() as u32).collect();
         let mut inside = vec![false; points.len()];
-        plane.mark_inside(&flat, plane.origin.len(), &indices, &mut inside);
+        plane.mark_inside(&flat, plane.dim(), &indices, &mut inside);
         for (p, &culled) in points.iter().zip(&inside) {
             if culled {
                 assert_eq!(
@@ -544,7 +592,7 @@ mod tests {
         let points = [0.5, -1.0, 0.5, 1.0, 0.5, -2.0, 0.5, 0.0, 0.2, -3.0];
         let indices = [4, 1, 0, 3, 2];
         let mut inside = [false; 5];
-        plane.mark_inside(&points, plane.origin.len(), &indices, &mut inside);
+        plane.mark_inside(&points, plane.dim(), &indices, &mut inside);
         assert_eq!(inside, [true, false, true, false, true]);
     }
 
@@ -563,10 +611,9 @@ mod tests {
         simd.vectorize(Scan {
             plane,
             points,
-            stride: plane.origin.len(),
+            stride: plane.dim(),
             indices,
-            w,
-            l,
+            out: ScanOut::Terms(w, l),
         });
     }
 
@@ -638,8 +685,8 @@ mod tests {
                     }
                     let mut dispatched = vec![false; count];
                     let mut scalar = vec![false; count];
-                    plane.mark_inside(&points, plane.origin.len(), &indices, &mut dispatched);
-                    plane.mark_inside_scalar(&points, plane.origin.len(), &indices, &mut scalar);
+                    plane.mark_inside(&points, plane.dim(), &indices, &mut dispatched);
+                    plane.mark_inside_scalar(&points, plane.dim(), &indices, &mut scalar);
                     assert_eq!(dispatched, scalar, "cull set, D = {d}, {count} points");
                 }
             }

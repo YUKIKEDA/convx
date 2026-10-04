@@ -90,9 +90,10 @@ pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, ConvexHu
             let Some(&across) = other.vertices.iter().find(|v| !facet.vertices.contains(v)) else {
                 continue;
             };
-            let mut indices = facet.vertices.clone();
-            indices.push(across);
-            if hull.input.orient(&indices)? == Sign::Zero {
+            // The side of `across` is the orientation of the facet's
+            // vertices and that point, up to the outward sign; the certified
+            // cull usually proves it nonzero first.
+            if hull.side(facet, across)? == Sign::Zero {
                 sets.union(i as u32, j);
             }
         }

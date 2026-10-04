@@ -8,6 +8,7 @@ pub(crate) mod input;
 pub(crate) mod invariants;
 pub(crate) mod merge;
 pub(crate) mod publish;
+mod ridge;
 pub(crate) mod simplicial;
 
 pub use error::ConvexHullError;

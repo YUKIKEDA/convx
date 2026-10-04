@@ -12,14 +12,11 @@
 //! left out after measurement (#26): on the P2-7 `cube` sets measured
 //! there, every arena insert and remove of a build took under 1% of it.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 
 /// A hash map keyed by arena ids (or tuples of ids and point numbers).
 pub(crate) type IdMap<K, V> = HashMap<K, V, BuildHasherDefault<IdHasher>>;
-
-/// A hash set of arena ids.
-pub(crate) type IdSet<K> = HashSet<K, BuildHasherDefault<IdHasher>>;
 
 /// Hashes each word with one rotate, xor, and multiply.
 ///
@@ -57,6 +54,62 @@ impl Hasher for IdHasher {
 
     fn write_usize(&mut self, n: usize) {
         self.add(n as u64);
+    }
+}
+
+/// A value per arena id, for one search at a time, without hashing (#120).
+///
+/// Entries are indexed by slot and stamped with the id's generation and the
+/// current epoch. [`Self::clear`] starts a new epoch, so clearing does not
+/// touch the entries, and a stale id never matches the entry of a reused
+/// slot.
+pub(crate) struct SlotMarks<V> {
+    entries: Vec<(u32, u32, V)>,
+    epoch: u32,
+}
+
+impl<V: Copy + Default> Default for SlotMarks<V> {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            epoch: 1,
+        }
+    }
+}
+
+impl<V: Copy + Default> SlotMarks<V> {
+    /// Forgets every value.
+    pub(crate) fn clear(&mut self) {
+        if self.epoch == u32::MAX {
+            self.entries.clear();
+            self.epoch = 1;
+        } else {
+            self.epoch += 1;
+        }
+    }
+
+    /// The value of `id` since the last [`Self::clear`].
+    pub(crate) fn get(&self, id: FacetId) -> Option<V> {
+        match self.entries.get(id.index as usize) {
+            Some(&(epoch, generation, value))
+                if epoch == self.epoch && generation == id.generation =>
+            {
+                Some(value)
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn contains(&self, id: FacetId) -> bool {
+        self.get(id).is_some()
+    }
+
+    pub(crate) fn insert(&mut self, id: FacetId, value: V) {
+        let index = id.index as usize;
+        if index >= self.entries.len() {
+            self.entries.resize(index + 1, (0, 0, V::default()));
+        }
+        self.entries[index] = (self.epoch, id.generation, value);
     }
 }
 
@@ -238,6 +291,35 @@ impl<T> Arena<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slot_marks_forget_on_clear_and_ignore_stale_ids() {
+        let mut arena = Arena::new();
+        let a = arena.insert(1).unwrap();
+        let b = arena.insert(2).unwrap();
+        let mut marks: SlotMarks<bool> = SlotMarks::default();
+        marks.insert(a, true);
+        assert_eq!(marks.get(a), Some(true));
+        assert_eq!(marks.get(b), None);
+        marks.insert(b, false);
+        assert_eq!(marks.get(b), Some(false));
+        // A reused slot has a new generation: the stale mark does not match.
+        arena.remove(a);
+        let c = arena.insert(3).unwrap();
+        assert_eq!(c.index, a.index);
+        assert!(!marks.contains(c));
+        assert!(marks.contains(a));
+        marks.clear();
+        assert!(!marks.contains(a) && !marks.contains(b));
+        // Wrapping the epoch starts over with no entry.
+        marks.insert(b, true);
+        marks.epoch = u32::MAX;
+        marks.insert(b, true);
+        marks.clear();
+        assert!(!marks.contains(b));
+        marks.insert(c, true);
+        assert!(marks.contains(c) && !marks.contains(b));
+    }
 
     #[test]
     fn insert_get_remove() {

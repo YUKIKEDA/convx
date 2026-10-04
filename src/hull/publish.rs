@@ -339,10 +339,17 @@ pub(crate) fn facet_normal(
 ) -> Result<(Vec<u32>, Vec<f64>), ConvexHullError> {
     let d = input.dim();
     let point = |i: u32| input.point(i);
-    let basis: Vec<u32> = minimum_basis(d, facet_vertices, point)?
-        .into_iter()
-        .take(d)
-        .collect();
+    // A facet with exactly D vertices spans its (D - 1)-flat, so they are
+    // affinely independent and the walk of `minimum_basis` takes them all.
+    let basis: Vec<u32> = if facet_vertices.len() == d {
+        debug_assert_eq!(minimum_basis(d, facet_vertices, point)?, facet_vertices);
+        facet_vertices.to_vec()
+    } else {
+        minimum_basis(d, facet_vertices, point)?
+            .into_iter()
+            .take(d)
+            .collect()
+    };
     let mut points: Vec<&[f64]> = basis.iter().map(|&v| point(v)).collect();
     points.push(point(inner));
     let inside = orient(&points)?;
