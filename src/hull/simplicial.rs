@@ -800,24 +800,20 @@ impl<'a> SimplicialHull<'a> {
             .collect();
         // A vertex of only visible facets stops being a vertex. It is
         // proved interior on the same terms as an orphan (design §3).
-        let mut lost: Vec<u32> = Vec::with_capacity(visible.len() * (width + 2));
-        lost.extend(
-            visible
-                .iter()
-                .filter_map(|&id| self.facets.get(id))
-                .flat_map(|f| f.vertices.iter().copied()),
-        );
-        lost.sort_unstable();
-        lost.dedup();
-        let mut kept: Vec<u32> = Vec::with_capacity(created.len() * (width + 2));
-        kept.extend(
+        let kept = VertexSet::of(
             created
                 .iter()
                 .flat_map(|p| p.simplex.vertices.iter().copied()),
+            created.len() * (width + 2),
         );
-        kept.sort_unstable();
-        kept.dedup();
-        lost.retain(|v| kept.binary_search(v).is_err());
+        let mut lost: Vec<u32> = visible
+            .iter()
+            .filter_map(|&id| self.facets.get(id))
+            .flat_map(|f| f.vertices.iter().copied())
+            .filter(|&v| !kept.contains(v))
+            .collect();
+        lost.sort_unstable();
+        lost.dedup();
         orphans.extend(lost);
         orphans.sort_unstable();
         let mut strict = vec![true; orphans.len()];
@@ -1123,6 +1119,61 @@ impl Region {
             .iter()
             .copied()
             .chain(self.horizon.iter().map(|&(_, _, n)| n))
+    }
+}
+
+/// A set of point numbers for one plan, filled once and then queried, so
+/// that neither list is sorted. Open addressing with linear probing over
+/// at least twice as many slots as insertions, so a probe always ends.
+/// `u32::MAX` marks an empty slot; it numbers no point (design §3).
+struct VertexSet {
+    slots: Vec<u32>,
+    bits: u32,
+}
+
+impl VertexSet {
+    const EMPTY: u32 = u32::MAX;
+
+    /// The set of `points`, of which there are at most `count`.
+    fn of(points: impl IntoIterator<Item = u32>, count: usize) -> Self {
+        let size = (2 * count).next_power_of_two().max(2);
+        let mut set = Self {
+            slots: vec![Self::EMPTY; size],
+            bits: size.trailing_zeros(),
+        };
+        for point in points {
+            debug_assert_ne!(point, Self::EMPTY, "no point is numbered u32::MAX");
+            let mut slot = set.home(point);
+            loop {
+                match set.slots[slot] {
+                    Self::EMPTY => {
+                        set.slots[slot] = point;
+                        break;
+                    }
+                    other if other == point => break,
+                    _ => slot = (slot + 1) & (size - 1),
+                }
+            }
+        }
+        set
+    }
+
+    /// The first slot probed for `point`: the top bits of a multiplicative
+    /// hash.
+    fn home(&self, point: u32) -> usize {
+        (u64::from(point).wrapping_mul(0x9e37_79b9_7f4a_7c15) >> (64 - self.bits)) as usize
+    }
+
+    fn contains(&self, point: u32) -> bool {
+        let mask = self.slots.len() - 1;
+        let mut slot = self.home(point);
+        loop {
+            match self.slots[slot] {
+                Self::EMPTY => return false,
+                other if other == point => return true,
+                _ => slot = (slot + 1) & mask,
+            }
+        }
     }
 }
 
