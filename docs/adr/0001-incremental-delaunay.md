@@ -51,3 +51,4 @@ Delaunay and Voronoi are built by incremental insertion, in every dimension. The
 
   The lifted orientation predicate stays: §7 defines cospherical with it, and §8 merges with it.
 - If insertion is slower than the lifted path in some dimension, that dimension comes back to Grill before the change merges.
+- `StaticDelaunay` and `StaticVoronoi` cover $1 \le D \le 8$, the range of `StaticConvexHull`. Their limit of 7 existed only because the lifted path needed a static hull of dimension $D+1$ (Grill on PR #193).

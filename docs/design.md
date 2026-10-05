@@ -418,7 +418,7 @@ impl StaticConvexHull<D> {
 }
 ```
 
-`StaticConvexHull` covers $1 \le D \le 8$. `StaticDelaunay` and `StaticVoronoi` cover $1 \le D \le 7$, and `build` has the same shape. The return types are `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram` respectively. The range of 7 was set when Delaunay used an internal hull of dimension $D+1$, which had to fit inside the static hull's limit of 8. The incremental insertion of §7 has no such limit, and the range is unchanged. `build` takes `&[[f64; D]]` and passes `as_flattened()` to the core. Parallelism is the dynamic builder's responsibility.
+`StaticConvexHull` covers $1 \le D \le 8$. `StaticDelaunay` and `StaticVoronoi` also cover $1 \le D \le 8$, and `build` has the same shape. The return types are `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram` respectively. The three static types share one range. Delaunay is built by the incremental insertion of §7 and uses no internal hull of dimension $D+1$, so there is no reason for Delaunay and Voronoi to cover less than the hull. `build` takes `&[[f64; D]]` and passes `as_flattened()` to the core. Parallelism is the dynamic builder's responsibility.
 
 The only conversion from `[[f64; D]]` to `&[f64]` is `as_flattened()`. There is no `unsafe`. The MSRV is 1.89. The AVX-512 level of `pulp` (its `x86-v4` feature) uses the AVX-512 intrinsics, which are stable from 1.89. `faer`, which provides the Voronoi linear solve, declares `rust-version` 1.84 from 0.21 on, and the last release usable on 1.80 is the unmaintained 0.19 series. The range of $D$ is emitted by a macro or by separate implementations, matching the stable-Rust constraint that a single `impl` cannot carry a constant bound.
 

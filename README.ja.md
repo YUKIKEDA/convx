@@ -92,7 +92,7 @@ let hull = ConvexHullBuilder::new(2, points)
     .build()?;
 ```
 
-`points` は行優先で、長さは次元の倍数である。静的 API は、スタック上の配列と単相化のためのラッパーであり、ソルバーの切り替えとは別軸である。`StaticConvexHull` は $1 \le D \le 8$、`StaticDelaunay` と `StaticVoronoi` は $1 \le D \le 7$ である。返す型は、それぞれ `ConvexHull`、`DelaunayTriangulation`、`VoronoiDiagram` である。`build` は `&[[f64; D]]` を受け、`as_flattened()` をコアへ渡す。`[[f64; D]]` から `&[f64]` への変換は `as_flattened()` だけを使う。`unsafe` は置かない。並列は動的 Builder が受け持つ。
+`points` は行優先で、長さは次元の倍数である。静的 API は、スタック上の配列と単相化のためのラッパーであり、ソルバーの切り替えとは別軸である。`StaticConvexHull` は $1 \le D \le 8$、`StaticDelaunay` と `StaticVoronoi` も $1 \le D \le 8$ である。返す型は、それぞれ `ConvexHull`、`DelaunayTriangulation`、`VoronoiDiagram` である。`build` は `&[[f64; D]]` を受け、`as_flattened()` をコアへ渡す。`[[f64; D]]` から `&[f64]` への変換は `as_flattened()` だけを使う。`unsafe` は置かない。並列は動的 Builder が受け持つ。
 
 依存は `faer`、`rayon`、`pulp`、`thiserror` で、実装言語は Rust である。並列は実行時の `parallel` フラグで切り替える。ビルドは `std` を前提にする。MSRV は 1.89 である。距離カーネルは `pulp` による実行時 CPU 検出で、AVX-512 まで使う。
 

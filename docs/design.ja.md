@@ -416,7 +416,7 @@ impl StaticConvexHull<D> {
 }
 ```
 
-`StaticConvexHull` は $1 \le D \le 8$ である。`StaticDelaunay` と `StaticVoronoi` は $1 \le D \le 7$ とし、`build` の形は同じである。返す型は、それぞれ `ConvexHull`、`DelaunayTriangulation`、`VoronoiDiagram` である。範囲の $7$ は、Delaunay が $D+1$ 次元の凸包を内部で使っていたときに、静的凸包の上限 $8$ に収まる範囲として決めた。逐次挿入（第7節）ではその制約はないが、範囲は変えていない。`build` は `&[[f64; D]]` を受け、`as_flattened()` をコアへ渡す。並列は動的 Builder が受け持つ。
+`StaticConvexHull` は $1 \le D \le 8$ である。`StaticDelaunay` と `StaticVoronoi` も $1 \le D \le 8$ とし、`build` の形は同じである。返す型は、それぞれ `ConvexHull`、`DelaunayTriangulation`、`VoronoiDiagram` である。三つの静的型は同じ範囲をもつ。Delaunay は逐次挿入（第7節）で作り、内部に $D+1$ 次元の凸包を使わないので、Delaunay と Voronoi の範囲を凸包より狭くする理由はない。`build` は `&[[f64; D]]` を受け、`as_flattened()` をコアへ渡す。並列は動的 Builder が受け持つ。
 
 `[[f64; D]]` から `&[f64]` への変換は `as_flattened()` だけを使う。`unsafe` は置かない。MSRV は 1.89 である。`pulp` の AVX-512 段（`x86-v4` 機能）は AVX-512 の組み込み関数を使い、それが安定版になったのが 1.89 だからである。Voronoi の連立方程式に使う `faer` は 0.21 以降が `rust-version` 1.84 を宣言しており、1.80 で使える最後の版は保守されていない 0.19 系である。D の範囲は、単一の `impl` に定数境界を書けない安定版の制約に合わせ、マクロか個別実装で 1 から上限までを出す。
 
