@@ -177,12 +177,12 @@ pub(super) fn orient4(m: &[[Approx; 4]; 4]) -> Approx {
 /// do not depend on the storage.
 pub(super) fn determinant(n: usize, entry: impl Fn(usize, usize) -> Approx) -> Option<Approx> {
     match n {
-        5 => Arch::new().dispatch(Square(Stack::<5, 2>::load(5, 5, entry))),
-        6 => Arch::new().dispatch(Square(Stack::<6, 2>::load(6, 6, entry))),
-        7 => Arch::new().dispatch(Square(Stack::<7, 2>::load(7, 7, entry))),
-        8 => Arch::new().dispatch(Square(Stack::<8, 2>::load(8, 8, entry))),
-        9 => Arch::new().dispatch(Square(Stack::<9, 3>::load(9, 9, entry))),
-        _ => Arch::new().dispatch(Square(Heap::load(n, n, entry))),
+        5 => in_blocks(Square(Stack::<5, 2>::load(5, 5, entry))),
+        6 => in_blocks(Square(Stack::<6, 2>::load(6, 6, entry))),
+        7 => in_blocks(Square(Stack::<7, 2>::load(7, 7, entry))),
+        8 => in_blocks(Square(Stack::<8, 2>::load(8, 8, entry))),
+        9 => in_blocks(Square(Stack::<9, 3>::load(9, 9, entry))),
+        _ => in_blocks(Square(Heap::load(n, n, entry))),
     }
 }
 
@@ -203,12 +203,12 @@ pub(super) fn cofactors(
     // The k - 1 rows sit on the stack for the orders `determinant` keeps
     // there.
     match k {
-        5 => Arch::new().dispatch(Shared(Stack::<4, 2>::load(4, 5, entry))),
-        6 => Arch::new().dispatch(Shared(Stack::<5, 2>::load(5, 6, entry))),
-        7 => Arch::new().dispatch(Shared(Stack::<6, 2>::load(6, 7, entry))),
-        8 => Arch::new().dispatch(Shared(Stack::<7, 2>::load(7, 8, entry))),
-        9 => Arch::new().dispatch(Shared(Stack::<8, 3>::load(8, 9, entry))),
-        _ => Arch::new().dispatch(Shared(Heap::load(k - 1, k, entry))),
+        5 => in_blocks(Shared(Stack::<4, 2>::load(4, 5, entry))),
+        6 => in_blocks(Shared(Stack::<5, 2>::load(5, 6, entry))),
+        7 => in_blocks(Shared(Stack::<6, 2>::load(6, 7, entry))),
+        8 => in_blocks(Shared(Stack::<7, 2>::load(7, 8, entry))),
+        9 => in_blocks(Shared(Stack::<8, 3>::load(8, 9, entry))),
+        _ => in_blocks(Shared(Heap::load(k - 1, k, entry))),
     }
 }
 
@@ -632,6 +632,24 @@ mod lanes {
 /// Lanes of one block of a row.
 const LANES: usize = 4;
 
+/// Runs an elimination over blocks of [`LANES`] values under `V3` (AVX2)
+/// when the CPU has it, otherwise under [`Arch`]'s choice.
+///
+/// A block is one 256-bit register, so a wider instruction set does not
+/// shorten a row update. Under `V4` (AVX-512) the elimination of rows of
+/// three blocks (a 9 x 9 determinant) ran about 20 times slower than under
+/// `V3`, and `V3` was no slower at any size from 5 to 13 (#195). The code
+/// path and every operation are the same, so the value and the bound do
+/// not depend on the instruction set.
+#[inline(always)]
+fn in_blocks<W: WithSimd>(op: W) -> W::Output {
+    #[cfg(target_arch = "x86_64")]
+    if let Some(v3) = pulp::x86::V3::try_new() {
+        return Simd::vectorize(v3, op);
+    }
+    Arch::new().dispatch(op)
+}
+
 /// Four adjacent entries of one row.
 type Block = [f64; LANES];
 
@@ -759,7 +777,7 @@ impl Swaps {
     }
 }
 
-/// [`determinant`] under the widest instruction set the CPU runs.
+/// [`determinant`], run by [`in_blocks`].
 struct Square<M>(M);
 
 impl<M: Rows> WithSimd for Square<M> {
@@ -786,7 +804,7 @@ impl<M: Rows> WithSimd for Square<M> {
     }
 }
 
-/// [`cofactors`] under the widest instruction set the CPU runs.
+/// [`cofactors`], run by [`in_blocks`].
 struct Shared<M>(M);
 
 impl<M: Rows> WithSimd for Shared<M> {
