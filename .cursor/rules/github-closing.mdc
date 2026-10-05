@@ -13,6 +13,8 @@ The verbs are `close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `
 
 `Closes #N` is the only closing line. It stands alone under `## Related`. The same verb does not appear again next to that number.
 
+The line lives in the pull request body only, never in a commit body. GitHub's default squash message concatenates the commit bodies, so a commit that says it closes an issue completes that issue at merge, whatever the PR body says by then (#138, #139). A commit body names the issue as `#N`.
+
 ## When the PR does not finish the issue
 
 Name the issue as `#N` with no closing verb anywhere before that number. Say that the acceptance text is still unmet.

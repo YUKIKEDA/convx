@@ -264,7 +264,7 @@ Which side is the lower side is decided by the outward vertex order that the lif
 
 When the original sites span $\mathbb{R}^D$, the lifted affine dimension being $D$ is the same statement as every point lying on one sphere. In that case the lower-side sign is not used, and the interior of the site hull is filled by a pulling triangulation. The boundary is obtained inside Delaunay by calling the hull core on the original $D$-dimensional sites. The public `ConvexHullBuilder` is not used. Failure to build a public plane does not fail this split. Let $v$ be the vertex of minimum index. The vertex set of a boundary face that does not contain $v$ is split by the same rule. If that vertex set is already a simplex, the procedure stops and returns that simplex. Otherwise $v$ is added to each simplex obtained by recursion. When only some points are cospherical, the diagonal is decided by the ordinary lower-hull procedure. Uniqueness across versions is not promised.
 
-A face whose sign is not yet decided is not discarded. Cutting off the search of faces already known to be on the upper side is an optimization added after the sequential core is correct. Even if that optimization is not implemented, the definition that publishes only the lower side is the same.
+A face whose sign is not yet decided is not discarded. The build still walks upper facets. A site that lies outside the projection of the sites inserted so far can be visible from upper facets only, and that site is a vertex of the lower hull. After the hull exists, each simplex is classified by the exact test of this section, and a simplex that is not on the lower side is left out of the coplanar merge. The simplices of one logical facet share that sign. A hyperplane that is not vertical projects one to one and keeps one sign, and a vertical one gives every simplex zero. The lower groups are those of the full merge.
 
 Delaunay returns `DegenerateDimension` only when the affine dimension of the original sites is below $D$. Lifted points that do not span $R^{D+1}$ still receive a lower hull inside their affine span. When every point is cospherical and the lift is flat, the build still succeeds as a triangulation of the site hull. This procedure stays inside Delaunay and is not exposed on `ConvexHullBuilder`. The public convex hull still fails, as before, when the affine dimension is below $D$.
 
@@ -482,9 +482,4 @@ Phase 3 is parallel. It includes the same batch extraction as the sequential bui
 
 Phase 4 is the static API, Delaunay, Voronoi, and the oracles. Phase 4 is not complete until the Delaunay inputs above pass. The pulling triangulation for a flat lift, and the procedure that merges cospherical simplices into one Voronoi vertex, are internal procedures of this phase.
 
-What may wait until a correct sequential result exists is the following.
-
-- A cache of lifted coordinates
-- Cutting off the search of the upper hull and of faces already decided
-
-The sign convention, and defining the lift by the formula, are part of the Phase 4 specification from the start. What may be postponed as an implementation omission is the search cutoff and the coordinate cache.
+The sign convention, and defining the lift by the formula, are part of the Phase 4 specification from the start. The cache of lifted coordinates is in place. The build still walks upper facets, and simplices that are not on the lower side are left out of the coplanar merge only after the hull exists.

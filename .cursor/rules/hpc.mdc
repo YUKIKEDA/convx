@@ -26,7 +26,7 @@ simd.vectorize(|| lanes::edges::<5, 6>(simd, facets, factors))
 Simd::vectorize(simd, lanes::Edges::<5, 6, _>(simd, facets, factors))
 ```
 
-Do not store the points column-major, transpose them, or keep a second copy so a gather becomes contiguous. Do not walk a `Mat` buffer as rows, and do not swap `(row, col)`. Do not add an alignment, a prefetch, or an `unsafe` SIMD intrinsic the design does not name. The search cutoffs stay on their roadmap row. The one copy of the sites is the lifted row `(p, |p|^2, bound)` that design §7 allows (#92).
+Do not store the points column-major, transpose them, or keep a second copy so a gather becomes contiguous. Do not walk a `Mat` buffer as rows, and do not swap `(row, col)`. Do not add an alignment, a prefetch, or an `unsafe` SIMD intrinsic the design does not name. The one copy of the sites is the lifted row `(p, |p|^2, bound)` that design §7 allows (#92).
 
 A per-point cache sits in the row its readers already load, next to the point's coordinates. A parallel array adds a random access per point: #92's first cut cut instructions by 6% and moved no wall time.
 
