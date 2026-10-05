@@ -111,7 +111,18 @@ After a correct sequential hull. These rows do not block P4.
 | P5-33 | Feat | Pick a round's candidates without a pass over every pending candidate | #172  | Done                   |
 | P5-34 | Feat | Exact stage without heap big integers for the predicates coplanar inputs send past the filter | #173  | Done                   |
 | P5-35 | Feat | Certify the working normal of a facet with 2 to 4 points as cheaply as the lane path | #174  | Done                   |
+| P5-36 | Spike | Would an incremental Delaunay in BRIO order beat the lifted Quickhull at D = 2 and 3? | #175  | Done |
+| P5-37 | Spike | Would a core monomorphized on D speed up the static API, and would a dedicated D = 2 hull beat Quickhull? | #176  | Not started |
+| P5-38 | Spike | Where does the peak memory of output-heavy builds go? | #177  | Not started |
+| P5-39 | Spike | Why does parallel(true) give only 1.2 to 1.3 times on four cores? | #178  | Not started |
+| P5-40 | Docs | Let the filter rescale tiny inputs by an exact power of two | #179  | Set after Grill on #179 |
+| P5-41 | Spike | How many NonFiniteCircumcenter failures have a circumcenter that fits in f64? | #180  | Not started |
+| P5-42 | Spike | Why does hull sphere D2 wall time grow faster than its instruction count? | #182  | Not started |
+| P5-43 | Spike | Coplanar points are scanned again for every new facet: can construction stop rescanning them? | #183  | Not started |
 | P5-44 | Feat | Reuse the work space of the heap exact stage across predicate calls | #185  | Not started            |
+| P5-45 | Spike | Near-cospherical sites send almost every lifted predicate to the exact stage | #187  | Not started |
+| P5-46 | Feat | Build Delaunay and Voronoi by incremental insertion in every dimension (design #188) | #189  | Not started |
+| P5-47 | Feat | Deterministic parallel insertion for Delaunay and Voronoi | #190  | Set after Grill on #190 |
 
 ## Intentionally out of scope
 
