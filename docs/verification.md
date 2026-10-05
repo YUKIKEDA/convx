@@ -14,7 +14,7 @@ The library's meaning, the invariants, and the named completion inputs are the d
 | P2     | Hull topology, volume, the index partition, the hull invariants, the named hull inputs, hull simulations | P1 records stay. They are not hull expectations                                          |
 | P3     | Sequential and parallel agreement on the same batch, in one binary                                       | Hull expectations stay. Parallel output does not replace them                            |
 | P4     | Delaunay, Voronoi, and the named Delaunay inputs                                                         | Hull expectations stay. A Delaunay or Voronoi field is added only when P4 can produce it |
-| P5     | Wider SIMD, caches, faster predicates and classification, and search cutoffs                             | Expectations stay. A faster path that disagrees is wrong                                 |
+| P5     | Wider SIMD, caches, and faster predicates and classification                                              | Expectations stay. A faster path that disagrees is wrong                                 |
 | Timing | Wall time against Qhull, after a correct sequential hull                                                 | Performance files stay separate from correctness records                                 |
 
 A check is armed when the phase that produces that result is in the tree. A later result is not frozen early, and a record is not deleted because a later phase is still absent.

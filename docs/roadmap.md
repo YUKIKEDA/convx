@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P5-4 (#28): cut off search of the upper hull and of faces already decided. The measurement on #28 bounds its gain on the `cube` sets.
+P5-19 (#135): factor the published normal with one Householder QR.
 
 ## Dependencies
 
@@ -16,7 +16,7 @@ M0 → P1 → P2 → P3
               → P5
 ```
 
-P3, P4, and P5 follow a correct sequential hull (P2). P4 does not wait for P3. P5 does not gate P4. The sign convention and the lift formula are part of P4 from the start. P5-3 and P5-4 are the omissions the design allows after that. They are not out of scope.
+P3, P4, and P5 follow a correct sequential hull (P2). P4 does not wait for P3. P5 does not gate P4. The sign convention and the lift formula are part of P4 from the start.
 
 ## M0
 
@@ -82,8 +82,8 @@ After a correct sequential hull. These rows do not block P4.
 | ----- | ---- | ------------------------------------------------------------- | ----- | ---------------------- |
 | P5-1  | Feat | Wider SIMD, including AVX-512                                 | #25   | Done                   |
 | P5-3  | Feat | Cache of lifted coordinates                                   | #27   | Done                   |
-| P5-4  | Feat | Cut off search of the upper hull and of faces already decided | #28   | Not started            |
-| P5-5  | Feat | Vector cull kernel faster than its scalar lanes               | #70   | Set after Grill on #70 |
+| P5-4  | Feat | Leave non-lower simplices out of the coplanar merge           | #28   | Done                   |
+| P5-5  | Feat | Vector cull kernel faster than its scalar lanes               | #70   | Done                   |
 | P5-6  | Feat | Filtered determinant cheap for every k > 4                    | #72   | Done                   |
 | P5-7  | Feat | Faster distance-zero classification                           | #73   | Done                   |
 | P5-8  | Feat | Linear batch extraction                                       | #75   | Done                   |

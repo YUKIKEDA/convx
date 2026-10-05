@@ -62,6 +62,18 @@ impl UnionFind {
 
 /// Groups the simplices of `hull` into logical facets.
 pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, ConvexHullError> {
+    merge_except(hull, &SlotMarks::default())
+}
+
+/// [`merge`] without testing a ridge of a simplex marked in `cut`: each cut
+/// simplex stays a group of its own. A caller cuts only simplices whose
+/// group it has already decided to drop, and a cut simplex is coplanar with
+/// no simplex it keeps, so the groups of the kept simplices are those of
+/// [`merge`].
+pub(crate) fn merge_except(
+    hull: &SimplicialHull<'_>,
+    cut: &SlotMarks<()>,
+) -> Result<LogicalFacets, ConvexHullError> {
     let ids: Vec<FacetId> = hull.facets.iter().map(|(id, _)| id).collect();
     let mut dense: SlotMarks<u32> = SlotMarks::default();
     for (i, &id) in ids.iter().enumerate() {
@@ -73,10 +85,16 @@ pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, ConvexHu
         let Some(facet) = hull.facets.get(id) else {
             continue;
         };
+        if cut.contains(id) {
+            continue;
+        }
         for &neighbor in &facet.neighbors {
             let Some(j) = dense.get(neighbor) else {
                 continue;
             };
+            if cut.contains(neighbor) {
+                continue;
+            }
             // Each ridge is tested once, from the lower dense index.
             if (j as usize) < i {
                 continue;
