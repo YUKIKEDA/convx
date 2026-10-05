@@ -17,6 +17,8 @@ mod filter;
 
 use filter::Approx;
 
+use crate::small::Small;
+
 /// The sign of a predicate.
 ///
 /// Predicates return a sign, never a floating-point value. Coplanar means an
@@ -300,11 +302,11 @@ fn filtered_value(rows: Rows<'_>) -> Option<Approx> {
 ///
 /// Returns `None` when a bound is not finite or a filtered elimination could
 /// not certify a pivot.
-pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Vec<(f64, f64)>> {
+pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Cofactors> {
     let k = facet.len();
     debug_assert!(k >= 1, "a hyperplane needs at least one point");
     if k == 1 {
-        return Some(vec![(1.0, 0.0)]);
+        return Some([(1.0, 0.0)].as_slice().into());
     }
     if k > 4 {
         // One elimination shared by every cofactor (#111).
@@ -318,14 +320,15 @@ pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Vec<(f64, f64)>> {
             })
             .collect();
     }
-    let mut unit = vec![0.0; k];
-    let mut cofactors = Vec::with_capacity(k);
-    for j in 0..k {
+    let mut unit = [0.0; 4];
+    let unit = &mut unit[..k];
+    let mut cofactors = [(0.0, 0.0); 4];
+    for (j, cofactor) in cofactors.iter_mut().enumerate().take(k) {
         unit[j] = 1.0;
         let value = filtered_value(Rows {
             origin: facet[0],
             points: &facet[1..],
-            direction: Some(&unit),
+            direction: Some(unit),
             lifted: None,
         });
         unit[j] = 0.0;
@@ -333,10 +336,16 @@ pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Vec<(f64, f64)>> {
         if !value.value().is_finite() || !value.error().is_finite() {
             return None;
         }
-        cofactors.push((value.value(), value.error()));
+        *cofactor = (value.value(), value.error());
     }
-    Some(cofactors)
+    Some(cofactors[..k].into())
 }
+
+/// The cofactors of one hyperplane, inline up to ten points (#143).
+pub(crate) type Cofactors = Small<(f64, f64), 10>;
+
+/// A unit direction of one hyperplane, inline up to dimension ten (#143).
+pub(crate) type Direction = Small<f64, 10>;
 
 const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
 
@@ -347,7 +356,7 @@ const FILTERED_DIRECTION_LIMIT: f64 = 1e-10;
 #[cfg(test)]
 pub(crate) fn cofactor_direction(
     facet: &[&[f64]],
-) -> Result<Option<(Vec<f64>, f64)>, ExactEvaluationExhausted> {
+) -> Result<Option<(Direction, f64)>, ExactEvaluationExhausted> {
     cofactor_direction_from(facet, direction_cofactors(facet).as_deref())
 }
 
@@ -368,12 +377,12 @@ pub(crate) fn cofactor_direction(
 pub(crate) fn cofactor_direction_from(
     facet: &[&[f64]],
     cofactors: Option<&[(f64, f64)]>,
-) -> Result<Option<(Vec<f64>, f64)>, ExactEvaluationExhausted> {
+) -> Result<Option<(Direction, f64)>, ExactEvaluationExhausted> {
     if let Some(certified) = certified_cofactor_direction(facet.len(), cofactors) {
         return Ok(Some(certified));
     }
     let err = facet.len() as f64 * 2f64.powi(-49);
-    Ok(exact::cofactor_direction_exact(facet)?.map(|d| (d, err)))
+    Ok(exact::cofactor_direction_exact(facet)?.map(|d| (d.into(), err)))
 }
 
 /// The filtered half of [`cofactor_direction_from`]: the unit direction of
@@ -383,7 +392,7 @@ pub(crate) fn cofactor_direction_from(
 pub(crate) fn certified_cofactor_direction(
     k: usize,
     cofactors: Option<&[(f64, f64)]>,
-) -> Option<(Vec<f64>, f64)> {
+) -> Option<(Direction, f64)> {
     let k = k as f64;
     let cofactors = cofactors?;
     let bound: f64 = cofactors.iter().map(|&(_, e)| e).sum::<f64>() * (1.0 + k * UNIT_ROUNDOFF);
@@ -448,8 +457,8 @@ mod tests {
         }
     }
 
-    /// The elimination over a matrix of row vectors, as it was before sizes
-    /// 5 to 9 moved to arrays: the reference they must match bit for bit.
+    /// The elimination over a matrix of row vectors of `Approx`, entry by
+    /// entry: the reference every size must match bit for bit.
     fn determinant_of_rows(mut m: Vec<Vec<Approx>>) -> Option<Approx> {
         let n = m.len();
         let mut det = Approx::exact(1.0);
@@ -477,8 +486,12 @@ mod tests {
     #[test]
     fn determinant_matches_the_row_elimination_bit_for_bit() {
         // Sizes on the stack (5..=9) and in row vectors (10..=18); magnitudes
-        // far from 1; repeated rows and columns, so some pivots are not
-        // certain and both sides must return None.
+        // far from 1; a last row of exact entries near the subnormal range,
+        // which pivoting keeps for last, so its rounding terms are subnormal,
+        // eta shows in the bits (an input bound would hide it), and the
+        // product of the pivots stays normal; two rows tied
+        // in the first pivot column; repeated rows and columns, so some pivots
+        // are not certain and both sides must return None.
         let mut rng = Rng(72);
         let mut uncertain = 0;
         for n in 5..=18 {
@@ -487,6 +500,12 @@ mod tests {
                 let mut m: Vec<Vec<f64>> = (0..n)
                     .map(|_| (0..n).map(|_| rng.unit() * scale).collect())
                     .collect();
+                if trial % 3 == 0 {
+                    m[1][0] = -m[0][0];
+                }
+                if trial % 8 == 4 {
+                    m[n - 1].iter_mut().for_each(|x| *x *= 1e-300);
+                }
                 if trial % 5 == 0 {
                     m[n - 1] = m[0].clone();
                 }
@@ -497,12 +516,13 @@ mod tests {
                         row[1] = row[0];
                     }
                 }
+                let entry = |i: usize, j: usize| input_entry(&m, trial, i, j);
                 let reference = determinant_of_rows(
-                    m.iter()
-                        .map(|r| r.iter().map(|&x| Approx::exact(x)).collect())
+                    (0..n)
+                        .map(|i| (0..n).map(|j| entry(i, j)).collect())
                         .collect(),
                 );
-                let stored = filter::determinant(n, |i, j| Approx::exact(m[i][j]));
+                let stored = filter::determinant(n, entry);
                 let bits =
                     |a: Option<Approx>| a.map(|a| (a.value().to_bits(), a.error().to_bits()));
                 assert_eq!(bits(stored), bits(reference), "n = {n}, trial {trial}");
@@ -510,6 +530,119 @@ mod tests {
             }
         }
         assert!(uncertain > 0, "some pivot is uncertain");
+    }
+
+    /// Entry `(i, j)` of a test matrix; odd trials carry an input bound, so
+    /// every term of the running bound is nonzero.
+    fn input_entry(m: &[Vec<f64>], trial: usize, i: usize, j: usize) -> Approx {
+        let x = m[i][j];
+        if trial % 2 == 1 {
+            Approx::stored(x, x.abs() * 2f64.powi(-50) + f64::MIN_POSITIVE)
+        } else {
+            Approx::exact(x)
+        }
+    }
+
+    /// The cofactor elimination over row vectors of `Approx`, entry by
+    /// entry: the reference every size must match bit for bit.
+    fn cofactors_of_rows(mut rows: Vec<Vec<Approx>>) -> Option<Vec<Approx>> {
+        let m = rows.len();
+        let k = m + 1;
+        let mut swapped = false;
+        for col in 0..m {
+            let best = (col..m).max_by(|&a, &b| {
+                rows[a][col]
+                    .value()
+                    .abs()
+                    .total_cmp(&rows[b][col].value().abs())
+            })?;
+            if best != col {
+                rows.swap(best, col);
+                swapped = !swapped;
+            }
+            let (upper, lower) = rows.split_at_mut(col + 1);
+            let pivot_row = &upper[col];
+            let pivot = pivot_row[col];
+            for row in lower {
+                let factor = row[col].div(pivot)?;
+                for (entry, &above) in row[col + 1..k].iter_mut().zip(&pivot_row[col + 1..k]) {
+                    *entry = entry.sub(factor.mul(above));
+                }
+            }
+        }
+        let mut det = Approx::exact(1.0);
+        for (i, row) in rows.iter().enumerate() {
+            det = det.mul(row[i]);
+        }
+        if swapped {
+            det = det.negated();
+        }
+        let mut out = vec![Approx::exact(0.0); k];
+        for i in (0..m).rev() {
+            let row = &rows[i];
+            let mut sum = row[m];
+            for (j, &xj) in out.iter().enumerate().take(m).skip(i + 1) {
+                sum = sum.sub(row[j].mul(xj));
+            }
+            out[i] = sum.div(row[i])?;
+        }
+        for value in out.iter_mut().take(m) {
+            *value = det.mul(*value).negated();
+        }
+        out[m] = det;
+        Some(out)
+    }
+
+    #[test]
+    fn cofactors_match_the_row_elimination_bit_for_bit() {
+        // Orders on the stack (5..=9) and on the heap (10..=18), with the
+        // same magnitudes, ties, and repeated rows and columns as the
+        // determinant.
+        let mut rng = Rng(73);
+        let mut uncertain = 0;
+        for k in 5..=18 {
+            for trial in 0..40 {
+                let scale = [1.0, 1e-120, 1e120, 3.0][trial % 4];
+                let mut m: Vec<Vec<f64>> = (0..k - 1)
+                    .map(|_| (0..k).map(|_| rng.unit() * scale).collect())
+                    .collect();
+                if trial % 3 == 0 {
+                    m[1][0] = -m[0][0];
+                }
+                if trial % 8 == 4 {
+                    m[k - 2].iter_mut().for_each(|x| *x *= 1e-300);
+                }
+                if trial % 5 == 0 {
+                    m[k - 2] = m[0].clone();
+                }
+                if trial % 7 == 0 {
+                    for row in &mut m {
+                        row[1] = row[0];
+                    }
+                }
+                let entry = |i: usize, j: usize| input_entry(&m, trial, i, j);
+                let reference = cofactors_of_rows(
+                    (0..k - 1)
+                        .map(|i| (0..k).map(|j| entry(i, j)).collect())
+                        .collect(),
+                );
+                let stored = filter::cofactors(k, entry);
+                let bits = |a: Option<Vec<Approx>>| {
+                    a.map(|a| {
+                        a.iter()
+                            .map(|a| (a.value().to_bits(), a.error().to_bits()))
+                            .collect::<Vec<_>>()
+                    })
+                };
+                uncertain += usize::from(reference.is_none());
+                assert_eq!(
+                    bits(stored.map(|s| s.to_vec())),
+                    bits(reference),
+                    "k = {k}, trial {trial}"
+                );
+            }
+        }
+        assert!(uncertain > 0, "some divisor is uncertain");
     }
 
     #[test]

@@ -23,7 +23,12 @@
 //! The filter returns a sign only when `|value| > bound` and both are finite.
 //! Otherwise the caller falls back to the exact sign.
 
+use core::cmp::Ordering;
+
+use pulp::{Arch, Simd, WithSimd};
+
 use super::Sign;
+use crate::small::Small;
 
 const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
 /// Two units in the last place of the smallest subnormal (2^-1073).
@@ -31,7 +36,7 @@ const ETA: f64 = f64::from_bits(2);
 const GROW: f64 = 1.0 + 16.0 * UNIT_ROUNDOFF;
 
 /// A computed `f64` value with an absolute bound on its error.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Approx {
     value: f64,
     error: f64,
@@ -161,21 +166,17 @@ pub(super) fn orient4(m: &[[Approx; 4]; 4]) -> Approx {
 /// `None` when a pivot's sign is not certain.
 ///
 /// Sizes 5 to 9 (every orientation and lifted orientation of the static
-/// range) build an array of exactly that size on the stack, so a call does
-/// not allocate. Larger sizes use one vector per row. Both run the same
-/// elimination, so the value and the bound do not depend on the storage.
+/// range) keep the matrix on the stack, so a call does not allocate. Larger
+/// sizes use one vector. Both run [`eliminate`], so the value and the bound
+/// do not depend on the storage.
 pub(super) fn determinant(n: usize, entry: impl Fn(usize, usize) -> Approx) -> Option<Approx> {
     match n {
-        5 => eliminate(&mut fixed::<5>(entry)),
-        6 => eliminate(&mut fixed::<6>(entry)),
-        7 => eliminate(&mut fixed::<7>(entry)),
-        8 => eliminate(&mut fixed::<8>(entry)),
-        9 => eliminate(&mut fixed::<9>(entry)),
-        _ => eliminate(
-            &mut (0..n)
-                .map(|i| (0..n).map(|j| entry(i, j)).collect::<Vec<_>>())
-                .collect::<Vec<_>>(),
-        ),
+        5 => Arch::new().dispatch(Square(Stack::<5, 2>::load(5, 5, entry))),
+        6 => Arch::new().dispatch(Square(Stack::<6, 2>::load(6, 6, entry))),
+        7 => Arch::new().dispatch(Square(Stack::<7, 2>::load(7, 7, entry))),
+        8 => Arch::new().dispatch(Square(Stack::<8, 2>::load(8, 8, entry))),
+        9 => Arch::new().dispatch(Square(Stack::<9, 3>::load(9, 9, entry))),
+        _ => Arch::new().dispatch(Square(Heap::load(n, n, entry))),
     }
 }
 
@@ -189,123 +190,323 @@ pub(super) fn determinant(n: usize, entry: impl Fn(usize, usize) -> Approx) -> O
 /// so with `T x = u` the cofactor vector is `(-1)^s det T (-x, 1)`. Every
 /// operation carries its running bound, so each returned value bounds its
 /// own cofactor. Returns `None` when a divisor's sign is not certified.
-pub(super) fn cofactors(k: usize, entry: impl Fn(usize, usize) -> Approx) -> Option<Vec<Approx>> {
-    // The k - 1 rows sit on the stack for the orders `determinant` keeps
-    // there; the last row of the square array is zero and is not read.
-    match k {
-        5 => eliminate_shared(&mut leading_rows::<5>(&entry)[..4], k),
-        6 => eliminate_shared(&mut leading_rows::<6>(&entry)[..5], k),
-        7 => eliminate_shared(&mut leading_rows::<7>(&entry)[..6], k),
-        8 => eliminate_shared(&mut leading_rows::<8>(&entry)[..7], k),
-        9 => eliminate_shared(&mut leading_rows::<9>(&entry)[..8], k),
-        _ => eliminate_shared(
-            &mut (0..k - 1)
-                .map(|i| (0..k).map(|j| entry(i, j)).collect::<Vec<_>>())
-                .collect::<Vec<_>>(),
-            k,
-        ),
-    }
-}
-
-/// The elimination of [`cofactors`] over the `k - 1` rows of length `k`.
-fn eliminate_shared<R: AsRef<[Approx]> + AsMut<[Approx]>>(
-    rows: &mut [R],
+pub(super) fn cofactors(
     k: usize,
-) -> Option<Vec<Approx>> {
-    let m = k - 1;
-    debug_assert_eq!(rows.len(), m, "k - 1 rows");
-    let mut swapped = false;
-    for col in 0..m {
-        let best = (col..m).max_by(|&a, &b| {
-            rows[a].as_ref()[col]
-                .value
-                .abs()
-                .total_cmp(&rows[b].as_ref()[col].value.abs())
-        })?;
-        if best != col {
-            rows.swap(best, col);
-            swapped = !swapped;
-        }
-        let (upper, lower) = rows.split_at_mut(col + 1);
-        let pivot_row = upper[col].as_ref();
-        let pivot = pivot_row[col];
-        for row in lower {
-            let row = row.as_mut();
-            let factor = row[col].div(pivot)?;
-            for (entry, &above) in row[col + 1..k].iter_mut().zip(&pivot_row[col + 1..k]) {
-                *entry = entry.sub(factor.mul(above));
+    entry: impl Fn(usize, usize) -> Approx,
+) -> Option<Small<Approx, 10>> {
+    // The k - 1 rows sit on the stack for the orders `determinant` keeps
+    // there.
+    match k {
+        5 => Arch::new().dispatch(Shared(Stack::<4, 2>::load(4, 5, entry))),
+        6 => Arch::new().dispatch(Shared(Stack::<5, 2>::load(5, 6, entry))),
+        7 => Arch::new().dispatch(Shared(Stack::<6, 2>::load(6, 7, entry))),
+        8 => Arch::new().dispatch(Shared(Stack::<7, 2>::load(7, 8, entry))),
+        9 => Arch::new().dispatch(Shared(Stack::<8, 3>::load(8, 9, entry))),
+        _ => Arch::new().dispatch(Shared(Heap::load(k - 1, k, entry))),
+    }
+}
+
+/// Lanes of one block of a row.
+const LANES: usize = 4;
+
+/// Four adjacent entries of one row.
+type Block = [f64; LANES];
+
+/// The bound a padding entry starts with. Padding is never read; a bound
+/// of a few `ETA` there would make each update's products subnormal, and
+/// every subnormal operation costs a microcode assist.
+const PAD_ERROR: f64 = 1.0;
+
+/// The rows of an elimination: values and bounds apart, each row padded
+/// with zero entries to whole blocks, so that one row update is a loop of
+/// fixed-width block operations (see [`update`]).
+trait Rows {
+    fn rows(&self) -> usize;
+    fn blocks(&self) -> usize;
+    fn parts(&mut self) -> (&mut [Block], &mut [Block]);
+}
+
+/// `R` rows of `B` blocks on the stack.
+struct Stack<const R: usize, const B: usize> {
+    value: [[Block; B]; R],
+    error: [[Block; B]; R],
+}
+
+impl<const R: usize, const B: usize> Stack<R, B> {
+    fn load(rows: usize, cols: usize, entry: impl Fn(usize, usize) -> Approx) -> Self {
+        debug_assert!(
+            rows == R && cols.div_ceil(LANES) == B,
+            "the matrix fills the array"
+        );
+        let mut m = Self {
+            value: [[[0.0; LANES]; B]; R],
+            error: [[[PAD_ERROR; LANES]; B]; R],
+        };
+        for i in 0..R {
+            for j in 0..cols {
+                let a = entry(i, j);
+                m.value[i][j / LANES][j % LANES] = a.value;
+                m.error[i][j / LANES][j % LANES] = a.error;
             }
         }
+        m
     }
-    let mut det = Approx::exact(1.0);
-    for (i, row) in rows.iter().enumerate() {
-        det = det.mul(row.as_ref()[i]);
-    }
-    if swapped {
-        det = det.negated();
-    }
-    // Back substitution for T x = u, u the last column, written into the
-    // first m entries of the result.
-    let mut out = vec![Approx::exact(0.0); k];
-    for i in (0..m).rev() {
-        let row = rows[i].as_ref();
-        let mut sum = row[m];
-        for (j, &xj) in out.iter().enumerate().take(m).skip(i + 1) {
-            sum = sum.sub(row[j].mul(xj));
-        }
-        out[i] = sum.div(row[i])?;
-    }
-    for value in out.iter_mut().take(m) {
-        *value = det.mul(*value).negated();
-    }
-    out[m] = det;
-    Some(out)
 }
 
-/// The first `N - 1` rows of an `N x N` array from `entry`; the last row
-/// is zero and `entry` is not called for it.
-fn leading_rows<const N: usize>(entry: impl Fn(usize, usize) -> Approx) -> [[Approx; N]; N] {
-    core::array::from_fn(|i| {
-        core::array::from_fn(|j| {
-            if i + 1 < N {
-                entry(i, j)
-            } else {
-                Approx::exact(0.0)
+impl<const R: usize, const B: usize> Rows for Stack<R, B> {
+    fn rows(&self) -> usize {
+        R
+    }
+
+    fn blocks(&self) -> usize {
+        B
+    }
+
+    fn parts(&mut self) -> (&mut [Block], &mut [Block]) {
+        (self.value.as_flattened_mut(), self.error.as_flattened_mut())
+    }
+}
+
+/// Rows of any width in one vector each for values and bounds.
+struct Heap {
+    rows: usize,
+    blocks: usize,
+    value: Vec<Block>,
+    error: Vec<Block>,
+}
+
+impl Heap {
+    fn load(rows: usize, cols: usize, entry: impl Fn(usize, usize) -> Approx) -> Self {
+        let blocks = cols.div_ceil(LANES);
+        let mut value = vec![[0.0; LANES]; rows * blocks];
+        let mut error = vec![[PAD_ERROR; LANES]; rows * blocks];
+        for i in 0..rows {
+            for j in 0..cols {
+                let a = entry(i, j);
+                value[i * blocks + j / LANES][j % LANES] = a.value;
+                error[i * blocks + j / LANES][j % LANES] = a.error;
             }
-        })
-    })
+        }
+        Self {
+            rows,
+            blocks,
+            value,
+            error,
+        }
+    }
 }
 
-fn fixed<const N: usize>(entry: impl Fn(usize, usize) -> Approx) -> [[Approx; N]; N] {
-    core::array::from_fn(|i| core::array::from_fn(|j| entry(i, j)))
+impl Rows for Heap {
+    fn rows(&self) -> usize {
+        self.rows
+    }
+
+    fn blocks(&self) -> usize {
+        self.blocks
+    }
+
+    fn parts(&mut self) -> (&mut [Block], &mut [Block]) {
+        (&mut self.value, &mut self.error)
+    }
 }
 
-/// Gaussian elimination with partial pivoting over the rows of `m`.
-fn eliminate<R: AsRef<[Approx]> + AsMut<[Approx]>>(m: &mut [R]) -> Option<Approx> {
-    let n = m.len();
-    let mut det = Approx::exact(1.0);
-    for col in 0..n {
-        let best = (col..n).max_by(|&a, &b| {
-            m[a].as_ref()[col]
-                .value
-                .abs()
-                .total_cmp(&m[b].as_ref()[col].value.abs())
-        })?;
-        if best != col {
-            m.swap(best, col);
+/// Row swaps on the stack up to this many rows, on the heap beyond.
+const STACK_SWAPS: usize = 16;
+
+/// Per column of an elimination, whether a row swap brought its pivot in.
+enum Swaps {
+    Stack([bool; STACK_SWAPS], usize),
+    Heap(Vec<bool>),
+}
+
+impl Swaps {
+    fn new(rows: usize) -> Self {
+        if rows <= STACK_SWAPS {
+            Self::Stack([false; STACK_SWAPS], rows)
+        } else {
+            Self::Heap(vec![false; rows])
+        }
+    }
+
+    fn as_mut(&mut self) -> &mut [bool] {
+        match self {
+            Self::Stack(swaps, rows) => &mut swaps[..*rows],
+            Self::Heap(swaps) => swaps,
+        }
+    }
+}
+
+/// [`determinant`] under the widest instruction set the CPU runs.
+struct Square<M>(M);
+
+impl<M: Rows> WithSimd for Square<M> {
+    type Output = Option<Approx>;
+
+    #[inline(always)]
+    fn with_simd<S: Simd>(mut self, _simd: S) -> Self::Output {
+        let n = self.0.rows();
+        let b = self.0.blocks();
+        let mut swaps = Swaps::new(n);
+        let swaps = swaps.as_mut();
+        let (value, error) = self.0.parts();
+        eliminate(value, error, n, b, swaps)?;
+        // Each pivot is final once its column is eliminated, so the
+        // product in column order repeats the entry-wise elimination's.
+        let mut det = Approx::exact(1.0);
+        for (col, &swapped) in swaps.iter().enumerate() {
+            if swapped {
+                det = det.negated();
+            }
+            det = det.mul(at(value, error, b, col, col));
+        }
+        Some(det)
+    }
+}
+
+/// [`cofactors`] under the widest instruction set the CPU runs.
+struct Shared<M>(M);
+
+impl<M: Rows> WithSimd for Shared<M> {
+    type Output = Option<Small<Approx, 10>>;
+
+    #[inline(always)]
+    fn with_simd<S: Simd>(mut self, _simd: S) -> Self::Output {
+        let m = self.0.rows();
+        let b = self.0.blocks();
+        let mut swaps = Swaps::new(m);
+        let swaps = swaps.as_mut();
+        let (value, error) = self.0.parts();
+        eliminate(value, error, m, b, swaps)?;
+        let entry = |i: usize, j: usize| at(value, error, b, i, j);
+        let mut det = Approx::exact(1.0);
+        for i in 0..m {
+            det = det.mul(entry(i, i));
+        }
+        if swaps.iter().filter(|&&s| s).count() % 2 == 1 {
             det = det.negated();
         }
-        let pivot = m[col].as_ref()[col];
-        det = det.mul(pivot);
-        let (upper, lower) = m.split_at_mut(col + 1);
-        let pivot_row = upper[col].as_ref();
-        for row in lower {
-            let row = row.as_mut();
-            let factor = row[col].div(pivot)?;
-            for (entry, &above) in row[col + 1..].iter_mut().zip(&pivot_row[col + 1..]) {
-                *entry = entry.sub(factor.mul(above));
+        // Back substitution for T x = u, u the last column, written into the
+        // first m entries of the result.
+        let mut out: Small<Approx, 10> = (0..=m).map(|_| Approx::exact(0.0)).collect();
+        for i in (0..m).rev() {
+            let mut sum = entry(i, m);
+            for (j, &xj) in out.iter().enumerate().take(m).skip(i + 1) {
+                sum = sum.sub(entry(i, j).mul(xj));
+            }
+            out[i] = sum.div(entry(i, i))?;
+        }
+        for value in out.iter_mut().take(m) {
+            *value = det.mul(*value).negated();
+        }
+        out[m] = det;
+        Some(out)
+    }
+}
+
+/// Entry `(i, j)` of rows of `b` blocks.
+#[inline(always)]
+fn at(value: &[Block], error: &[Block], b: usize, i: usize, j: usize) -> Approx {
+    let block = i * b + j / LANES;
+    Approx {
+        value: value[block][j % LANES],
+        error: error[block][j % LANES],
+    }
+}
+
+/// Gaussian elimination with partial pivoting over the first `rows`
+/// columns of `rows` rows of `b` blocks. `swaps[col]` records whether
+/// column `col` swapped its pivot row in. Returns `None` when a divisor's
+/// sign is not certain.
+///
+/// Every value and bound that is read later is the one the entry-wise
+/// elimination with [`Approx::mul`] and [`Approx::sub`] computes, bit for
+/// bit: the pivot is the last row of largest magnitude, and each update is
+/// [`update`]. A row update starts at the block of the pivot column, so it
+/// also rewrites the entries before that column in the block and the zero
+/// padding; those entries are never read again.
+#[inline(always)]
+fn eliminate(
+    value: &mut [Block],
+    error: &mut [Block],
+    rows: usize,
+    b: usize,
+    swaps: &mut [bool],
+) -> Option<()> {
+    for col in 0..rows {
+        let mut best = col;
+        for r in col + 1..rows {
+            let magnitude = at(value, error, b, r, col).value.abs();
+            if magnitude.total_cmp(&at(value, error, b, best, col).value.abs()) != Ordering::Less {
+                best = r;
             }
         }
+        if best != col {
+            swap_rows(value, b, best, col);
+            swap_rows(error, b, best, col);
+            swaps[col] = true;
+        }
+        let pivot = at(value, error, b, col, col);
+        let first = col / LANES;
+        let (value_above, value_below) = value.split_at_mut((col + 1) * b);
+        let (error_above, error_below) = error.split_at_mut((col + 1) * b);
+        let pivot_value = &value_above[col * b + first..];
+        let pivot_error = &error_above[col * b + first..];
+        for (row_value, row_error) in value_below
+            .chunks_exact_mut(b)
+            .zip(error_below.chunks_exact_mut(b))
+        {
+            let factor = Approx {
+                value: row_value[first][col % LANES],
+                error: row_error[first][col % LANES],
+            }
+            .div(pivot)?;
+            update(
+                &mut row_value[first..],
+                &mut row_error[first..],
+                factor,
+                pivot_value,
+                pivot_error,
+            );
+        }
     }
-    Some(det)
+    Some(())
+}
+
+fn swap_rows(m: &mut [Block], b: usize, r: usize, s: usize) {
+    let (low, high) = (r.min(s), r.max(s));
+    let (head, tail) = m.split_at_mut(high * b);
+    head[low * b..(low + 1) * b].swap_with_slice(&mut tail[..b]);
+}
+
+/// `row - factor * above`, entry by entry: [`Approx::mul`] of the factor
+/// and the entry above, then [`Approx::sub`] from the entry, in the same
+/// order of operations.
+#[inline(always)]
+fn update(
+    row_value: &mut [Block],
+    row_error: &mut [Block],
+    factor: Approx,
+    above_value: &[Block],
+    above_error: &[Block],
+) {
+    let magnitude = factor.value.abs();
+    for (((v, e), av), ae) in row_value
+        .iter_mut()
+        .zip(row_error.iter_mut())
+        .zip(above_value)
+        .zip(above_error)
+    {
+        for lane in 0..LANES {
+            let product = factor.value * av[lane];
+            let product_error = (magnitude * ae[lane]
+                + av[lane].abs() * factor.error
+                + factor.error * ae[lane]
+                + product.abs() * UNIT_ROUNDOFF
+                + ETA)
+                * GROW;
+            let difference = v[lane] - product;
+            e[lane] = (e[lane] + product_error + difference.abs() * UNIT_ROUNDOFF + ETA) * GROW;
+            v[lane] = difference;
+        }
+    }
 }
