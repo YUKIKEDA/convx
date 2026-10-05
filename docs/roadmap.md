@@ -102,6 +102,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-23 | Feat | Gather, scale, and store the four lane facets inside the vectorized call | #149  | Done                   |
 | P5-24 | Feat | Publish the hull without per-item vectors and indirect sorts  | #151  | Done                   |
 | P5-26 | Feat | Build the ridge keys of a new simplex from one sorted horizon ridge | #154  | Done                   |
+| P5-27 | Feat | Find the vertices an insertion loses without sorting the region's vertices | #156  | Done                   |
 
 ## Intentionally out of scope
 
