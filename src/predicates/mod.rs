@@ -302,6 +302,10 @@ fn filtered_value(rows: Rows<'_>) -> Option<Approx> {
 /// of `c . v`. Each entry is returned as `(value, bound)` with
 /// `|c_j - value| <= bound`.
 ///
+/// Facets of two to four points take [`filter::small_cofactors`] when their
+/// edges allow it, otherwise one filtered determinant per cofactor; larger
+/// facets share one filtered elimination.
+///
 /// Returns `None` when a bound is not finite or a filtered elimination could
 /// not certify a pivot.
 pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Cofactors> {
@@ -315,6 +319,10 @@ pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Cofactors> {
         let entry =
             |i: usize, j: usize| Approx::exact(facet[i + 1][j]).sub(Approx::exact(facet[0][j]));
         return finite_cofactors(filter::cofactors(k, entry)?);
+    }
+    // Shared minors and one bound per cofactor from a constant (#174).
+    if let Some(cofactors) = filter::small_cofactors(facet) {
+        return Some(cofactors[..k].into());
     }
     let mut unit = [0.0; 4];
     let unit = &mut unit[..k];
@@ -1089,6 +1097,95 @@ mod tests {
             }
         }
         assert!(tight > 0, "no case where the bound is far above rounding");
+    }
+
+    #[test]
+    fn small_facet_bounds_every_cofactor() {
+        // k = 2..4 points of dimension k (#174): in general position, with
+        // the last point a hair off the affine span of the others, where
+        // the cofactors cancel and the bound is far above their rounding,
+        // with integer coordinates, where a cofactor can be exactly zero,
+        // and with spread exponents, where the edges round. At 1 and at 2^-200 every edge lies inside [2^-250, 2^250],
+        // so the shared minors with the constant bound take them; at 2^-300
+        // and 2^300 the edges lie outside, so the running bound does.
+        // Every cofactor lies in its interval either way.
+        let mut rng = Rng(174);
+        let (mut small, mut fallback, mut tight, mut zero) = (0, 0, 0, 0);
+        for k in 2..=4 {
+            for scale in [1.0, 2f64.powi(-200), 2f64.powi(-300), 2f64.powi(300)] {
+                for shape in 0..4 {
+                    for _ in 0..40 {
+                        let mut facet: Vec<Vec<f64>> = (0..k)
+                            .map(|_| {
+                                (0..k)
+                                    .map(|_| match shape {
+                                        2 => (rng.next() % 5) as f64 - 2.0,
+                                        // Exponents spread over 2^-40..1, so
+                                        // the edges themselves round.
+                                        3 => rng.unit() * 2f64.powi(-((rng.next() % 41) as i32)),
+                                        _ => rng.unit(),
+                                    })
+                                    .collect()
+                            })
+                            .collect();
+                        if shape == 1 {
+                            let others = k - 1;
+                            for m in 0..k {
+                                let mean: f64 = facet[..others].iter().map(|p| p[m]).sum::<f64>()
+                                    / others as f64;
+                                facet[k - 1][m] = mean + rng.unit() * 1e-9;
+                            }
+                        }
+                        for p in &mut facet {
+                            for x in p.iter_mut() {
+                                *x *= scale;
+                            }
+                        }
+                        let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
+                        // Coincident integer points have zero edges, which
+                        // the small path takes at every scale.
+                        let low = 2f64.powi(-250)..=2f64.powi(250);
+                        let inside = facet[1..].iter().all(|p| {
+                            p.iter()
+                                .zip(&facet[0])
+                                .all(|(x, o)| x == o || low.contains(&(x - o).abs()))
+                        });
+                        assert!(
+                            inside == (scale == 1.0 || scale == 2f64.powi(-200))
+                                || facet.iter().all(|p| *p == facet[0])
+                                || shape == 2,
+                            "k {k}, scale {scale:e}: an edge outside the scale's range"
+                        );
+                        let direct = filter::small_cofactors(&refs);
+                        assert_eq!(direct.is_some(), inside, "k {k}, scale {scale:e}");
+                        let Some(cofactors) = direction_cofactors(&refs) else {
+                            panic!("k {k}, scale {scale:e}, shape {shape}: not certified");
+                        };
+                        if let Some(direct) = direct {
+                            assert_eq!(&cofactors[..], &direct[..k], "the small path is used");
+                            small += 1;
+                        } else {
+                            fallback += 1;
+                        }
+                        assert_eq!(cofactors.len(), k, "one cofactor per column");
+                        for (j, &(value, bound)) in cofactors.iter().enumerate() {
+                            assert!(
+                                cofactor_within(&facet, j, value, bound),
+                                "k {k}, scale {scale:e}, shape {shape}, cofactor {j}: \
+                                 {value:e} +- {bound:e}"
+                            );
+                            tight += usize::from(bound > value.abs() * 1e-12);
+                            zero += usize::from(value == 0.0 && bound == 0.0);
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            small > 0 && fallback > 0,
+            "small {small}, fallback {fallback}"
+        );
+        assert!(tight > 0 && zero > 0, "tight {tight}, exact zero {zero}");
     }
 
     #[test]

@@ -22,6 +22,11 @@
 //!
 //! The filter returns a sign only when `|value| > bound` and both are finite.
 //! Otherwise the caller falls back to the exact sign.
+//!
+//! The cofactors of a facet of two to four points are the exception: they
+//! are evaluated in plain `f64` with one bound per cofactor from a constant
+//! per size, when the edges lie in a range where that bound holds (see
+//! [`small_cofactors`], #174).
 
 use core::cmp::Ordering;
 
@@ -205,6 +210,111 @@ pub(super) fn cofactors(
         9 => Arch::new().dispatch(Shared(Stack::<8, 3>::load(8, 9, entry))),
         _ => Arch::new().dispatch(Shared(Heap::load(k - 1, k, entry))),
     }
+}
+
+/// The magnitudes inside which [`small_cofactors`] takes a facet's edges:
+/// every nonzero edge entry lies in `[2^-250, 2^250]`.
+const SMALL_LOW: f64 = f64::from_bits((1023 - 250) << 52); // 2^-250
+const SMALL_HIGH: f64 = f64::from_bits((1023 + 250) << 52); // 2^250
+
+/// Every cofactor of a facet of `k = 2, 3, 4` points of dimension `k`, with
+/// one error bound per cofactor from a constant per `k` (#174).
+///
+/// The cofactor `c_j` is the determinant of the edges `E_i = p_i - p_0`
+/// followed by the unit row `e_j`; expanding along that row, it is
+/// `(-1)^(k-1+j)` times the minor `M_j` of the edges without column `j`.
+/// The edges are rounded once, `e = fl(E) = E(1 + d)`, and the minors are
+/// evaluated in plain `f64`, the 2 x 2 minors of the last two edges shared
+/// by every cofactor. With unit roundoff `u`, each term of `M_j` passes
+/// through at most `n` roundings: `n = 1` for k = 2 (the edge), 4 for k = 3
+/// (two edges, the product, the difference), 8 for k = 4 (three edges, two
+/// products, the difference of the minor, and two more sums). So
+/// `|fl(M_j) - M_j| <= gamma_n P_j`, with `gamma_n = n u / (1 - n u)` and
+/// `P_j` the same expansion over `|E|` (Higham, Accuracy and Stability of
+/// Numerical Algorithms, §3.1). `P_j` is evaluated over `|e|` in the same
+/// order: every step rounds a sum of non-negative terms, and `|E| <= |e| /
+/// (1 - u)`, so `P_j <= p / (1 - u)^n` for the computed `p`. The bound is
+/// `fl(c u p)` with `c = 2, 5, 9`, which exceeds `gamma_n / (1 - u)^n`
+/// after its own rounding.
+///
+/// The model has no underflow or overflow when every nonzero edge entry
+/// lies in `[2^-250, 2^250]`: a product of two entries is at least 2^-500,
+/// a nonzero 2 x 2 minor is a multiple of 2^-552, a product with a third
+/// entry at least 2^-802, every value at most 2^753, and a sum that lands
+/// in the subnormal range is exact. Otherwise, or when a value is not
+/// finite, this returns `None` and the caller takes the running bound of
+/// [`Approx`]. Plain `f64` operations in a fixed order, so every
+/// instruction set gives the same bits.
+pub(super) fn small_cofactors(facet: &[&[f64]]) -> Option<[(f64, f64); 4]> {
+    let k = facet.len();
+    debug_assert!(
+        (2..=4).contains(&k),
+        "small cofactors are for 2 to 4 points"
+    );
+    let mut e = [[0.0_f64; 4]; 3];
+    for (row, p) in e.iter_mut().zip(&facet[1..]) {
+        for ((slot, &x), &o) in row.iter_mut().zip(p.iter()).zip(facet[0]) {
+            let d = x - o;
+            let magnitude = d.abs();
+            // Also rejects NaN and infinities.
+            let inside = magnitude == 0.0 || (SMALL_LOW..=SMALL_HIGH).contains(&magnitude);
+            if !inside {
+                return None;
+            }
+            *slot = d;
+        }
+    }
+    let u = UNIT_ROUNDOFF;
+    let mut out = [(0.0, 0.0); 4];
+    match k {
+        2 => {
+            // c_0 = -E_1, c_1 = E_0.
+            let r = e[0];
+            out[0] = (-r[1], 2.0 * u * r[1].abs());
+            out[1] = (r[0], 2.0 * u * r[0].abs());
+        }
+        3 => {
+            // c_j = (-1)^j M_j, M_j the 2 x 2 minor without column j.
+            let (a, b) = (e[0], e[1]);
+            let minor = |x: usize, y: usize| {
+                (
+                    a[x] * b[y] - a[y] * b[x],
+                    a[x].abs() * b[y].abs() + a[y].abs() * b[x].abs(),
+                )
+            };
+            let columns = [(1, 2), (0, 2), (0, 1)];
+            for (j, &(x, y)) in columns.iter().enumerate() {
+                let (m, p) = minor(x, y);
+                let value = if j % 2 == 0 { m } else { -m };
+                out[j] = (value, 5.0 * u * p);
+            }
+        }
+        _ => {
+            // c_j = (-1)^(j + 1) M_j, M_j the 3 x 3 minor without column j,
+            // expanded along the first edge over the shared 2 x 2 minors of
+            // the last two edges.
+            let (a, b, c) = (e[0], e[1], e[2]);
+            let mut minor = [[(0.0, 0.0); 4]; 4];
+            for x in 0..4 {
+                for y in x + 1..4 {
+                    minor[x][y] = (
+                        b[x] * c[y] - b[y] * c[x],
+                        b[x].abs() * c[y].abs() + b[y].abs() * c[x].abs(),
+                    );
+                }
+            }
+            let columns = [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]];
+            for (j, &[x, y, z]) in columns.iter().enumerate() {
+                let m = a[x] * minor[y][z].0 - a[y] * minor[x][z].0 + a[z] * minor[x][y].0;
+                let p = a[x].abs() * minor[y][z].1
+                    + a[y].abs() * minor[x][z].1
+                    + a[z].abs() * minor[x][y].1;
+                let value = if j % 2 == 1 { m } else { -m };
+                out[j] = (value, 9.0 * u * p);
+            }
+        }
+    }
+    Some(out)
 }
 
 /// Facets per call of [`edge_cofactors_in_lanes`].

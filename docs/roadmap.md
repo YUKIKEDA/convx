@@ -110,6 +110,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-32 | Bug  | Spread two-vertex keys over the face pairing table            | #170  | Done                   |
 | P5-33 | Feat | Pick a round's candidates without a pass over every pending candidate | #172  | Done                   |
 | P5-34 | Feat | Exact stage without heap big integers for the predicates coplanar inputs send past the filter | #173  | Done                   |
+| P5-35 | Feat | Certify the working normal of a facet with 2 to 4 points as cheaply as the lane path | #174  | Done                   |
 | P5-44 | Feat | Reuse the work space of the heap exact stage across predicate calls | #185  | Not started            |
 
 ## Intentionally out of scope
