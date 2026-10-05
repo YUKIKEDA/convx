@@ -121,7 +121,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-43 | Spike | Coplanar points are scanned again for every new facet: can construction stop rescanning them? | #183  | Not started |
 | P5-44 | Feat | Reuse the work space of the heap exact stage across predicate calls | #185  | Not started            |
 | P5-45 | Spike | Near-cospherical sites send almost every lifted predicate to the exact stage | #187  | Not started |
-| P5-46 | Feat | Build Delaunay and Voronoi by incremental insertion in every dimension (design #188) | #189  | Not started |
+| P5-46 | Feat | Build Delaunay and Voronoi by incremental insertion in every dimension (design #188) | #189  | Done |
 | P5-47 | Feat | Deterministic parallel insertion for Delaunay and Voronoi | #190  | Set after Grill on #190 |
 
 ## Intentionally out of scope

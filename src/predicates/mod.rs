@@ -84,7 +84,7 @@ impl LiftedHeight {
         }))
     }
 
-    /// The rounded height, for working coordinates only.
+    /// The rounded height.
     pub(crate) fn value(self) -> f64 {
         self.0.value()
     }

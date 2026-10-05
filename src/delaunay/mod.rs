@@ -3,34 +3,29 @@
 //! Each site `p` stands for the lifted point `(p, |p|^2)` in dimension
 //! D + 1. The input array is not extended: every sign comes from the lifted
 //! orientation, whose last column is the polynomial `|p|^2` evaluated by the
-//! filter or exactly. The hull core runs on the lifted sites with the same
-//! build path as the convex hull (batch rounds, the coplanar merge).
+//! filter or exactly.
 //!
-//! A logical facet of the lifted hull is on the lower side when the test
-//! point of §7, the first vertex of the facet's outward order moved by +1 in
-//! the lifted coordinate only, has negative orientation against that order.
-//! With the first vertex as origin, the test point's row is the lifted unit
-//! vector, so the determinant expands to the orientation in the original
-//! space of the facet's vertices projected, in the same order. That sign is
-//! the one computed; neither index order nor the public normal decides.
+//! The triangulation is built by incremental insertion ([`insert`]): the
+//! representatives join one at a time, in a deterministic order, and each
+//! keeps the complex the projection of the lower hull of the lift of the
+//! sites so far. `parallel` runs the same insertion (design §6).
 //!
-//! Every lifted site is extreme, since the paraboloid is strictly convex,
-//! so every site becomes a vertex of the simplicial lifted hull and lies on
-//! the lower hull. A lower logical facet with more than D + 1
-//! sites (a cospherical group) projects one to one onto the original space,
-//! where its sites are split by the placing triangulation of §3, so groups
-//! that share a face split it the same way.
+//! The simplices of one lower logical facet of the lift (a cospherical
+//! group) are merged by walking neighbors whose lifted orientation is zero
+//! (design §8). A group of more than D + 1 sites projects one to one onto
+//! the original space, where its sites are split by the placing
+//! triangulation of §3, so groups that share a face split it the same way
+//! and the split does not depend on the insertion order.
 //!
-//! When the lift is flat (every site on one sphere), the lower-side sign is
-//! not used: the site hull is filled by the pulling triangulation of §7, on
-//! the boundary that the hull core finds for the original sites.
+//! When the lift is flat (every site on one sphere), no insertion runs: the
+//! site hull is filled by the pulling triangulation of §7, on the boundary
+//! that the hull core finds for the original sites.
 
-use std::collections::HashSet;
+mod insert;
 
-use crate::arena::SlotMarks;
 use crate::hull::classify::placing;
 use crate::hull::input::{accept, minimum_basis, Input};
-use crate::hull::merge::{merge, merge_except};
+use crate::hull::merge::merge;
 use crate::hull::ridge::{fingerprint, pair_equal_keys_with_border};
 use crate::hull::simplicial::{Execution, SimplicialHull};
 use crate::hull::ConvexHullError;
@@ -78,8 +73,9 @@ impl<'a> DelaunayBuilder<'a> {
         }
     }
 
-    /// Plans the points of each batch on rayon's global pool when `enable`
-    /// is true. Off by default. The result is identical either way.
+    /// Runs the hull core of a flat lift on rayon's global pool when
+    /// `enable` is true. The insertion itself is sequential either way
+    /// (design §6), so the result is identical. Off by default.
     #[must_use]
     pub fn parallel(self, enable: bool) -> Self {
         Self {
@@ -154,15 +150,20 @@ pub(crate) struct Group {
 }
 
 /// The Delaunay complex of `points` (dimension `dim`): the lower hull of the
-/// lift, or the pulling triangulation as one group when the lift is flat.
+/// lift built by insertion, or the pulling triangulation as one group when
+/// the lift is flat. Input checks and `DegenerateDimension` concern the
+/// original sites, with their original indices.
 pub(crate) fn complex(
     dim: usize,
     points: &[f64],
     execution: Execution,
 ) -> Result<Complex, ConvexHullError> {
-    let complex = match lower_hull(dim, points, execution)? {
-        Ok(complex) => complex,
-        Err(flat) => pull(flat, execution)?,
+    let input = accept(dim, points)?;
+    let sites = insert::Sites::of(&input);
+    let complex = if flat(&input, &sites)? {
+        pull(input, execution)?
+    } else {
+        inserted(&input, &sites)?
     };
     debug_assert!(
         {
@@ -184,86 +185,89 @@ pub(crate) fn complex(
     Ok(complex)
 }
 
-/// The lower hull of the lift, or `Err` with the accepted sites when the
-/// lift is flat. Input checks and `DegenerateDimension` concern the original
-/// sites, with their original indices.
-pub(crate) fn lower_hull(
-    dim: usize,
-    points: &[f64],
-    execution: Execution,
-) -> Result<Result<Complex, Input<'_>>, ConvexHullError> {
-    let input = accept(dim, points)?;
-    let lifted = match input.lift()? {
-        Ok(lifted) => lifted,
-        Err(flat) => return Ok(Err(flat)),
-    };
-    let hull = SimplicialHull::build(lifted, execution)?;
-    let input = &hull.input;
-    let d = input.dim();
-
-    // The side of every simplex, by the exact §7 test, before the merge. The
-    // simplices of one logical facet share its hyperplane and so its side: a
-    // hyperplane that is not vertical projects one to one, keeping the sign
-    // of every simplex in it, and a vertical one gives every simplex zero.
-    // A simplex not on the lower side is cut off: its ridges are not
-    // tested, and its group is dropped (#28).
-    let mut cut: SlotMarks<()> = SlotMarks::default();
-    for (id, simplex) in hull.facets.iter() {
-        if lift_side(input, &simplex.vertices)? != Sign::Negative {
-            cut.insert(id, ());
+/// Whether the lift is flat: every representative is cospherical with the
+/// minimum basis, so the lifted sites span only dimension D (design §7).
+fn flat(input: &Input<'_>, sites: &insert::Sites) -> Result<bool, ConvexHullError> {
+    let basis = &input.spanning_points;
+    let mut ids = basis.clone();
+    ids.push(0);
+    for &p in &input.representatives {
+        if basis.contains(&p) {
+            continue;
+        }
+        *ids.last_mut().unwrap_or(&mut 0) = p;
+        if sites.lifted(&ids)? != Sign::Zero {
+            return Ok(false);
         }
     }
-    let logical = merge_except(&hull, &cut)?;
-    debug_assert!(
-        {
-            let kept = |groups: &[crate::hull::merge::Group]| {
-                let mut sets: Vec<&[u32]> = groups
-                    .iter()
-                    .filter(|g| g.simplices.iter().all(|&id| !cut.contains(id)))
-                    .map(|g| g.vertices.as_slice())
-                    .collect();
-                sets.sort_unstable();
-                sets.into_iter().map(<[u32]>::to_vec).collect::<Vec<_>>()
-            };
-            merge(&hull).is_ok_and(|full| kept(&full.groups) == kept(&logical.groups))
-        },
-        "the cutoff keeps the lower groups of the full merge"
-    );
+    Ok(true)
+}
 
-    // Every representative is a vertex of the simplicial lifted hull: a
-    // site never inserted would lie on the final hull inside the convex hull
-    // of inserted sites, which a strictly convex paraboloid rules out. So a
-    // lower group's vertex set already holds every site on its hyperplane.
-    debug_assert!(
-        {
-            let on_complex: HashSet<u32> = hull
-                .facets
-                .iter()
-                .flat_map(|(_, f)| f.vertices.iter().copied())
-                .collect();
-            input.representatives.iter().all(|r| on_complex.contains(r))
-        },
-        "every lifted site is a vertex of the simplicial hull"
-    );
+/// The complex by insertion, its cospherical groups merged (design §8).
+fn inserted(input: &Input<'_>, sites: &insert::Sites) -> Result<Complex, ConvexHullError> {
+    let d = input.dim();
+    let first = &input.spanning_points;
+    let rest: Vec<u32> = input
+        .representatives
+        .iter()
+        .copied()
+        .filter(|p| !first.contains(p))
+        .collect();
+    let order = insert::brio(sites, &rest);
+    let mesh = insert::Mesh::build(sites, first, &order)?;
 
-    let mut groups = Vec::new();
-    for group in logical.groups {
-        let Some(&first) = group.simplices.first() else {
-            continue;
-        };
-        if cut.contains(first) {
-            debug_assert!(
-                group.simplices.len() == 1,
-                "a cut simplex is a group of its own"
-            );
-            continue;
+    // Union of the finite simplices that share a face and are cospherical
+    // across it: the far vertex of the neighbor has lifted orientation zero
+    // against the simplex.
+    let cells: Vec<u32> = mesh.finite_cells().collect();
+    let mut dense = vec![u32::MAX; mesh.slots()];
+    for (i, &c) in cells.iter().enumerate() {
+        dense[c as usize] = i as u32;
+    }
+    let mut parent: Vec<usize> = (0..cells.len()).collect();
+    fn root(parent: &mut [usize], mut i: usize) -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
         }
-        debug_assert!(
-            group.simplices.iter().all(|&id| !cut.contains(id)),
-            "a lower group holds no cut simplex"
-        );
-        let sites = group.vertices;
-        let cells = if sites.len() == d + 1 {
+        i
+    }
+    let mut ids: Vec<u32> = Vec::with_capacity(d + 2);
+    for (a, &c) in cells.iter().enumerate() {
+        for slot in 0..=d {
+            let n = mesh.neighbor(c, slot);
+            if n < c || !mesh.is_finite(n) {
+                continue;
+            }
+            let Some(back) = (0..=d).find(|&t| mesh.neighbor(n, t) == c) else {
+                debug_assert!(false, "neighbors are symmetric");
+                continue;
+            };
+            ids.clear();
+            ids.extend_from_slice(mesh.vertices_of(c));
+            ids.push(mesh.vertices_of(n)[back]);
+            if mesh.lifted_ids(&ids)? == Sign::Zero {
+                let (x, y) = (
+                    root(&mut parent, a),
+                    root(&mut parent, dense[n as usize] as usize),
+                );
+                parent[x] = y;
+            }
+        }
+    }
+    let mut members: Vec<(usize, u32)> = (0..cells.len())
+        .map(|a| (root(&mut parent, a), cells[a]))
+        .collect();
+    members.sort_unstable();
+    let mut groups = Vec::new();
+    for run in members.chunk_by(|x, y| x.0 == y.0) {
+        let mut sites: Vec<u32> = run
+            .iter()
+            .flat_map(|&(_, c)| mesh.vertices_of(c).iter().copied())
+            .collect();
+        sites.sort_unstable();
+        sites.dedup();
+        let cells = if run.len() == 1 {
             vec![sites.clone()]
         } else {
             let mut split = placing(d, |i| input.point(i), &sites)?;
@@ -278,21 +282,12 @@ pub(crate) fn lower_hull(
         };
         groups.push(Group { sites, cells });
     }
-    Ok(Ok(Complex {
+    groups.sort_unstable_by(|a, b| a.sites.cmp(&b.sites));
+    Ok(Complex {
         dim: d,
         representative: input.representative.clone(),
         groups,
-    }))
-}
-
-/// The side of the lifted facet with vertices `outward` (outward order,
-/// D + 1 sites): the orientation of the §7 test point, which equals the
-/// orientation of the sites in the original space in the same order.
-/// [`Sign::Negative`] is the lower side, [`Sign::Positive`] the upper side,
-/// and [`Sign::Zero`] a facet of zero volume in the original space.
-fn lift_side(input: &Input<'_>, outward: &[u32]) -> Result<Sign, ConvexHullError> {
-    let points: Small<&[f64], 11> = outward.iter().map(|&v| input.point(v)).collect();
-    Ok(orient(&points)?)
+    })
 }
 
 /// Orders, orients, and links the cells (ascending vertex lists) of sites

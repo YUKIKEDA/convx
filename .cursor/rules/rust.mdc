@@ -18,7 +18,7 @@ Sources: Clippy restriction lints; Rust API Guidelines C-VALIDATE, C-GOOD-ERR. B
 - Do not use `==` on computed `f32` or `f64` to decide a geometric sign (Clippy `float_cmp`). The exception is point identity where the design says to use `==`. Allow `float_cmp` only on that line, and comment the design section.
 - MSRV is the value written in `docs/design.ja.md` (1.89). The crate edition is 2021. Do not set edition 2024.
 - An `f64` solve or norm that squares input-scale values first scales them by an exact power of two and scales the result back (`crate::normal::scale_by_power_of_two`). Squares of 2^600 overflow.
-- Do not `zip` two slices whose lengths can differ without `debug_assert_eq!` on the lengths: `zip` stops at the shorter one silently. In a lifted engine, read every geometric vector through one accessor (`Input::coords`).
+- Do not `zip` two slices whose lengths can differ without `debug_assert_eq!` on the lengths: `zip` stops at the shorter one silently. In the Delaunay insertion, read a site and its cached height through one row (`delaunay::insert::Sites`).
 - Do not add a dependency the design does not name.
 
 ```rust

@@ -34,7 +34,6 @@ use crate::predicates::{
     scaled_direction_cofactors_in_lanes, Cofactors, Direction, ExactEvaluationExhausted, Sign,
     COFACTOR_LANES,
 };
-use crate::small::Small;
 
 const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
 /// 2^-1073.
@@ -351,78 +350,6 @@ pub(crate) fn with_unit_scaling<R>(facet: &[&[f64]], f: impl FnOnce(&[&[f64]]) -
         let refs: Vec<&[f64]> = values.iter().map(Vec::as_slice).collect();
         f(&refs)
     }
-}
-
-/// The [`facet_cofactors`] of a lifted facet widened to bound the cofactors
-/// of the exact lift (#109). `facet` holds the rounded lifted coordinates,
-/// only the last of which is rounded, and `bounds[i]` bounds the rounding of
-/// the height of `facet[i]`.
-///
-/// Cofactor `j` of the edge matrix `R` (rows `facet[i] - facet[0]`) is
-/// linear in the last column of `R` for every `j` but the last, which does
-/// not contain it. Moving the heights to their exact values moves entry `i`
-/// of that column by at most `eta_i = bounds[i] + bounds[0]`, so cofactor
-/// `j` moves by at most `sum_i eta_i |M_ij|`. `M_ij` is a determinant of
-/// the spatial parts of the other edges and a unit row, so by Hadamard
-/// `|M_ij| <= prod_{k != i} |R'_k|`. Every term is taken in the frame of
-/// [`unit_scaling_shift`], as the cofactors are, and rounded up.
-pub(crate) fn lifted_facet_cofactors(
-    facet: &[&[f64]],
-    cofactors: &[(f64, f64)],
-    bounds: &[f64],
-) -> Option<Cofactors> {
-    let d = facet.len();
-    debug_assert!(d >= 2 && cofactors.len() == d && bounds.len() == d);
-    let shift = unit_scaling_shift(facet).unwrap_or(0);
-    let grow = 1.0 + 4.0 * (d as f64 + 4.0) * UNIT_ROUNDOFF;
-    // Upper bounds on the spatial edge lengths and on the height errors of
-    // the edges, in the scaled frame.
-    let norms: Small<f64, 10> = facet[1..]
-        .iter()
-        .map(|p| {
-            let squares: f64 = p[..d - 1]
-                .iter()
-                .zip(&facet[0][..d - 1])
-                .map(|(&x, &o)| {
-                    let diff = scale_by_power_of_two(x - o, shift);
-                    diff * diff
-                })
-                .sum();
-            squares.sqrt() * grow + ETA
-        })
-        .collect();
-    let etas: Small<f64, 10> = bounds[1..]
-        .iter()
-        .map(|&bound| scale_by_power_of_two(bound + bounds[0], shift) * grow + ETA)
-        .collect();
-    let mut shift_bound = 0.0;
-    for (i, &eta) in etas.iter().enumerate() {
-        let others: f64 = norms
-            .iter()
-            .enumerate()
-            .filter(|&(k, _)| k != i)
-            .map(|(_, &n)| n)
-            .product();
-        shift_bound += eta * others;
-    }
-    let shift_bound = shift_bound * grow;
-    if !shift_bound.is_finite() {
-        return None;
-    }
-    let last = d - 1;
-    Some(
-        cofactors
-            .iter()
-            .enumerate()
-            .map(|(j, &(value, error))| {
-                if j == last {
-                    (value, error)
-                } else {
-                    (value, (error + shift_bound) * (1.0 + 4.0 * UNIT_ROUNDOFF))
-                }
-            })
-            .collect(),
-    )
 }
 
 /// The null direction of the edge matrix, unit length, of either sign.
@@ -890,10 +817,7 @@ mod tests {
             facet_cofactors(&refs).as_deref(),
         )
         .expect("the cofactor direction certifies a plane");
-        assert_eq!(
-            plane.proved_side(&points[0], &inside, 0.0),
-            Some(Sign::Negative)
-        );
+        assert_eq!(plane.proved_side(&points[0], &inside), Some(Sign::Negative));
         let mut with_point = points.clone();
         with_point.push(inside.to_vec());
         let rows: Vec<&[f64]> = with_point.iter().map(Vec::as_slice).collect();
