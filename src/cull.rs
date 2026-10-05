@@ -78,9 +78,12 @@ const ETA: f64 = f64::from_bits(2);
 
 /// A facet prepared for culling.
 pub(crate) struct CullPlane {
-    /// The origin vertex, then the working unit normal, inline up to
-    /// dimension 8.
-    frame: Small<f64, 16>,
+    /// The working unit normal, inline up to dimension 8. The origin
+    /// vertex is the facet's first point, which every caller passes in.
+    normal: Small<f64, 8>,
+    /// The origin the plane was prepared with, to check the callers'.
+    #[cfg(debug_assertions)]
+    origin: Small<f64, 8>,
     slope: f64,
     floor: f64,
     /// A facet of sites lifted to the paraboloid: the last coordinate of
@@ -122,7 +125,9 @@ impl CullPlane {
         let slope = (4.0 * (n + 1.0) * UNIT_ROUNDOFF + 2.0 * tau) * (1.0 + 4.0 * UNIT_ROUNDOFF);
         let floor = (n + 1.0) * ETA;
         slope.is_finite().then(|| Self {
-            frame: facet[0].iter().chain(normal).copied().collect(),
+            normal: normal.into(),
+            #[cfg(debug_assertions)]
+            origin: facet[0].into(),
             slope,
             floor,
             lifted: false,
@@ -154,24 +159,34 @@ impl CullPlane {
 
     /// The dimension of the plane's points.
     fn dim(&self) -> usize {
-        self.frame.len() / 2
-    }
-
-    /// The origin vertex.
-    fn origin(&self) -> &[f64] {
-        &self.frame[..self.dim()]
+        self.normal.len()
     }
 
     /// The working unit normal.
     pub(crate) fn normal(&self) -> &[f64] {
-        &self.frame[self.dim()..]
+        &self.normal
     }
 
-    /// The working distance and the L1 distance of one point.
-    fn scalar_terms(&self, point: &[f64]) -> (f64, f64) {
+    /// Checks that `origin` is the first point of the facet the plane was
+    /// prepared from, which the threshold is certified for.
+    fn check_origin(&self, origin: &[f64]) {
+        debug_assert_eq!(origin.len(), self.dim(), "the origin is one point");
+        #[cfg(debug_assertions)]
+        debug_assert!(
+            origin
+                .iter()
+                .zip(self.origin.iter())
+                .all(|(a, b)| a.to_bits() == b.to_bits()),
+            "the origin is the facet's first point"
+        );
+    }
+
+    /// The working distance and the L1 distance of one point from the
+    /// plane through `origin`.
+    fn scalar_terms(&self, origin: &[f64], point: &[f64]) -> (f64, f64) {
         let mut w = 0.0;
         let mut l = 0.0;
-        for ((&x, &o), &n) in point.iter().zip(self.origin()).zip(self.normal()) {
+        for ((&x, &o), &n) in point.iter().zip(origin).zip(self.normal()) {
             let diff = x - o;
             w += diff * n;
             l += diff.abs();
@@ -201,10 +216,12 @@ impl CullPlane {
     /// orientation sign of the facet, in outward order, followed by the
     /// point (design §1).
     ///
-    /// `bound` bounds the rounding of the point's last coordinate: the
-    /// height bound of a lifted point, and 0 otherwise.
-    pub(crate) fn proved_side(&self, point: &[f64], bound: f64) -> Option<Sign> {
-        let (w, l) = self.scalar_terms(point);
+    /// `origin` is the facet's first point. `bound` bounds the rounding of
+    /// the point's last coordinate: the height bound of a lifted point, and
+    /// 0 otherwise.
+    pub(crate) fn proved_side(&self, origin: &[f64], point: &[f64], bound: f64) -> Option<Sign> {
+        self.check_origin(origin);
+        let (w, l) = self.scalar_terms(origin, point);
         let threshold = self.threshold(l, bound);
         if w > threshold {
             Some(Sign::Positive)
@@ -219,17 +236,19 @@ impl CullPlane {
     /// row-major `points` is proved strictly inside. Other entries are set
     /// to `false`.
     ///
-    /// Point `i` starts at `rows[i * stride]`. A lifted plane reads the
-    /// height bound right after the point's coordinates, as the lifted rows
-    /// store it.
+    /// `origin` is the facet's first point. Point `i` starts at
+    /// `rows[i * stride]`. A lifted plane reads the height bound right after
+    /// the point's coordinates, as the lifted rows store it.
     pub(crate) fn mark_inside(
         &self,
+        origin: &[f64],
         rows: &[f64],
         stride: usize,
         indices: &[u32],
         inside: &mut [bool],
     ) {
         let d = self.dim();
+        self.check_origin(origin);
         debug_assert!(
             stride >= d + usize::from(self.lifted),
             "a row holds the point, and its bound when lifted"
@@ -237,6 +256,7 @@ impl CullPlane {
         debug_assert_eq!(inside.len(), indices.len());
         Arch::new().dispatch(Scan {
             plane: self,
+            origin,
             points: rows,
             stride,
             indices,
@@ -258,15 +278,17 @@ impl CullPlane {
     #[cfg(test)]
     pub(crate) fn mark_inside_scalar(
         &self,
+        origin: &[f64],
         rows: &[f64],
         stride: usize,
         indices: &[u32],
         inside: &mut [bool],
     ) {
         let d = self.dim();
+        self.check_origin(origin);
         for (flag, &index) in inside.iter_mut().zip(indices) {
             let start = index as usize * stride;
-            let (w, l) = self.scalar_terms(&rows[start..start + d]);
+            let (w, l) = self.scalar_terms(origin, &rows[start..start + d]);
             *flag = self.is_proved_inside(w, l, self.bound_of(rows, stride, index));
         }
     }
@@ -307,6 +329,7 @@ const MAX_LANES: usize = 8;
 /// scan keeps no per-point buffer (#120).
 struct Scan<'a> {
     plane: &'a CullPlane,
+    origin: &'a [f64],
     points: &'a [f64],
     stride: usize,
     indices: &'a [u32],
@@ -364,7 +387,7 @@ impl WithSimd for Scan<'_> {
                     *slot = self.points[index as usize * self.stride + j];
                 }
                 let (x, _) = S::as_simd_f64s(&column[..lanes]);
-                let diff = simd.sub_f64s(x[0], simd.splat_f64s(self.plane.origin()[j]));
+                let diff = simd.sub_f64s(x[0], simd.splat_f64s(self.origin[j]));
                 w = simd.add_f64s(
                     w,
                     simd.mul_f64s(diff, simd.splat_f64s(self.plane.normal()[j])),
@@ -381,7 +404,9 @@ impl WithSimd for Scan<'_> {
         }
         for i in blocks * lanes..self.indices.len() {
             let start = self.indices[i] as usize * self.stride;
-            let (w, l) = self.plane.scalar_terms(&self.points[start..start + d]);
+            let (w, l) = self
+                .plane
+                .scalar_terms(self.origin, &self.points[start..start + d]);
             self.put(i, w, l);
         }
     }
@@ -430,8 +455,8 @@ mod tests {
         let indices: Vec<u32> = (0..n as u32).collect();
         let mut fast = vec![false; n];
         let mut slow = vec![false; n];
-        plane.mark_inside(points, plane.dim(), &indices, &mut fast);
-        plane.mark_inside_scalar(points, plane.dim(), &indices, &mut slow);
+        plane.mark_inside(&facet[0], points, plane.dim(), &indices, &mut fast);
+        plane.mark_inside_scalar(&facet[0], points, plane.dim(), &indices, &mut slow);
         assert_eq!(fast, slow, "SIMD and scalar paths disagree");
         let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
         for (i, &culled) in fast.iter().enumerate() {
@@ -494,7 +519,7 @@ mod tests {
             let points: Vec<f64> = (0..300).map(|_| rng.unit() * scale).collect();
             let indices: Vec<u32> = (0..100).collect();
             let mut inside = vec![false; 100];
-            plane.mark_inside(&points, plane.dim(), &indices, &mut inside);
+            plane.mark_inside(&facet[0], &points, plane.dim(), &indices, &mut inside);
             for (i, &culled) in inside.iter().enumerate() {
                 if culled {
                     let sign = distance_sign(&refs, &points[i * 3..i * 3 + 3]).unwrap();
@@ -514,7 +539,7 @@ mod tests {
         let flat: Vec<f64> = points.iter().flatten().copied().collect();
         let indices: Vec<u32> = (0..points.len() as u32).collect();
         let mut inside = vec![false; points.len()];
-        plane.mark_inside(&flat, plane.dim(), &indices, &mut inside);
+        plane.mark_inside(&facet[0], &flat, plane.dim(), &indices, &mut inside);
         for (p, &culled) in points.iter().zip(&inside) {
             if culled {
                 assert_eq!(
@@ -594,7 +619,7 @@ mod tests {
         let points = [0.5, -1.0, 0.5, 1.0, 0.5, -2.0, 0.5, 0.0, 0.2, -3.0];
         let indices = [4, 1, 0, 3, 2];
         let mut inside = [false; 5];
-        plane.mark_inside(&points, plane.dim(), &indices, &mut inside);
+        plane.mark_inside(&facet[0], &points, plane.dim(), &indices, &mut inside);
         assert_eq!(inside, [true, false, true, false, true]);
     }
 
@@ -605,6 +630,7 @@ mod tests {
     fn fill_terms<S: Simd>(
         simd: S,
         plane: &CullPlane,
+        origin: &[f64],
         points: &[f64],
         indices: &[u32],
         w: &mut [f64],
@@ -612,6 +638,7 @@ mod tests {
     ) {
         simd.vectorize(Scan {
             plane,
+            origin,
             points,
             stride: plane.dim(),
             indices,
@@ -620,10 +647,16 @@ mod tests {
     }
 
     /// `w` and `l` of every index through one instruction-set level.
-    fn terms_with<S: Simd>(simd: S, plane: &CullPlane, points: &[f64], indices: &[u32]) -> Terms {
+    fn terms_with<S: Simd>(
+        simd: S,
+        plane: &CullPlane,
+        origin: &[f64],
+        points: &[f64],
+        indices: &[u32],
+    ) -> Terms {
         let mut w = vec![0.0; indices.len()];
         let mut l = vec![0.0; indices.len()];
-        fill_terms(simd, plane, points, indices, &mut w, &mut l);
+        fill_terms(simd, plane, origin, points, indices, &mut w, &mut l);
         (w, l)
     }
 
@@ -632,23 +665,27 @@ mod tests {
     /// aarch64.
     fn every_level(
         plane: &CullPlane,
+        origin: &[f64],
         points: &[f64],
         indices: &[u32],
     ) -> Vec<(&'static str, Terms)> {
-        let mut out = vec![("scalar", terms_with(pulp::Scalar, plane, points, indices))];
+        let mut out = vec![(
+            "scalar",
+            terms_with(pulp::Scalar, plane, origin, points, indices),
+        )];
         #[cfg(target_arch = "x86_64")]
         {
             if let Some(simd) = pulp::x86::V3::try_new() {
-                out.push(("x86-v3", terms_with(simd, plane, points, indices)));
+                out.push(("x86-v3", terms_with(simd, plane, origin, points, indices)));
             }
             if let Some(simd) = pulp::x86::V4::try_new() {
-                out.push(("x86-v4", terms_with(simd, plane, points, indices)));
+                out.push(("x86-v4", terms_with(simd, plane, origin, points, indices)));
             }
         }
         #[cfg(target_arch = "aarch64")]
         {
             if let Some(simd) = pulp::aarch64::Neon::try_new() {
-                out.push(("neon", terms_with(simd, plane, points, indices)));
+                out.push(("neon", terms_with(simd, plane, origin, points, indices)));
             }
         }
         out
@@ -673,11 +710,11 @@ mod tests {
                         .iter()
                         .map(|&i| {
                             let start = i as usize * d;
-                            let (w, l) = plane.scalar_terms(&points[start..start + d]);
+                            let (w, l) = plane.scalar_terms(&facet[0], &points[start..start + d]);
                             (w.to_bits(), l.to_bits())
                         })
                         .collect();
-                    for (name, (w, l)) in every_level(&plane, &points, &indices) {
+                    for (name, (w, l)) in every_level(&plane, &facet[0], &points, &indices) {
                         let bits: Vec<(u64, u64)> = w
                             .iter()
                             .zip(&l)
@@ -687,8 +724,14 @@ mod tests {
                     }
                     let mut dispatched = vec![false; count];
                     let mut scalar = vec![false; count];
-                    plane.mark_inside(&points, plane.dim(), &indices, &mut dispatched);
-                    plane.mark_inside_scalar(&points, plane.dim(), &indices, &mut scalar);
+                    plane.mark_inside(&facet[0], &points, plane.dim(), &indices, &mut dispatched);
+                    plane.mark_inside_scalar(
+                        &facet[0],
+                        &points,
+                        plane.dim(),
+                        &indices,
+                        &mut scalar,
+                    );
                     assert_eq!(dispatched, scalar, "cull set, D = {d}, {count} points");
                 }
             }
@@ -724,7 +767,7 @@ mod tests {
             let reps = (2_000_000 / count).clamp(3, 50);
             let mut w = vec![0.0; count];
             let mut l = vec![0.0; count];
-            for (name, _) in every_level(&plane, &points, &indices[..1]) {
+            for (name, _) in every_level(&plane, &facet[0], &points, &indices[..1]) {
                 // Only the level's kernel is timed: the buffers are reused,
                 // and the cull test after it is the same scalar loop on
                 // every level.
@@ -732,13 +775,20 @@ mod tests {
                 for _ in 0..reps {
                     let start = Instant::now();
                     match name {
-                        "scalar" => {
-                            fill_terms(pulp::Scalar, &plane, &points, &indices, &mut w, &mut l)
-                        }
+                        "scalar" => fill_terms(
+                            pulp::Scalar,
+                            &plane,
+                            &facet[0],
+                            &points,
+                            &indices,
+                            &mut w,
+                            &mut l,
+                        ),
                         #[cfg(target_arch = "x86_64")]
                         "x86-v3" => fill_terms(
                             pulp::x86::V3::try_new().unwrap(),
                             &plane,
+                            &facet[0],
                             &points,
                             &indices,
                             &mut w,
@@ -748,6 +798,7 @@ mod tests {
                         "x86-v4" => fill_terms(
                             pulp::x86::V4::try_new().unwrap(),
                             &plane,
+                            &facet[0],
                             &points,
                             &indices,
                             &mut w,
@@ -757,6 +808,7 @@ mod tests {
                         "neon" => fill_terms(
                             pulp::aarch64::Neon::try_new().unwrap(),
                             &plane,
+                            &facet[0],
                             &points,
                             &indices,
                             &mut w,
@@ -799,7 +851,7 @@ mod tests {
             } else {
                 Sign::Negative
             };
-            if let Some(proved) = plane.proved_side(p, 0.0) {
+            if let Some(proved) = plane.proved_side(facet[0], p, 0.0) {
                 assert_eq!(proved, side, "{p:?} proved on the wrong side");
                 if proved == Sign::Positive {
                     outside += 1;
@@ -840,27 +892,34 @@ mod tests {
         // exact plane, so no side may be proved. Dropping the query's bound
         // from the threshold, or the origin's from the floor, proves one.
         let delta = 1e-3;
+        let origin = [0.0; 3];
         // The query's own height is uncertain.
         let exact_vertices = lifted_plane(&[0.0, 0.0, 0.0]);
         assert_eq!(
-            exact_vertices.proved_side(&[0.25, 0.25, delta], delta),
+            exact_vertices.proved_side(&origin, &[0.25, 0.25, delta], delta),
             None
         );
         assert_eq!(
-            exact_vertices.proved_side(&[0.25, 0.25, -delta], delta),
+            exact_vertices.proved_side(&origin, &[0.25, 0.25, -delta], delta),
             None
         );
         // The origin's height is uncertain; the query sits right above it.
         let uncertain_origin = lifted_plane(&[delta, 0.0, 0.0]);
-        assert_eq!(uncertain_origin.proved_side(&[0.0, 0.0, delta], 0.0), None);
-        assert_eq!(uncertain_origin.proved_side(&[0.0, 0.0, -delta], 0.0), None);
+        assert_eq!(
+            uncertain_origin.proved_side(&origin, &[0.0, 0.0, delta], 0.0),
+            None
+        );
+        assert_eq!(
+            uncertain_origin.proved_side(&origin, &[0.0, 0.0, -delta], 0.0),
+            None
+        );
         // Far beyond every bound, both sides are proved.
         assert_eq!(
-            exact_vertices.proved_side(&[0.25, 0.25, 1.0], delta),
+            exact_vertices.proved_side(&origin, &[0.25, 0.25, 1.0], delta),
             Some(Sign::Positive)
         );
         assert_eq!(
-            uncertain_origin.proved_side(&[0.25, 0.25, -1.0], 0.0),
+            uncertain_origin.proved_side(&origin, &[0.25, 0.25, -1.0], 0.0),
             Some(Sign::Negative)
         );
     }

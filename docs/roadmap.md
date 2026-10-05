@@ -106,6 +106,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-28 | Feat | Examine only the first 64 candidates of each round            | #159  | Done                   |
 | P5-29 | Feat | Classify and publish without per-facet copies; pair Delaunay faces without a hash map | #163  | Done                   |
 | P5-30 | Feat | Build the Voronoi cells, tiles, and rays without quadratic scans | #165  | Done                   |
+| P5-31 | Feat | Pass the cull origin instead of copying it into every plane | #167  | Done                   |
 
 ## Intentionally out of scope
 

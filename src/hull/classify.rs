@@ -133,7 +133,8 @@ fn classify_built(
         inside.iter_mut().for_each(|x| *x = false);
         if let Some(cull) = simplex.cull() {
             let (rows, stride) = hull.input.engine_rows();
-            cull.mark_inside(rows, stride, &others, &mut inside);
+            let origin = hull.input.coords(simplex.vertices[0]);
+            cull.mark_inside(origin, rows, stride, &others, &mut inside);
         }
         for (k, &p) in others.iter().enumerate() {
             if inside[k] {
