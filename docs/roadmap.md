@@ -97,6 +97,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-16 | Feat | Hull cube D6 10^4 within 1.39 s on one core                   | #120  | In progress            |
 | P5-19 | Feat | Factor the published normal with one Householder QR           | #135  | In progress            |
 | P5-20 | Feat | Run the k > 4 elimination in lanes with inline cofactors      | #143  | Done                   |
+| P5-21 | Feat | Cut per-insertion allocation and relinking in the hull build  | #145  | Done                   |
 
 ## Intentionally out of scope
 

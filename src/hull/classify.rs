@@ -36,9 +36,11 @@ use super::merge::merge;
 use super::ridge::{fingerprint, pair_equal_keys};
 use super::simplicial::{Execution, SimplicialHull};
 use super::ConvexHullError;
+use crate::arena::{FacetId, SlotMarks};
 use crate::predicates::{orient, orient_direction, Sign};
 
 /// A simplex of the boundary complex.
+#[derive(Clone)]
 pub(crate) struct ComplexSimplex {
     /// D vertices.
     pub(crate) vertices: Vec<u32>,
@@ -50,6 +52,7 @@ pub(crate) struct ComplexSimplex {
 }
 
 /// A logical facet with its extreme points.
+#[derive(Clone)]
 pub(crate) struct Face {
     /// Extreme points, ascending.
     pub(crate) vertices: Vec<u32>,
@@ -75,7 +78,8 @@ pub(crate) fn classify(
     input: Input<'_>,
     execution: Execution,
 ) -> Result<Classified<'_>, ConvexHullError> {
-    classify_built(SimplicialHull::build(input, execution)?, execution)
+    let built = SimplicialHull::build(input, execution)?;
+    classify_built(built, execution)
 }
 
 /// Classifies a built simplicial hull. Its `proved_interior` points go to
@@ -202,12 +206,18 @@ fn classify_built(
     // Boundary simplices: kept as built, or re-triangulated by placing.
     let mut simplices: Vec<ComplexSimplex> = Vec::new();
     let mut faces: Vec<Face> = Vec::with_capacity(extremes.len());
+    // Simplices kept as built, by their index here and their construction id.
+    let mut kept: Vec<(u32, FacetId)> = Vec::new();
+    let unlinked = if d == 1 { 0 } else { d };
     for (g, extreme) in extremes.into_iter().enumerate() {
         let original = &groups.groups[g].vertices;
         // A single simplex whose vertices are all extreme is kept; every
         // other facet is re-triangulated by placing, so facets that share a
         // lower face split it the same way.
         let members: Vec<Vec<u32>> = if &extreme == original && group_simplices[g].len() == 1 {
+            if let Some(&id) = groups.groups[g].simplices.first() {
+                kept.push((simplices.len() as u32, id));
+            }
             group_simplices[g].clone()
         } else {
             let q = vertices
@@ -222,7 +232,7 @@ fn classify_built(
             simplices.push(ComplexSimplex {
                 vertices,
                 face: g as u32,
-                neighbors: Vec::new(),
+                neighbors: vec![UNLINKED; unlinked],
             });
         }
         faces.push(Face {
@@ -231,7 +241,39 @@ fn classify_built(
             simplices: (first..simplices.len() as u32).collect(),
         });
     }
+    // A kept simplex has its construction vertex order, so its neighbor
+    // across slot i during construction, when kept too, is its neighbor
+    // across slot i here: each ridge of the closed complex has two sides.
+    let mut index_of: SlotMarks<u32> = SlotMarks::default();
+    for &(s, id) in &kept {
+        index_of.insert(id, s);
+    }
+    for &(s, id) in &kept {
+        if let Some(facet) = hull.facets.get(id) {
+            for (slot, &neighbor) in facet.neighbors.iter().enumerate() {
+                if let Some(other) = index_of.get(neighbor) {
+                    simplices[s as usize].neighbors[slot] = other;
+                }
+            }
+        }
+    }
+    #[cfg(debug_assertions)]
+    let mut paired_all = (simplices.clone(), faces.clone());
     link_neighbors(d, &mut simplices, &mut faces);
+    #[cfg(debug_assertions)]
+    {
+        for simplex in &mut paired_all.0 {
+            simplex.neighbors.fill(UNLINKED);
+        }
+        link_neighbors(d, &mut paired_all.0, &mut paired_all.1);
+        debug_assert!(
+            simplices
+                .iter()
+                .zip(&paired_all.0)
+                .all(|(a, b)| a.neighbors == b.neighbors),
+            "kept construction links differ from pairing every ridge"
+        );
+    }
 
     Ok(Classified {
         input: hull.input,
@@ -421,16 +463,24 @@ fn oriented(
     Ok(vertices)
 }
 
-/// Recomputes simplex neighbors from shared ridges, then face neighbors.
+/// A neighbor slot of a [`ComplexSimplex`] not linked yet.
+const UNLINKED: u32 = u32::MAX;
+
+/// Links every [`UNLINKED`] simplex neighbor through its shared ridge, then
+/// the face neighbors.
 fn link_neighbors(d: usize, simplices: &mut [ComplexSimplex], faces: &mut [Face]) {
     if d == 1 {
         return;
     }
-    // Ridges as sorted vertex lists packed in one buffer, with their owner.
-    let mut keys: Vec<u32> = Vec::with_capacity(simplices.len() * d * (d - 1));
-    let mut owners: Vec<(u32, usize)> = Vec::with_capacity(simplices.len() * d);
+    // Unlinked ridges as sorted vertex lists packed in one buffer, with
+    // their owner. A linked ridge has both of its sides linked.
+    let mut keys: Vec<u32> = Vec::new();
+    let mut owners: Vec<(u32, usize)> = Vec::new();
     for (s, simplex) in simplices.iter().enumerate() {
         for slot in 0..d {
+            if simplex.neighbors[slot] != UNLINKED {
+                continue;
+            }
             let start = keys.len();
             keys.extend(
                 simplex
@@ -443,9 +493,6 @@ fn link_neighbors(d: usize, simplices: &mut [ComplexSimplex], faces: &mut [Face]
             keys[start..].sort_unstable();
             owners.push((s as u32, slot));
         }
-    }
-    for simplex in simplices.iter_mut() {
-        simplex.neighbors = vec![u32::MAX; d];
     }
     // Every ridge of a closed boundary has two sides.
     for (first, second) in pair_equal_keys(&keys, owners.len(), fingerprint) {

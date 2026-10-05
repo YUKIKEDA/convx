@@ -8,11 +8,9 @@
 //! the simplices of that face are connected through ridges, so pairwise ridge
 //! tests are enough.
 
-use std::collections::HashMap;
-
 use super::simplicial::SimplicialHull;
 use super::ConvexHullError;
-use crate::arena::{FacetId, IdMap};
+use crate::arena::{FacetId, SlotMarks};
 use crate::predicates::Sign;
 
 /// A logical facet during construction. `GroupId` in the design is the index
@@ -65,11 +63,10 @@ impl UnionFind {
 /// Groups the simplices of `hull` into logical facets.
 pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, ConvexHullError> {
     let ids: Vec<FacetId> = hull.facets.iter().map(|(id, _)| id).collect();
-    let dense: IdMap<FacetId, u32> = ids
-        .iter()
-        .enumerate()
-        .map(|(i, &id)| (id, i as u32))
-        .collect();
+    let mut dense: SlotMarks<u32> = SlotMarks::default();
+    for (i, &id) in ids.iter().enumerate() {
+        dense.insert(id, i as u32);
+    }
     let mut sets = UnionFind::new(ids.len());
 
     for (i, &id) in ids.iter().enumerate() {
@@ -77,7 +74,7 @@ pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, ConvexHu
             continue;
         };
         for &neighbor in &facet.neighbors {
-            let Some(&j) = dense.get(&neighbor) else {
+            let Some(j) = dense.get(neighbor) else {
                 continue;
             };
             // Each ridge is tested once, from the lower dense index.
@@ -100,20 +97,22 @@ pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, ConvexHu
     }
 
     // Number groups by their smallest member, in arena order.
-    let mut number_of_root: HashMap<u32, u32> = HashMap::new();
+    // A root is a dense index; a group is numbered when its root is first
+    // met, and `u32::MAX` marks a root not met yet.
+    let mut number_of_root = vec![u32::MAX; ids.len()];
     let mut groups: Vec<Group> = Vec::new();
-    let mut group_of: IdMap<FacetId, u32> =
-        IdMap::with_capacity_and_hasher(ids.len(), Default::default());
+    let mut group_of: SlotMarks<u32> = SlotMarks::default();
     for (i, &id) in ids.iter().enumerate() {
-        let root = sets.find(i as u32);
-        let number = *number_of_root.entry(root).or_insert_with(|| {
+        let root = sets.find(i as u32) as usize;
+        if number_of_root[root] == u32::MAX {
+            number_of_root[root] = groups.len() as u32;
             groups.push(Group {
                 simplices: Vec::new(),
                 vertices: Vec::new(),
                 neighbors: Vec::new(),
             });
-            groups.len() as u32 - 1
-        });
+        }
+        let number = number_of_root[root];
         groups[number as usize].simplices.push(id);
         group_of.insert(id, number);
     }
@@ -136,7 +135,7 @@ pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, ConvexHu
                 .iter()
                 .filter_map(|id| hull.facets.get(*id))
                 .flat_map(|facet| facet.neighbors.iter())
-                .filter_map(|n| group_of.get(n).copied())
+                .filter_map(|&n| group_of.get(n))
                 .filter(|&g| g as usize != number)
                 .collect();
             neighbors.sort_unstable();
