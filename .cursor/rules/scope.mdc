@@ -13,7 +13,7 @@ Do not merge a public capability where one path is optimized or supported and an
 
 These splits stay allowed:
 
-- A later phase applies one optimization to every path, and the roadmap row names it. Caches and search cutoffs that the design already places after a correct sequential core are this kind.
+- A later phase applies one optimization to every path, and the roadmap row names it. Caches and a later optimization that the design already places after a correct sequential core are this kind.
 - An entire capability stays unshipped until the phase where its requirements are met.
 
 ```text
