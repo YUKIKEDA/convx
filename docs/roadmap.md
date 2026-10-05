@@ -117,7 +117,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-39 | Spike | Why does parallel(true) give only 1.2 to 1.3 times on four cores?                                         | #178  | Not started              |
 | P5-40 | Docs  | Let the filter rescale tiny inputs by an exact power of two                                               | #179  | Set after Grill on #179  |
 | P5-41 | Spike | How many NonFiniteCircumcenter failures have a circumcenter that fits in f64?                             | #180  | Not started              |
-| P5-42 | Spike | Why does hull sphere D2 wall time grow faster than its instruction count?                                 | #182  | Not started              |
+| P5-42 | Spike | Why does hull sphere D2 wall time grow faster than its instruction count?                                 | #182  | In progress              |
 | P5-43 | Spike | Coplanar points are scanned again for every new facet: can construction stop rescanning them?             | #183  | Not started              |
 | P5-44 | Feat  | Reuse the work space of the heap exact stage across predicate calls                                       | #185  | Not started              |
 | P5-45 | Spike | Near-cospherical sites send almost every lifted predicate to the exact stage                              | #187  | Not started              |
@@ -125,6 +125,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-47 | Feat  | Deterministic parallel insertion for Delaunay and Voronoi                                                 | #190  | Set after Grill on #190  |
 | P5-49 | Spike | Where does hull sphere time go at D = 5 and D = 6?                                                        | #199  | Not started              |
 | P5-50 | Spike | Why is the low-dimension cube hull slower than Qhull's compute time?                                      | #200  | Not started              |
+| P5-51 | Feat  | Load the hull walk from a dense facet record                                                              | #204  | Not started              |
 
 ## Intentionally out of scope
 
