@@ -636,11 +636,11 @@ const LANES: usize = 4;
 /// when the CPU has it, otherwise under [`Arch`]'s choice.
 ///
 /// A block is one 256-bit register, so a wider instruction set does not
-/// shorten a row update. Under `V4` (AVX-512) the elimination of rows of
-/// three blocks (a 9 x 9 determinant) ran about 20 times slower than under
-/// `V3`, and `V3` was no slower at any size from 5 to 13 (#195). The code
-/// path and every operation are the same, so the value and the bound do
-/// not depend on the instruction set.
+/// shorten a row update. Under `V4` (AVX-512) the 9 x 9 determinant on
+/// the stack took about 24 times as long as under `V3`, and the heap
+/// 10 x 10 about 1.3 times; `V3` was no slower at any size from 5 to 13
+/// (#195). The code path and every operation are the same, so the value
+/// and the bound do not depend on the instruction set.
 #[inline(always)]
 fn in_blocks<W: WithSimd>(op: W) -> W::Output {
     #[cfg(target_arch = "x86_64")]
