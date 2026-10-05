@@ -26,6 +26,7 @@
 
 #[cfg(any(test, debug_assertions))]
 use core::convert::Infallible;
+use std::collections::BinaryHeap;
 #[cfg(debug_assertions)]
 use std::collections::HashSet;
 
@@ -340,45 +341,33 @@ impl<'a> SimplicialHull<'a> {
 
     /// The candidates a round examines: of the one candidate per facet with
     /// outside points, the first [`ROUND_CANDIDATES`] in packing order, in
-    /// that order. Only those are ordered; the others stay in `pending`.
+    /// that order.
     ///
     /// `pending` holds the candidates of every facet with outside points,
-    /// possibly with entries of removed facets, which are dropped here; it
-    /// is filled from the whole arena when `seeded` is false. Commits add
-    /// the candidates of the facets they insert (see [`Self::absorb`]), so
-    /// a round does not read every facet (#120).
+    /// possibly with entries of removed facets, which are dropped when they
+    /// reach the top; it is filled from the whole arena when `seeded` is
+    /// false. Commits add the candidates of the facets they insert (see
+    /// [`Self::absorb`]), so a round does not read every facet (#120). A
+    /// live facet's candidate never changes, because its outside set is
+    /// final (see [`take_outside`]), so an entry stays valid while its facet
+    /// lives. The round's candidates are popped and pushed back, so a round
+    /// costs O(log n) per candidate instead of a pass over `pending` (#172).
     fn candidates(
         &self,
-        pending: &mut Vec<(u32, FacetId, Option<f64>)>,
+        pending: &mut BinaryHeap<Pending>,
         seeded: &mut bool,
     ) -> Vec<(u32, FacetId, Option<f64>)> {
-        if *seeded {
-            pending.retain(|&(_, id, _)| self.facets.get(id).is_some());
-        } else {
+        if !*seeded {
             pending.clear();
-            pending.extend(
-                self.facets
-                    .iter()
-                    .filter_map(|(id, facet)| facet.farthest.map(|(p, d)| (p, id, d))),
-            );
+            pending.extend(self.facets.iter().filter_map(|(id, facet)| {
+                facet.farthest.map(|(point, distance)| Pending {
+                    point,
+                    facet: id,
+                    distance,
+                })
+            }));
             *seeded = true;
         }
-        // Outside sets are disjoint, so a point is the candidate of at most
-        // one facet, and the order does not depend on the order of
-        // `pending`.
-        let order = |&(p, _, dp): &(u32, FacetId, Option<f64>),
-                     &(q, _, dq): &(u32, FacetId, Option<f64>)| {
-            if packs_before((p, dp), (q, dq)) {
-                core::cmp::Ordering::Less
-            } else {
-                core::cmp::Ordering::Greater
-            }
-        };
-        if pending.len() > ROUND_CANDIDATES {
-            pending.select_nth_unstable_by(ROUND_CANDIDATES - 1, order);
-        }
-        let round = pending.len().min(ROUND_CANDIDATES);
-        pending[..round].sort_unstable_by(order);
         #[cfg(debug_assertions)]
         {
             let mut whole: Vec<(u32, FacetId)> = self
@@ -386,7 +375,11 @@ impl<'a> SimplicialHull<'a> {
                 .iter()
                 .filter_map(|(id, facet)| facet.farthest.map(|(p, _)| (p, id)))
                 .collect();
-            let mut kept: Vec<(u32, FacetId)> = pending.iter().map(|&(p, id, _)| (p, id)).collect();
+            let mut kept: Vec<(u32, FacetId)> = pending
+                .iter()
+                .filter(|c| self.facets.get(c.facet).is_some())
+                .map(|c| (c.point, c.facet))
+                .collect();
             whole.sort_unstable();
             kept.sort_unstable();
             debug_assert!(
@@ -394,13 +387,32 @@ impl<'a> SimplicialHull<'a> {
                 "the pending candidates differ from the arena's"
             );
         }
-        pending[..round].to_vec()
+        // Outside sets are disjoint, so a point is the candidate of at most
+        // one facet, and the order does not depend on the order of
+        // `pending`.
+        let mut round = Vec::with_capacity(ROUND_CANDIDATES);
+        while round.len() < ROUND_CANDIDATES {
+            let Some(candidate) = pending.pop() else {
+                break;
+            };
+            if self.facets.get(candidate.facet).is_some() {
+                round.push(candidate);
+            }
+        }
+        // A candidate the round takes loses its facet at commit and is
+        // dropped later; one it rejects waits for a later round.
+        let out = round
+            .iter()
+            .map(|c| (c.point, c.facet, c.distance))
+            .collect();
+        pending.extend(round);
+        out
     }
 
     /// [`Self::candidates`] read from the whole arena, for tests.
     #[cfg(test)]
     fn round_candidates(&self) -> Vec<(u32, FacetId, Option<f64>)> {
-        self.candidates(&mut Vec::new(), &mut false)
+        self.candidates(&mut BinaryHeap::new(), &mut false)
     }
 
     /// Absorbs every outside point in rounds of batches (design §6). Each
@@ -412,57 +424,69 @@ impl<'a> SimplicialHull<'a> {
         // Emptied simplex lists of committed plans, refilled by later plans,
         // so the simplices of a round are not written to fresh pages.
         let mut spare: Vec<Vec<Planned>> = Vec::new();
-        loop {
-            let batch = self.next_batch_with(&mut scratch)?;
-            if batch.is_empty() {
-                return Ok(());
+        while self.absorb_round(execution, &mut scratch, &mut spare)? {}
+        Ok(())
+    }
+
+    /// One round of [`Self::absorb`]: plans and commits the next batch, and
+    /// adds the candidates of the facets it inserts to `scratch.pending`.
+    /// False when no facet has outside points.
+    fn absorb_round(
+        &mut self,
+        execution: Execution,
+        scratch: &mut WalkScratch,
+        spare: &mut Vec<Vec<Planned>>,
+    ) -> Result<bool, ConvexHullError> {
+        let batch = self.next_batch_with(scratch)?;
+        if batch.is_empty() {
+            return Ok(false);
+        }
+        let (keys, regions): (Vec<(u32, FacetId)>, Vec<_>) = batch
+            .into_iter()
+            .map(|(point, start, region)| {
+                ((point, start), (region, spare.pop().unwrap_or_default()))
+            })
+            .unzip();
+        let plans: Vec<Plan> = match execution {
+            Execution::Sequential => keys
+                .iter()
+                .zip(regions)
+                .map(|(&(point, _), (region, created))| self.plan_region(point, region, created))
+                .collect::<Result<_, _>>()?,
+            Execution::Parallel => keys
+                .par_iter()
+                .zip(regions)
+                .map(|(&(point, _), (region, created))| self.plan_region(point, region, created))
+                .collect::<Result<_, _>>()?,
+        };
+        for (plan, &(point, start)) in plans.into_iter().zip(&keys) {
+            // Debug check of §6: applying the batch sequentially in index
+            // order, planning each point against the hull as the earlier
+            // commits left it, gives the same mutation as the plan made
+            // before the round, so the same topology.
+            #[cfg(debug_assertions)]
+            if execution == Execution::Parallel {
+                let again = self.plan(start, point)?;
+                debug_assert!(
+                    again.shape() == plan.shape(),
+                    "point {point}: the parallel plan differs from sequential application"
+                );
             }
-            let (keys, regions): (Vec<(u32, FacetId)>, Vec<_>) = batch
-                .into_iter()
-                .map(|(point, start, region)| {
-                    ((point, start), (region, spare.pop().unwrap_or_default()))
-                })
-                .unzip();
-            let plans: Vec<Plan> = match execution {
-                Execution::Sequential => keys
-                    .iter()
-                    .zip(regions)
-                    .map(|(&(point, _), (region, created))| {
-                        self.plan_region(point, region, created)
-                    })
-                    .collect::<Result<_, _>>()?,
-                Execution::Parallel => keys
-                    .par_iter()
-                    .zip(regions)
-                    .map(|(&(point, _), (region, created))| {
-                        self.plan_region(point, region, created)
-                    })
-                    .collect::<Result<_, _>>()?,
-            };
-            for (plan, &(point, start)) in plans.into_iter().zip(&keys) {
-                // Debug check of §6: applying the batch sequentially in index
-                // order, planning each point against the hull as the earlier
-                // commits left it, gives the same mutation as the plan made
-                // before the round, so the same topology.
-                #[cfg(debug_assertions)]
-                if execution == Execution::Parallel {
-                    let again = self.plan(start, point)?;
-                    debug_assert!(
-                        again.shape() == plan.shape(),
-                        "point {point}: the parallel plan differs from sequential application"
-                    );
-                }
-                #[cfg(not(debug_assertions))]
-                let _ = (point, start);
-                let (ids, emptied) = self.commit(plan);
-                spare.push(emptied);
-                for id in ids {
-                    if let Some((p, d)) = self.facets.get(id).and_then(|f| f.farthest) {
-                        scratch.pending.push((p, id, d));
-                    }
+            #[cfg(not(debug_assertions))]
+            let _ = (point, start);
+            let (ids, emptied) = self.commit(plan);
+            spare.push(emptied);
+            for id in ids {
+                if let Some((point, distance)) = self.facets.get(id).and_then(|f| f.farthest) {
+                    scratch.pending.push(Pending {
+                        point,
+                        facet: id,
+                        distance,
+                    });
                 }
             }
         }
+        Ok(true)
     }
 
     /// The next batch, as (point, facet it is outside) in ascending input
@@ -1203,13 +1227,49 @@ struct WalkScratch {
     taken: SlotMarks<()>,
     /// Candidates of the facets with outside points; see
     /// [`SimplicialHull::candidates`].
-    pending: Vec<(u32, FacetId, Option<f64>)>,
+    pending: BinaryHeap<Pending>,
     /// Whether `pending` has been filled from the arena.
     seeded: bool,
     /// The region of the current walk, copied out when its candidate is
     /// taken.
     region: Region,
 }
+
+/// The candidate of a facet with outside points, ordered so that the
+/// greatest packs first ([`packs_before`]).
+#[derive(Clone, Copy, Debug)]
+struct Pending {
+    point: u32,
+    facet: FacetId,
+    distance: Option<f64>,
+}
+
+impl Ord for Pending {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        let (a, b) = ((self.point, self.distance), (other.point, other.distance));
+        if packs_before(a, b) {
+            core::cmp::Ordering::Greater
+        } else if packs_before(b, a) {
+            core::cmp::Ordering::Less
+        } else {
+            core::cmp::Ordering::Equal
+        }
+    }
+}
+
+impl PartialOrd for Pending {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for Pending {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == core::cmp::Ordering::Equal
+    }
+}
+
+impl Eq for Pending {}
 
 /// The candidates a round examines, the first in packing order (design §6).
 /// The rest wait in their outside sets for a later round.
@@ -1486,6 +1546,71 @@ pub(crate) mod tests {
             .collect();
         hull.assign(candidates, &initial).unwrap();
         hull
+    }
+
+    /// The candidates of every round, read from the pending heap that
+    /// rounds keep and refill, equal the first 64 of every facet's farthest
+    /// point in packing order. The heap holds entries of removed facets
+    /// along the way, so the lazy removal is exercised (#172).
+    #[test]
+    fn kept_pending_candidates_match_the_whole_arena_every_round() {
+        let mut rng = Rng(29);
+        for (dim, count) in [(2, 1000), (3, 600)] {
+            // On a sphere every point is a vertex, so hundreds of facets keep
+            // outside points through most of the build.
+            let mut points = Vec::new();
+            for _ in 0..count {
+                let v: Vec<f64> = (0..dim).map(|_| rng.unit()).collect();
+                let norm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
+                points.extend(v.iter().map(|x| x / norm));
+            }
+            let mut hull = initial(dim, &points);
+            let mut scratch = WalkScratch::default();
+            let mut spare = Vec::new();
+            let (mut rounds, mut stale, mut wide) = (0, 0, 0);
+            loop {
+                let mut every: Vec<(u32, FacetId, Option<f64>)> = hull
+                    .facets
+                    .iter()
+                    .filter_map(|(id, facet)| facet.farthest.map(|(p, d)| (p, id, d)))
+                    .collect();
+                every.sort_by(|a, b| {
+                    if packs_before((a.0, a.2), (b.0, b.2)) {
+                        core::cmp::Ordering::Less
+                    } else {
+                        core::cmp::Ordering::Greater
+                    }
+                });
+                every.truncate(ROUND_CANDIDATES);
+                // Entries of the facets the last round removed are still
+                // in the heap until they reach the top.
+                let live = scratch
+                    .pending
+                    .iter()
+                    .filter(|c| hull.facets.get(c.facet).is_some())
+                    .count();
+                stale += scratch.pending.len() - live;
+                wide += usize::from(live > ROUND_CANDIDATES);
+                let kept = hull.candidates(&mut scratch.pending, &mut scratch.seeded);
+                assert_eq!(kept, every, "dim {dim}, round {rounds}");
+                // Reading the candidates leaves them for the round itself.
+                assert_eq!(
+                    hull.candidates(&mut scratch.pending, &mut scratch.seeded),
+                    kept,
+                    "dim {dim}, round {rounds}: a second read differs"
+                );
+                if !hull
+                    .absorb_round(Execution::Sequential, &mut scratch, &mut spare)
+                    .unwrap()
+                {
+                    break;
+                }
+                rounds += 1;
+            }
+            assert!(stale > 0, "dim {dim}: no removed facet stayed in the heap");
+            assert!(wide > 0, "dim {dim}: no round left candidates waiting");
+            check_invariants(&hull);
+        }
     }
 
     #[test]

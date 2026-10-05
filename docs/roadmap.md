@@ -108,6 +108,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-30 | Feat | Build the Voronoi cells, tiles, and rays without quadratic scans | #165  | Done                   |
 | P5-31 | Feat | Pass the cull origin instead of copying it into every plane | #167  | Done                   |
 | P5-32 | Bug  | Spread two-vertex keys over the face pairing table            | #170  | Done                   |
+| P5-33 | Feat | Pick a round's candidates without a pass over every pending candidate | #172  | Done                   |
 
 ## Intentionally out of scope
 
