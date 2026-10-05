@@ -1006,11 +1006,13 @@ impl Default for Link {
 /// everything else. Debug builds check every proved side against the
 /// orientation.
 fn side(input: &Input<'_>, facet: &Simplex, point: u32) -> Result<Sign, ConvexHullError> {
-    if let Some(proved) = facet
-        .cull
-        .as_ref()
-        .and_then(|cull| cull.proved_side(input.coords(point), input.height_bound(point)))
-    {
+    if let Some(proved) = facet.cull.as_ref().and_then(|cull| {
+        cull.proved_side(
+            input.coords(facet.vertices[0]),
+            input.coords(point),
+            input.height_bound(point),
+        )
+    }) {
         debug_assert_eq!(
             proved,
             oriented_side(input, facet, point)?,
@@ -1081,7 +1083,8 @@ fn take_outside(
     inside.resize(remaining.len(), false);
     if let Some(cull) = &facet.cull {
         let (rows, stride) = input.engine_rows();
-        cull.mark_inside(rows, stride, remaining, inside);
+        let origin = input.coords(facet.vertices[0]);
+        cull.mark_inside(origin, rows, stride, remaining, inside);
     }
     // Kept points move down in place, in order.
     let mut kept = 0;
@@ -1308,16 +1311,17 @@ pub(crate) mod tests {
             };
             planes += 1;
             let mut inside = vec![false; sites.len()];
-            cull.mark_inside(rows, stride, sites, &mut inside);
+            let origin = input.coords(facet.vertices[0]);
+            cull.mark_inside(origin, rows, stride, sites, &mut inside);
             let mut scalar = vec![false; sites.len()];
-            cull.mark_inside_scalar(rows, stride, sites, &mut scalar);
+            cull.mark_inside_scalar(origin, rows, stride, sites, &mut scalar);
             assert_eq!(
                 inside, scalar,
                 "the vector and scalar scans disagree on lifted rows"
             );
             for (&p, &culled) in sites.iter().zip(&inside) {
                 let exact = oriented_side(input, facet, p).unwrap();
-                match cull.proved_side(input.coords(p), input.height_bound(p)) {
+                match cull.proved_side(origin, input.coords(p), input.height_bound(p)) {
                     Some(sign) => {
                         assert_eq!(sign, exact, "facet {:?}, site {p}", facet.vertices);
                         proved += 1;
