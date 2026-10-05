@@ -20,8 +20,8 @@
 //!    T = V ∪ N (visible facets and the facets across its horizon) and its
 //!    horizon ridges H are not yet reserved, and when neither it nor a taken
 //!    candidate is strictly outside a prospective simplex (a horizon ridge
-//!    joined with the point) of the other. Otherwise it waits for the next round in its outside
-//!    set.
+//!    joined with the point) of the other. Otherwise it waits for the next
+//!    round in its outside set.
 //! 3. The batch is applied in ascending input index.
 
 #[cfg(any(test, debug_assertions))]
@@ -794,11 +794,14 @@ impl<'a> SimplicialHull<'a> {
             .collect();
         // A vertex of only visible facets stops being a vertex. It is
         // proved interior on the same terms as an orphan (design §3).
+        // Size the set from the vertices this plan inserts. `width + 2`
+        // equals D only where the debug assertion above holds.
+        let vertex_slots: usize = created.iter().map(|p| p.simplex.vertices.len()).sum();
         let kept = VertexSet::of(
             created
                 .iter()
                 .flat_map(|p| p.simplex.vertices.iter().copied()),
-            created.len() * (width + 2),
+            vertex_slots,
         );
         let mut lost: Vec<u32> = visible
             .iter()
@@ -1415,6 +1418,33 @@ pub(crate) mod tests {
         // A missing distance packs after any present one, then by index.
         assert!(packs_before((9, Some(-1.0)), (2, None)));
         assert!(packs_before((2, None), (9, None)));
+    }
+
+    #[test]
+    fn a_vertex_set_holds_its_members_and_not_the_empty_marker() {
+        let empty = VertexSet::of(core::iter::empty(), 0);
+        assert!(!empty.contains(0));
+        assert!(!empty.contains(u32::MAX - 1));
+        assert!(!empty.contains(u32::MAX));
+
+        // The same `count` fixes the table, so the homes match the set below.
+        let count = 8;
+        let sized = VertexSet::of(core::iter::empty(), count);
+        let mut other = 1u32;
+        while sized.home(0) != sized.home(other) {
+            other += 1;
+            assert!(other < 100_000, "two points share a home slot");
+        }
+        let set = VertexSet::of([0, other, u32::MAX - 1], count);
+        assert!(set.contains(0));
+        assert!(set.contains(other));
+        assert!(set.contains(u32::MAX - 1));
+        assert!(!set.contains(u32::MAX));
+        let mut missing = 1u32;
+        while missing == other || missing == u32::MAX - 1 {
+            missing += 1;
+        }
+        assert!(!set.contains(missing));
     }
 
     #[test]

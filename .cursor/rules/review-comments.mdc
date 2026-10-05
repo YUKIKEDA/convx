@@ -1,0 +1,18 @@
+---
+description: A review finding is about the pull request head it was written on
+alwaysApply: true
+---
+
+# Review findings
+
+A comment on a pull request is about that pull request's head. Read it against that head before calling the pull request ready to merge.
+
+A finding that asks for a change is still open when that head does not contain the change. Say so. A later pull request stacked above the head does not resolve it, and it is not a reason to merge while the change is absent.
+
+```text
+# BAD
+The tie-break sentence is missing. A later pull request sits on this head, so merge.
+
+# GOOD
+The tie-break sentence is not in this head. The finding stays open.
+```

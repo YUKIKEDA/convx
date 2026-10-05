@@ -177,7 +177,7 @@ fn build(
     let d = complex.dim;
     let point = |i: u32| &points[i as usize * d..(i as usize + 1) * d];
     let orient_of = |set: &[u32]| -> Result<Sign, ConvexHullError> {
-        let refs: Small<&[f64], 10> = set.iter().map(|&v| point(v)).collect();
+        let refs: Small<&[f64], 11> = set.iter().map(|&v| point(v)).collect();
         Ok(orient(&refs)?)
     };
 
@@ -240,7 +240,7 @@ fn build(
     }
     let contains_face = |hull_facet: &HullFacet, face: &[u32]| -> Result<bool, ConvexHullError> {
         for &s in face {
-            let set: Small<u32, 10> = hull_facet.basis.iter().copied().chain([s]).collect();
+            let set: Small<u32, 11> = hull_facet.basis.iter().copied().chain([s]).collect();
             if !on_hyperplane(&orient_of, &set)? {
                 return Ok(false);
             }
@@ -293,7 +293,7 @@ fn build(
             } else {
                 let mut facet = Vec::new();
                 for &s in &group.sites {
-                    let set: Small<u32, 10> = tile.iter().copied().chain([s]).collect();
+                    let set: Small<u32, 11> = tile.iter().copied().chain([s]).collect();
                     if tile.contains(&s) || on_hyperplane(&orient_of, &set)? {
                         facet.push(s);
                     }
@@ -382,16 +382,16 @@ fn build(
         .collect();
     for (v, group) in groups.iter().enumerate() {
         for &site in &group.sites {
-            cells[cell_of[site as usize] as usize]
-                .vertices
-                .push(v as u32);
+            if let Some(cell) = cell_index(&cell_of, site) {
+                cells[cell].vertices.push(v as u32);
+            }
         }
     }
     for group_ray in rays_of.iter().flatten() {
         for &site in &group_ray.face {
-            cells[cell_of[site as usize] as usize]
-                .rays
-                .push(group_ray.ray.clone());
+            if let Some(cell) = cell_index(&cell_of, site) {
+                cells[cell].rays.push(group_ray.ray.clone());
+            }
         }
     }
     for cell in &mut cells {
@@ -461,6 +461,18 @@ fn is_edge(d: usize, count: usize, facets: &[(Vec<u32>, bool)], a: u32, b: u32) 
         });
     }
     meet.is_some_and(|m| m == [a, b])
+}
+
+/// The cell of `site` when `site` is a representative. A group's sites and a
+/// ray's face are representatives. `u32::MAX` fills every other index and
+/// numbers no cell (design §3).
+fn cell_index(cell_of: &[u32], site: u32) -> Option<usize> {
+    let cell = cell_of.get(site as usize).copied();
+    debug_assert!(
+        matches!(cell, Some(c) if c != u32::MAX),
+        "every site of a group is a representative"
+    );
+    cell.filter(|&c| c != u32::MAX).map(|c| c as usize)
 }
 
 fn sort_rays(rays: &mut [VoronoiRay]) {

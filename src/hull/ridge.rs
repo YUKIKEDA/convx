@@ -68,7 +68,12 @@ fn pair_keys(
             slot = (slot + 1) & mask;
         }
     }
+    // Release builds do not read the count. The closed pairing's check and
+    // the "more than twice" scan below are debug-only.
+    #[cfg(debug_assertions)]
     let single = table.iter().filter(|&&e| e != EMPTY && e != PAIRED).count();
+    #[cfg(not(debug_assertions))]
+    let single = 0;
     // A key occurring three or four times would pair once and stay single,
     // or pair twice, through two slots; each key occurs at most twice
     // exactly when the keys of the pairs and of the singles are distinct.

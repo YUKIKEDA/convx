@@ -78,51 +78,51 @@ Static API, Delaunay, Voronoi, and oracles. Pulling triangulation and the cosphe
 
 After a correct sequential hull. These rows do not block P4.
 
-| ID    | Kind | Title                                                         | Issue | Status                 |
-| ----- | ---- | ------------------------------------------------------------- | ----- | ---------------------- |
-| P5-1  | Feat | Wider SIMD, including AVX-512                                 | #25   | Done                   |
-| P5-3  | Feat | Cache of lifted coordinates                                   | #27   | Done                   |
-| P5-4  | Feat | Leave non-lower simplices out of the coplanar merge           | #28   | Done                   |
-| P5-5  | Feat | Vector cull kernel faster than its scalar lanes               | #70   | Done                   |
-| P5-6  | Feat | Filtered determinant cheap for every k > 4                    | #72   | Done                   |
-| P5-7  | Feat | Faster distance-zero classification                           | #73   | Done                   |
-| P5-8  | Feat | Linear batch extraction                                       | #75   | Done                   |
-| P5-9  | Feat | Certified distance proves a strict side                       | #79   | Done                   |
-| P5-10 | Feat | Visibility search without SipHash                             | #85   | Done                   |
-| P5-11 | Feat | Cheaper certification of a new facet's working normal         | #86   | Done                   |
-| P5-12 | Feat | Faster exact stage for predicates the filter cannot decide    | #96   | Done                   |
-| P5-13 | Feat | Certified cull and strict-side proof for lifted facets        | #109  | Done                   |
-| P5-14 | Feat | Skip the visibility walk for candidates a round rejects       | #110  | Done                   |
-| P5-15 | Feat | One shared elimination for a facet's cofactors                | #111  | Done                   |
-| P5-16 | Feat | Hull cube D6 10^4 within 1.39 s on one core                   | #120  | Done                   |
-| P5-19 | Feat | Factor the published normal with one Householder QR           | #135  | In progress            |
-| P5-20 | Feat | Run the k > 4 elimination in lanes with inline cofactors      | #143  | Done                   |
-| P5-21 | Feat | Cut per-insertion allocation and relinking in the hull build  | #145  | Done                   |
-| P5-22 | Feat | Evaluate the cofactors of four new simplices at once in lanes | #147  | Done                   |
-| P5-23 | Feat | Gather, scale, and store the four lane facets inside the vectorized call | #149  | Done                   |
-| P5-24 | Feat | Publish the hull without per-item vectors and indirect sorts  | #151  | Done                   |
-| P5-26 | Feat | Build the ridge keys of a new simplex from one sorted horizon ridge | #154  | Done                   |
-| P5-27 | Feat | Find the vertices an insertion loses without sorting the region's vertices | #156  | Done                   |
-| P5-28 | Feat | Examine only the first 64 candidates of each round            | #159  | Done                   |
-| P5-29 | Feat | Classify and publish without per-facet copies; pair Delaunay faces without a hash map | #163  | Done                   |
-| P5-30 | Feat | Build the Voronoi cells, tiles, and rays without quadratic scans | #165  | Done                   |
-| P5-31 | Feat | Pass the cull origin instead of copying it into every plane | #167  | Done                   |
-| P5-32 | Bug  | Spread two-vertex keys over the face pairing table            | #170  | Done                   |
-| P5-33 | Feat | Pick a round's candidates without a pass over every pending candidate | #172  | Done                   |
-| P5-34 | Feat | Exact stage without heap big integers for the predicates coplanar inputs send past the filter | #173  | Done                   |
-| P5-35 | Feat | Certify the working normal of a facet with 2 to 4 points as cheaply as the lane path | #174  | Done                   |
-| P5-36 | Spike | Would an incremental Delaunay in BRIO order beat the lifted Quickhull at D = 2 and 3? | #175  | Done |
-| P5-37 | Spike | Would a core monomorphized on D speed up the static API, and would a dedicated D = 2 hull beat Quickhull? | #176  | Not started |
-| P5-38 | Spike | Where does the peak memory of output-heavy builds go? | #177  | Not started |
-| P5-39 | Spike | Why does parallel(true) give only 1.2 to 1.3 times on four cores? | #178  | Not started |
-| P5-40 | Docs | Let the filter rescale tiny inputs by an exact power of two | #179  | Set after Grill on #179 |
-| P5-41 | Spike | How many NonFiniteCircumcenter failures have a circumcenter that fits in f64? | #180  | Not started |
-| P5-42 | Spike | Why does hull sphere D2 wall time grow faster than its instruction count? | #182  | Not started |
-| P5-43 | Spike | Coplanar points are scanned again for every new facet: can construction stop rescanning them? | #183  | Not started |
-| P5-44 | Feat | Reuse the work space of the heap exact stage across predicate calls | #185  | Not started            |
-| P5-45 | Spike | Near-cospherical sites send almost every lifted predicate to the exact stage | #187  | Not started |
-| P5-46 | Feat | Build Delaunay and Voronoi by incremental insertion in every dimension (design #188) | #189  | Done |
-| P5-47 | Feat | Deterministic parallel insertion for Delaunay and Voronoi | #190  | Set after Grill on #190 |
+| ID    | Kind  | Title                                                                                                     | Issue | Status                   |
+| ----- | ----- | --------------------------------------------------------------------------------------------------------- | ----- | ------------------------ |
+| P5-1  | Feat  | Wider SIMD, including AVX-512                                                                             | #25   | Done                     |
+| P5-3  | Feat  | Cache of lifted coordinates                                                                               | #27   | Done                     |
+| P5-4  | Feat  | Leave non-lower simplices out of the coplanar merge                                                       | #28   | Done                     |
+| P5-5  | Feat  | Vector cull kernel faster than its scalar lanes                                                           | #70   | Done                     |
+| P5-6  | Feat  | Filtered determinant cheap for every k > 4                                                                | #72   | Done                     |
+| P5-7  | Feat  | Faster distance-zero classification                                                                       | #73   | Done                     |
+| P5-8  | Feat  | Linear batch extraction                                                                                   | #75   | Done                     |
+| P5-9  | Feat  | Certified distance proves a strict side                                                                   | #79   | Done                     |
+| P5-10 | Feat  | Visibility search without SipHash                                                                         | #85   | Done                     |
+| P5-11 | Feat  | Cheaper certification of a new facet's working normal                                                     | #86   | Done                     |
+| P5-12 | Feat  | Faster exact stage for predicates the filter cannot decide                                                | #96   | Done                     |
+| P5-13 | Feat  | Certified cull and strict-side proof for lifted facets                                                    | #109  | Done                     |
+| P5-14 | Feat  | Skip the visibility walk for candidates a round rejects                                                   | #110  | Done                     |
+| P5-15 | Feat  | One shared elimination for a facet's cofactors                                                            | #111  | Done                     |
+| P5-16 | Feat  | Hull cube D6 10^4 within 1.39 s on one core                                                               | #120  | Done                     |
+| P5-19 | Feat  | Factor the published normal with one Householder QR                                                       | #135  | In progress              |
+| P5-20 | Feat  | Run the k > 4 elimination in lanes with inline cofactors                                                  | #143  | Done                     |
+| P5-21 | Feat  | Cut per-insertion allocation and relinking in the hull build                                              | #145  | Done                     |
+| P5-22 | Feat  | Evaluate the cofactors of four new simplices at once in lanes                                             | #147  | Done                     |
+| P5-23 | Feat  | Gather, scale, and store the four lane facets inside the vectorized call                                  | #149  | Done                     |
+| P5-24 | Feat  | Publish the hull without per-item vectors and indirect sorts                                              | #151  | Done                     |
+| P5-26 | Feat  | Build the ridge keys of a new simplex from one sorted horizon ridge                                       | #154  | Done                     |
+| P5-27 | Feat  | Find the vertices an insertion loses without sorting the region's vertices                                | #156  | Done                     |
+| P5-28 | Feat  | Examine only the first 64 candidates of each round                                                        | #159  | Done                     |
+| P5-29 | Feat  | Classify and publish without per-facet copies; pair Delaunay faces without a hash map                     | #163  | Done                     |
+| P5-30 | Feat  | Build the Voronoi cells, tiles, and rays without quadratic scans                                          | #165  | Done                     |
+| P5-31 | Feat  | Pass the cull origin instead of copying it into every plane                                               | #167  | Done                     |
+| P5-32 | Bug   | Spread two-vertex keys over the face pairing table                                                        | #170  | Done                     |
+| P5-33 | Feat  | Pick a round's candidates without a pass over every pending candidate                                     | #172  | Done                     |
+| P5-34 | Feat  | Exact stage without heap big integers for the predicates coplanar inputs send past the filter             | #173  | Done                     |
+| P5-35 | Feat  | Certify the working normal of a facet with 2 to 4 points as cheaply as the lane path                      | #174  | Done                     |
+| P5-36 | Spike | Would an incremental Delaunay in BRIO order beat the lifted Quickhull at D = 2 and 3?                     | #175  | Done                     |
+| P5-37 | Spike | Would a core monomorphized on D speed up the static API, and would a dedicated D = 2 hull beat Quickhull? | #176  | Not started              |
+| P5-38 | Spike | Where does the peak memory of output-heavy builds go?                                                     | #177  | Not started              |
+| P5-39 | Spike | Why does parallel(true) give only 1.2 to 1.3 times on four cores?                                         | #178  | Not started              |
+| P5-40 | Docs  | Let the filter rescale tiny inputs by an exact power of two                                               | #179  | Set after Grill on #179  |
+| P5-41 | Spike | How many NonFiniteCircumcenter failures have a circumcenter that fits in f64?                             | #180  | Not started              |
+| P5-42 | Spike | Why does hull sphere D2 wall time grow faster than its instruction count?                                 | #182  | Not started              |
+| P5-43 | Spike | Coplanar points are scanned again for every new facet: can construction stop rescanning them?             | #183  | Not started              |
+| P5-44 | Feat  | Reuse the work space of the heap exact stage across predicate calls                                       | #185  | Not started              |
+| P5-45 | Spike | Near-cospherical sites send almost every lifted predicate to the exact stage                              | #187  | Not started              |
+| P5-46 | Feat  | Build Delaunay and Voronoi by incremental insertion in every dimension (design #188)                      | #189  | Done                     |
+| P5-47 | Feat  | Deterministic parallel insertion for Delaunay and Voronoi                                                 | #190  | Set after Grill on #190  |
 
 ## Intentionally out of scope
 
