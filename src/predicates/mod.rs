@@ -8,12 +8,14 @@
 //!
 //! Each predicate first evaluates in `f64` with a running absolute error
 //! bound (see [`filter`]). When the bound certifies the sign, that sign is
-//! returned. Otherwise the sign of the same polynomial is computed exactly
-//! (see [`exact`]). Degree 1 compares the two coordinates directly; degrees 2
+//! returned. Otherwise the sign of the same polynomial is computed exactly:
+//! over integers on the stack when they hold it (see [`fixed`]), and over
+//! heap integers otherwise (see [`exact`]). Degree 1 compares the two coordinates directly; degrees 2
 //! to 4 use dedicated expansions; larger degrees use a filtered determinant.
 
 mod exact;
 mod filter;
+mod fixed;
 
 use filter::Approx;
 

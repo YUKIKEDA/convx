@@ -109,6 +109,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-31 | Feat | Pass the cull origin instead of copying it into every plane | #167  | Done                   |
 | P5-32 | Bug  | Spread two-vertex keys over the face pairing table            | #170  | Done                   |
 | P5-33 | Feat | Pick a round's candidates without a pass over every pending candidate | #172  | Done                   |
+| P5-34 | Feat | Exact stage without heap big integers for the predicates coplanar inputs send past the filter | #173  | In progress            |
 
 ## Intentionally out of scope
 
