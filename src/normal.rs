@@ -890,7 +890,10 @@ mod tests {
             facet_cofactors(&refs).as_deref(),
         )
         .expect("the cofactor direction certifies a plane");
-        assert_eq!(plane.proved_side(&inside, 0.0), Some(Sign::Negative));
+        assert_eq!(
+            plane.proved_side(&points[0], &inside, 0.0),
+            Some(Sign::Negative)
+        );
         let mut with_point = points.clone();
         with_point.push(inside.to_vec());
         let rows: Vec<&[f64]> = with_point.iter().map(Vec::as_slice).collect();
