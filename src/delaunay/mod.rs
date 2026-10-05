@@ -27,9 +27,10 @@
 
 use std::collections::HashSet;
 
+use crate::arena::SlotMarks;
 use crate::hull::classify::placing;
 use crate::hull::input::{accept, minimum_basis, Input};
-use crate::hull::merge::merge;
+use crate::hull::merge::{merge, merge_except};
 use crate::hull::ridge::{fingerprint, pair_equal_keys_with_border};
 use crate::hull::simplicial::{Execution, SimplicialHull};
 use crate::hull::ConvexHullError;
@@ -197,9 +198,37 @@ pub(crate) fn lower_hull(
         Err(flat) => return Ok(Err(flat)),
     };
     let hull = SimplicialHull::build(lifted, execution)?;
-    let logical = merge(&hull)?;
     let input = &hull.input;
     let d = input.dim();
+
+    // The side of every simplex, by the exact §7 test, before the merge. The
+    // simplices of one logical facet share its hyperplane and so its side: a
+    // hyperplane that is not vertical projects one to one, keeping the sign
+    // of every simplex in it, and a vertical one gives every simplex zero.
+    // A simplex not on the lower side is cut off: its ridges are not
+    // tested, and its group is dropped (#28).
+    let mut cut: SlotMarks<()> = SlotMarks::default();
+    for (id, simplex) in hull.facets.iter() {
+        if lift_side(input, &simplex.vertices)? != Sign::Negative {
+            cut.insert(id, ());
+        }
+    }
+    let logical = merge_except(&hull, &cut)?;
+    debug_assert!(
+        {
+            let kept = |groups: &[crate::hull::merge::Group]| {
+                let mut sets: Vec<&[u32]> = groups
+                    .iter()
+                    .filter(|g| g.simplices.iter().all(|&id| !cut.contains(id)))
+                    .map(|g| g.vertices.as_slice())
+                    .collect();
+                sets.sort_unstable();
+                sets.into_iter().map(<[u32]>::to_vec).collect::<Vec<_>>()
+            };
+            merge(&hull).is_ok_and(|full| kept(&full.groups) == kept(&logical.groups))
+        },
+        "the cutoff keeps the lower groups of the full merge"
+    );
 
     // Every representative is a vertex of the simplicial lifted hull: a
     // site never inserted would lie on the final hull inside the convex hull
@@ -219,12 +248,20 @@ pub(crate) fn lower_hull(
 
     let mut groups = Vec::new();
     for group in logical.groups {
-        let Some(outward) = group.simplices.first().and_then(|&id| hull.facets.get(id)) else {
+        let Some(&first) = group.simplices.first() else {
             continue;
         };
-        if lift_side(input, &outward.vertices)? != Sign::Negative {
+        if cut.contains(first) {
+            debug_assert!(
+                group.simplices.len() == 1,
+                "a cut simplex is a group of its own"
+            );
             continue;
         }
+        debug_assert!(
+            group.simplices.iter().all(|&id| !cut.contains(id)),
+            "a lower group holds no cut simplex"
+        );
         let sites = group.vertices;
         let cells = if sites.len() == d + 1 {
             vec![sites.clone()]
