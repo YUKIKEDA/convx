@@ -9,6 +9,10 @@
 //!
 //! Every buffer is reserved with `try_reserve_exact`. A failed reservation is
 //! reported as [`ExactEvaluationExhausted`] instead of aborting.
+//!
+//! [`sign_exact`] and [`cofactor_direction_exact`] first try the integers on
+//! the stack of [`super::fixed`], which hold most determinants without
+//! reserving memory (#173); the heap integers here take the rest.
 
 use core::cmp::Ordering;
 
@@ -27,7 +31,7 @@ fn try_vec<T>(capacity: usize) -> Result<Vec<T>, ExactEvaluationExhausted> {
 ///
 /// A normal value is (2^52 + fraction) * 2^(biased - 1075), so its shift is
 /// biased - 1. A subnormal value is fraction * 2^-1074, so its shift is 0.
-fn decompose(x: f64) -> (u64, u64) {
+pub(super) fn decompose(x: f64) -> (u64, u64) {
     let bits = x.to_bits();
     let biased = (bits >> 52) & 0x7ff;
     let fraction = bits & ((1_u64 << 52) - 1);
@@ -138,6 +142,12 @@ impl BigInt {
         } else {
             value
         }
+    }
+
+    /// The sign and the little-endian limbs of the magnitude, for tests.
+    #[cfg(test)]
+    pub(super) fn parts(&self) -> (bool, Vec<u64>) {
+        (self.negative, self.magnitude.clone())
     }
 
     pub(super) fn sign(&self) -> Sign {
@@ -345,13 +355,25 @@ fn mul_into(out: &mut Vec<u64>, a: &[u64], b: &[u64]) -> Result<(), ExactEvaluat
 }
 
 /// Exact sign of the determinant described by `rows`.
+///
+/// The fixed-size integers of [`super::fixed`] are tried first. They hold
+/// most determinants without reserving memory (#173); the heap integers
+/// below take the rest.
 pub(super) fn sign_exact(rows: Rows<'_>) -> Result<Sign, ExactEvaluationExhausted> {
+    if let Some(sign) = super::fixed::sign(rows) {
+        return Ok(sign);
+    }
+    sign_exact_on_heap(rows)
+}
+
+/// [`sign_exact`] over the heap integers alone.
+pub(super) fn sign_exact_on_heap(rows: Rows<'_>) -> Result<Sign, ExactEvaluationExhausted> {
     Ok(determinant_of(rows)?.sign())
 }
 
 /// The determinant described by `rows`, scaled by a positive power of two
 /// that depends only on the multiset of values in `rows`.
-fn determinant_of(rows: Rows<'_>) -> Result<BigInt, ExactEvaluationExhausted> {
+pub(super) fn determinant_of(rows: Rows<'_>) -> Result<BigInt, ExactEvaluationExhausted> {
     let k = rows.k();
     // Every value is a multiple of 2^(base - 1074). Dividing all of them by
     // that power of two keeps the integers small and multiplies the
@@ -418,6 +440,16 @@ fn determinant_of(rows: Rows<'_>) -> Result<BigInt, ExactEvaluationExhausted> {
 /// within `2^-50` of the exact unit vector's. `None` when every cofactor is
 /// zero, that is, when the points are affinely dependent.
 pub(super) fn cofactor_direction_exact(
+    facet: &[&[f64]],
+) -> Result<Option<Vec<f64>>, ExactEvaluationExhausted> {
+    if let Some(direction) = super::fixed::cofactor_direction(facet) {
+        return Ok(direction);
+    }
+    cofactor_direction_on_heap(facet)
+}
+
+/// [`cofactor_direction_exact`] over the heap integers alone.
+pub(super) fn cofactor_direction_on_heap(
     facet: &[&[f64]],
 ) -> Result<Option<Vec<f64>>, ExactEvaluationExhausted> {
     let k = facet.len();
