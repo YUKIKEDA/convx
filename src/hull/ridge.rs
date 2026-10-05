@@ -94,12 +94,20 @@ fn pair_keys(
 }
 
 /// A hash of a sorted vertex list, for the table of [`pair_equal_keys`].
+///
+/// The table takes the low bits. After the fold, those bits depend almost
+/// linearly on the low bits of the last vertices, so the faces of nearby
+/// vertices would share a few slots (#170). The finalizer of murmur3
+/// (`fmix64`) makes every bit of the result depend on every bit of the fold.
 pub(crate) fn fingerprint(key: &[u32]) -> u64 {
-    key.iter().fold(0x9e37_79b9_7f4a_7c15, |h, &v| {
+    let h = key.iter().fold(0x9e37_79b9_7f4a_7c15, |h, &v| {
         (h ^ u64::from(v))
             .wrapping_mul(0x0100_0000_01b3)
             .rotate_left(23)
-    })
+    });
+    let h = (h ^ (h >> 33)).wrapping_mul(0xff51_afd7_ed55_8ccd);
+    let h = (h ^ (h >> 33)).wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+    h ^ (h >> 33)
 }
 
 #[cfg(test)]
@@ -152,6 +160,26 @@ mod tests {
     #[should_panic(expected = "every key occurs an even number of times")]
     fn a_single_key_fails_the_closed_debug_check() {
         pair_equal_keys(&[1, 2, 3, 4, 1, 2], 3, fingerprint);
+    }
+
+    #[test]
+    fn nearby_two_vertex_keys_spread_over_the_table() {
+        // The faces of a D = 2 Delaunay triangulation: edges between nearby
+        // sites. 600,000 keys, masked as `pair_keys` masks them. Thrown
+        // into 2^21 slots at random, the largest bucket holds about 8; the
+        // fold alone filled 2,166 slots, up to 1,100 keys in one (#170).
+        let keys: Vec<[u32; 2]> = (0..2000)
+            .flat_map(|i| (1..=300).map(move |k| [i, i + k]))
+            .collect();
+        let mask = (2 * keys.len()).next_power_of_two() - 1;
+        let mut buckets = vec![0_u32; mask + 1];
+        for key in &keys {
+            buckets[fingerprint(key) as usize & mask] += 1;
+        }
+        let largest = buckets.iter().copied().max().unwrap_or(0);
+        let used = buckets.iter().filter(|&&c| c > 0).count();
+        assert!(largest <= 12, "largest bucket {largest}");
+        assert!(used >= keys.len() * 4 / 5, "{used} slots used");
     }
 
     #[test]
