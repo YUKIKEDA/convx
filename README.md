@@ -18,7 +18,7 @@ The public API has no tolerance parameter. Coplanar means the exact sign of the 
 
 Geometric degree $k$ is one less than the number of argument points, and is independent of the hull dimension $D$. $k \le 4$ (up to five points) uses a dedicated formula. $k > 4$ uses a filtered floating-point determinant. Householder QR, implemented in this crate, produces the public unit normal. The working normal used by distance scans is the certified cofactor direction.
 
-A SIMD distance scan culls points the error bound proves strictly inside, so they are not fed to the predicate. Visibility and outsideness are the strict sign of the orientation of the facet vertices and the point. The certified working distance may prove that sign first, inside or outside; zero and everything near the plane go to the orientation. On a lifted Delaunay hull the threshold also covers each rounded height, so the proof holds for the exact lift. Dimension is also decided by predicate signs. A new point with exact sign zero against the current basis does not extend the span.
+A SIMD distance scan culls points the error bound proves strictly inside, so they are not fed to the predicate. Visibility and outsideness are the strict sign of the orientation of the facet vertices and the point. The certified working distance may prove that sign first, inside or outside; zero and everything near the plane go to the orientation. Dimension is also decided by predicate signs. A new point with exact sign zero against the current basis does not extend the span.
 
 ## Input is a row-major coordinate slice
 
@@ -62,11 +62,13 @@ $$
 
 The input array is not extended. The formula is the definition. The height is passed to the exact sign as the polynomial $\sum_i x_i^2$ in the input coordinates. A non-finite `f64` intermediate skips the filter and continues to the exact sign. That input is not rejected. Caching the lift must not change the observable simplices or signs. Insphere is this lifted orientation. Another algebraic expression is allowed only when its sign matches this definition.
 
+The triangulation is built by incremental insertion: sites are added one at a time, in a deterministic order the implementation chooses, and each insertion replaces the simplices whose circumsphere strictly contains the new site. Outside the site hull, simplices with a vertex at infinity stand for its facets. Conflicts are decided by exact signs only. `parallel(true)` runs the same insertion, so the result does not depend on it. Why insertion rather than the hull of the lift: `docs/adr/0001-incremental-delaunay.md`.
+
 Published simplices are only the projection of the lower hull. Vertices are stored in ascending order, and a swap of the last two points makes the orientation positive in the original space. An exact orientation of zero stays in ascending order. A missing neighbor slot is `u32::MAX`. Simplex order is the lexicographic order of the ascending vertex lists before orientation is fixed.
 
-When the original sites span $\mathbb{R}^D$ and every point lies on one sphere, the lower-hull sign is not used. The interior of the site hull is filled with a pulling triangulation. That procedure stays inside Delaunay. Failure to build a public plane does not fail this split. `DegenerateDimension` is returned only when the affine dimension of the original sites is below $D$. Lifted points that do not span $D+1$ dimensions still get a lower hull in their affine span. The public convex hull still fails when the affine dimension is below $D$.
+When the original sites span $\mathbb{R}^D$ and every point lies on one sphere, no insertion runs. The interior of the site hull is filled with a pulling triangulation. That procedure stays inside Delaunay. Failure to build a public plane does not fail this split. `DegenerateDimension` is returned only when the affine dimension of the original sites is below $D$. With sites that span $\mathbb{R}^D$, the lift fails to span $D+1$ dimensions only in that case. The public convex hull still fails when the affine dimension is below $D$.
 
-When several diagonals exist, the build returns the split that version's algorithm chose. Which sites are extreme is unique, so the extreme set is promised. Diagonal agreement is limited to the sequential and parallel paths of the same binary. Dimension degeneracy is reported from the affine dimension of the input sites, using those sites' indices.
+When several diagonals exist, the build returns the split that version's insertion order chose. Which sites are extreme is unique, so the extreme set is promised. Diagonal agreement is limited to the sequential and parallel paths of the same binary. Dimension degeneracy is reported from the affine dimension of the input sites, using those sites' indices.
 
 Delaunay and Voronoi sites are the full representative set. Interior points and non-vertex boundary points are sites.
 
@@ -94,7 +96,7 @@ let hull = ConvexHullBuilder::new(2, points)
 
 Dependencies are `faer`, `rayon`, `pulp`, and `thiserror`. The implementation language is Rust. Parallelism is the runtime `parallel` flag. The build assumes `std`. The MSRV is 1.89. The distance kernel is runtime CPU detection through `pulp`, up to AVX-512.
 
-What may wait until a correct sequential result exists: a cache of lifted coordinates, and cutting off the search of the upper hull and of faces already decided. The sign convention and the lift-as-formula are part of the Delaunay specification from the start.
+The sign convention and the lift-as-formula are part of the Delaunay specification from the start.
 
 ## Verification
 
