@@ -19,6 +19,8 @@ The cofactor elimination may put one facet per lane (design §9 names AVX2, four
 
 Code that must run under `vectorize` is a `WithSimd` method marked `#[inline(always)]` that calls `V3`'s own operations (`add_f64x4`, `abs_f64x4`, `cmp_gt_i64x4`). A closure passed to `vectorize`, and a provided `Simd` method such as `abs_f64s` or `not_m64s`, may stay out of line; it then has no AVX2, and every operation inside it is a call. In #149 that made the lanes 1.8 to 3.1 µs per facet instead of 0.14 µs, with identical results. Time the kernel alone after any change to its structure.
 
+A kernel over blocks of four `f64` (the single elimination of `filter::determinant` and `filter::cofactors`) runs under `V3` when the CPU has it, not under `Arch`'s widest level. A block is one 256-bit register, so AVX-512 does not shorten it. In #195 the `V4` build of the 9 x 9 determinant on the stack (`Stack<9, 3>`, the lifted orientation at D = 8) took 14.9 µs per call instead of 0.62 µs, with identical results. The heap 10 x 10, also three blocks a row, took 3.2 µs against 2.4 µs.
+
 ```rust
 // BAD — the closure was compiled without AVX2; each V3 op became a call
 simd.vectorize(|| lanes::edges::<5, 6>(simd, facets, factors))
