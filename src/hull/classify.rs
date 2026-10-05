@@ -243,9 +243,11 @@ fn classify_built(
                 extreme
             }
             _ => {
-                if let Some(s) = hull.facets.get(group.simplices[0]) {
-                    kept.push((first, group.simplices[0]));
-                    push(s.vertices.to_vec());
+                if let Some(&id) = group.simplices.first() {
+                    if let Some(s) = hull.facets.get(id) {
+                        kept.push((first, id));
+                        push(s.vertices.to_vec());
+                    }
                 }
                 core::mem::take(&mut group.vertices)
             }
@@ -490,6 +492,10 @@ const UNLINKED: u32 = u32::MAX;
 /// however the faces are triangulated; debug builds check it.
 fn link_neighbors(d: usize, simplices: &mut [ComplexSimplex], faces: &[Face]) {
     if d == 1 {
+        // A segment has no ridge. Each simplex's neighbor list is empty
+        // (`unlinked` is 0), so there is no triangulation to compare with
+        // the group neighbors. `segment_has_two_groups` checks that those
+        // neighbors are empty.
         return;
     }
     // Unlinked ridges as sorted vertex lists packed in one buffer, with

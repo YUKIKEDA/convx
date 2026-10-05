@@ -40,6 +40,7 @@ The current row's ID lives only in [docs/roadmap.md](docs/roadmap.md).
 | `.cursor/rules/numeric-tests.mdc`        | Exact independent reference, fixed tolerance, mutation check, per-case expectations            |
 | `.cursor/rules/spec-checks.mdc`          | Check the full statement and fixed orders; every documented rule has a code path               |
 | `.cursor/rules/dev-docs.mdc`             | Mermaid and LaTeX in the design spec                                                           |
+| `.cursor/rules/review-comments.mdc`     | A review finding is about that pull request's head                                              |
 
 Grill, when the design branches: [`.agents/skills/grilling/SKILL.md`](.agents/skills/grilling/SKILL.md).
 

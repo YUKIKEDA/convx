@@ -569,8 +569,6 @@ mod tests {
         assert!(uncertain > 0, "some pivot is uncertain");
     }
 
-    /// Entry `(i, j)` of a test matrix; odd trials carry an input bound, so
-    /// every term of the running bound is nonzero.
     /// Whether [`filter::edge_cofactors_in_lanes`] has vectors here.
     fn lanes_on_this_cpu() -> bool {
         #[cfg(target_arch = "x86_64")]
@@ -579,6 +577,8 @@ mod tests {
         return false;
     }
 
+    /// Entry `(i, j)` of a test matrix; odd trials carry an input bound, so
+    /// every term of the running bound is nonzero.
     fn input_entry(m: &[Vec<f64>], trial: usize, i: usize, j: usize) -> Approx {
         let x = m[i][j];
         if trial % 2 == 1 {
