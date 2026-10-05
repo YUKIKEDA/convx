@@ -3,14 +3,16 @@
 
 use super::*;
 
-/// The triangulation from the lower hull; panics on a flat lift.
+/// Whether the lift of `points` is flat (every site on one sphere).
+fn is_flat(dim: usize, points: &[f64]) -> bool {
+    let input = accept(dim, points).unwrap();
+    let sites = insert::Sites::of(&input);
+    flat(&input, &sites).unwrap()
+}
+
+/// The triangulation built by insertion; panics on a flat lift.
 fn triangulate(dim: usize, points: &[f64]) -> DelaunayTriangulation {
-    assert!(
-        lower_hull(dim, points, Execution::Sequential)
-            .unwrap()
-            .is_ok(),
-        "unexpected flat lift"
-    );
+    assert!(!is_flat(dim, points), "unexpected flat lift");
     DelaunayBuilder::new(dim, points).build().unwrap()
 }
 
@@ -73,23 +75,10 @@ fn check(t: &DelaunayTriangulation, points: &[f64]) {
 }
 
 #[test]
-fn the_section_7_example() {
-    // (0,0), (1,0), (0,1), (0.1,0.1): the first three form the upper facet
-    // of the lifted tetrahedron; the point directly above them is on the
-    // positive side of their outward order.
+fn a_triangle_with_an_inner_site() {
+    // (0,0), (1,0), (0,1), (0.1,0.1): the inner site joins every edge of
+    // the triangle.
     let points = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.1, 0.1];
-    let Ok(input) = accept(2, &points).unwrap().lift().unwrap() else {
-        panic!("the lift spans three dimensions");
-    };
-    // Outward order of {0, 1, 2}: point 3 is inside, so negative.
-    let mut outward = vec![0, 1, 2];
-    let mut with_inner = outward.clone();
-    with_inner.push(3);
-    if input.orient(&with_inner).unwrap() == Sign::Positive {
-        outward.swap(0, 1);
-    }
-    assert_eq!(lift_side(&input, &outward).unwrap(), Sign::Positive);
-
     let t = triangulate(2, &points);
     assert_eq!(cells(&t), vec![vec![0, 1, 3], vec![0, 2, 3], vec![1, 2, 3]]);
     check(&t, &points);
@@ -128,12 +117,13 @@ fn partly_cocircular_square() {
 #[test]
 fn every_site_on_one_circle_is_flat() {
     let points = [0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0];
-    let Err(sites) = lower_hull(2, &points, Execution::Sequential).unwrap() else {
-        panic!("four cocircular sites have a flat lift");
-    };
-    // The sites come back unlifted, for the pulling triangulation (P4-2).
-    assert!(!sites.is_lifted());
-    assert_eq!(sites.representatives, vec![0, 1, 2, 3]);
+    assert!(
+        is_flat(2, &points),
+        "four cocircular sites have a flat lift"
+    );
+    // One site off the circle makes the lift span three dimensions.
+    let points = [0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0, 1.0, 1.0];
+    assert!(!is_flat(2, &points));
 }
 
 #[test]
@@ -141,7 +131,7 @@ fn degenerate_sites_report_original_indices() {
     // 1 duplicates 0; all on the line y = x.
     let points = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 2.0, 2.0];
     assert_eq!(
-        lower_hull(2, &points, Execution::Sequential).err(),
+        complex(2, &points, Execution::Sequential).err(),
         Some(ConvexHullError::DegenerateDimension {
             actual_dim: 1,
             spanning_points: vec![0, 2],
@@ -318,6 +308,118 @@ fn general_position_in_two_dimensions() {
 #[test]
 fn general_position_in_three_dimensions() {
     assert!(general_position_matches(3, 9, 20, 1000) >= 10);
+}
+
+/// The Delaunay conditions of `t` over the integer `sites`, by the `i128`
+/// reference: every simplex is positive and has no site strictly inside its
+/// circumsphere, every face without a neighbor has no site strictly beyond
+/// it, and every representative is a vertex. Returns the number of
+/// boundary faces with a site on their plane (a degenerate hull) and of
+/// simplices with a cospherical site (a degenerate interior).
+fn check_delaunay(t: &DelaunayTriangulation, sites: &[Vec<i64>]) -> (usize, usize) {
+    let (mut flat_boundary, mut cospherical) = (0, 0);
+    let mut used = vec![false; sites.len()];
+    for s in &t.simplices {
+        let cell: Vec<usize> = s.vertices.iter().map(|&v| v as usize).collect();
+        let orientation = plain(sites, &cell);
+        assert!(orientation > 0, "{cell:?} is positive");
+        let mut on_sphere = false;
+        for q in 0..sites.len() {
+            if t.representative[q] != q as u32 || cell.contains(&q) {
+                continue;
+            }
+            let mut with = cell.clone();
+            with.push(q);
+            let l = lifted(sites, &with);
+            // q strictly inside: the lifted sign is the opposite of the
+            // simplex's own (see `brute_force`).
+            assert!(l.signum() != -orientation.signum(), "{q} inside {cell:?}");
+            on_sphere |= l == 0;
+        }
+        cospherical += usize::from(on_sphere);
+        for (slot, &n) in s.neighbors.iter().enumerate() {
+            if n != NO_NEIGHBOR {
+                continue;
+            }
+            // The face opposite `slot`, with the opposite vertex replaced by
+            // each site: positive means beyond the face, away from it.
+            let mut on_plane = false;
+            for q in 0..sites.len() {
+                if t.representative[q] != q as u32 || cell.contains(&q) {
+                    continue;
+                }
+                let mut with = cell.clone();
+                with[slot] = q;
+                let side = plain(sites, &with);
+                assert!(side >= 0, "{q} beyond the boundary face of {cell:?}");
+                on_plane |= side == 0;
+            }
+            flat_boundary += usize::from(on_plane);
+        }
+        for &v in &cell {
+            used[v] = true;
+        }
+    }
+    for (q, &is_vertex) in used.iter().enumerate() {
+        assert!(
+            is_vertex || t.representative[q] != q as u32,
+            "site {q} is a vertex"
+        );
+    }
+    (flat_boundary, cospherical)
+}
+
+#[test]
+fn degenerate_grids_are_delaunay() {
+    // Integer sites with many on one line or plane of the hull boundary and
+    // many cospherical (#189): a grid of 0..=3 in D = 2 and D = 3, the
+    // boundary of a square, and lattice points on and inside a circle. Each
+    // case must reach both degeneracies, so the outside-simplex rule for a
+    // site on a hull plane and the cospherical merge both run.
+    let mut cases: Vec<(usize, Vec<Vec<i64>>)> = Vec::new();
+    cases.push((2, random_sites(2, 40, 3, 4)));
+    cases.push((3, random_sites(3, 30, 5, 4)));
+    let mut square: Vec<Vec<i64>> = Vec::new();
+    for i in 0..=6 {
+        square.extend([vec![i, 0], vec![6, i], vec![6 - i, 6], vec![0, 6 - i]]);
+    }
+    square.extend([vec![3, 3], vec![2, 4], vec![4, 1]]);
+    cases.push((2, square));
+    let mut circle: Vec<Vec<i64>> = [
+        (5, 0),
+        (4, 3),
+        (3, 4),
+        (0, 5),
+        (-3, 4),
+        (-4, 3),
+        (-5, 0),
+        (-4, -3),
+        (-3, -4),
+        (0, -5),
+        (3, -4),
+        (4, -3),
+    ]
+    .iter()
+    .map(|&(x, y)| vec![x, y])
+    .collect();
+    // (5, 5) and (5, -5) put (5, 0) on a hull edge.
+    circle.extend([vec![0, 0], vec![1, 2], vec![-2, 1], vec![5, 5], vec![5, -5]]);
+    cases.push((2, circle));
+    for (i, (dim, sites)) in cases.iter().enumerate() {
+        let points: Vec<f64> = sites.iter().flatten().map(|&x| x as f64).collect();
+        let t = triangulate(*dim, &points);
+        check(&t, &points);
+        let (flat_boundary, cospherical) = check_delaunay(&t, sites);
+        assert!(
+            flat_boundary > 0 && cospherical > 0,
+            "case {i}: boundary sites on a plane {flat_boundary}, cospherical {cospherical}"
+        );
+        let parallel = DelaunayBuilder::new(*dim, &points)
+            .parallel(true)
+            .build()
+            .unwrap();
+        assert_eq!(t, parallel, "case {i}: parallel agrees");
+    }
 }
 
 #[test]

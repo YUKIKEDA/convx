@@ -17,13 +17,13 @@
 //! ```compile_fail
 //! use convx::StaticDelaunay;
 //!
-//! let _ = StaticDelaunay::<8>::build(&[[0.0; 8]; 9]);
+//! let _ = StaticDelaunay::<9>::build(&[[0.0; 9]; 10]);
 //! ```
 //!
 //! ```compile_fail
 //! use convx::StaticVoronoi;
 //!
-//! let _ = StaticVoronoi::<8>::build(&[[0.0; 8]; 9]);
+//! let _ = StaticVoronoi::<9>::build(&[[0.0; 9]; 10]);
 //! ```
 //!
 //! Nor does `D = 0`:
@@ -64,7 +64,7 @@ use crate::{
 #[derive(Clone, Copy, Debug)]
 pub struct StaticConvexHull<const D: usize>;
 
-/// The Delaunay triangulation of stack arrays, for `1 <= D <= 7`.
+/// The Delaunay triangulation of stack arrays, for `1 <= D <= 8`.
 ///
 /// ```
 /// use convx::StaticDelaunay;
@@ -77,7 +77,7 @@ pub struct StaticConvexHull<const D: usize>;
 #[derive(Clone, Copy, Debug)]
 pub struct StaticDelaunay<const D: usize>;
 
-/// The Voronoi diagram of stack arrays, for `1 <= D <= 7`.
+/// The Voronoi diagram of stack arrays, for `1 <= D <= 8`.
 ///
 /// ```
 /// use convx::StaticVoronoi;
@@ -119,14 +119,14 @@ static_build!(
     DelaunayBuilder,
     DelaunayTriangulation,
     "Delaunay triangulation",
-    [1, 2, 3, 4, 5, 6, 7]
+    [1, 2, 3, 4, 5, 6, 7, 8]
 );
 static_build!(
     StaticVoronoi,
     VoronoiBuilder,
     VoronoiDiagram,
     "Voronoi diagram",
-    [1, 2, 3, 4, 5, 6, 7]
+    [1, 2, 3, 4, 5, 6, 7, 8]
 );
 
 #[cfg(test)]
@@ -149,16 +149,6 @@ mod tests {
     }
 
     macro_rules! agree {
-        ($name:ident, $d:literal, hull) => {
-            #[test]
-            fn $name() {
-                let points = sample::<$d>($d + 4, 0x9e37_79b9 + $d);
-                assert_eq!(
-                    StaticConvexHull::<$d>::build(&points),
-                    ConvexHullBuilder::new($d, points.as_flattened()).build()
-                );
-            }
-        };
         ($name:ident, $d:literal, all) => {
             #[test]
             fn $name() {
@@ -187,5 +177,5 @@ mod tests {
     agree!(d5, 5, all);
     agree!(d6, 6, all);
     agree!(d7, 7, all);
-    agree!(d8, 8, hull);
+    agree!(d8, 8, all);
 }

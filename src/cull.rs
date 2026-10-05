@@ -37,26 +37,6 @@
 //! `|n - c^/|c^||` is evaluated in `f64` with a margin for its own rounding.
 //! When the cofactors cannot be certified, no point is culled.
 //!
-//! # Lifted facets
-//!
-//! For a facet of sites lifted to the paraboloid (design §1, §7, #109) the
-//! points are rounded in their last coordinate only: each height is within
-//! its stored bound `e` of the exact `|p|^2`. `u*` is then the unit normal of
-//! the exact lifted plane, and `tau` bounds `|n - u*|` because the cofactors
-//! are widened by [`crate::normal::lifted_facet_cofactors`]. Moving the query
-//! `x` and the origin `o` to their exact heights changes `(x - o) . u*` by at
-//! most `(e_x + e_o) |u*_last| <= e_x + e_o`. The origin's bound is added to
-//! the floor, `floor' = (floor + e_o)(1 + 4u)`, and the query's just before
-//! the comparison:
-//!
-//! ```text
-//! w < -(((slope * l + floor') * (1 + 4u) + e_x) * (1 + 4u))
-//! ```
-//!
-//! Each factor `(1 + 4u)` covers the roundings of the sum before it. The
-//! scan reads `e_x` from the lifted row right after the coordinates. A plane
-//! that is not lifted keeps the threshold above bit for bit.
-//!
 //! # Paths
 //!
 //! The vectorized path uses `pulp` runtime dispatch with one point per lane.
@@ -86,10 +66,6 @@ pub(crate) struct CullPlane {
     origin: Small<f64, 8>,
     slope: f64,
     floor: f64,
-    /// A facet of sites lifted to the paraboloid: the last coordinate of
-    /// every point is a rounded height, and the threshold adds the query's
-    /// height bound (#109).
-    lifted: bool,
 }
 
 impl CullPlane {
@@ -130,30 +106,6 @@ impl CullPlane {
             origin: facet[0].into(),
             slope,
             floor,
-            lifted: false,
-        })
-    }
-
-    /// [`Self::with_cofactors`] for a facet of sites lifted to the
-    /// paraboloid. `facet` holds the rounded lifted coordinates, `cofactors`
-    /// are the [`crate::normal::lifted_facet_cofactors`] of the facet,
-    /// which bound the cofactors of the exact lift, and
-    /// `origin_bound` bounds the rounding of the first vertex's height. A
-    /// proved side is then the exact lifted orientation sign (#109).
-    pub(crate) fn with_lifted_cofactors(
-        facet: &[&[f64]],
-        normal: &[f64],
-        outward: Sign,
-        cofactors: Option<&[(f64, f64)]>,
-        origin_bound: f64,
-    ) -> Option<Self> {
-        let plane = Self::with_cofactors(facet, normal, outward, cofactors)?;
-        // The origin's height error is added to the floor, rounded up.
-        let floor = (plane.floor + origin_bound) * (1.0 + 4.0 * UNIT_ROUNDOFF);
-        floor.is_finite().then_some(Self {
-            floor,
-            lifted: true,
-            ..plane
         })
     }
 
@@ -194,20 +146,13 @@ impl CullPlane {
         (w, l)
     }
 
-    /// The certified threshold for a point at L1 distance `l` whose last
-    /// coordinate is within `bound` of the exact one (0 unless lifted).
-    fn threshold(&self, l: f64, bound: f64) -> f64 {
-        let base = (self.slope * l + self.floor) * (1.0 + 4.0 * UNIT_ROUNDOFF);
-        if self.lifted {
-            (base + bound) * (1.0 + 4.0 * UNIT_ROUNDOFF)
-        } else {
-            debug_assert!(bound == 0.0, "only a lifted point has a height bound");
-            base
-        }
+    /// The certified threshold for a point at L1 distance `l`.
+    fn threshold(&self, l: f64) -> f64 {
+        (self.slope * l + self.floor) * (1.0 + 4.0 * UNIT_ROUNDOFF)
     }
 
-    fn is_proved_inside(&self, w: f64, l: f64, bound: f64) -> bool {
-        w < -self.threshold(l, bound)
+    fn is_proved_inside(&self, w: f64, l: f64) -> bool {
+        w < -self.threshold(l)
     }
 
     /// The side of `point` that the working distance proves:
@@ -216,13 +161,11 @@ impl CullPlane {
     /// orientation sign of the facet, in outward order, followed by the
     /// point (design §1).
     ///
-    /// `origin` is the facet's first point. `bound` bounds the rounding of
-    /// the point's last coordinate: the height bound of a lifted point, and
-    /// 0 otherwise.
-    pub(crate) fn proved_side(&self, origin: &[f64], point: &[f64], bound: f64) -> Option<Sign> {
+    /// `origin` is the facet's first point.
+    pub(crate) fn proved_side(&self, origin: &[f64], point: &[f64]) -> Option<Sign> {
         self.check_origin(origin);
         let (w, l) = self.scalar_terms(origin, point);
-        let threshold = self.threshold(l, bound);
+        let threshold = self.threshold(l);
         if w > threshold {
             Some(Sign::Positive)
         } else if w < -threshold {
@@ -237,8 +180,7 @@ impl CullPlane {
     /// to `false`.
     ///
     /// `origin` is the facet's first point. Point `i` starts at
-    /// `rows[i * stride]`. A lifted plane reads the height bound right after
-    /// the point's coordinates, as the lifted rows store it.
+    /// `rows[i * stride]`.
     pub(crate) fn mark_inside(
         &self,
         origin: &[f64],
@@ -249,10 +191,7 @@ impl CullPlane {
     ) {
         let d = self.dim();
         self.check_origin(origin);
-        debug_assert!(
-            stride >= d + usize::from(self.lifted),
-            "a row holds the point, and its bound when lifted"
-        );
+        debug_assert!(stride >= d, "a row holds the point");
         debug_assert_eq!(inside.len(), indices.len());
         Arch::new().dispatch(Scan {
             plane: self,
@@ -264,17 +203,8 @@ impl CullPlane {
         });
     }
 
-    /// The height bound of point `index` in `rows`, or 0 for a plain plane.
-    fn bound_of(&self, rows: &[f64], stride: usize, index: u32) -> f64 {
-        if self.lifted {
-            rows[index as usize * stride + self.dim()]
-        } else {
-            0.0
-        }
-    }
-
     /// Reference path without SIMD. Same result as [`Self::mark_inside`],
-    /// with the same rows, stride, and height bounds.
+    /// with the same rows and stride.
     #[cfg(test)]
     pub(crate) fn mark_inside_scalar(
         &self,
@@ -289,7 +219,7 @@ impl CullPlane {
         for (flag, &index) in inside.iter_mut().zip(indices) {
             let start = index as usize * stride;
             let (w, l) = self.scalar_terms(origin, &rows[start..start + d]);
-            *flag = self.is_proved_inside(w, l, self.bound_of(rows, stride, index));
+            *flag = self.is_proved_inside(w, l);
         }
     }
 }
@@ -349,10 +279,7 @@ impl Scan<'_> {
     fn put(&mut self, i: usize, w: f64, l: f64) {
         match &mut self.out {
             ScanOut::Inside(inside) => {
-                let bound = self
-                    .plane
-                    .bound_of(self.points, self.stride, self.indices[i]);
-                inside[i] = self.plane.is_proved_inside(w, l, bound);
+                inside[i] = self.plane.is_proved_inside(w, l);
             }
             #[cfg(test)]
             ScanOut::Terms(w_out, l_out) => {
@@ -822,7 +749,7 @@ mod tests {
                 let culled = w
                     .iter()
                     .zip(&l)
-                    .filter(|&(&w, &l)| plane.is_proved_inside(w, l, 0.0))
+                    .filter(|&(&w, &l)| plane.is_proved_inside(w, l))
                     .count();
                 std::hint::black_box(culled);
                 row += &format!(" {name} {:.2} ns/point;", best / count as f64 * 1e9);
@@ -851,7 +778,7 @@ mod tests {
             } else {
                 Sign::Negative
             };
-            if let Some(proved) = plane.proved_side(facet[0], p, 0.0) {
+            if let Some(proved) = plane.proved_side(facet[0], p) {
                 assert_eq!(proved, side, "{p:?} proved on the wrong side");
                 if proved == Sign::Positive {
                     outside += 1;
@@ -861,67 +788,6 @@ mod tests {
             }
         }
         (outside, inside)
-    }
-
-    /// A lifted plane through the rounded points `facet` (heights exact
-    /// except as `bounds` says) of the horizontal plane `h = 0`.
-    fn lifted_plane(bounds: &[f64]) -> CullPlane {
-        let facet = [
-            vec![0.0, 0.0, 0.0],
-            vec![1.0, 0.0, 0.0],
-            vec![0.0, 1.0, 0.0],
-        ];
-        let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
-        let normal = unit_normal(&refs, Sign::Positive).unwrap().unwrap();
-        let cofactors = crate::normal::facet_cofactors(&refs).unwrap();
-        let widened = crate::normal::lifted_facet_cofactors(&refs, &cofactors, bounds);
-        CullPlane::with_lifted_cofactors(
-            &refs,
-            &normal,
-            Sign::Positive,
-            widened.as_deref(),
-            bounds[0],
-        )
-        .expect("certified")
-    }
-
-    #[test]
-    fn lifted_threshold_covers_the_height_bounds() {
-        // The rounded points span h = 0. Each query's rounded height is off
-        // by at most a bound under which the exact point may lie on the
-        // exact plane, so no side may be proved. Dropping the query's bound
-        // from the threshold, or the origin's from the floor, proves one.
-        let delta = 1e-3;
-        let origin = [0.0; 3];
-        // The query's own height is uncertain.
-        let exact_vertices = lifted_plane(&[0.0, 0.0, 0.0]);
-        assert_eq!(
-            exact_vertices.proved_side(&origin, &[0.25, 0.25, delta], delta),
-            None
-        );
-        assert_eq!(
-            exact_vertices.proved_side(&origin, &[0.25, 0.25, -delta], delta),
-            None
-        );
-        // The origin's height is uncertain; the query sits right above it.
-        let uncertain_origin = lifted_plane(&[delta, 0.0, 0.0]);
-        assert_eq!(
-            uncertain_origin.proved_side(&origin, &[0.0, 0.0, delta], 0.0),
-            None
-        );
-        assert_eq!(
-            uncertain_origin.proved_side(&origin, &[0.0, 0.0, -delta], 0.0),
-            None
-        );
-        // Far beyond every bound, both sides are proved.
-        assert_eq!(
-            exact_vertices.proved_side(&origin, &[0.25, 0.25, 1.0], delta),
-            Some(Sign::Positive)
-        );
-        assert_eq!(
-            uncertain_origin.proved_side(&origin, &[0.25, 0.25, -1.0], 0.0),
-            Some(Sign::Negative)
-        );
     }
 
     #[test]

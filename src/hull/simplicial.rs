@@ -37,18 +37,9 @@ use super::ridge::{fingerprint, pair_equal_keys};
 use super::ConvexHullError;
 use crate::arena::{Arena, ArenaFull, FacetId, SlotMarks};
 use crate::cull::CullPlane;
-use crate::normal::{
-    facet_cofactors, facet_cofactors_in_lanes, lifted_facet_cofactors, working_normal,
-};
+use crate::normal::{facet_cofactors, facet_cofactors_in_lanes, working_normal};
 use crate::predicates::{Cofactors, Sign, COFACTOR_LANES};
 use crate::small::Small;
-
-/// Whether every coordinate of `points` is finite. Rounded lifted
-/// coordinates can be infinite; that facet then has no working normal, and
-/// the farthest point falls back to index order.
-fn all_finite(points: &[&[f64]]) -> bool {
-    points.iter().all(|p| p.iter().all(|x| x.is_finite()))
-}
 
 /// A simplicial facet during construction.
 pub(crate) struct Simplex {
@@ -123,7 +114,7 @@ impl<'a> SimplicialHull<'a> {
             facets: Arena::new(),
             proved_interior: Vec::new(),
         };
-        if hull.input.engine_dim() == 1 {
+        if hull.input.dim() == 1 {
             hull.build_segment()?;
         } else {
             let initial = hull.initial_simplex()?;
@@ -142,7 +133,7 @@ impl<'a> SimplicialHull<'a> {
 
     /// Engine-space coordinates of `vertices` for working normals.
     fn coords_of(&self, vertices: &[u32]) -> Small<&[f64], 10> {
-        vertices.iter().map(|&v| self.input.coords(v)).collect()
+        vertices.iter().map(|&v| self.input.point(v)).collect()
     }
 
     /// The exact side of `point` relative to `facet`: [`Sign::Positive`] is
@@ -159,15 +150,11 @@ impl<'a> SimplicialHull<'a> {
         for chunk in &mut chunks {
             let points: [Small<&[f64], 10>; COFACTOR_LANES] =
                 core::array::from_fn(|lane| self.coords_of(&chunk[lane].as_mut().vertices));
-            if points.iter().all(|p| all_finite(p)) {
-                let cofactors = facet_cofactors_in_lanes(points.each_ref().map(|p| &**p));
-                for ((simplex, points), cofactors) in chunk.iter_mut().zip(&points).zip(cofactors) {
-                    self.set_planes_with(simplex.as_mut(), points, true, cofactors)?;
-                }
-            } else {
-                for (simplex, points) in chunk.iter_mut().zip(&points) {
-                    self.set_planes_alone(simplex.as_mut(), points)?;
-                }
+            // Input coordinates are finite (design §3), so every facet's
+            // cofactors can be evaluated.
+            let cofactors = facet_cofactors_in_lanes(points.each_ref().map(|p| &**p));
+            for ((simplex, points), cofactors) in chunk.iter_mut().zip(&points).zip(cofactors) {
+                self.set_planes_with(simplex.as_mut(), points, cofactors)?;
             }
         }
         for simplex in chunks.into_remainder() {
@@ -183,13 +170,8 @@ impl<'a> SimplicialHull<'a> {
         simplex: &mut Simplex,
         points: &[&[f64]],
     ) -> Result<(), ConvexHullError> {
-        let finite = all_finite(points);
-        let cofactors = if finite {
-            facet_cofactors(points)
-        } else {
-            None
-        };
-        self.set_planes_with(simplex, points, finite, cofactors)
+        let cofactors = facet_cofactors(points);
+        self.set_planes_with(simplex, points, cofactors)
     }
 
     /// [`Self::set_planes`] of one simplex whose vertices are at `points`,
@@ -198,34 +180,17 @@ impl<'a> SimplicialHull<'a> {
         &self,
         simplex: &mut Simplex,
         points: &[&[f64]],
-        finite: bool,
         cofactors: Option<Cofactors>,
     ) -> Result<(), ConvexHullError> {
-        let (vertices, outward) = (&simplex.vertices, simplex.outward);
+        let outward = simplex.outward;
         // The cofactors certify both the working normal and the cull plane;
         // they are evaluated once (#86).
         // The working normal is the certified cofactor direction. Published
         // planes still run Householder QR (design §1).
-        let normal = if finite {
-            working_normal(points, outward, cofactors.as_deref())?
-        } else {
-            None
-        };
-        // A lifted facet's points are rounded, so its cull plane is certified
-        // against the exact lift: the cofactors carry each height's bound,
-        // and the threshold adds the origin's and the query's (#109).
-        let cull = normal.as_deref().and_then(|n| {
-            if self.input.is_lifted() {
-                let bounds: Small<f64, 10> = vertices
-                    .iter()
-                    .map(|&v| self.input.height_bound(v))
-                    .collect();
-                let widened = lifted_facet_cofactors(points, cofactors.as_deref()?, &bounds);
-                CullPlane::with_lifted_cofactors(points, n, outward, widened.as_deref(), bounds[0])
-            } else {
-                CullPlane::with_cofactors(points, n, outward, cofactors.as_deref())
-            }
-        });
+        let normal = working_normal(points, outward, cofactors.as_deref())?;
+        let cull = normal
+            .as_deref()
+            .and_then(|n| CullPlane::with_cofactors(points, n, outward, cofactors.as_deref()));
         // The cull plane carries the normal; it is kept apart only without
         // one.
         simplex.normal = if cull.is_some() {
@@ -266,7 +231,7 @@ impl<'a> SimplicialHull<'a> {
     /// that the opposite vertex is on the negative side.
     fn initial_simplex(&mut self) -> Result<Vec<FacetId>, ConvexHullError> {
         let simplex = self.input.spanning_points.clone();
-        let d = self.input.engine_dim();
+        let d = self.input.dim();
         let mut ordered = Vec::with_capacity(d + 1);
         for (i, &apex) in simplex.iter().enumerate() {
             let mut vertices: Vec<u32> = simplex.iter().copied().filter(|&v| v != apex).collect();
@@ -330,13 +295,6 @@ impl<'a> SimplicialHull<'a> {
                 .map(|(&p, _)| p),
         );
         Ok(())
-    }
-
-    /// The working distance of `point` from `facet`, or `None` without a
-    /// certified working normal.
-    #[cfg(test)]
-    fn working_distance(&self, facet: &Simplex, point: u32) -> Option<f64> {
-        working_distance(&self.input, facet, point)
     }
 
     /// The candidates a round examines: of the one candidate per facet with
@@ -780,7 +738,7 @@ impl<'a> SimplicialHull<'a> {
         // sorted, in one flat buffer; sorting the keys pairs the two
         // simplices that share each ridge, with no hashing and no
         // allocation per key.
-        let width = self.input.engine_dim().saturating_sub(2);
+        let width = self.input.dim().saturating_sub(2);
         let mut keys: Vec<u32> = Vec::with_capacity(horizon.len() * (width + 1) * width);
         let mut owners: Vec<(usize, usize)> = Vec::with_capacity(horizon.len() * (width + 1));
         for &(visible_id, slot, across) in &horizon {
@@ -1030,13 +988,11 @@ impl Default for Link {
 /// everything else. Debug builds check every proved side against the
 /// orientation.
 fn side(input: &Input<'_>, facet: &Simplex, point: u32) -> Result<Sign, ConvexHullError> {
-    if let Some(proved) = facet.cull.as_ref().and_then(|cull| {
-        cull.proved_side(
-            input.coords(facet.vertices[0]),
-            input.coords(point),
-            input.height_bound(point),
-        )
-    }) {
+    if let Some(proved) = facet
+        .cull
+        .as_ref()
+        .and_then(|cull| cull.proved_side(input.point(facet.vertices[0]), input.point(point)))
+    {
         debug_assert_eq!(
             proved,
             oriented_side(input, facet, point)?,
@@ -1063,10 +1019,10 @@ fn oriented_side(input: &Input<'_>, facet: &Simplex, point: u32) -> Result<Sign,
 /// certified working normal.
 fn working_distance(input: &Input<'_>, facet: &Simplex, point: u32) -> Option<f64> {
     let normal = facet.normal()?;
-    let origin = input.coords(facet.vertices[0]);
+    let origin = input.point(facet.vertices[0]);
     Some(
         input
-            .coords(point)
+            .point(point)
             .iter()
             .zip(origin)
             .zip(normal)
@@ -1106,8 +1062,8 @@ fn take_outside(
     inside.clear();
     inside.resize(remaining.len(), false);
     if let Some(cull) = &facet.cull {
-        let (rows, stride) = input.engine_rows();
-        let origin = input.coords(facet.vertices[0]);
+        let (rows, stride) = input.rows();
+        let origin = input.point(facet.vertices[0]);
         cull.mark_inside(origin, rows, stride, remaining, inside);
     }
     // Kept points move down in place, in order.
@@ -1351,170 +1307,6 @@ pub(crate) mod tests {
             }
             assert!(facet.outside.is_empty());
         }
-    }
-
-    /// Every side a lifted facet's cull plane proves, by `proved_side` or by
-    /// the scan, is the exact lifted orientation sign. Returns the number of
-    /// cull planes, of proved sides, and of sides left to the orientation.
-    fn check_lifted_proofs(dim: usize, points: &[f64]) -> (usize, usize, usize) {
-        let Ok(input) = accept(dim, points).unwrap().lift().unwrap() else {
-            panic!("the sites are not all cospherical, so the lift is not flat");
-        };
-        let hull = SimplicialHull::build(input, Execution::Sequential).unwrap();
-        let input = &hull.input;
-        let (rows, stride) = input.engine_rows();
-        let sites = &input.representatives;
-        let (mut planes, mut proved, mut open) = (0, 0, 0);
-        for (_, facet) in hull.facets.iter() {
-            let Some(cull) = facet.cull() else {
-                continue;
-            };
-            planes += 1;
-            let mut inside = vec![false; sites.len()];
-            let origin = input.coords(facet.vertices[0]);
-            cull.mark_inside(origin, rows, stride, sites, &mut inside);
-            let mut scalar = vec![false; sites.len()];
-            cull.mark_inside_scalar(origin, rows, stride, sites, &mut scalar);
-            assert_eq!(
-                inside, scalar,
-                "the vector and scalar scans disagree on lifted rows"
-            );
-            for (&p, &culled) in sites.iter().zip(&inside) {
-                let exact = oriented_side(input, facet, p).unwrap();
-                match cull.proved_side(origin, input.coords(p), input.height_bound(p)) {
-                    Some(sign) => {
-                        assert_eq!(sign, exact, "facet {:?}, site {p}", facet.vertices);
-                        proved += 1;
-                    }
-                    None => open += 1,
-                }
-                if culled {
-                    assert_eq!(exact, Sign::Negative, "culled site {p}");
-                }
-            }
-        }
-        (planes, proved, open)
-    }
-
-    #[test]
-    fn lifted_proved_sides_are_the_exact_sides() {
-        // x1^2 + y1^2 = x2^2 + y2^2 = N (two products of sums of two squares,
-        // Brahmagupta-Fibonacci), N about 2^57.1. Their rounded heights (the
-        // sum of the rounded squares) differ by 32, so without the height bounds a side would
-        // be proved for exactly cocircular sites. Sites one unit off the
-        // circle, inside it so the cocircular sites keep their upper facets,
-        // are provable. The small circle has exact heights; at 2^-20
-        // and 2^20 it checks the scaling.
-        let (x1, y1) = (8_362_900.0, 392_702_530.0);
-        let (x2, y2) = (377_454_220.0, 108_690_050.0);
-        let mut big: Vec<[f64; 2]> = Vec::new();
-        for (x, y) in [(x1, y1), (y1, x1), (x2, y2), (y2, x2)] {
-            big.extend([[x, y], [-x, y], [x, -y], [-x, -y]]);
-        }
-        big.extend([[x1 - 1.0, y1], [x2, y2 - 1.0], [0.0, 0.0]]);
-        let small: Vec<[f64; 2]> = vec![
-            [5.0, 0.0],
-            [0.0, 5.0],
-            [-5.0, 0.0],
-            [0.0, -5.0],
-            [3.0, 4.0],
-            [4.0, 3.0],
-            [-3.0, 4.0],
-            [4.0, -3.0],
-            [3.0, 5.0],
-            [5.0, 1.0],
-            [0.0, 0.0],
-        ];
-        let mut sphere: Vec<[f64; 3]> = Vec::new();
-        for p in [
-            [x1, y1, 0.0],
-            [x2, y2, 0.0],
-            [y1, 0.0, x1],
-            [0.0, x2, y2],
-            [0.0, y1, x1],
-            [y2, 0.0, x2],
-        ] {
-            for signs in 0..4 {
-                let mut q = p;
-                if signs & 1 == 1 {
-                    q[0] = -q[0];
-                }
-                if signs & 2 == 2 {
-                    q[1] = -q[1];
-                }
-                sphere.push(q);
-            }
-        }
-        sphere.extend([[x1 - 1.0, y1, 0.0], [0.0, x2, y2 - 1.0], [0.0, 0.0, 0.0]]);
-        let cases: Vec<(String, usize, Vec<f64>)> = vec![
-            (
-                "big circle".into(),
-                2,
-                big.iter().flatten().copied().collect(),
-            ),
-            (
-                "big sphere".into(),
-                3,
-                sphere.iter().flatten().copied().collect(),
-            ),
-            (
-                "small circle".into(),
-                2,
-                small.iter().flatten().copied().collect(),
-            ),
-            (
-                "small circle 2^-20".into(),
-                2,
-                small.iter().flatten().map(|x| x * 2f64.powi(-20)).collect(),
-            ),
-            (
-                "small circle 2^20".into(),
-                2,
-                small.iter().flatten().map(|x| x * 2f64.powi(20)).collect(),
-            ),
-        ];
-        for (name, dim, points) in &cases {
-            let (planes, proved, open) = check_lifted_proofs(*dim, points);
-            assert!(planes > 0 && proved > 0, "{name}: nothing proved");
-            assert!(open > 0, "{name}: every cospherical side was proved");
-        }
-        // Heights that overflow to infinity give no working normal, so no
-        // cull plane, and every side goes to the orientation.
-        let huge: Vec<f64> = small.iter().flatten().map(|x| x * 2f64.powi(520)).collect();
-        assert_eq!(check_lifted_proofs(2, &huge), (0, 0, 0));
-    }
-
-    #[test]
-    fn lifted_working_distance_reads_the_lifted_coordinate() {
-        // On the lift, the working distance is the dot product over all
-        // D + 1 engine coordinates; dropping the lifted one changes it.
-        let mut rng = Rng(7);
-        let points: Vec<f64> = (0..2 * 40).map(|_| rng.unit()).collect();
-        let Ok(input) = accept(2, &points).unwrap().lift().unwrap() else {
-            panic!("random sites lift to a full-dimensional set");
-        };
-        let hull = SimplicialHull::build(input, Execution::Sequential).unwrap();
-        let mut checked = 0;
-        for (_, facet) in hull.facets.iter() {
-            let Some(normal) = facet.normal() else {
-                continue;
-            };
-            assert_eq!(normal.len(), 3);
-            let origin = hull.input.coords(facet.vertices[0]);
-            for &p in &hull.input.representatives {
-                let full: f64 = hull
-                    .input
-                    .coords(p)
-                    .iter()
-                    .zip(origin)
-                    .zip(normal)
-                    .map(|((x, o), n)| (x - o) * n)
-                    .sum();
-                assert_eq!(hull.working_distance(facet, p), Some(full));
-                checked += 1;
-            }
-        }
-        assert!(checked > 0);
     }
 
     fn vertex_set(hull: &SimplicialHull<'_>) -> Vec<u32> {
