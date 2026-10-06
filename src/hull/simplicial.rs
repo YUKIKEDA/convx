@@ -107,6 +107,16 @@ pub(crate) struct SimplicialHull<'a> {
     pub(crate) polygon: Vec<u32>,
 }
 
+/// The most representatives [`SimplicialHull::discarding_pays`] samples.
+const DISCARD_SAMPLE: usize = 1024;
+
+/// Discarding goes ahead when at least one sampled point in this many is
+/// proved inside. Timed on a unit circle with a share of its points moved
+/// inside (10^5 and 10^6 points, #232): with one point in 64 inside,
+/// discarding was 1 to 7% slower than not; with one in 32, the two were
+/// equal; with one in 16, discarding was 3 to 8% faster.
+const DISCARD_ONE_IN: usize = 32;
+
 /// An index that no longer fits in `u32` is an exhaustion of the index
 /// space; like an ordinary allocation failure, it aborts (design §3).
 fn insert_or_abort(arena: &mut Arena<Simplex>, simplex: Simplex) -> FacetId {
@@ -289,11 +299,32 @@ impl<'a> SimplicialHull<'a> {
         true
     }
 
+    /// Whether discarding by `polygon` pays (design §6): of a stride of at
+    /// most [`DISCARD_SAMPLE`] representatives in input order, at least one
+    /// in [`DISCARD_ONE_IN`] is proved strictly inside.
+    ///
+    /// A point that is not discarded costs its place in the sort and its
+    /// classification; one that is tested and not discarded costs the tests
+    /// as well. Where every point is extreme, as on a circle, the pass
+    /// found nothing and cost 4 to 6% of the build (#232).
+    fn discarding_pays(&self, polygon: &[u32]) -> bool {
+        let reps = &self.input.representatives;
+        let step = (reps.len() / DISCARD_SAMPLE).max(1);
+        let (mut seen, mut inside) = (0usize, 0usize);
+        for &r in reps.iter().step_by(step).take(DISCARD_SAMPLE) {
+            seen += 1;
+            inside += usize::from(self.clearly_inside(polygon, r));
+        }
+        inside * DISCARD_ONE_IN >= seen
+    }
+
     /// D = 2: the cycle of strict left turns, counterclockwise (design §6).
     ///
     /// A representative proved strictly inside [`Self::discard_polygon`] is
     /// strictly inside the hull, because the polygon's vertices are input
     /// points. It is recorded as proved interior and takes no further part.
+    /// Where that would not pay ([`Self::discarding_pays`]), no point is
+    /// tested, and the chain and classification handle them all.
     /// Of the others, a representative stays on the chain only while it
     /// makes a strict turn under the exact orientation. Points on an edge
     /// or inside the polygon are left for classification, the same split
@@ -302,7 +333,7 @@ impl<'a> SimplicialHull<'a> {
         self.strict_edges = true;
         let discard = self.discard_polygon()?;
         let mut kept = Vec::new();
-        if discard.is_empty() {
+        if discard.is_empty() || !self.discarding_pays(&discard) {
             kept.clone_from(&self.input.representatives);
         } else {
             for &r in &self.input.representatives {

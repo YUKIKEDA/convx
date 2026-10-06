@@ -994,6 +994,55 @@ pub(crate) mod tests {
         }
     }
 
+    /// Sites on a circle with `inside` more strictly inside it, placed
+    /// evenly through the input so that a stride meets them.
+    fn circle_with_interior(on_circle: usize, inside: usize) -> (Vec<f64>, Vec<u32>) {
+        let total = on_circle + inside;
+        let every = total / inside.max(1);
+        let mut points = Vec::with_capacity(2 * total);
+        let mut interior = Vec::new();
+        let mut placed = 0;
+        for i in 0..total {
+            let t = (i as f64) * core::f64::consts::TAU / (total as f64);
+            if placed < inside && i % every == every / 2 {
+                // Radius 0.25: inside the octagon of any dense circle.
+                points.extend([0.25 * t.cos(), 0.25 * t.sin()]);
+                interior.push(i as u32);
+                placed += 1;
+            } else {
+                points.extend([t.cos(), t.sin()]);
+            }
+        }
+        assert_eq!(placed, inside);
+        (points, interior)
+    }
+
+    /// One site in 16 is inside: the sample finds enough of them, and every
+    /// interior site is discarded. One in 100 is not enough: none is
+    /// discarded, and classification still finds them all.
+    #[test]
+    fn discarding_runs_only_where_it_pays() {
+        for (on_circle, inside, discards) in [(2040, 136, true), (2040, 20, false)] {
+            let (points, interior) = circle_with_interior(on_circle, inside);
+            for execution in [Execution::Sequential, Execution::Parallel] {
+                let hull = SimplicialHull::build(accept(2, &points).unwrap(), execution).unwrap();
+                let mut proved = hull.proved_interior.clone();
+                proved.sort_unstable();
+                if discards {
+                    assert_eq!(proved, interior, "{inside} inside: all are discarded");
+                } else {
+                    assert!(proved.is_empty(), "{inside} inside: none is discarded");
+                }
+                let c = classify_built(hull, execution).unwrap();
+                // check is quadratic in the facets; the lists below are
+                // what the cutoff could change.
+                assert_eq!(c.vertices.len(), on_circle);
+                assert_eq!(c.interior_points, interior, "{inside} inside");
+                assert!(c.coplanar_points.is_empty());
+            }
+        }
+    }
+
     /// On a circle every site is extreme, and none is discarded.
     #[test]
     fn large_circle_uses_the_chain() {
