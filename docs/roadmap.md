@@ -118,7 +118,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-40 | Docs  | Let the filter rescale tiny inputs by an exact power of two                                               | #179  | Set after Grill on #179  |
 | P5-41 | Spike | How many NonFiniteCircumcenter failures have a circumcenter that fits in f64?                             | #180  | Not started              |
 | P5-42 | Spike | Why does hull sphere D2 wall time grow faster than its instruction count?                                 | #182  | Done                     |
-| P5-43 | Spike | Coplanar points are scanned again for every new facet: can construction stop rescanning them?             | #183  | Not started              |
+| P5-43 | Spike | Coplanar points are scanned again for every new facet: can construction stop rescanning them?             | #183  | Done                     |
 | P5-44 | Feat  | Reuse the work space of the heap exact stage across predicate calls                                       | #185  | Not started              |
 | P5-45 | Spike | Near-cospherical sites send almost every lifted predicate to the exact stage                              | #187  | Not started              |
 | P5-46 | Feat  | Build Delaunay and Voronoi by incremental insertion in every dimension (design #188)                      | #189  | Done                     |
@@ -136,6 +136,8 @@ After a correct sequential hull. These rows do not block P4.
 | P5-58 | Spike | How much of the pass after construction can a hull of single-simplex facets skip?                         | #228  | Done                     |
 | P5-59 | Docs  | One filtered strict chain for the D = 2 hull                                                               | #230  | Done                     |
 | P5-60 | Feat  | Build every D = 2 hull by the filtered strict chain                                                        | #232  | Done                     |
+| P5-61 | Docs  | Let construction record the planes a point lies on                                                        | #236  | Set after Grill on #236  |
+| P5-62 | Spike | Extremes of a coplanar face come from recursive sub-hulls: where does that time go?                       | #237  | Not started              |
 
 ## Intentionally out of scope
 
