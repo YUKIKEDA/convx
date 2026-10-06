@@ -138,7 +138,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-60 | Feat  | Build every D = 2 hull by the filtered strict chain                                                        | #232  | Done                     |
 | P5-61 | Docs  | Let construction record the planes a point lies on                                                        | #236  | Done                     |
 | P5-62 | Spike | Extremes of a coplanar face come from recursive sub-hulls: where does that time go?                       | #237  | Not started              |
-| P5-63 | Feat  | Record the planes a point lies on and use them in insertion and classification                            | #239  | Not started              |
+| P5-63 | Feat  | Record the planes a point lies on and use them in insertion and classification                            | #239  | Done                     |
 
 ## Intentionally out of scope
 
