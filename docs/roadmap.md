@@ -127,6 +127,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-49 | Spike | Why is the low-dimension cube hull slower than Qhull's compute time?                                      | #200  | Not started              |
 | P5-50 | Bug   | Run the filtered elimination under AVX2, not AVX-512 (the D = 8 lifted 9 x 9 was 24x slower)              | #195  | Done                     |
 | P5-51 | Feat  | Vectorize the filtered elimination of size 10 and up (heap rows)                                          | #203  | Not started              |
+| P5-57 | Spike | How does convx compare with CGAL on the hull and Delaunay timing sets?                                    | #215  | Done                     |
 
 ## Intentionally out of scope
 
