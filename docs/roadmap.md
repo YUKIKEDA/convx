@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P5-59 (#230): decide which paths the D = 2 hull keeps.
+P5-60 (#232): build every D = 2 hull by the filtered strict chain.
 
 ## Dependencies
 
@@ -134,7 +134,8 @@ After a correct sequential hull. These rows do not block P4.
 | P5-56 | Feat  | Partition outside points without re-testing what the scan proved or re-gathering scattered rows           | #214  | Done                     |
 | P5-57 | Spike | How does convx compare with CGAL on the hull and Delaunay timing sets?                                    | #215  | Done                     |
 | P5-58 | Spike | How much of the pass after construction can a hull of single-simplex facets skip?                         | #228  | Done                     |
-| P5-59 | Docs  | One filtered strict chain for the D = 2 hull                                                               | #230  | Set after Grill on #230  |
+| P5-59 | Docs  | One filtered strict chain for the D = 2 hull                                                               | #230  | Done                     |
+| P5-60 | Feat  | Build every D = 2 hull by the filtered strict chain                                                        | #232  | Not started              |
 
 ## Intentionally out of scope
 
