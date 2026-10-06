@@ -72,6 +72,45 @@ pub(crate) struct Classified<'a> {
     pub(crate) interior_points: Vec<u32>,
 }
 
+/// The chain edge `point` lies on, or `None` when it is strictly inside.
+///
+/// `cycle` is the extreme vertices counterclockwise. The fan from
+/// `cycle[0]` names the triangle, and one orientation against that
+/// triangle's outer edge separates an interior point from a boundary point.
+fn polygon_edge(
+    input: &Input<'_>,
+    cycle: &[u32],
+    point: u32,
+) -> Result<Option<usize>, ConvexHullError> {
+    let n = cycle.len();
+    debug_assert!(n >= 3, "a polygon has at least three vertices");
+    let turn = |a: usize, b: usize| input.orient(&[cycle[a], cycle[b], point]);
+    if turn(0, 1)? == Sign::Zero {
+        return Ok(Some(0));
+    }
+    debug_assert_ne!(
+        turn(0, 1)?,
+        Sign::Negative,
+        "a point is outside the polygon"
+    );
+    if turn(0, n - 1)? == Sign::Zero {
+        return Ok(Some(n - 1));
+    }
+    let mut lo = 1usize;
+    let mut hi = n - 1;
+    while lo + 1 < hi {
+        let mid = (lo + hi) / 2;
+        if turn(0, mid)? == Sign::Positive {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let side = input.orient(&[cycle[lo], cycle[(lo + 1) % n], point])?;
+    debug_assert_ne!(side, Sign::Negative, "a point is outside the polygon");
+    Ok(if side == Sign::Zero { Some(lo) } else { None })
+}
+
 /// Builds and classifies the hull of an accepted input.
 pub(crate) fn classify(
     input: Input<'_>,
@@ -125,29 +164,61 @@ fn classify_built(
         .collect();
     let mut on_boundary = vec![false; others.len()];
     let mut zero_points: Vec<Vec<u32>> = vec![Vec::new(); groups.groups.len()];
-    let mut inside = vec![false; others.len()];
-    for (g, group) in groups.groups.iter().enumerate() {
-        let Some(simplex) = group.simplices.first().and_then(|id| hull.facets.get(*id)) else {
-            continue;
-        };
-        inside.iter_mut().for_each(|x| *x = false);
-        if let Some(cull) = simplex.cull() {
-            let (rows, stride) = hull.input.rows();
-            let origin = hull.input.point(simplex.vertices[0]);
-            cull.mark_inside(origin, rows, stride, &others, &mut inside);
-        }
-        for (k, &p) in others.iter().enumerate() {
-            if inside[k] {
-                continue;
+    let polygon_search = d == 2
+        && !others.is_empty()
+        && groups.groups.first().is_none_or(|group| {
+            hull.facets
+                .get(group.simplices[0])
+                .and_then(|simplex| simplex.cull())
+                .is_none()
+        });
+    if polygon_search {
+        // One edge per group, in the chain's order. A non-vertex is on one
+        // edge or strictly inside; the chain order locates it in a few
+        // orientations instead of a plane per edge.
+        if !others.is_empty() {
+            let cycle: Vec<u32> = groups
+                .groups
+                .iter()
+                .map(|group| {
+                    let Some(simplex) = hull.facets.get(group.simplices[0]) else {
+                        std::process::abort();
+                    };
+                    simplex.vertices[1]
+                })
+                .collect();
+            for (k, &point) in others.iter().enumerate() {
+                if let Some(edge) = polygon_edge(&hull.input, &cycle, point)? {
+                    on_boundary[k] = true;
+                    zero_points[edge].push(point);
+                }
             }
-            let side = hull.side(simplex, p)?;
-            debug_assert!(
-                side != Sign::Positive,
-                "a point is outside the finished hull"
-            );
-            if side == Sign::Zero {
-                on_boundary[k] = true;
-                zero_points[g].push(p);
+        }
+    } else if !others.is_empty() {
+        let mut inside = vec![false; others.len()];
+        for (g, group) in groups.groups.iter().enumerate() {
+            let Some(simplex) = group.simplices.first().and_then(|id| hull.facets.get(*id)) else {
+                continue;
+            };
+            inside.iter_mut().for_each(|x| *x = false);
+            if let Some(cull) = simplex.cull() {
+                let (rows, stride) = hull.input.rows();
+                let origin = hull.input.point(simplex.vertices[0]);
+                cull.mark_inside(origin, rows, stride, &others, &mut inside);
+            }
+            for (k, &p) in others.iter().enumerate() {
+                if inside[k] {
+                    continue;
+                }
+                let side = hull.side(simplex, p)?;
+                debug_assert!(
+                    side != Sign::Positive,
+                    "a point is outside the finished hull"
+                );
+                if side == Sign::Zero {
+                    on_boundary[k] = true;
+                    zero_points[g].push(p);
+                }
             }
         }
     }
@@ -731,10 +802,11 @@ pub(crate) mod tests {
 
     /// The partition with the proved points skipped, and without: the
     /// reference scans every representative against every group.
-    fn with_and_without_reuse(dim: usize, points: &[f64]) -> (usize, Classified<'_>) {
+    fn with_and_without_reuse(dim: usize, points: &[f64]) -> (usize, Classified<'_>, bool) {
         let built =
             |execution| SimplicialHull::build(accept(dim, points).unwrap(), execution).unwrap();
         let sequential = built(Execution::Sequential);
+        let chain = sequential.strict_edges;
         let mut proved = sequential.proved_interior.clone();
         let mut parallel = built(Execution::Parallel).proved_interior;
         proved.sort_unstable();
@@ -758,7 +830,7 @@ pub(crate) mod tests {
                 "{p} is interior"
             );
         }
-        (proved.len(), reused)
+        (proved.len(), reused, chain)
     }
 
     #[test]
@@ -793,7 +865,11 @@ pub(crate) mod tests {
         }
         cases.push(("ball".to_string(), 3, ball));
         for (name, dim, points) in &cases {
-            let (proved, c) = with_and_without_reuse(*dim, points);
+            let (proved, c, chain) = with_and_without_reuse(*dim, points);
+            if chain {
+                assert_eq!(proved, 0, "{name}: the chain inserts no interior proof");
+                continue;
+            }
             let non_vertices = c.interior_points.len() + c.coplanar_points.len();
             assert!(proved > 0, "{name}: no point was proved interior");
             if name.starts_with("general") {

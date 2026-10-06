@@ -1,4 +1,8 @@
-//! Sequential Quickhull through insertion, kept simplicial (design §4, §6).
+//! Sequential hull construction, kept simplicial (design §4, §6).
+//!
+//! D = 1 is the two endpoints. D = 2 uses the extreme chain when most of a
+//! sample lies outside the polygon of the axis-aligned extremes, and
+//! Quickhull otherwise. D >= 3 is Quickhull.
 //!
 //! Every facet is a (D-1)-simplex of D vertices. `neighbors[i]` is the facet
 //! across the ridge opposite `vertices[i]`. A point is outside a facet when
@@ -95,6 +99,9 @@ pub(crate) struct SimplicialHull<'a> {
     /// negative: strictly inside the hull at that step, so in the interior
     /// of the final hull (design §3). Unordered.
     pub(crate) proved_interior: Vec<u32>,
+    /// The edges are a strict polygon: adjacent edges are not collinear, so
+    /// the coplanar merge does not need to test them.
+    pub(crate) strict_edges: bool,
 }
 
 /// An index that no longer fits in `u32` is an exhaustion of the index
@@ -113,9 +120,12 @@ impl<'a> SimplicialHull<'a> {
             input,
             facets: Arena::new(),
             proved_interior: Vec::new(),
+            strict_edges: false,
         };
         if hull.input.dim() == 1 {
             hull.build_segment()?;
+        } else if hull.input.dim() == 2 && hull.prefer_polygon()? {
+            hull.build_polygon()?;
         } else {
             let initial = hull.initial_simplex()?;
             let candidates: Vec<u32> = hull
@@ -223,6 +233,203 @@ impl<'a> SimplicialHull<'a> {
         self.set_planes(&mut ends)?;
         for end in ends {
             insert_or_abort(&mut self.facets, end);
+        }
+        Ok(())
+    }
+
+    /// D = 2: one edge per consecutive pair of the extreme chain.
+    ///
+    /// A representative stays on the chain only while it makes a strict turn
+    /// under the exact orientation. Points on an edge or inside the polygon
+    /// are left for classification, the same split [`Self::build_segment`]
+    /// uses. The stored vertex order makes an outside point a positive
+    /// orientation.
+    /// Whether the extreme chain will be faster than insertion.
+    ///
+    /// A short sample of the axis-aligned extremes' polygon: when most of
+    /// the sample lies outside it, almost every point is a vertex and the
+    /// chain wins. A set with a large interior, such as the cube, stays on
+    /// insertion, which discards those points without an orientation each.
+    fn prefer_polygon(&self) -> Result<bool, ConvexHullError> {
+        let reps = &self.input.representatives;
+        if reps.len() < 1024 {
+            return Ok(true);
+        }
+        let point = |i: u32| self.input.point(i);
+        let mut left = reps[0];
+        let mut right = reps[0];
+        let mut low = reps[0];
+        let mut high = reps[0];
+        for &r in reps {
+            let p = point(r);
+            let pl = point(left);
+            let pr = point(right);
+            let pb = point(low);
+            let pt = point(high);
+            if p[0] < pl[0] || (p[0] == pl[0] && r < left) {
+                left = r;
+            }
+            if p[0] > pr[0] || (p[0] == pr[0] && r < right) {
+                right = r;
+            }
+            if p[1] < pb[1] || (p[1] == pb[1] && r < low) {
+                low = r;
+            }
+            if p[1] > pt[1] || (p[1] == pt[1] && r < high) {
+                high = r;
+            }
+        }
+        let mut seeds = [left, right, low, high];
+        seeds.sort_unstable();
+        let mut unique = Vec::with_capacity(4);
+        for s in seeds {
+            if unique.last() != Some(&s) {
+                unique.push(s);
+            }
+        }
+        if unique.len() < 3 {
+            return Ok(true);
+        }
+        unique.sort_by(|&a, &b| {
+            let pa = point(a);
+            let pb = point(b);
+            pa[0]
+                .total_cmp(&pb[0])
+                .then(pa[1].total_cmp(&pb[1]))
+                .then(a.cmp(&b))
+        });
+        let mut lower = Vec::new();
+        for &p in &unique {
+            self.pop_until_left(&mut lower, p)?;
+            lower.push(p);
+        }
+        let mut upper = Vec::new();
+        for &p in unique.iter().rev() {
+            self.pop_until_left(&mut upper, p)?;
+            upper.push(p);
+        }
+        let mut cycle = lower;
+        let middle = upper.len().saturating_sub(2);
+        cycle.extend(upper.into_iter().skip(1).take(middle));
+        if cycle.len() < 3 {
+            return Ok(true);
+        }
+        let step = (reps.len() / 64).max(1);
+        let mut seen = 0usize;
+        let mut outside = 0usize;
+        let mut index = 0usize;
+        while seen < 64 && index < reps.len() {
+            if !self.clearly_inside(&cycle, reps[index]) {
+                outside += 1;
+            }
+            seen += 1;
+            index += step;
+        }
+        Ok(outside * 4 >= seen * 3)
+    }
+
+    /// `point` is a strict left turn of every edge, by the certified filter.
+    fn clearly_inside(&self, cycle: &[u32], point: u32) -> bool {
+        let n = cycle.len();
+        for i in 0..n {
+            let a = self.input.point(cycle[i]);
+            let b = self.input.point(cycle[(i + 1) % n]);
+            let c = self.input.point(point);
+            if crate::predicates::orient2_filter(a, b, c) != Some(Sign::Positive) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn build_polygon(&mut self) -> Result<(), ConvexHullError> {
+        self.strict_edges = true;
+        let mut order = self.input.representatives.clone();
+        order.sort_by(|&a, &b| {
+            let pa = self.input.point(a);
+            let pb = self.input.point(b);
+            pa[0]
+                .total_cmp(&pb[0])
+                .then(pa[1].total_cmp(&pb[1]))
+                .then(a.cmp(&b))
+        });
+
+        let mut lower = Vec::new();
+        for &point in &order {
+            self.pop_until_left(&mut lower, point)?;
+            lower.push(point);
+        }
+        let mut upper = Vec::new();
+        for &point in order.iter().rev() {
+            self.pop_until_left(&mut upper, point)?;
+            upper.push(point);
+        }
+        // Each chain keeps both endpoints. Drop them from the upper chain so
+        // the cycle lists every extreme once, counterclockwise.
+        let mut cycle = lower;
+        let upper_middle = upper.len().saturating_sub(2);
+        cycle.extend(upper.into_iter().skip(1).take(upper_middle));
+        debug_assert!(
+            cycle.len() >= 3,
+            "a full-dimensional set has at least three extremes"
+        );
+
+        let n = cycle.len();
+        let mut edges = Vec::with_capacity(n);
+        for i in 0..n {
+            let start = cycle[i];
+            let end = cycle[(i + 1) % n];
+            // Tip first: the directed edge runs clockwise, so an outside
+            // point orients positive.
+            edges.push(Simplex::bare(
+                Small::from([end, start].as_slice()),
+                Sign::Positive,
+            ));
+        }
+        // A short chain with many other points classifies them by the cull
+        // plane. A long chain does not: building a plane per edge costs more
+        // than locating the few points that missed the chain.
+        if self.input.representatives.len() - n > n {
+            self.set_planes(&mut edges)?;
+        }
+        let mut ids = Vec::with_capacity(n);
+        for edge in edges {
+            ids.push(insert_or_abort(&mut self.facets, edge));
+        }
+        for i in 0..n {
+            let prev = ids[(i + n - 1) % n];
+            let next = ids[(i + 1) % n];
+            let Some(facet) = self.facets.get_mut(ids[i]) else {
+                std::process::abort();
+            };
+            // neighbors[0] shares the start vertex with the previous edge.
+            // neighbors[1] shares the tip with the next edge.
+            facet.neighbors = Small::from([prev, next].as_slice());
+        }
+        Ok(())
+    }
+
+    /// Drops the tail while `point` is not a strict left turn from it.
+    fn pop_until_left(&self, chain: &mut Vec<u32>, point: u32) -> Result<(), ConvexHullError> {
+        while chain.len() >= 2 {
+            let a = chain[chain.len() - 2];
+            let b = chain[chain.len() - 1];
+            let (pa, pb, pc) = (
+                self.input.point(a),
+                self.input.point(b),
+                self.input.point(point),
+            );
+            let sign = if let Some(sign) = crate::predicates::orient2_filter(pa, pb, pc) {
+                #[cfg(debug_assertions)]
+                debug_assert_eq!(sign, self.input.orient(&[a, b, point])?);
+                sign
+            } else {
+                self.input.orient(&[a, b, point])?
+            };
+            if sign == Sign::Positive {
+                break;
+            }
+            chain.pop();
         }
         Ok(())
     }
@@ -1330,6 +1537,7 @@ pub(crate) mod tests {
             input: accept(dim, points).unwrap(),
             facets: Arena::new(),
             proved_interior: Vec::new(),
+            strict_edges: false,
         };
         let initial = hull.initial_simplex().unwrap();
         let candidates: Vec<u32> = hull
@@ -1739,17 +1947,15 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_basis_point_on_a_collinear_edge_stays_a_simplicial_vertex() {
-        // Review of #36: (1, 0) belongs to the minimum basis; (2, 0) is on
-        // the line of the edge (0,0)-(1,0), not strictly outside it, so that
-        // facet is not visible and (1, 0) stays a vertex of the simplicial
-        // complex. Insertion does not merge (§5); P2-3 (#10) classifies
-        // (1, 0) as a non-extreme boundary point after the merge.
+    fn a_collinear_basis_point_is_not_an_extreme_edge_vertex() {
+        // (1, 0) lies on the segment (0, 0)-(2, 0). The polygon keeps a
+        // point only while it makes a strict turn, so (1, 0) is not a
+        // simplicial vertex. Classification still reports it as coplanar.
         let points = [0.0, 0.0, 1.0, 0.0, 2.0, 0.0, 0.0, 1.0, 1.0, 1.0];
         let hull = build(2, &points);
         check_invariants(&hull);
         assert_eq!(hull.input.spanning_points, vec![0, 1, 3]);
-        assert_eq!(vertex_set(&hull), vec![0, 1, 2, 3, 4]);
+        assert_eq!(vertex_set(&hull), vec![0, 2, 3, 4]);
         assert_eq!(reference_2d(&points), vec![0, 2, 3, 4]);
     }
 

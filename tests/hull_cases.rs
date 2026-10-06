@@ -74,6 +74,16 @@ fn square_with_edge_point_and_interior_point() {
 }
 
 #[test]
+fn collinear_basis_point_is_coplanar() {
+    // (1, 0) lies on the segment (0, 0)-(2, 0) and belongs to the minimum
+    // basis. It is not an extreme vertex.
+    let hull = build(2, &[0.0, 0.0, 1.0, 0.0, 2.0, 0.0, 0.0, 1.0, 1.0, 1.0]);
+    assert_eq!(hull.vertices, vec![0, 2, 3, 4]);
+    assert_eq!(hull.coplanar_points, vec![1]);
+    assert!(hull.interior_points.is_empty());
+}
+
+#[test]
 fn many_duplicates() {
     let mut points = Vec::new();
     for _ in 0..20 {

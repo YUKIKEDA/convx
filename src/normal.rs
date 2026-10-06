@@ -135,7 +135,10 @@ pub(crate) fn unit_normal_with(
     let Some((direction, err)) = cofactor_reference(facet, cofactors)? else {
         return Ok(None);
     };
-    if facet.len() == 1 {
+    // Two points: the cofactor direction is already the unit perpendicular.
+    // Publishing it meets the same distance bound as a Householder vector
+    // that stayed near it, without the factorization.
+    if facet.len() <= 2 {
         return Ok(orient_by_proof(facet, direction, outward).map(|n| n.to_vec()));
     }
     let candidate = qr_normal(facet).and_then(|n| {
@@ -159,8 +162,9 @@ pub(crate) fn unit_normal_with(
 /// Working normal of the hyperplane through `facet`: the certified cofactor
 /// direction, oriented so that `orient_direction(facet, n) == outward`.
 ///
-/// Distance scans use this vector. It does not run Householder QR. The
-/// published plane still does, in [`unit_normal_with`]. `cofactors` are the
+/// Distance scans use this vector. It does not run Householder QR. A
+/// published facet of three or more points still does, in
+/// [`unit_normal_with`]. `cofactors` are the
 /// [`facet_cofactors`] of `facet`.
 pub(crate) fn working_normal(
     facet: &[&[f64]],

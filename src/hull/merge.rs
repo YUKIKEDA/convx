@@ -62,7 +62,48 @@ impl UnionFind {
 
 /// Groups the simplices of `hull` into logical facets.
 pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, ConvexHullError> {
+    if hull.strict_edges {
+        return Ok(polygon_groups(hull));
+    }
     merge_except(hull, &SlotMarks::default())
+}
+
+/// One group per edge, in chain order. Adjacent edges are not collinear.
+fn polygon_groups(hull: &SimplicialHull<'_>) -> LogicalFacets {
+    let edges: Vec<_> = hull.facets.iter().collect();
+    let n = edges.len();
+    let mut groups = Vec::with_capacity(n);
+    for (i, &(id, facet)) in edges.iter().enumerate() {
+        #[cfg(debug_assertions)]
+        {
+            for &neighbor in &facet.neighbors {
+                let Some(other) = hull.facets.get(neighbor) else {
+                    continue;
+                };
+                let Some(&across) = other.vertices.iter().find(|v| !facet.vertices.contains(v))
+                else {
+                    continue;
+                };
+                debug_assert_ne!(
+                    hull.side(facet, across).ok(),
+                    Some(Sign::Zero),
+                    "a polygon edge is collinear with its neighbor"
+                );
+            }
+        }
+        let mut vertices = facet.vertices.to_vec();
+        vertices.sort_unstable();
+        let prev = if i == 0 { n - 1 } else { i - 1 };
+        let next = (i + 1) % n;
+        let mut neighbors = vec![prev as u32, next as u32];
+        neighbors.sort_unstable();
+        groups.push(Group {
+            simplices: vec![id],
+            vertices,
+            neighbors,
+        });
+    }
+    LogicalFacets { groups }
 }
 
 /// [`merge`] without testing a ridge of a simplex marked in `cut`: each cut

@@ -67,6 +67,42 @@ pub(crate) fn orient(points: &[&[f64]]) -> Result<Sign, ExactEvaluationExhausted
     })
 }
 
+/// The sign of the planar orientation of `a`, `b`, `c`, when Shewchuk's
+/// stage-A bound certifies it. `None` means the caller must use [`orient`].
+///
+/// The determinant is `(a - c) × (b - c)`. When the two products have
+/// opposite signs there is no cancellation, and the sign is immediate.
+/// Otherwise it is certified only when it exceeds
+/// `(3 + 16 ε) ε (|left| + |right|)`.
+#[inline(always)]
+pub(crate) fn orient2_filter(a: &[f64], b: &[f64], c: &[f64]) -> Option<Sign> {
+    debug_assert!(a.len() >= 2 && b.len() >= 2 && c.len() >= 2);
+    let det_left = (a[0] - c[0]) * (b[1] - c[1]);
+    let det_right = (a[1] - c[1]) * (b[0] - c[0]);
+    let det = det_left - det_right;
+    let det_sum = if det_left > 0.0 {
+        if det_right <= 0.0 {
+            return Some(Sign::Positive);
+        }
+        det_left + det_right
+    } else if det_left < 0.0 {
+        if det_right >= 0.0 {
+            return Some(Sign::Negative);
+        }
+        -det_left - det_right
+    } else {
+        return None;
+    };
+    let err = (3.0 + 16.0 * f64::EPSILON) * f64::EPSILON * det_sum;
+    if det > err {
+        Some(Sign::Positive)
+    } else if -det > err {
+        Some(Sign::Negative)
+    } else {
+        None
+    }
+}
+
 /// The filtered lifted height `|p|^2` of one site, with its error bound
 /// (design §7). A cache of these is bit for bit what the filter computed from
 /// the coordinates on every call, so caching changes no sign. The exact stage

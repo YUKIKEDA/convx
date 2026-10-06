@@ -7,9 +7,7 @@ use super::input::{accept, minimum_basis, Input};
 use super::simplicial::Execution;
 use super::ConvexHullError;
 use crate::normal::{certified_side, facet_cofactors, facet_cofactors_in_lanes, unit_normal_with};
-#[cfg(debug_assertions)]
-use crate::predicates::Sign;
-use crate::predicates::{orient, Cofactors, COFACTOR_LANES};
+use crate::predicates::{certified_cofactor_direction, orient, Cofactors, Sign, COFACTOR_LANES};
 use crate::small::Small;
 
 /// Builds a [`ConvexHull`] from row-major coordinates.
@@ -370,6 +368,57 @@ fn facet_plane(
     Ok(FacetPlane { normal, offset })
 }
 
+/// The outward unit normal of one edge, when the two-point cofactors certify
+/// it. `None` leaves the facet on the general path.
+fn edge_unit_normal(input: &Input<'_>, vertices: &[u32], inner: u32) -> Option<Vec<f64>> {
+    const U: f64 = f64::EPSILON / 2.0;
+    // The same range as the two-point cofactor filter.
+    const LOW: f64 = f64::from_bits((1023 - 250) << 52);
+    const HIGH: f64 = f64::from_bits((1023 + 250) << 52);
+    let in_range = |d: f64| d == 0.0 || (LOW..=HIGH).contains(&d.abs());
+    let a = input.point(vertices[0]);
+    let b = input.point(vertices[1]);
+    let (ex, ey) = (b[0] - a[0], b[1] - a[1]);
+    if !in_range(ex) || !in_range(ey) {
+        return None;
+    }
+    let cofactors = [(-ey, 2.0 * U * ey.abs()), (ex, 2.0 * U * ex.abs())];
+    let (direction, _) = certified_cofactor_direction(2, Some(&cofactors))?;
+    let side = certified_side(&[a, b], &cofactors, input.point(inner))?;
+    if side == Sign::Zero {
+        return None;
+    }
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(orient(&[a, b, input.point(inner)]).ok(), Some(side));
+    let mut normal = [direction[0], direction[1]];
+    if side == Sign::Positive {
+        normal[0] = -normal[0];
+        normal[1] = -normal[1];
+    }
+    Some(normal.to_vec())
+}
+
+/// [`for_each_facet_normal`] for edges. A facet the filter does not certify
+/// takes the general path.
+fn edge_normals(
+    input: &Input<'_>,
+    facets: &[(&[u32], u32)],
+    mut f: impl FnMut(&[u32], Vec<f64>) -> Result<(), ConvexHullError>,
+) -> Result<(), ConvexHullError> {
+    for &(vertices, inner) in facets {
+        let Some(normal) = edge_unit_normal(input, vertices, inner) else {
+            let basis = facet_basis(input, vertices)?;
+            let points: BasisPoints<'_> = basis.iter().map(|&v| input.point(v)).collect();
+            let cofactors = facet_cofactors(&points);
+            let normal = oriented_normal(input, &points, inner, cofactors)?;
+            f(&basis, normal)?;
+            continue;
+        };
+        f(vertices, normal)?;
+    }
+    Ok(())
+}
+
 /// The outward unit normal of each facet (design §5), with the basis it is
 /// built on: the first D affinely independent vertices in lexicographic
 /// order, oriented by the exact sign so that the facet's inner point is
@@ -382,6 +431,9 @@ pub(crate) fn for_each_facet_normal(
     facets: &[(&[u32], u32)],
     mut f: impl FnMut(&[u32], Vec<f64>) -> Result<(), ConvexHullError>,
 ) -> Result<(), ConvexHullError> {
+    if input.dim() == 2 && facets.iter().all(|(vertices, _)| vertices.len() == 2) {
+        return edge_normals(input, facets, f);
+    }
     let point = |i: u32| input.point(i);
     for chunk in facets.chunks(COFACTOR_LANES) {
         let bases: [Result<Basis, ConvexHullError>; COFACTOR_LANES] =
