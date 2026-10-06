@@ -199,8 +199,8 @@ impl<'a> SimplicialHull<'a> {
         let outward = simplex.outward;
         // The cofactors certify both the working normal and the cull plane;
         // they are evaluated once (#86).
-        // The working normal is the certified cofactor direction. Published
-        // planes still run Householder QR (design §1).
+        // The working normal is the certified cofactor direction, the same
+        // direction a published plane takes from its own basis (design §1).
         let normal = working_normal(points, outward, cofactors.as_deref())?;
         let cull = normal
             .as_deref()

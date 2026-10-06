@@ -348,8 +348,8 @@ pub(crate) fn inner_reference(vertices: &[u32], facet_vertices: &[u32]) -> u32 {
 
 /// The public plane of a facet (design §5) from its [`for_each_facet_normal`]
 /// basis and normal: the first D affinely independent vertices in
-/// lexicographic order, translated, scaled, normal by QR, made unit, and
-/// oriented by the exact sign so that the inside is negative.
+/// lexicographic order, and the certified unit cofactor direction of that
+/// basis, oriented by the exact sign so that the inside is negative.
 fn facet_plane(
     input: &Input<'_>,
     basis: &[u32],
