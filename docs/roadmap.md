@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P5-37 (#176): find whether a core monomorphized on D speeds up the build, and whether a dedicated D = 2 hull beats Quickhull.
+P5-59 (#230): decide which paths the D = 2 hull keeps.
 
 ## Dependencies
 
@@ -112,7 +112,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-34 | Feat  | Exact stage without heap big integers for the predicates coplanar inputs send past the filter             | #173  | Done                     |
 | P5-35 | Feat  | Certify the working normal of a facet with 2 to 4 points as cheaply as the lane path                      | #174  | Done                     |
 | P5-36 | Spike | Would an incremental Delaunay in BRIO order beat the lifted Quickhull at D = 2 and 3?                     | #175  | Done                     |
-| P5-37 | Spike | Would a core monomorphized on D speed up the static API, and would a dedicated D = 2 hull beat Quickhull? | #176  | Not started              |
+| P5-37 | Spike | Would a core monomorphized on D speed up the static API, and would a dedicated D = 2 hull beat Quickhull? | #176  | Done                     |
 | P5-38 | Spike | Where does the peak memory of output-heavy builds go?                                                     | #177  | Not started              |
 | P5-39 | Spike | Why does parallel(true) give only 1.2 to 1.3 times on four cores?                                         | #178  | Not started              |
 | P5-40 | Docs  | Let the filter rescale tiny inputs by an exact power of two                                               | #179  | Set after Grill on #179  |
@@ -134,6 +134,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-56 | Feat  | Partition outside points without re-testing what the scan proved or re-gathering scattered rows           | #214  | Done                     |
 | P5-57 | Spike | How does convx compare with CGAL on the hull and Delaunay timing sets?                                    | #215  | Done                     |
 | P5-58 | Spike | How much of the pass after construction can a hull of single-simplex facets skip?                         | #228  | Done                     |
+| P5-59 | Docs  | One filtered strict chain for the D = 2 hull                                                               | #230  | Set after Grill on #230  |
 
 ## Intentionally out of scope
 
