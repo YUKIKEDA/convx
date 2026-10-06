@@ -53,6 +53,13 @@ When a row is recorded before Grill, and the user has named the ID and the Issue
 
 ## Stacked PRs
 
+A second Issue that builds on an open PR gets its own branch and PR, based on the first. That holds when the user says to continue on the open PR: its commits do not go onto the first PR. #211 took seven Issues that way, could not be reverted by Issue after a squash, and was split into nine PRs after review.
+
+```text
+# BAD — "keep stacking on this PR": commit the next Issue to the open PR's branch
+# GOOD — branch from the open PR's head, open a PR whose base is that branch
+```
+
 When a PR is opened on top of another, its base is the earlier branch. After any squash merge into main:
 
 1. Fetch first. If GitHub already rebased the next branch onto the squash commit (its head is a new commit from GitHub), sync the local branch to it and compare trees instead of merging. Otherwise merge main into the next branch at once. Do not wait for a review on the old head.
