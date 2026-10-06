@@ -22,7 +22,7 @@ A test of a floating-point geometric result must be able to fail when the result
 
 ```text
 # BAD — passes with a 45° wrong normal and with τ = 0
-assert!(dot(normal, edge).abs() < 1e-12);         // shares the QR's own rounding
+assert!(dot(normal, edge).abs() < 1e-12);         // shares the normal's own rounding
 assert!(plane.is_some() || family == "mixed");    // any family may skip
 
 # GOOD

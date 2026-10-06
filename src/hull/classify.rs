@@ -39,17 +39,18 @@ use super::simplicial::{Execution, SimplicialHull};
 use super::ConvexHullError;
 use crate::arena::{FacetId, SlotMarks};
 use crate::predicates::{orient, orient_direction, Sign};
+use crate::small::Small;
 
 /// A simplex of the boundary complex.
 #[derive(Clone)]
 pub(crate) struct ComplexSimplex {
     /// D vertices.
-    pub(crate) vertices: Vec<u32>,
+    pub(crate) vertices: Small<u32, 8>,
     /// The face that contains this simplex.
     pub(crate) face: u32,
     /// `neighbors[i]` is the simplex across the ridge opposite
     /// `vertices[i]`. Empty for D = 1.
-    pub(crate) neighbors: Vec<u32>,
+    pub(crate) neighbors: Small<u32, 8>,
 }
 
 /// A logical facet with its extreme points.
@@ -126,6 +127,12 @@ pub(crate) fn classify(
 /// the chain is on one edge or strictly inside; it is not a new vertex.
 fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHullError> {
     let n = hull.polygon.len();
+    // The lists below are filtered from the representatives, in their
+    // order, and published ascending without a sort.
+    debug_assert!(
+        hull.input.representatives.is_sorted(),
+        "the representatives are ascending"
+    );
     let mut on_cycle = vec![false; hull.input.representative.len()];
     for &v in &hull.polygon {
         on_cycle[v as usize] = true;
@@ -146,20 +153,19 @@ fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
 
     let mut vertices = hull.polygon.clone();
     vertices.sort_unstable();
-    let mut coplanar_points: Vec<u32> = others
+    // `others` is ascending, so both lists are too.
+    let coplanar_points: Vec<u32> = others
         .iter()
         .zip(&on_boundary)
         .filter(|&(_, &b)| b)
         .map(|(&p, _)| p)
         .collect();
-    coplanar_points.sort_unstable();
-    let mut interior_points: Vec<u32> = others
+    let interior_points: Vec<u32> = others
         .iter()
         .zip(&on_boundary)
         .filter(|&(_, &b)| !b)
         .map(|(&p, _)| p)
         .collect();
-    interior_points.sort_unstable();
 
     let groups = merge(&hull)?.groups;
     let mut faces = Vec::with_capacity(n);
@@ -176,9 +182,9 @@ fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
         // `neighbors[i]` is the simplex across the ridge opposite `vertices[i]`.
         // The tip is first, so slot 0 faces the previous edge and slot 1 the next.
         simplices.push(ComplexSimplex {
-            vertices: vec![end, start],
+            vertices: [end, start].as_slice().into(),
             face: i as u32,
-            neighbors: vec![prev as u32, next as u32],
+            neighbors: [prev as u32, next as u32].as_slice().into(),
         });
     }
     Ok(Classified {
@@ -227,6 +233,9 @@ fn classify_built(
     let mut skipped = vec![false; hull.input.representative.len()];
     for &p in &hull.proved_interior {
         debug_assert!(!on_complex[p as usize], "a dropped point is not a vertex");
+        // A point leaves every outside set when it is proved interior, and
+        // a lost vertex is in none, so no later plan meets it again.
+        debug_assert!(!skipped[p as usize], "point {p} was proved interior twice");
         skipped[p as usize] = true;
     }
     let others: Vec<u32> = hull
@@ -239,22 +248,33 @@ fn classify_built(
     let mut on_boundary = vec![false; others.len()];
     let mut zero_points: Vec<Vec<u32>> = vec![Vec::new(); groups.groups.len()];
     if !others.is_empty() {
-        let mut inside = vec![false; others.len()];
+        let mut sides = vec![None; others.len()];
         for (g, group) in groups.groups.iter().enumerate() {
             let Some(simplex) = group.simplices.first().and_then(|id| hull.facets.get(*id)) else {
                 continue;
             };
-            inside.iter_mut().for_each(|x| *x = false);
+            sides.fill(None);
             if let Some(cull) = simplex.cull() {
                 let (rows, stride) = hull.input.rows();
                 let origin = hull.input.point(simplex.vertices[0]);
-                cull.mark_inside(origin, rows, stride, &others, &mut inside);
+                cull.mark_sides(origin, rows, stride, &others, &mut sides);
             }
             for (k, &p) in others.iter().enumerate() {
-                if inside[k] {
-                    continue;
-                }
-                let side = hull.side(simplex, p)?;
+                let side = match sides[k] {
+                    Some(proved) => {
+                        // `side` checks its own proof against the
+                        // orientation in debug builds, so this checks the
+                        // scan's.
+                        #[cfg(debug_assertions)]
+                        debug_assert_eq!(
+                            hull.side(simplex, p)?,
+                            proved,
+                            "the scan proved the wrong side of point {p}"
+                        );
+                        proved
+                    }
+                    None => hull.side(simplex, p)?,
+                };
                 debug_assert!(
                     side != Sign::Positive,
                     "a point is outside the finished hull"
@@ -301,44 +321,53 @@ fn classify_built(
         .copied()
         .filter(|&p| is_vertex[p as usize])
         .collect();
-    let mut coplanar_points: Vec<u32> = hull
-        .input
-        .representatives
-        .iter()
-        .copied()
-        .filter(|&p| on_complex[p as usize] && !is_vertex[p as usize])
-        .chain(
-            others
-                .iter()
-                .zip(&on_boundary)
-                .filter(|&(&p, &b)| b && !is_vertex[p as usize])
-                .map(|(&p, _)| p),
-        )
-        .collect();
-    coplanar_points.sort_unstable();
-    let mut interior_points: Vec<u32> = others
-        .iter()
-        .zip(&on_boundary)
-        .filter(|&(_, &b)| !b)
-        .map(|(&p, _)| p)
-        .chain(hull.proved_interior.iter().copied())
-        .collect();
-    interior_points.sort_unstable();
+    // Every representative is a vertex, on the complex, on the boundary
+    // by the scan, or interior: either proved during construction or
+    // scanned strictly inside. One pass over the ascending representatives
+    // lists the points of each class in order, without sorting the
+    // interior points, which are almost all of a large input (#213).
+    debug_assert!(
+        hull.input.representatives.is_sorted(),
+        "the representatives are ascending"
+    );
+    let mut boundary = vec![false; hull.input.representative.len()];
+    for (&p, &b) in others.iter().zip(&on_boundary) {
+        boundary[p as usize] = b;
+    }
+    let mut coplanar_points: Vec<u32> = Vec::new();
+    let mut interior_points: Vec<u32> = Vec::new();
+    for &p in &hull.input.representatives {
+        let i = p as usize;
+        if on_complex[i] || boundary[i] {
+            if !is_vertex[i] {
+                coplanar_points.push(p);
+            }
+        } else {
+            debug_assert!(!is_vertex[i], "vertex {p} is on no facet");
+            interior_points.push(p);
+        }
+    }
+    debug_assert_eq!(
+        interior_points.len(),
+        hull.proved_interior.len() + on_boundary.iter().filter(|&&b| !b).count(),
+        "an interior point is proved during construction or scanned inside"
+    );
 
     // Boundary simplices: kept as built, or re-triangulated by placing.
-    let mut simplices: Vec<ComplexSimplex> = Vec::new();
+    // At least one simplex per face, and exactly one in general position.
+    let mut simplices: Vec<ComplexSimplex> = Vec::with_capacity(extremes.len());
     let mut faces: Vec<Face> = Vec::with_capacity(extremes.len());
     // Simplices kept as built, by their index here and their construction id.
-    let mut kept: Vec<(u32, FacetId)> = Vec::new();
+    let mut kept: Vec<(u32, FacetId)> = Vec::with_capacity(extremes.len());
     let unlinked = if d == 1 { 0 } else { d };
     for (g, extreme) in extremes.into_iter().enumerate() {
         let group = &mut groups.groups[g];
         let first = simplices.len() as u32;
-        let mut push = |vertices: Vec<u32>| {
+        let mut push = |vertices: Small<u32, 8>| {
             simplices.push(ComplexSimplex {
                 vertices,
                 face: g as u32,
-                neighbors: vec![UNLINKED; unlinked],
+                neighbors: core::iter::repeat_n(UNLINKED, unlinked).collect(),
             });
         };
         // A single simplex whose vertices are all extreme is kept; every
@@ -353,7 +382,7 @@ fn classify_built(
                     .find(|v| extreme.binary_search(v).is_err())
                     .unwrap_or(extreme[0]);
                 for members in place(&hull.input, &extreme, q)? {
-                    push(members);
+                    push(members.into());
                 }
                 extreme
             }
@@ -361,7 +390,7 @@ fn classify_built(
                 if let Some(&id) = group.simplices.first() {
                     if let Some(s) = hull.facets.get(id) {
                         kept.push((first, id));
-                        push(s.vertices.to_vec());
+                        push(s.vertices.clone());
                     }
                 }
                 core::mem::take(&mut group.vertices)

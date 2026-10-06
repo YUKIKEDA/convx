@@ -151,6 +151,7 @@ impl CullPlane {
         (self.slope * l + self.floor) * (1.0 + 4.0 * UNIT_ROUNDOFF)
     }
 
+    #[cfg(test)]
     fn is_proved_inside(&self, w: f64, l: f64) -> bool {
         w < -self.threshold(l)
     }
@@ -165,6 +166,12 @@ impl CullPlane {
     pub(crate) fn proved_side(&self, origin: &[f64], point: &[f64]) -> Option<Sign> {
         self.check_origin(origin);
         let (w, l) = self.scalar_terms(origin, point);
+        self.side_of_terms(w, l)
+    }
+
+    /// The side that the working distance `w` of a point at L1 distance `l`
+    /// proves, as in [`Self::proved_side`].
+    fn side_of_terms(&self, w: f64, l: f64) -> Option<Sign> {
         let threshold = self.threshold(l);
         if w > threshold {
             Some(Sign::Positive)
@@ -175,12 +182,38 @@ impl CullPlane {
         }
     }
 
-    /// Marks `inside[i] = true` for each `indices[i]` whose point in the
-    /// row-major `points` is proved strictly inside. Other entries are set
-    /// to `false`.
+    /// Writes `sides[i]`, the [`Self::proved_side`] of each `indices[i]`
+    /// whose point is in the row-major `points`: proved strictly inside,
+    /// proved strictly outside, or `None`. This is the one vectorized scan:
+    /// a caller that only culls reads `Some(Sign::Negative)` (#214).
     ///
     /// `origin` is the facet's first point. Point `i` starts at
     /// `rows[i * stride]`.
+    pub(crate) fn mark_sides(
+        &self,
+        origin: &[f64],
+        rows: &[f64],
+        stride: usize,
+        indices: &[u32],
+        sides: &mut [Option<Sign>],
+    ) {
+        let d = self.dim();
+        self.check_origin(origin);
+        debug_assert!(stride >= d, "a row holds the point");
+        debug_assert_eq!(sides.len(), indices.len());
+        Arch::new().dispatch(Scan {
+            plane: self,
+            origin,
+            points: rows,
+            stride,
+            indices,
+            out: ScanOut::Sides(sides),
+        });
+    }
+
+    /// The cull set of [`Self::mark_sides`], for tests: `inside[i]` is true
+    /// exactly for the points it proves strictly inside.
+    #[cfg(test)]
     pub(crate) fn mark_inside(
         &self,
         origin: &[f64],
@@ -189,22 +222,35 @@ impl CullPlane {
         indices: &[u32],
         inside: &mut [bool],
     ) {
-        let d = self.dim();
-        self.check_origin(origin);
-        debug_assert!(stride >= d, "a row holds the point");
-        debug_assert_eq!(inside.len(), indices.len());
-        Arch::new().dispatch(Scan {
-            plane: self,
-            origin,
-            points: rows,
-            stride,
-            indices,
-            out: ScanOut::Inside(inside),
-        });
+        let mut sides = vec![None; indices.len()];
+        self.mark_sides(origin, rows, stride, indices, &mut sides);
+        for (flag, side) in inside.iter_mut().zip(sides) {
+            *flag = side == Some(Sign::Negative);
+        }
     }
 
-    /// Reference path without SIMD. Same result as [`Self::mark_inside`],
+    /// Reference path without SIMD. Same result as [`Self::mark_sides`],
     /// with the same rows and stride.
+    #[cfg(test)]
+    pub(crate) fn mark_sides_scalar(
+        &self,
+        origin: &[f64],
+        rows: &[f64],
+        stride: usize,
+        indices: &[u32],
+        sides: &mut [Option<Sign>],
+    ) {
+        let d = self.dim();
+        self.check_origin(origin);
+        for (side, &index) in sides.iter_mut().zip(indices) {
+            let start = index as usize * stride;
+            let (w, l) = self.scalar_terms(origin, &rows[start..start + d]);
+            *side = self.side_of_terms(w, l);
+            debug_assert_eq!(*side == Some(Sign::Negative), self.is_proved_inside(w, l));
+        }
+    }
+
+    /// The cull set of [`Self::mark_sides_scalar`].
     #[cfg(test)]
     pub(crate) fn mark_inside_scalar(
         &self,
@@ -214,12 +260,10 @@ impl CullPlane {
         indices: &[u32],
         inside: &mut [bool],
     ) {
-        let d = self.dim();
-        self.check_origin(origin);
-        for (flag, &index) in inside.iter_mut().zip(indices) {
-            let start = index as usize * stride;
-            let (w, l) = self.scalar_terms(origin, &rows[start..start + d]);
-            *flag = self.is_proved_inside(w, l);
+        let mut sides = vec![None; indices.len()];
+        self.mark_sides_scalar(origin, rows, stride, indices, &mut sides);
+        for (flag, side) in inside.iter_mut().zip(sides) {
+            *flag = side == Some(Sign::Negative);
         }
     }
 }
@@ -268,8 +312,8 @@ struct Scan<'a> {
 
 /// Where a scan puts each point's result.
 enum ScanOut<'a> {
-    /// Whether the point is proved strictly inside.
-    Inside(&'a mut [bool]),
+    /// The side the point is proved on, if any.
+    Sides(&'a mut [Option<Sign>]),
     /// The terms themselves, for the per-level test.
     #[cfg(test)]
     Terms(&'a mut [f64], &'a mut [f64]),
@@ -278,8 +322,8 @@ enum ScanOut<'a> {
 impl Scan<'_> {
     fn put(&mut self, i: usize, w: f64, l: f64) {
         match &mut self.out {
-            ScanOut::Inside(inside) => {
-                inside[i] = self.plane.is_proved_inside(w, l);
+            ScanOut::Sides(sides) => {
+                sides[i] = self.plane.side_of_terms(w, l);
             }
             #[cfg(test)]
             ScanOut::Terms(w_out, l_out) => {
@@ -385,11 +429,19 @@ mod tests {
         plane.mark_inside(&facet[0], points, plane.dim(), &indices, &mut fast);
         plane.mark_inside_scalar(&facet[0], points, plane.dim(), &indices, &mut slow);
         assert_eq!(fast, slow, "SIMD and scalar paths disagree");
+        let mut sides = vec![None; n];
+        plane.mark_sides(&facet[0], points, plane.dim(), &indices, &mut sides);
         let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
         for (i, &culled) in fast.iter().enumerate() {
-            if culled {
-                let sign = distance_sign(&refs, &points[i * d..(i + 1) * d]).unwrap();
-                assert_eq!(sign, Sign::Negative, "point {i} culled with sign {sign:?}");
+            let point = &points[i * d..(i + 1) * d];
+            // The three-way scan proves inside exactly where the cull does,
+            // and every side it proves is the exact one and the one
+            // `proved_side` gives.
+            assert_eq!(sides[i] == Some(Sign::Negative), culled, "point {i}");
+            assert_eq!(sides[i], plane.proved_side(&facet[0], point), "point {i}");
+            if let Some(proved) = sides[i] {
+                let sign = distance_sign(&refs, point).unwrap();
+                assert_eq!(sign, proved, "point {i} proved {proved:?}, exact {sign:?}");
             }
         }
         fast.iter().filter(|&&c| c).count()
@@ -660,6 +712,24 @@ mod tests {
                         &mut scalar,
                     );
                     assert_eq!(dispatched, scalar, "cull set, D = {d}, {count} points");
+                    let mut sides = vec![None; count];
+                    plane.mark_sides(&facet[0], &points, plane.dim(), &indices, &mut sides);
+                    let mut expected = vec![None; count];
+                    plane.mark_sides_scalar(
+                        &facet[0],
+                        &points,
+                        plane.dim(),
+                        &indices,
+                        &mut expected,
+                    );
+                    assert_eq!(sides, expected, "proved sides, D = {d}, {count} points");
+                    for (&i, &side) in indices.iter().zip(&expected) {
+                        let start = i as usize * d;
+                        assert_eq!(
+                            side,
+                            plane.proved_side(&facet[0], &points[start..start + d])
+                        );
+                    }
                 }
             }
         }

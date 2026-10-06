@@ -17,9 +17,23 @@ pub(crate) fn pair_equal_keys(
     count: usize,
     fingerprint: impl Fn(&[u32]) -> u64,
 ) -> Vec<(usize, usize)> {
-    let (pairs, single) = pair_keys(keys, count, fingerprint);
-    debug_assert!(single == 0, "every key occurs an even number of times");
+    let (mut table, mut pairs) = (Vec::new(), Vec::new());
+    pair_equal_keys_into(keys, count, fingerprint, &mut table, &mut pairs);
     pairs
+}
+
+/// [`pair_equal_keys`] writing the pairs into `pairs`, cleared first, with
+/// `table` as the scratch of the search, so a caller that pairs many small
+/// sets allocates neither (#209).
+pub(crate) fn pair_equal_keys_into(
+    keys: &[u32],
+    count: usize,
+    fingerprint: impl Fn(&[u32]) -> u64,
+    table: &mut Vec<usize>,
+    pairs: &mut Vec<(usize, usize)>,
+) {
+    let single = pair_keys(keys, count, fingerprint, table, pairs);
+    debug_assert!(single == 0, "every key occurs an even number of times");
 }
 
 /// [`pair_equal_keys`] for a boundary with a border: each key occurs once
@@ -29,16 +43,21 @@ pub(crate) fn pair_equal_keys_with_border(
     count: usize,
     fingerprint: impl Fn(&[u32]) -> u64,
 ) -> Vec<(usize, usize)> {
-    pair_keys(keys, count, fingerprint).0
+    let (mut table, mut pairs) = (Vec::new(), Vec::new());
+    pair_keys(keys, count, fingerprint, &mut table, &mut pairs);
+    pairs
 }
 
-/// The pairs of equal keys, and the number of keys left unpaired. Debug
-/// builds check that no key occurs more than twice.
+/// Writes the pairs of equal keys into `pairs`, cleared first, and returns
+/// the number of keys left unpaired. `table` is scratch. Debug builds check
+/// that no key occurs more than twice.
 fn pair_keys(
     keys: &[u32],
     count: usize,
     fingerprint: impl Fn(&[u32]) -> u64,
-) -> (Vec<(usize, usize)>, usize) {
+    table: &mut Vec<usize>,
+    pairs: &mut Vec<(usize, usize)>,
+) -> usize {
     // Indices are below `count`, which a slice length keeps far below
     // these two markers.
     const EMPTY: usize = usize::MAX;
@@ -47,8 +66,10 @@ fn pair_keys(
     let key = |i: usize| &keys[i * width..(i + 1) * width];
     let size = (2 * count).next_power_of_two().max(2);
     let mask = size - 1;
-    let mut table = vec![EMPTY; size];
-    let mut pairs = Vec::with_capacity(count / 2);
+    table.clear();
+    table.resize(size, EMPTY);
+    pairs.clear();
+    pairs.reserve(count / 2);
     for i in 0..count {
         let mut slot = fingerprint(key(i)) as usize & mask;
         loop {
@@ -95,7 +116,7 @@ fn pair_keys(
             "a key occurs more than twice"
         );
     }
-    (pairs, single)
+    single
 }
 
 /// A hash of a sorted vertex list, for the table of [`pair_equal_keys`].

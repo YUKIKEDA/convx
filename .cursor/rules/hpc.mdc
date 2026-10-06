@@ -11,7 +11,6 @@ Two storages. Do not treat one as the other.
 
 - Points are row-major `&[f64]`. Point `i` is `i * D .. (i + 1) * D`, or `chunks_exact(D)`. Coordinate `j` of that point is `points[i * D + j]`.
 - `faer::Mat` (the Voronoi solve) is column-major. Touch it only as `(row, col)`.
-- The QR edge buffer of `normal.rs` is column-major too: column `j` is edge `j`, at `j * D .. (j + 1) * D`, and row `i` holds coordinate `i` of that edge. A reflector reads down a column. The null direction is the last column of Q.
 
 A distance kernel may gather one coordinate of several points into a lane temporary. The input slice stays row-major. One point per lane, the same operations in the same order as the scalar path, and no `mul_add` unless the certified error bound includes FMA rounding. The vector path and the scalar path of that kernel return bitwise identical `w` and `l`. The SIMD scan only culls points proved strictly inside. One point's side may be proved by the same certified threshold, in either direction, never a zero sign (design §1); everything else goes to the orientation.
 

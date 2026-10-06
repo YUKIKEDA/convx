@@ -12,12 +12,14 @@ use super::simplicial::SimplicialHull;
 use super::ConvexHullError;
 use crate::arena::{FacetId, SlotMarks};
 use crate::predicates::Sign;
+use crate::small::Small;
 
 /// A logical facet during construction. `GroupId` in the design is the index
 /// of the group in [`LogicalFacets::groups`]; it exists only here.
 pub(crate) struct Group {
-    /// Member simplices in arena order.
-    pub(crate) simplices: Vec<FacetId>,
+    /// Member simplices in arena order. Inline for the usual group of one
+    /// simplex, so a hull in general position allocates no list per facet.
+    pub(crate) simplices: Small<FacetId, 2>,
     /// Union of the member vertices, ascending.
     pub(crate) vertices: Vec<u32>,
     /// Indices of the neighboring groups, ascending.
@@ -83,7 +85,7 @@ fn polygon_groups(hull: &SimplicialHull<'_>) -> LogicalFacets {
         let mut neighbors = vec![prev as u32, next as u32];
         neighbors.sort_unstable();
         groups.push(Group {
-            simplices: Vec::new(),
+            simplices: Small::new(),
             vertices,
             neighbors,
         });
@@ -100,7 +102,11 @@ pub(crate) fn merge_except(
     hull: &SimplicialHull<'_>,
     cut: &SlotMarks<()>,
 ) -> Result<LogicalFacets, ConvexHullError> {
-    let ids: Vec<FacetId> = hull.facets.iter().map(|(id, _)| id).collect();
+    // The arena's iterator cannot say how many entries are live, so the
+    // lists below are sized from its count: grown by doubling, each would be
+    // copied a dozen times (#209).
+    let mut ids: Vec<FacetId> = Vec::with_capacity(hull.facets.len());
+    ids.extend(hull.facets.iter().map(|(id, _)| id));
     let mut dense: SlotMarks<u32> = SlotMarks::default();
     for (i, &id) in ids.iter().enumerate() {
         dense.insert(id, i as u32);
@@ -144,14 +150,15 @@ pub(crate) fn merge_except(
     // A root is a dense index; a group is numbered when its root is first
     // met, and `u32::MAX` marks a root not met yet.
     let mut number_of_root = vec![u32::MAX; ids.len()];
-    let mut groups: Vec<Group> = Vec::new();
+    let roots = (0..ids.len() as u32).filter(|&i| sets.find(i) == i).count();
+    let mut groups: Vec<Group> = Vec::with_capacity(roots);
     let mut group_of: SlotMarks<u32> = SlotMarks::default();
     for (i, &id) in ids.iter().enumerate() {
         let root = sets.find(i as u32) as usize;
         if number_of_root[root] == u32::MAX {
             number_of_root[root] = groups.len() as u32;
             groups.push(Group {
-                simplices: Vec::new(),
+                simplices: Small::new(),
                 vertices: Vec::new(),
                 neighbors: Vec::new(),
             });
@@ -174,14 +181,18 @@ pub(crate) fn merge_except(
         .iter()
         .enumerate()
         .map(|(number, group)| {
-            let mut neighbors: Vec<u32> = group
-                .simplices
-                .iter()
-                .filter_map(|id| hull.facets.get(*id))
-                .flat_map(|facet| facet.neighbors.iter())
-                .filter_map(|&n| group_of.get(n))
-                .filter(|&g| g as usize != number)
-                .collect();
+            // Sized once: a simplex has D neighbors.
+            let mut neighbors: Vec<u32> =
+                Vec::with_capacity(group.simplices.len() * hull.input.dim());
+            neighbors.extend(
+                group
+                    .simplices
+                    .iter()
+                    .filter_map(|id| hull.facets.get(*id))
+                    .flat_map(|facet| facet.neighbors.iter())
+                    .filter_map(|&n| group_of.get(n))
+                    .filter(|&g| g as usize != number),
+            );
             neighbors.sort_unstable();
             neighbors.dedup();
             neighbors
@@ -209,7 +220,7 @@ mod tests {
         let mut members: Vec<FacetId> = facets
             .groups
             .iter()
-            .flat_map(|g| g.simplices.clone())
+            .flat_map(|g| g.simplices.to_vec())
             .collect();
         let total = members.len();
         members.sort_unstable();

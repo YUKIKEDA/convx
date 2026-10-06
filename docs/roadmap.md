@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P5-19 (#135): factor the published normal with one Householder QR.
+P5-37 (#176): find whether a core monomorphized on D speeds up the build, and whether a dedicated D = 2 hull beats Quickhull.
 
 ## Dependencies
 
@@ -95,7 +95,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-14 | Feat  | Skip the visibility walk for candidates a round rejects                                                   | #110  | Done                     |
 | P5-15 | Feat  | One shared elimination for a facet's cofactors                                                            | #111  | Done                     |
 | P5-16 | Feat  | Hull cube D6 10^4 within 1.39 s on one core                                                               | #120  | Done                     |
-| P5-19 | Feat  | Factor the published normal with one Householder QR                                                       | #135  | In progress              |
+| P5-19 | Feat  | Factor the published normal with one Householder QR                                                       | #135  | Done                     |
 | P5-20 | Feat  | Run the k > 4 elimination in lanes with inline cofactors                                                  | #143  | Done                     |
 | P5-21 | Feat  | Cut per-insertion allocation and relinking in the hull build                                              | #145  | Done                     |
 | P5-22 | Feat  | Evaluate the cofactors of four new simplices at once in lanes                                             | #147  | Done                     |
@@ -123,10 +123,15 @@ After a correct sequential hull. These rows do not block P4.
 | P5-45 | Spike | Near-cospherical sites send almost every lifted predicate to the exact stage                              | #187  | Not started              |
 | P5-46 | Feat  | Build Delaunay and Voronoi by incremental insertion in every dimension (design #188)                      | #189  | Done                     |
 | P5-47 | Feat  | Deterministic parallel insertion for Delaunay and Voronoi                                                 | #190  | Set after Grill on #190  |
-| P5-48 | Spike | Where does hull sphere time go at D = 5 and D = 6?                                                        | #199  | Not started              |
-| P5-49 | Spike | Why is the low-dimension cube hull slower than Qhull's compute time?                                      | #200  | Not started              |
+| P5-48 | Spike | Where does hull sphere time go at D = 3 to D = 6?                                                         | #199  | Done                     |
+| P5-49 | Spike | Why is the low-dimension cube hull slower than Qhull's compute time?                                      | #200  | Done                     |
 | P5-50 | Bug   | Run the filtered elimination under AVX2, not AVX-512 (the D = 8 lifted 9 x 9 was 24x slower)              | #195  | Done                     |
 | P5-51 | Feat  | Vectorize the filtered elimination of size 10 and up (heap rows)                                          | #203  | Not started              |
+| P5-52 | Feat  | Cut the copies and cache lines of the simplex record that hull construction writes and walks              | #209  | Done                     |
+| P5-53 | Docs  | Publish the certified cofactor direction as every facet's unit normal                                     | #210  | Done                     |
+| P5-54 | Feat  | Publish the certified cofactor direction and remove the published QR                                      | #212  | Done                     |
+| P5-55 | Feat  | Find duplicate points and list interior points without sorting every input point                          | #213  | Done                     |
+| P5-56 | Feat  | Partition outside points without re-testing what the scan proved or re-gathering scattered rows           | #214  | Done                     |
 | P5-57 | Spike | How does convx compare with CGAL on the hull and Delaunay timing sets?                                    | #215  | Done                     |
 
 ## Intentionally out of scope

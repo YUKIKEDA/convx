@@ -5,6 +5,8 @@
 //! A walk then followed a pointer per block. Up to `N` items live inside
 //! the owner instead; a longer list, for a dimension above the inline
 //! range, falls back to a vector. Both forms read as one slice.
+//! A group's member simplices and a boundary simplex's lists use it too
+//! (#209): one logical facet is usually one simplex.
 
 use core::ops::{Deref, DerefMut};
 
@@ -21,6 +23,23 @@ impl<T: Copy + Default, const N: usize> Small<T, N> {
         Self::Inline {
             len: 0,
             items: [T::default(); N],
+        }
+    }
+
+    /// Appends `item`. The list moves to the heap when it outgrows `N`.
+    pub(crate) fn push(&mut self, item: T) {
+        match self {
+            Self::Inline { len, items } if usize::from(*len) < N => {
+                items[usize::from(*len)] = item;
+                *len += 1;
+            }
+            Self::Inline { len, items } => {
+                let mut heap = Vec::with_capacity(2 * N + 1);
+                heap.extend_from_slice(&items[..usize::from(*len)]);
+                heap.push(item);
+                *self = Self::Heap(heap);
+            }
+            Self::Heap(items) => items.push(item),
         }
     }
 }
@@ -125,6 +144,16 @@ mod tests {
             assert_eq!(matches!(small, Small::Inline { .. }), len <= 4, "len {len}");
             let from_vec: Small<u32, 4> = items.clone().into();
             assert_eq!(from_vec, small);
+            let mut pushed: Small<u32, 4> = Small::new();
+            for &item in &items {
+                pushed.push(item);
+            }
+            assert_eq!(pushed, small, "len {len}");
+            assert_eq!(
+                matches!(pushed, Small::Inline { .. }),
+                len <= 4,
+                "len {len}"
+            );
             let mut changed = small.clone();
             if let Some(first) = changed.first_mut() {
                 *first = 0;
