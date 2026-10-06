@@ -141,6 +141,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-63 | Feat  | Record the planes a point lies on and use them in insertion and classification                            | #239  | Done                     |
 | P5-64 | Docs  | A point that is not a vertex of the complex is never extreme: test it less                                | #242  | Done                     |
 | P5-65 | Feat  | Classify a point that is not a vertex of the complex with one zero; seek extremes among simplicial vertices | #244  | Done                     |
+| P5-66 | Spike | What does hull construction in general position pay per simplex, at 10^4 and at 10^6 points?              | #247  | Done                     |
 
 ## Intentionally out of scope
 
