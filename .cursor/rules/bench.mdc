@@ -43,3 +43,14 @@ Time a new test that runs many debug builds before adding it. Debug-only checks 
 `just bench` is not a gate until a measurement tool exists. Do not add a bench checkbox to the PR template before that.
 
 Write an external reference command (Qhull's `qconvex` and its options) only after checking each option against the tool's documentation of what it outputs. A summary option is not a facet list: `qconvex i s TI <file>` lists facet vertices, `qconvex s` does not. A selector over set names matches whole tokens, not substrings.
+
+On Windows, read the shares of `ntdll.dll` (the heap) and `VCRUNTIME140.dll` (`memcpy`, `memmove`) and count the allocations of one build before reasoning about cache lines. In #209 they were 18 to 27% of the build and a counting allocator priced them in minutes, after four cache-layout experiments on a machine without counters had found nothing.
+
+```text
+# BAD — reorder the record's fields, then prefetch, then move the marks; all inside the spread
+# GOOD — module shares and allocations per build first; the layout only if those are small
+```
+
+Check an instruction count against the native time before using it. In #199 valgrind ran 271 G instructions for a build that takes 4 s natively (D = 5); the counts at D = 3 and D = 4 were sound.
+
+Rebuild a kept scratch binary after reverting an experiment, before it is measured again. In #209 the hardware profile ran on a binary that still held a reverted change.

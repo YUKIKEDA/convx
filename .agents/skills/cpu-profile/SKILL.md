@@ -67,3 +67,34 @@ dumpbin /exports C:\Windows\System32\ntdll.dll
 ## What to report
 
 Inclusive shares of the process samples, for the functions that own the time, and the exclusive heap exports. A leaf list alone hides a caller that spends its time in callees. State the sample count, the rate, and the binary's commit.
+
+## VTune
+
+`vtune.exe` is under `C:\Program Files (x86)\Intel\oneAPI\vtune\latest\bin64`. Use it when the question is which stall, not only which function (#209).
+
+Profile the binary where cargo built it. A copy without its PDB shows `func@0x...` instead of names.
+
+Pin the target, not the collector:
+
+```powershell
+& $vtune -collect hotspots -knob sampling-mode=sw -r $result -- cmd /c "start /affinity 10 /b /wait $exe $args"
+```
+
+User-mode sampling (`sampling-mode=sw`) runs from the agent shell. It gives shares by function and module at a 10 ms interval, so repeat the build until the run lasts about 10 s.
+
+Hardware event-based sampling (`-collect uarch-exploration`, `-collect memory-access`) needs an elevated process. Write the collection as a script and start it with `Start-Process pwsh -Verb RunAs -Wait`; the owner approves the UAC prompt. Reports run unelevated.
+
+```powershell
+& $vtune -report summary -r $result
+& $vtune -report hotspots -r $result -group-by function -format csv -csv-delimiter "|"
+& $vtune -report gprof-cc -r $result -format text -report-output $file
+& $vtune -report callstacks -r $result -filter "module=ntdll.dll" -format csv -csv-delimiter "|"
+```
+
+`summary` of a `uarch-exploration` result has the top-down split. `hotspots` by function has the same columns per function. `gprof-cc` has inclusive time. `callstacks` filtered to `ntdll.dll` or `VCRUNTIME140.dll` attributes heap and copy time to the first `convx::` frame.
+
+Inlining folds callees into their caller: the walk and the commit both appeared as `SimplicialHull::absorb`. Read line-level rows with that in mind.
+
+To count allocations, give the scratch binary a `#[global_allocator]` that wraps `System` and counts `alloc` and `realloc`. The count per build and per facet says whether the heap share is many small allocations.
+
+Delete the result directories with the scratch binary.
