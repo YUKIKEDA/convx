@@ -72,6 +72,45 @@ pub(crate) struct Classified<'a> {
     pub(crate) interior_points: Vec<u32>,
 }
 
+/// The chain edge `point` lies on, or `None` when it is strictly inside.
+///
+/// `cycle` is the extreme vertices counterclockwise. The fan from
+/// `cycle[0]` names the triangle, and one orientation against that
+/// triangle's outer edge separates an interior point from a boundary point.
+fn polygon_edge(
+    input: &Input<'_>,
+    cycle: &[u32],
+    point: u32,
+) -> Result<Option<usize>, ConvexHullError> {
+    let n = cycle.len();
+    debug_assert!(n >= 3, "a polygon has at least three vertices");
+    let turn = |a: usize, b: usize| input.orient(&[cycle[a], cycle[b], point]);
+    if turn(0, 1)? == Sign::Zero {
+        return Ok(Some(0));
+    }
+    debug_assert_ne!(
+        turn(0, 1)?,
+        Sign::Negative,
+        "a point is outside the polygon"
+    );
+    if turn(0, n - 1)? == Sign::Zero {
+        return Ok(Some(n - 1));
+    }
+    let mut lo = 1usize;
+    let mut hi = n - 1;
+    while lo + 1 < hi {
+        let mid = (lo + hi) / 2;
+        if turn(0, mid)? == Sign::Positive {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let side = input.orient(&[cycle[lo], cycle[(lo + 1) % n], point])?;
+    debug_assert_ne!(side, Sign::Negative, "a point is outside the polygon");
+    Ok(if side == Sign::Zero { Some(lo) } else { None })
+}
+
 /// Builds and classifies the hull of an accepted input.
 pub(crate) fn classify(
     input: Input<'_>,
@@ -81,12 +120,86 @@ pub(crate) fn classify(
     classify_built(built, execution)
 }
 
+/// Classifies a strict polygon from its extreme cycle.
+///
+/// The cycle vertices are the extreme points. A representative that missed
+/// the chain is on one edge or strictly inside; it is not a new vertex.
+fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHullError> {
+    let n = hull.polygon.len();
+    let mut on_cycle = vec![false; hull.input.representative.len()];
+    for &v in &hull.polygon {
+        on_cycle[v as usize] = true;
+    }
+    let others: Vec<u32> = hull
+        .input
+        .representatives
+        .iter()
+        .copied()
+        .filter(|&p| !on_cycle[p as usize])
+        .collect();
+    let mut on_boundary = vec![false; others.len()];
+    for (k, &point) in others.iter().enumerate() {
+        if polygon_edge(&hull.input, &hull.polygon, point)?.is_some() {
+            on_boundary[k] = true;
+        }
+    }
+
+    let mut vertices = hull.polygon.clone();
+    vertices.sort_unstable();
+    let mut coplanar_points: Vec<u32> = others
+        .iter()
+        .zip(&on_boundary)
+        .filter(|&(_, &b)| b)
+        .map(|(&p, _)| p)
+        .collect();
+    coplanar_points.sort_unstable();
+    let mut interior_points: Vec<u32> = others
+        .iter()
+        .zip(&on_boundary)
+        .filter(|&(_, &b)| !b)
+        .map(|(&p, _)| p)
+        .collect();
+    interior_points.sort_unstable();
+
+    let groups = merge(&hull)?.groups;
+    let mut faces = Vec::with_capacity(n);
+    let mut simplices = Vec::with_capacity(n);
+    for (i, group) in groups.into_iter().enumerate() {
+        let start = hull.polygon[i];
+        let end = hull.polygon[(i + 1) % n];
+        let prev = if i == 0 { n - 1 } else { i - 1 };
+        let next = (i + 1) % n;
+        faces.push(Face {
+            vertices: group.vertices,
+            neighbors: group.neighbors,
+        });
+        // `neighbors[i]` is the simplex across the ridge opposite `vertices[i]`.
+        // The tip is first, so slot 0 faces the previous edge and slot 1 the next.
+        simplices.push(ComplexSimplex {
+            vertices: vec![end, start],
+            face: i as u32,
+            neighbors: vec![prev as u32, next as u32],
+        });
+    }
+    Ok(Classified {
+        input: hull.input,
+        faces,
+        simplices,
+        vertices,
+        coplanar_points,
+        interior_points,
+    })
+}
+
 /// Classifies a built simplicial hull. Its `proved_interior` points go to
 /// `interior_points` without a scan.
 fn classify_built(
     hull: SimplicialHull<'_>,
     execution: Execution,
 ) -> Result<Classified<'_>, ConvexHullError> {
+    if hull.strict_edges {
+        return classify_chain(hull);
+    }
     let mut groups = merge(&hull)?;
     let d = hull.input.dim();
     // A group's member simplices, in outward order.
@@ -125,29 +238,31 @@ fn classify_built(
         .collect();
     let mut on_boundary = vec![false; others.len()];
     let mut zero_points: Vec<Vec<u32>> = vec![Vec::new(); groups.groups.len()];
-    let mut inside = vec![false; others.len()];
-    for (g, group) in groups.groups.iter().enumerate() {
-        let Some(simplex) = group.simplices.first().and_then(|id| hull.facets.get(*id)) else {
-            continue;
-        };
-        inside.iter_mut().for_each(|x| *x = false);
-        if let Some(cull) = simplex.cull() {
-            let (rows, stride) = hull.input.rows();
-            let origin = hull.input.point(simplex.vertices[0]);
-            cull.mark_inside(origin, rows, stride, &others, &mut inside);
-        }
-        for (k, &p) in others.iter().enumerate() {
-            if inside[k] {
+    if !others.is_empty() {
+        let mut inside = vec![false; others.len()];
+        for (g, group) in groups.groups.iter().enumerate() {
+            let Some(simplex) = group.simplices.first().and_then(|id| hull.facets.get(*id)) else {
                 continue;
+            };
+            inside.iter_mut().for_each(|x| *x = false);
+            if let Some(cull) = simplex.cull() {
+                let (rows, stride) = hull.input.rows();
+                let origin = hull.input.point(simplex.vertices[0]);
+                cull.mark_inside(origin, rows, stride, &others, &mut inside);
             }
-            let side = hull.side(simplex, p)?;
-            debug_assert!(
-                side != Sign::Positive,
-                "a point is outside the finished hull"
-            );
-            if side == Sign::Zero {
-                on_boundary[k] = true;
-                zero_points[g].push(p);
+            for (k, &p) in others.iter().enumerate() {
+                if inside[k] {
+                    continue;
+                }
+                let side = hull.side(simplex, p)?;
+                debug_assert!(
+                    side != Sign::Positive,
+                    "a point is outside the finished hull"
+                );
+                if side == Sign::Zero {
+                    on_boundary[k] = true;
+                    zero_points[g].push(p);
+                }
             }
         }
     }
@@ -729,12 +844,126 @@ pub(crate) mod tests {
         classified(3, &points);
     }
 
+    /// Andrew's chain, from the exact orientation, as a reference that does
+    /// not call the hull.
+    fn monotone_cycle(points: &[f64]) -> Vec<u32> {
+        let n = points.len() / 2;
+        let mut order: Vec<u32> = (0..n as u32).collect();
+        order.sort_by(|&a, &b| {
+            let (pa, pb) = (
+                &points[a as usize * 2..a as usize * 2 + 2],
+                &points[b as usize * 2..b as usize * 2 + 2],
+            );
+            pa[0]
+                .total_cmp(&pb[0])
+                .then(pa[1].total_cmp(&pb[1]))
+                .then(a.cmp(&b))
+        });
+        let p = |i: u32| &points[i as usize * 2..i as usize * 2 + 2];
+        let mut chain = Vec::new();
+        for pass in [order.clone(), order.iter().rev().copied().collect()] {
+            let start = chain.len();
+            for &i in &pass {
+                while chain.len() >= start + 2 {
+                    let sign =
+                        orient(&[p(chain[chain.len() - 2]), p(chain[chain.len() - 1]), p(i)])
+                            .unwrap();
+                    if sign == Sign::Positive {
+                        break;
+                    }
+                    chain.pop();
+                }
+                chain.push(i);
+            }
+            chain.pop();
+        }
+        chain
+    }
+
+    /// 1024 points is the first size that may choose insertion. A filled
+    /// square does, and edge points stay coplanar.
+    #[test]
+    fn large_square_inserts_and_keeps_edge_points_coplanar() {
+        let side = 32usize;
+        let mut points = Vec::with_capacity(side * side * 2);
+        for y in 0..side {
+            for x in 0..side {
+                points.push(x as f64);
+                points.push(y as f64);
+            }
+        }
+        let at = |x: usize, y: usize| (y * side + x) as u32;
+        let mut vertices = vec![
+            at(0, 0),
+            at(side - 1, 0),
+            at(0, side - 1),
+            at(side - 1, side - 1),
+        ];
+        vertices.sort_unstable();
+        let mut coplanar = Vec::new();
+        let mut interior = Vec::new();
+        for y in 0..side {
+            for x in 0..side {
+                let edge = x == 0 || y == 0 || x + 1 == side || y + 1 == side;
+                let corner = (x == 0 || x + 1 == side) && (y == 0 || y + 1 == side);
+                if corner {
+                    continue;
+                } else if edge {
+                    coplanar.push(at(x, y));
+                } else {
+                    interior.push(at(x, y));
+                }
+            }
+        }
+        let cycle = monotone_cycle(&points);
+        let mut by_chain = cycle.clone();
+        by_chain.sort_unstable();
+        assert_eq!(by_chain, vertices, "the square's extremes are its corners");
+        for execution in [Execution::Sequential, Execution::Parallel] {
+            let hull = SimplicialHull::build(accept(2, &points).unwrap(), execution).unwrap();
+            assert!(
+                !hull.strict_edges,
+                "a filled square of 1024 points stays on insertion"
+            );
+            let c = classify_built(hull, execution).unwrap();
+            check(&c);
+            assert_eq!(c.vertices, vertices);
+            assert_eq!(c.coplanar_points, coplanar);
+            assert_eq!(c.interior_points, interior);
+        }
+    }
+
+    /// The same size on a circle takes the chain, and every site is extreme.
+    #[test]
+    fn large_circle_uses_the_chain() {
+        let n = 1100usize;
+        let points: Vec<f64> = (0..n)
+            .flat_map(|i| {
+                let t = (i as f64) * core::f64::consts::TAU / (n as f64);
+                [t.cos(), t.sin()]
+            })
+            .collect();
+        let cycle = monotone_cycle(&points);
+        let mut vertices = cycle.clone();
+        vertices.sort_unstable();
+        for execution in [Execution::Sequential, Execution::Parallel] {
+            let hull = SimplicialHull::build(accept(2, &points).unwrap(), execution).unwrap();
+            assert!(hull.strict_edges, "a circle takes the chain");
+            let c = classify_built(hull, execution).unwrap();
+            check(&c);
+            assert_eq!(c.vertices, vertices);
+            assert!(c.coplanar_points.is_empty());
+            assert!(c.interior_points.is_empty());
+        }
+    }
+
     /// The partition with the proved points skipped, and without: the
     /// reference scans every representative against every group.
-    fn with_and_without_reuse(dim: usize, points: &[f64]) -> (usize, Classified<'_>) {
+    fn with_and_without_reuse(dim: usize, points: &[f64]) -> (usize, Classified<'_>, bool) {
         let built =
             |execution| SimplicialHull::build(accept(dim, points).unwrap(), execution).unwrap();
         let sequential = built(Execution::Sequential);
+        let chain = sequential.strict_edges;
         let mut proved = sequential.proved_interior.clone();
         let mut parallel = built(Execution::Parallel).proved_interior;
         proved.sort_unstable();
@@ -758,7 +987,7 @@ pub(crate) mod tests {
                 "{p} is interior"
             );
         }
-        (proved.len(), reused)
+        (proved.len(), reused, chain)
     }
 
     #[test]
@@ -793,7 +1022,11 @@ pub(crate) mod tests {
         }
         cases.push(("ball".to_string(), 3, ball));
         for (name, dim, points) in &cases {
-            let (proved, c) = with_and_without_reuse(*dim, points);
+            let (proved, c, chain) = with_and_without_reuse(*dim, points);
+            if chain {
+                assert_eq!(proved, 0, "{name}: the chain inserts no interior proof");
+                continue;
+            }
             let non_vertices = c.interior_points.len() + c.coplanar_points.len();
             assert!(proved > 0, "{name}: no point was proved interior");
             if name.starts_with("general") {
