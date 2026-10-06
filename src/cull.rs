@@ -165,6 +165,12 @@ impl CullPlane {
     pub(crate) fn proved_side(&self, origin: &[f64], point: &[f64]) -> Option<Sign> {
         self.check_origin(origin);
         let (w, l) = self.scalar_terms(origin, point);
+        self.side_of_terms(w, l)
+    }
+
+    /// The side that the working distance `w` of a point at L1 distance `l`
+    /// proves, as in [`Self::proved_side`].
+    fn side_of_terms(&self, w: f64, l: f64) -> Option<Sign> {
         let threshold = self.threshold(l);
         if w > threshold {
             Some(Sign::Positive)
@@ -173,6 +179,36 @@ impl CullPlane {
         } else {
             None
         }
+    }
+
+    /// Writes `sides[i]`, the [`Self::proved_side`] of each `indices[i]`
+    /// whose point is in the row-major `points`: proved strictly inside,
+    /// proved strictly outside, or `None`. The scan of
+    /// [`Self::mark_inside`], reporting the outside proofs it already has
+    /// (#214).
+    ///
+    /// `origin` is the facet's first point. Point `i` starts at
+    /// `rows[i * stride]`.
+    pub(crate) fn mark_sides(
+        &self,
+        origin: &[f64],
+        rows: &[f64],
+        stride: usize,
+        indices: &[u32],
+        sides: &mut [Option<Sign>],
+    ) {
+        let d = self.dim();
+        self.check_origin(origin);
+        debug_assert!(stride >= d, "a row holds the point");
+        debug_assert_eq!(sides.len(), indices.len());
+        Arch::new().dispatch(Scan {
+            plane: self,
+            origin,
+            points: rows,
+            stride,
+            indices,
+            out: ScanOut::Sides(sides),
+        });
     }
 
     /// Marks `inside[i] = true` for each `indices[i]` whose point in the
@@ -270,6 +306,8 @@ struct Scan<'a> {
 enum ScanOut<'a> {
     /// Whether the point is proved strictly inside.
     Inside(&'a mut [bool]),
+    /// The side the point is proved on, if any.
+    Sides(&'a mut [Option<Sign>]),
     /// The terms themselves, for the per-level test.
     #[cfg(test)]
     Terms(&'a mut [f64], &'a mut [f64]),
@@ -280,6 +318,9 @@ impl Scan<'_> {
         match &mut self.out {
             ScanOut::Inside(inside) => {
                 inside[i] = self.plane.is_proved_inside(w, l);
+            }
+            ScanOut::Sides(sides) => {
+                sides[i] = self.plane.side_of_terms(w, l);
             }
             #[cfg(test)]
             ScanOut::Terms(w_out, l_out) => {
@@ -385,11 +426,19 @@ mod tests {
         plane.mark_inside(&facet[0], points, plane.dim(), &indices, &mut fast);
         plane.mark_inside_scalar(&facet[0], points, plane.dim(), &indices, &mut slow);
         assert_eq!(fast, slow, "SIMD and scalar paths disagree");
+        let mut sides = vec![None; n];
+        plane.mark_sides(&facet[0], points, plane.dim(), &indices, &mut sides);
         let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
         for (i, &culled) in fast.iter().enumerate() {
-            if culled {
-                let sign = distance_sign(&refs, &points[i * d..(i + 1) * d]).unwrap();
-                assert_eq!(sign, Sign::Negative, "point {i} culled with sign {sign:?}");
+            let point = &points[i * d..(i + 1) * d];
+            // The three-way scan proves inside exactly where the cull does,
+            // and every side it proves is the exact one and the one
+            // `proved_side` gives.
+            assert_eq!(sides[i] == Some(Sign::Negative), culled, "point {i}");
+            assert_eq!(sides[i], plane.proved_side(&facet[0], point), "point {i}");
+            if let Some(proved) = sides[i] {
+                let sign = distance_sign(&refs, point).unwrap();
+                assert_eq!(sign, proved, "point {i} proved {proved:?}, exact {sign:?}");
             }
         }
         fast.iter().filter(|&&c| c).count()
@@ -660,6 +709,16 @@ mod tests {
                         &mut scalar,
                     );
                     assert_eq!(dispatched, scalar, "cull set, D = {d}, {count} points");
+                    let mut sides = vec![None; count];
+                    plane.mark_sides(&facet[0], &points, plane.dim(), &indices, &mut sides);
+                    let expected: Vec<Option<Sign>> = indices
+                        .iter()
+                        .map(|&i| {
+                            let start = i as usize * d;
+                            plane.proved_side(&facet[0], &points[start..start + d])
+                        })
+                        .collect();
+                    assert_eq!(sides, expected, "proved sides, D = {d}, {count} points");
                 }
             }
         }
