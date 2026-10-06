@@ -127,6 +127,12 @@ pub(crate) fn classify(
 /// the chain is on one edge or strictly inside; it is not a new vertex.
 fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHullError> {
     let n = hull.polygon.len();
+    // The lists below are filtered from the representatives, in their
+    // order, and published ascending without a sort.
+    debug_assert!(
+        hull.input.representatives.is_sorted(),
+        "the representatives are ascending"
+    );
     let mut on_cycle = vec![false; hull.input.representative.len()];
     for &v in &hull.polygon {
         on_cycle[v as usize] = true;
@@ -227,6 +233,9 @@ fn classify_built(
     let mut skipped = vec![false; hull.input.representative.len()];
     for &p in &hull.proved_interior {
         debug_assert!(!on_complex[p as usize], "a dropped point is not a vertex");
+        // A point leaves every outside set when it is proved interior, and
+        // a lost vertex is in none, so no later plan meets it again.
+        debug_assert!(!skipped[p as usize], "point {p} was proved interior twice");
         skipped[p as usize] = true;
     }
     let others: Vec<u32> = hull
@@ -239,22 +248,33 @@ fn classify_built(
     let mut on_boundary = vec![false; others.len()];
     let mut zero_points: Vec<Vec<u32>> = vec![Vec::new(); groups.groups.len()];
     if !others.is_empty() {
-        let mut inside = vec![false; others.len()];
+        let mut sides = vec![None; others.len()];
         for (g, group) in groups.groups.iter().enumerate() {
             let Some(simplex) = group.simplices.first().and_then(|id| hull.facets.get(*id)) else {
                 continue;
             };
-            inside.iter_mut().for_each(|x| *x = false);
+            sides.fill(None);
             if let Some(cull) = simplex.cull() {
                 let (rows, stride) = hull.input.rows();
                 let origin = hull.input.point(simplex.vertices[0]);
-                cull.mark_inside(origin, rows, stride, &others, &mut inside);
+                cull.mark_sides(origin, rows, stride, &others, &mut sides);
             }
             for (k, &p) in others.iter().enumerate() {
-                if inside[k] {
-                    continue;
-                }
-                let side = hull.side(simplex, p)?;
+                let side = match sides[k] {
+                    Some(proved) => {
+                        // `side` checks its own proof against the
+                        // orientation in debug builds, so this checks the
+                        // scan's.
+                        #[cfg(debug_assertions)]
+                        debug_assert_eq!(
+                            hull.side(simplex, p)?,
+                            proved,
+                            "the scan proved the wrong side of point {p}"
+                        );
+                        proved
+                    }
+                    None => hull.side(simplex, p)?,
+                };
                 debug_assert!(
                     side != Sign::Positive,
                     "a point is outside the finished hull"
@@ -306,6 +326,10 @@ fn classify_built(
     // scanned strictly inside. One pass over the ascending representatives
     // lists the points of each class in order, without sorting the
     // interior points, which are almost all of a large input (#213).
+    debug_assert!(
+        hull.input.representatives.is_sorted(),
+        "the representatives are ascending"
+    );
     let mut boundary = vec![false; hull.input.representative.len()];
     for (&p, &b) in others.iter().zip(&on_boundary) {
         boundary[p as usize] = b;
@@ -319,6 +343,7 @@ fn classify_built(
                 coplanar_points.push(p);
             }
         } else {
+            debug_assert!(!is_vertex[i], "vertex {p} is on no facet");
             interior_points.push(p);
         }
     }
