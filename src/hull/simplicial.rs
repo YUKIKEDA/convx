@@ -159,21 +159,21 @@ impl<'a> SimplicialHull<'a> {
     /// Sets the working normal and the cull plane of each simplex from its
     /// vertices and orientation. The cofactors of four simplices at a time
     /// share one elimination in lanes, bit for bit those of each alone.
-    fn set_planes<T: AsMut<Simplex>>(&self, simplices: &mut [T]) -> Result<(), ConvexHullError> {
+    fn set_planes(&self, simplices: &mut [Simplex]) -> Result<(), ConvexHullError> {
         let mut chunks = simplices.chunks_exact_mut(COFACTOR_LANES);
         for chunk in &mut chunks {
             let points: [Small<&[f64], 10>; COFACTOR_LANES] =
-                core::array::from_fn(|lane| self.coords_of(&chunk[lane].as_mut().vertices));
+                core::array::from_fn(|lane| self.coords_of(&chunk[lane].vertices));
             // Input coordinates are finite (design §3), so every facet's
             // cofactors can be evaluated.
             let cofactors = facet_cofactors_in_lanes(points.each_ref().map(|p| &**p));
             for ((simplex, points), cofactors) in chunk.iter_mut().zip(&points).zip(cofactors) {
-                self.set_planes_with(simplex.as_mut(), points, cofactors)?;
+                self.set_planes_with(simplex, points, cofactors)?;
             }
         }
         for simplex in chunks.into_remainder() {
-            let points = self.coords_of(&simplex.as_mut().vertices);
-            self.set_planes_alone(simplex.as_mut(), &points)?;
+            let points = self.coords_of(&simplex.vertices);
+            self.set_planes_alone(simplex, &points)?;
         }
         Ok(())
     }
@@ -600,9 +600,9 @@ impl<'a> SimplicialHull<'a> {
     /// input index. Both executions run the same plans and the same commits.
     fn absorb(&mut self, execution: Execution) -> Result<(), ConvexHullError> {
         let mut scratch = WalkScratch::default();
-        // Emptied simplex lists of committed plans, refilled by later plans,
-        // so the simplices of a round are not written to fresh pages.
-        let mut spare: Vec<Vec<Planned>> = Vec::new();
+        // Emptied cones of committed plans, refilled by later plans, so the
+        // simplices of a round are not written to fresh pages.
+        let mut spare: Vec<Cone> = Vec::new();
         while self.absorb_round(execution, &mut scratch, &mut spare)? {}
         Ok(())
     }
@@ -614,7 +614,7 @@ impl<'a> SimplicialHull<'a> {
         &mut self,
         execution: Execution,
         scratch: &mut WalkScratch,
-        spare: &mut Vec<Vec<Planned>>,
+        spare: &mut Vec<Cone>,
     ) -> Result<bool, ConvexHullError> {
         let batch = self.next_batch_with(scratch)?;
         if batch.is_empty() {
@@ -936,7 +936,7 @@ impl<'a> SimplicialHull<'a> {
     /// visible facets reassigned to the new simplices. Runs on a worker.
     #[cfg(any(test, debug_assertions))]
     fn plan(&self, start: FacetId, apex: u32) -> Result<Plan, ConvexHullError> {
-        self.plan_region(apex, self.visible_region(start, apex)?, Vec::new())
+        self.plan_region(apex, self.visible_region(start, apex)?, Cone::default())
     }
 
     /// [`Self::plan`] with the visible region already found, writing the
@@ -945,7 +945,7 @@ impl<'a> SimplicialHull<'a> {
         &self,
         apex: u32,
         region: Region,
-        mut created: Vec<Planned>,
+        mut created: Cone,
     ) -> Result<Plan, ConvexHullError> {
         let Region { visible, horizon } = region;
 
@@ -953,7 +953,7 @@ impl<'a> SimplicialHull<'a> {
         // with the vertex opposite the ridge replaced by the apex keeps the
         // outward orientation.
         created.clear();
-        created.reserve(horizon.len());
+        created.simplices.reserve(horizon.len());
         // Each ridge between two new simplices holds the apex and D - 2
         // vertices of a horizon ridge. Its key is those D - 2 vertices,
         // sorted, in one flat buffer; sorting the keys pairs the two
@@ -970,7 +970,7 @@ impl<'a> SimplicialHull<'a> {
             vertices[slot] = apex;
             let d = vertices.len();
             debug_assert_eq!(d, width + 2, "a simplex has D vertices");
-            let k = created.len();
+            let k = created.simplices.len();
             // The horizon ridge, sorted once with each vertex's slot; the
             // key of the ridge opposite one of them is the rest, still
             // sorted.
@@ -991,19 +991,19 @@ impl<'a> SimplicialHull<'a> {
                 );
                 owners.push((k, other));
             }
-            created.push(Planned {
-                simplex: Simplex::bare(vertices, Sign::Positive),
-                links: (0..d).map(|_| Link::Old(across)).collect(),
-                across,
-                replaces: visible_id,
-            });
+            created
+                .simplices
+                .push(Simplex::bare(vertices, Sign::Positive));
+            created.links.extend((0..d).map(|_| Link::Old(across)));
+            created.horizon.push((across, visible_id));
         }
-        self.set_planes(&mut created)?;
+        self.set_planes(&mut created.simplices)?;
+        let d = width + 2;
         for (first, second) in pair_equal_keys(&keys, owners.len(), fingerprint) {
             let (a, a_slot) = owners[first];
             let (b, b_slot) = owners[second];
-            created[a].links[a_slot] = Link::New(b);
-            created[b].links[b_slot] = Link::New(a);
+            created.links[a * d + a_slot] = Link::New(b);
+            created.links[b * d + b_slot] = Link::New(a);
         }
 
         // Reassign the outside points of the visible facets.
@@ -1017,11 +1017,12 @@ impl<'a> SimplicialHull<'a> {
         // proved interior on the same terms as an orphan (design §3).
         // Size the set from the vertices this plan inserts. `width + 2`
         // equals D only where the debug assertion above holds.
-        let vertex_slots: usize = created.iter().map(|p| p.simplex.vertices.len()).sum();
+        let vertex_slots: usize = created.simplices.iter().map(|s| s.vertices.len()).sum();
         let kept = VertexSet::of(
             created
+                .simplices
                 .iter()
-                .flat_map(|p| p.simplex.vertices.iter().copied()),
+                .flat_map(|s| s.vertices.iter().copied()),
             vertex_slots,
         );
         let mut lost: Vec<u32> = visible
@@ -1036,17 +1037,11 @@ impl<'a> SimplicialHull<'a> {
         orphans.sort_unstable();
         let mut strict = vec![true; orphans.len()];
         let mut inside = Vec::new();
-        for planned in &mut created {
+        for simplex in &mut created.simplices {
             if orphans.is_empty() {
                 break;
             }
-            take_outside(
-                &self.input,
-                &mut orphans,
-                &mut strict,
-                &mut inside,
-                &mut planned.simplex,
-            )?;
+            take_outside(&self.input, &mut orphans, &mut strict, &mut inside, simplex)?;
         }
         // An orphan strictly inside every new simplex lies in the open cone
         // from the apex over the hull, before the visible facet it was
@@ -1074,21 +1069,24 @@ impl<'a> SimplicialHull<'a> {
     /// Applies a plan: inserts the new simplices, turns local links into
     /// arena ids, points each facet across the horizon at its new neighbor,
     /// and removes the visible facets. Returns the ids of the new simplices
-    /// and the plan's simplex list, emptied, for reuse.
-    fn commit(&mut self, plan: Plan) -> (Vec<FacetId>, Vec<Planned>) {
+    /// and the plan's cone, emptied, for reuse.
+    fn commit(&mut self, plan: Plan) -> (Vec<FacetId>, Cone) {
         let Plan {
             visible,
             mut created,
             interior,
         } = plan;
         self.proved_interior.extend(interior);
-        let mut ids = Vec::with_capacity(created.len());
-        let mut wiring = Vec::with_capacity(created.len());
-        for planned in created.drain(..) {
-            ids.push(insert_or_abort(&mut self.facets, planned.simplex));
-            wiring.push((planned.links, planned.across, planned.replaces));
+        let d = self.input.dim();
+        let mut ids = Vec::with_capacity(created.simplices.len());
+        for simplex in created.simplices.drain(..) {
+            ids.push(insert_or_abort(&mut self.facets, simplex));
         }
-        for (&id, (links, across, replaces)) in ids.iter().zip(wiring) {
+        for ((&id, links), &(across, replaces)) in ids
+            .iter()
+            .zip(created.links.chunks_exact(d))
+            .zip(&created.horizon)
+        {
             let neighbors: Small<FacetId, 8> = links
                 .iter()
                 .map(|link| match *link {
@@ -1108,6 +1106,7 @@ impl<'a> SimplicialHull<'a> {
         for id in visible {
             self.facets.remove(id);
         }
+        created.clear();
         (ids, created)
     }
 }
@@ -1126,7 +1125,7 @@ struct Plan {
     /// Facets to remove.
     visible: Vec<FacetId>,
     /// New simplices, numbered locally by position.
-    created: Vec<Planned>,
+    created: Cone,
     /// Outside points of the visible facets that are strictly inside every
     /// new simplex, for [`SimplicialHull::proved_interior`].
     interior: Vec<u32>,
@@ -1138,17 +1137,27 @@ impl Plan {
     /// and its outside points.
     #[cfg(debug_assertions)]
     fn shape(&self) -> PlanShape {
+        // D links per simplex; an empty cone has no links, and any nonzero
+        // width reads none.
+        let d = self
+            .created
+            .simplices
+            .first()
+            .map_or(1, |s| s.vertices.len());
         (
             self.visible.clone(),
             self.created
+                .simplices
                 .iter()
-                .map(|c| {
+                .zip(self.created.links.chunks_exact(d))
+                .zip(&self.created.horizon)
+                .map(|((s, links), &(across, replaces))| {
                     (
-                        c.simplex.vertices.to_vec(),
-                        c.links.to_vec(),
-                        c.across,
-                        c.replaces,
-                        c.simplex.outside.clone(),
+                        s.vertices.to_vec(),
+                        links.to_vec(),
+                        across,
+                        replaces,
+                        s.outside.clone(),
                     )
                 })
                 .collect(),
@@ -1163,27 +1172,29 @@ type PlanShape = (
     Vec<(Vec<u32>, Vec<Link>, FacetId, FacetId, Vec<u32>)>,
 );
 
-/// A new simplex of a plan.
-struct Planned {
-    /// The simplex, with its outside points; neighbors are set at commit.
-    simplex: Simplex,
-    /// Neighbor per slot, by arena id or by local number.
-    links: Small<Link, 8>,
-    /// The facet across the horizon ridge this simplex is built on.
-    across: FacetId,
-    /// The visible facet that `across` points at until the commit.
-    replaces: FacetId,
+/// The new simplices of a plan, numbered locally by position. The
+/// simplices are moved into the arena at commit; their links and horizon
+/// pairs stay in flat lists beside them, so no wrapper record is copied
+/// with each simplex (#209).
+#[derive(Default)]
+struct Cone {
+    /// The simplices, with their outside points; neighbors are set at
+    /// commit.
+    simplices: Vec<Simplex>,
+    /// D neighbor links per simplex, slot by slot, by arena id or by local
+    /// number.
+    links: Vec<Link>,
+    /// Per simplex, the facet across the horizon ridge it is built on, and
+    /// the visible facet that one points at until the commit.
+    horizon: Vec<(FacetId, FacetId)>,
 }
 
-impl AsMut<Simplex> for Planned {
-    fn as_mut(&mut self) -> &mut Simplex {
-        &mut self.simplex
-    }
-}
-
-impl AsMut<Simplex> for Simplex {
-    fn as_mut(&mut self) -> &mut Simplex {
-        self
+impl Cone {
+    /// Empties the lists and keeps their storage.
+    fn clear(&mut self) {
+        self.simplices.clear();
+        self.links.clear();
+        self.horizon.clear();
     }
 }
 
@@ -1194,14 +1205,6 @@ enum Link {
     Old(FacetId),
     /// The new simplex with this local number.
     New(usize),
-}
-
-/// The filler of inline storage past a plan's `d` links; no slice reads
-/// it.
-impl Default for Link {
-    fn default() -> Self {
-        Self::Old(FacetId::default())
-    }
 }
 
 /// The exact side of `point` relative to `facet`: [`Sign::Positive`] is

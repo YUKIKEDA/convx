@@ -189,24 +189,24 @@ impl<T> Arena<T> {
         Ok(FacetId { index, generation })
     }
 
-    /// Removes the entry and returns it. A stale or unknown id returns `None`.
-    pub(crate) fn remove(&mut self, id: FacetId) -> Option<T> {
+    /// Removes the entry and drops it in its slot, without moving it out.
+    /// False for a stale or unknown id.
+    pub(crate) fn remove(&mut self, id: FacetId) -> bool {
         let free_head = self.free_head;
-        let slot = self.slot_mut(id.index)?;
+        let Some(slot) = self.slot_mut(id.index) else {
+            return false;
+        };
         match slot {
             Slot::Occupied { generation, .. } if *generation == id.generation => {}
-            _ => return None,
+            _ => return false,
         }
-        let vacant = Slot::Vacant {
+        *slot = Slot::Vacant {
             generation: id.generation.wrapping_add(1),
             next_free: free_head,
         };
-        let Slot::Occupied { value, .. } = core::mem::replace(slot, vacant) else {
-            return None;
-        };
         self.free_head = Some(id.index);
         self.len -= 1;
-        Some(value)
+        true
     }
 
     pub(crate) fn get(&self, id: FacetId) -> Option<&T> {
@@ -288,9 +288,9 @@ mod tests {
         let b = arena.insert("b").unwrap();
         assert_eq!(arena.len(), 2);
         assert_eq!(arena.get(a), Some(&"a"));
-        assert_eq!(arena.remove(a), Some("a"));
+        assert!(arena.remove(a));
         assert_eq!(arena.get(a), None);
-        assert_eq!(arena.remove(a), None);
+        assert!(!arena.remove(a));
         assert!(arena.contains(b));
         assert_eq!(arena.len(), 1);
     }
@@ -305,7 +305,7 @@ mod tests {
         assert_ne!(new, old);
         assert_eq!(arena.get(old), None);
         assert_eq!(arena.get_mut(old), None);
-        assert_eq!(arena.remove(old), None);
+        assert!(!arena.remove(old));
         assert_eq!(arena.get(new), Some(&2));
     }
 
