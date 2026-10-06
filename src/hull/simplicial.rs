@@ -38,6 +38,7 @@ use std::collections::HashSet;
 use rayon::prelude::*;
 
 use super::input::Input;
+use super::planes::{OnPlane, PlaneNumber, PlaneNumbers};
 use super::ridge::{fingerprint, pair_equal_keys_into};
 use super::ConvexHullError;
 use crate::arena::{Arena, ArenaFull, FacetId, SlotMarks};
@@ -61,6 +62,10 @@ pub(crate) struct Simplex {
     /// The candidate of `outside` for a round, fixed with it (#120): see
     /// [`farthest`].
     farthest: Option<(u32, Option<f64>)>,
+    /// The number of this simplex's supporting plane (design §3). `None`
+    /// in a plan for a simplex on a plane of its own, which is numbered at
+    /// commit, and for good once the numbers have run out.
+    pub(crate) plane: Option<PlaneNumber>,
 }
 
 impl Simplex {
@@ -75,6 +80,7 @@ impl Simplex {
             cull: None,
             outside: Vec::new(),
             farthest: None,
+            plane: None,
         }
     }
 
@@ -100,6 +106,11 @@ pub(crate) struct SimplicialHull<'a> {
     /// negative: strictly inside the hull at that step, so in the interior
     /// of the final hull (design §3). Unordered.
     pub(crate) proved_interior: Vec<u32>,
+    /// The source of [`Simplex::plane`].
+    pub(crate) planes: PlaneNumbers,
+    /// The (point, plane) pairs construction found at distance zero
+    /// (design §3).
+    pub(crate) on_plane: OnPlane,
     /// The edges are a strict polygon: adjacent edges are not collinear, so
     /// the coplanar merge does not need to test them.
     pub(crate) strict_edges: bool,
@@ -133,6 +144,8 @@ impl<'a> SimplicialHull<'a> {
             input,
             facets: Arena::new(),
             proved_interior: Vec::new(),
+            planes: PlaneNumbers::default(),
+            on_plane: OnPlane::default(),
             strict_edges: false,
             polygon: Vec::new(),
         };
@@ -428,6 +441,9 @@ impl<'a> SimplicialHull<'a> {
             .map(|(_, vertices)| Simplex::bare(vertices.as_slice().into(), Sign::Positive))
             .collect();
         self.set_planes(&mut facets)?;
+        for facet in &mut facets {
+            facet.plane = self.planes.fresh();
+        }
         let ids: Vec<FacetId> = facets
             .into_iter()
             .map(|simplex| insert_or_abort(&mut self.facets, simplex))
@@ -458,12 +474,23 @@ impl<'a> SimplicialHull<'a> {
     ) -> Result<(), ConvexHullError> {
         let mut strict = vec![true; remaining.len()];
         let mut sides = Vec::new();
-        for &id in facets {
+        // The facets of the initial simplex are on planes of their own, so
+        // no zero is implied yet; each one found is recorded (design §3).
+        let mut seen = Vec::new();
+        let mut found = Vec::new();
+        for (k, &id) in facets.iter().enumerate() {
             if remaining.is_empty() {
                 break;
             }
             let Some(facet) = self.facets.get_mut(id) else {
                 continue;
+            };
+            let mut memo = ZeroMemo {
+                known: &self.on_plane,
+                seen: &mut seen,
+                found: &mut found,
+                simplex: k as u32,
+                bit: 0,
             };
             take_outside(
                 &self.input,
@@ -471,8 +498,18 @@ impl<'a> SimplicialHull<'a> {
                 &mut strict,
                 &mut sides,
                 None,
+                &mut memo,
                 facet,
             )?;
+        }
+        for (point, k) in found {
+            let plane = facets
+                .get(k as usize)
+                .and_then(|&id| self.facets.get(id))
+                .and_then(|f| f.plane);
+            if let Some(plane) = plane {
+                self.on_plane.insert(point, plane);
+            }
         }
         self.proved_interior.extend(
             remaining
@@ -728,7 +765,7 @@ impl<'a> SimplicialHull<'a> {
                 taken.insert(id, ());
             }
             // The neighbors of V are in T. The neighbors of N are marked here.
-            for &(_, _, across) in &region.horizon {
+            for &(_, _, across, _) in &region.horizon {
                 if let Some(facet) = self.facets.get(across) {
                     for &neighbor in &facet.neighbors {
                         taken.insert(neighbor, ());
@@ -747,7 +784,7 @@ impl<'a> SimplicialHull<'a> {
         region
             .horizon
             .iter()
-            .filter_map(|&(id, slot, _)| {
+            .filter_map(|&(id, slot, _, _)| {
                 let facet = self.facets.get(id)?;
                 let mut ridge: Vec<u32> = facet
                     .vertices
@@ -769,7 +806,7 @@ impl<'a> SimplicialHull<'a> {
         region
             .horizon
             .iter()
-            .filter_map(|&(id, slot, _)| {
+            .filter_map(|&(id, slot, _, _)| {
                 let mut vertices = self.facets.get(id)?.vertices.clone();
                 vertices[slot] = apex;
                 Some(vertices.to_vec())
@@ -836,7 +873,7 @@ impl<'a> SimplicialHull<'a> {
         &self,
         start: FacetId,
         apex: u32,
-        visited: &mut SlotMarks<bool>,
+        visited: &mut SlotMarks<Seen>,
         region: &mut Region,
         stop: impl Fn(FacetId) -> Result<(), E>,
     ) -> Result<Result<(), E>, ConvexHullError> {
@@ -848,7 +885,7 @@ impl<'a> SimplicialHull<'a> {
         visible.clear();
         horizon.clear();
         visible.push(start);
-        visited.insert(start, true);
+        visited.insert(start, Seen::Visible);
         let mut cursor = 0;
         while cursor < visible.len() {
             let id = visible[cursor];
@@ -861,11 +898,15 @@ impl<'a> SimplicialHull<'a> {
                     Some(v) => v,
                     None => {
                         let v = match self.facets.get(neighbor) {
-                            Some(n) => self.side(n, apex)? == Sign::Positive,
-                            None => false,
+                            Some(n) => match self.side(n, apex)? {
+                                Sign::Positive => Seen::Visible,
+                                Sign::Zero => Seen::OnPlane,
+                                Sign::Negative => Seen::Hidden,
+                            },
+                            None => Seen::Hidden,
                         };
                         visited.insert(neighbor, v);
-                        if v {
+                        if v == Seen::Visible {
                             if let Err(e) = stop(neighbor) {
                                 return Ok(Err(e));
                             }
@@ -874,8 +915,8 @@ impl<'a> SimplicialHull<'a> {
                         v
                     }
                 };
-                if !seen {
-                    horizon.push((id, slot, neighbor));
+                if seen != Seen::Visible {
+                    horizon.push((id, slot, neighbor, seen == Seen::OnPlane));
                 }
             }
         }
@@ -922,6 +963,10 @@ impl<'a> SimplicialHull<'a> {
                     sides,
                     kept,
                     copied,
+                    local,
+                    bits,
+                    seen,
+                    found,
                 },
             simplices,
             links,
@@ -947,7 +992,7 @@ impl<'a> SimplicialHull<'a> {
         let dim = self.input.dim();
         keys.clear();
         owners.clear();
-        for &(visible_id, slot, across) in horizon {
+        for &(visible_id, slot, across, on_plane) in horizon {
             let Some(old) = self.facets.get(visible_id) else {
                 continue;
             };
@@ -975,7 +1020,15 @@ impl<'a> SimplicialHull<'a> {
                 );
                 owners.push((k, other));
             }
-            simplices.push(Simplex::bare(vertices, Sign::Positive));
+            let mut simplex = Simplex::bare(vertices, Sign::Positive);
+            // With the apex on the plane of the facet across, the horizon
+            // ridge and the apex span that plane: the new simplex lies in
+            // it, with the same outer side, and takes its number (design
+            // §3). Any other simplex is numbered at commit.
+            if on_plane {
+                simplex.plane = self.facets.get(across).and_then(|f| f.plane);
+            }
+            simplices.push(simplex);
             links.extend((0..dim).map(|_| Link::Old(across)));
             bases.push((across, visible_id));
         }
@@ -1031,12 +1084,49 @@ impl<'a> SimplicialHull<'a> {
             tests::COPIES.with(|c| c.set(c.get() + 1));
             copied.fill(&self.input, orphans);
         }
-        for simplex in simplices.iter_mut() {
+        // Simplices of this plan with one number share a plane, so an
+        // orphan found on it once is on it for each of them. The first 64
+        // numbers of the plan get a bit each; a simplex beyond them is
+        // looked up among the hull's records only.
+        local.clear();
+        bits.clear();
+        for simplex in simplices.iter() {
+            let index = simplex.plane.and_then(|plane| {
+                let known = local.iter().position(|&l| l == plane);
+                if known.is_none() && local.len() < u64::BITS as usize {
+                    local.push(plane);
+                    return Some(local.len() - 1);
+                }
+                known
+            });
+            bits.push(index.map_or(0, |i| 1u64 << i));
+        }
+        seen.clear();
+        if !local.is_empty() {
+            seen.resize(orphans.len(), 0);
+        }
+        found.clear();
+        for (k, simplex) in simplices.iter_mut().enumerate() {
             if orphans.is_empty() {
                 break;
             }
             let rows = if copy { Some(&mut *copied) } else { None };
-            take_outside(&self.input, orphans, strict, sides, rows, simplex)?;
+            let mut memo = ZeroMemo {
+                known: &self.on_plane,
+                seen: &mut *seen,
+                found: &mut *found,
+                simplex: k as u32,
+                bit: bits[k],
+            };
+            take_outside(
+                &self.input,
+                orphans,
+                strict,
+                sides,
+                rows,
+                &mut memo,
+                simplex,
+            )?;
         }
         // An orphan strictly inside every new simplex lies in the open cone
         // from the apex over the hull, before the visible facet it was
@@ -1067,8 +1157,21 @@ impl<'a> SimplicialHull<'a> {
         self.proved_interior.extend_from_slice(&created.interior);
         let d = self.input.dim();
         ids.clear();
-        for simplex in created.simplices.drain(..) {
+        for mut simplex in created.simplices.drain(..) {
+            if simplex.plane.is_none() {
+                simplex.plane = self.planes.fresh();
+            }
             ids.push(insert_or_abort(&mut self.facets, simplex));
+        }
+        // The plan's zeros, under the numbers its simplices have now.
+        for &(point, k) in &created.scratch.found {
+            let plane = ids
+                .get(k as usize)
+                .and_then(|&id| self.facets.get(id))
+                .and_then(|f| f.plane);
+            if let Some(plane) = plane {
+                self.on_plane.insert(point, plane);
+            }
         }
         for ((&id, links), &(across, replaces)) in ids
             .iter()
@@ -1193,6 +1296,32 @@ struct PlanScratch {
     kept: VertexSet,
     /// The orphans' coordinates, when the plan scans them from a copy.
     copied: CopiedRows,
+    /// The plane numbers the new simplices inherit, at most 64 of them.
+    local: Vec<PlaneNumber>,
+    /// Per new simplex, the bit of its number in `local`, or 0.
+    bits: Vec<u64>,
+    /// Per orphan, the numbers of `local` it was found on in this plan, by
+    /// bit. Empty when `local` is.
+    seen: Vec<u64>,
+    /// (point, new simplex) of every exact zero of this plan, recorded at
+    /// commit.
+    found: Vec<(u32, u32)>,
+}
+
+/// What [`take_outside`] knows and learns about zero signs (design §3).
+struct ZeroMemo<'a> {
+    /// The pairs recorded in the hull before the round.
+    known: &'a OnPlane,
+    /// Per point of `remaining`, the plan's numbers it was found on, by
+    /// bit; empty when no simplex of the plan has a bit. Kept in step with
+    /// `remaining` as it shrinks.
+    seen: &'a mut Vec<u64>,
+    /// (point, simplex) of every exact zero, appended.
+    found: &'a mut Vec<(u32, u32)>,
+    /// The number of the simplex within its plan.
+    simplex: u32,
+    /// The bit of the simplex's plane number, or 0.
+    bit: u64,
 }
 
 /// A neighbor reference inside a plan.
@@ -1278,15 +1407,20 @@ fn farthest(input: &Input<'_>, facet: &Simplex) -> Option<(u32, Option<f64>)> {
 /// most points strictly inside or strictly outside; only the points it
 /// leaves undecided reach the orientation (#214). With `copied`, the scan
 /// reads the points from those rows, which follow `remaining` as it
-/// shrinks.
+/// shrinks. An undecided point with a record on the facet's plane number is
+/// on the plane without an orientation, and every zero the orientation
+/// finds is added to `memo` (design §3).
 fn take_outside(
     input: &Input<'_>,
     remaining: &mut Vec<u32>,
     strict: &mut Vec<bool>,
     sides: &mut Vec<Option<Sign>>,
     mut copied: Option<&mut CopiedRows>,
+    memo: &mut ZeroMemo<'_>,
     facet: &mut Simplex,
 ) -> Result<(), ConvexHullError> {
+    debug_assert!(memo.seen.is_empty() || memo.seen.len() == remaining.len());
+    debug_assert!(memo.bit == 0 || !memo.seen.is_empty() || remaining.is_empty());
     sides.clear();
     sides.resize(remaining.len(), None);
     if let Some(cull) = &facet.cull {
@@ -1319,13 +1453,44 @@ fn take_outside(
                 );
                 proved
             }
-            None => side(input, facet, p)?,
+            None => {
+                let recorded = (memo.bit != 0 && memo.seen[k] & memo.bit != 0)
+                    || facet
+                        .plane
+                        .is_some_and(|plane| memo.known.contains(p, plane));
+                #[cfg(test)]
+                let recorded = recorded && !tests::RECORDS_OFF.with(core::cell::Cell::get);
+                let sign = if recorded {
+                    #[cfg(test)]
+                    tests::RECORD_HITS.with(|c| c.set(c.get() + 1));
+                    #[cfg(debug_assertions)]
+                    debug_assert_eq!(
+                        oriented_side(input, facet, p)?,
+                        Sign::Zero,
+                        "point {p} has a record on a plane it is not on"
+                    );
+                    Sign::Zero
+                } else {
+                    let sign = side(input, facet, p)?;
+                    if sign == Sign::Zero {
+                        memo.found.push((p, memo.simplex));
+                    }
+                    sign
+                };
+                if sign == Sign::Zero && memo.bit != 0 {
+                    memo.seen[k] |= memo.bit;
+                }
+                sign
+            }
         };
         if sign == Sign::Positive {
             facet.outside.push(p);
         } else {
             remaining[kept] = p;
             strict[kept] = strict[k] && sign == Sign::Negative;
+            if !memo.seen.is_empty() {
+                memo.seen[kept] = memo.seen[k];
+            }
             if let Some(c) = copied.as_deref_mut() {
                 let d = input.dim();
                 c.rows.copy_within(k * d..(k + 1) * d, kept * d);
@@ -1335,6 +1500,9 @@ fn take_outside(
     }
     remaining.truncate(kept);
     strict.truncate(kept);
+    if !memo.seen.is_empty() {
+        memo.seen.truncate(kept);
+    }
     if let Some(c) = copied {
         c.rows.truncate(kept * input.dim());
     }
@@ -1398,8 +1566,9 @@ impl CopiedRows {
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Region {
     visible: Vec<FacetId>,
-    /// (visible facet, slot of the ridge in it, facet across the ridge).
-    horizon: Vec<(FacetId, usize, FacetId)>,
+    /// (visible facet, slot of the ridge in it, facet across the ridge,
+    /// whether the apex is on the supporting plane of the facet across).
+    horizon: Vec<(FacetId, usize, FacetId, bool)>,
 }
 
 impl Region {
@@ -1408,7 +1577,7 @@ impl Region {
         self.visible
             .iter()
             .copied()
-            .chain(self.horizon.iter().map(|&(_, _, n)| n))
+            .chain(self.horizon.iter().map(|&(_, _, n, _)| n))
     }
 }
 
@@ -1475,12 +1644,25 @@ impl VertexSet {
     }
 }
 
+/// What a walk decided about a facet from the exact side of its apex.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Seen {
+    /// The apex is strictly outside: the facet is in V.
+    Visible,
+    /// The apex is strictly inside.
+    #[default]
+    Hidden,
+    /// The apex is on the facet's supporting plane. The facet is kept, and
+    /// a new simplex across a ridge of it lies in that plane (design §3).
+    OnPlane,
+}
+
 /// Per-search marks reused across walks and rounds, so neither hashes nor
 /// allocates per facet (#120).
 #[derive(Default)]
 struct WalkScratch {
     /// Facets the current walk has decided: visible or not.
-    visited: SlotMarks<bool>,
+    visited: SlotMarks<Seen>,
     /// T of the candidates taken in the current round, and every facet
     /// adjacent to one.
     taken: SlotMarks<()>,
@@ -1662,6 +1844,8 @@ pub(crate) mod tests {
             input: accept(dim, points).unwrap(),
             facets: Arena::new(),
             proved_interior: Vec::new(),
+            planes: PlaneNumbers::default(),
+            on_plane: OnPlane::default(),
             strict_edges: false,
             polygon: Vec::new(),
         };
@@ -2025,6 +2209,13 @@ pub(crate) mod tests {
             const { core::cell::Cell::new(None) };
         /// Plans on this thread that scanned copied rows.
         pub(super) static COPIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+        /// Makes [`take_outside`] on this thread evaluate every sign, as if
+        /// no pair were recorded.
+        pub(crate) static RECORDS_OFF: core::cell::Cell<bool> =
+            const { core::cell::Cell::new(false) };
+        /// Signs [`take_outside`] took from a record on this thread.
+        pub(crate) static RECORD_HITS: core::cell::Cell<usize> =
+            const { core::cell::Cell::new(0) };
     }
 
     /// The sequential build of `points` with orphans copied from plans of
@@ -2107,6 +2298,81 @@ pub(crate) mod tests {
             assert_eq!(snapshot(&sequential), snapshot(&parallel), "dim {dim}");
             assert_eq!(sequential.polygon, parallel.polygon, "dim {dim}");
             check_invariants(&parallel);
+        }
+    }
+
+    /// Points of the surface of the cube [-1, 1]^D on a lattice of step
+    /// 1/4: every point is on a facet, many on several.
+    pub(crate) fn cube_surface(dim: usize, count: usize, seed: u64) -> Vec<f64> {
+        let mut rng = Rng(seed);
+        let mut points = Vec::with_capacity(dim * count);
+        for _ in 0..count {
+            let start = points.len();
+            points.extend((0..dim).map(|_| (rng.next() % 9) as f64 / 4.0 - 1.0));
+            let axis = (rng.next() % dim as u64) as usize;
+            points[start + axis] = if rng.next().is_multiple_of(2) {
+                -1.0
+            } else {
+                1.0
+            };
+        }
+        points
+    }
+
+    /// Simplices with one plane number have one supporting plane and one
+    /// outer side (design §3). The reference is the exact orientation, which
+    /// reads no number: every representative has the same side of each.
+    #[test]
+    fn simplices_with_one_plane_number_agree_on_every_point() {
+        let mut grid = Vec::new();
+        for i in 0..4 {
+            for j in 0..4 {
+                for k in 0..4 {
+                    grid.extend([f64::from(i), f64::from(j), f64::from(k)]);
+                }
+            }
+        }
+        let mut rng = Rng(5);
+        let general: Vec<f64> = (0..600).map(|_| rng.unit()).collect();
+        for (name, dim, points, coplanar) in [
+            ("grid", 3, grid, true),
+            ("surface 3", 3, cube_surface(3, 400, 11), true),
+            ("surface 4", 4, cube_surface(4, 300, 12), true),
+            ("general", 3, general, false),
+        ] {
+            let hull = build(dim, &points);
+            let mut by_number: Vec<Vec<&Simplex>> = vec![Vec::new(); hull.planes.end()];
+            for (_, facet) in hull.facets.iter() {
+                let number = facet.plane.expect("every committed simplex is numbered");
+                by_number[number.index()].push(facet);
+            }
+            let mut shared = 0;
+            for group in by_number.iter().filter(|g| g.len() > 1) {
+                shared += 1;
+                for other in &group[1..] {
+                    for &p in &hull.input.representatives {
+                        assert_eq!(
+                            hull.side(group[0], p).unwrap(),
+                            hull.side(other, p).unwrap(),
+                            "{name}: point {p}"
+                        );
+                    }
+                }
+            }
+            // Every record is of a point on that plane.
+            let mut records = 0;
+            for (point, number) in hull.on_plane.iter() {
+                records += 1;
+                for facet in &by_number[number] {
+                    assert_eq!(hull.side(facet, point).unwrap(), Sign::Zero, "{name}");
+                }
+            }
+            if coplanar {
+                assert!(shared > 0, "{name}: no number was inherited");
+                assert!(records > 0, "{name}: nothing was recorded");
+            } else {
+                assert_eq!((shared, records), (0, 0), "{name}");
+            }
         }
     }
 

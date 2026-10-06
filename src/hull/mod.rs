@@ -7,6 +7,7 @@ pub(crate) mod input;
 #[cfg(any(test, debug_assertions))]
 pub(crate) mod invariants;
 pub(crate) mod merge;
+pub(crate) mod planes;
 pub(crate) mod publish;
 pub(crate) mod ridge;
 pub(crate) mod simplicial;
