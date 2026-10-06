@@ -132,6 +132,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-54 | Feat  | Publish the certified cofactor direction and remove the published QR                                      | #212  | Done                     |
 | P5-55 | Feat  | Find duplicate points and list interior points without sorting every input point                          | #213  | Done                     |
 | P5-56 | Feat  | Partition outside points without re-testing what the scan proved or re-gathering scattered rows           | #214  | Done                     |
+| P5-57 | Spike | How much of the pass after construction can a hull of single-simplex facets skip?                         | #228  | Done                     |
 | P5-57 | Spike | How does convx compare with CGAL on the hull and Delaunay timing sets?                                    | #215  | Done                     |
 
 ## Intentionally out of scope
