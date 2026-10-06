@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P5-52 (#209): cut the copies and cache lines of the simplex record that hull construction writes and walks.
+P5-37 (#176): find whether a core monomorphized on D speeds up the build, and whether a dedicated D = 2 hull beats Quickhull.
 
 ## Dependencies
 
@@ -127,7 +127,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-49 | Spike | Why is the low-dimension cube hull slower than Qhull's compute time?                                      | #200  | Done                     |
 | P5-50 | Bug   | Run the filtered elimination under AVX2, not AVX-512 (the D = 8 lifted 9 x 9 was 24x slower)              | #195  | Done                     |
 | P5-51 | Feat  | Vectorize the filtered elimination of size 10 and up (heap rows)                                          | #203  | Not started              |
-| P5-52 | Feat  | Cut the copies and cache lines of the simplex record that hull construction writes and walks              | #209  | In progress              |
+| P5-52 | Feat  | Cut the copies and cache lines of the simplex record that hull construction writes and walks              | #209  | Done                     |
 | P5-53 | Docs  | Publish the certified cofactor direction as every facet's unit normal                                     | #210  | Done                     |
 | P5-54 | Feat  | Publish the certified cofactor direction and remove the published QR                                      | #212  | Done                     |
 | P5-55 | Feat  | Find duplicate points and list interior points without sorting every input point                          | #213  | Done                     |
