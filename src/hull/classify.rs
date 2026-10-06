@@ -146,20 +146,19 @@ fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
 
     let mut vertices = hull.polygon.clone();
     vertices.sort_unstable();
-    let mut coplanar_points: Vec<u32> = others
+    // `others` is ascending, so both lists are too.
+    let coplanar_points: Vec<u32> = others
         .iter()
         .zip(&on_boundary)
         .filter(|&(_, &b)| b)
         .map(|(&p, _)| p)
         .collect();
-    coplanar_points.sort_unstable();
-    let mut interior_points: Vec<u32> = others
+    let interior_points: Vec<u32> = others
         .iter()
         .zip(&on_boundary)
         .filter(|&(_, &b)| !b)
         .map(|(&p, _)| p)
         .collect();
-    interior_points.sort_unstable();
 
     let groups = merge(&hull)?.groups;
     let mut faces = Vec::with_capacity(n);
@@ -301,29 +300,32 @@ fn classify_built(
         .copied()
         .filter(|&p| is_vertex[p as usize])
         .collect();
-    let mut coplanar_points: Vec<u32> = hull
-        .input
-        .representatives
-        .iter()
-        .copied()
-        .filter(|&p| on_complex[p as usize] && !is_vertex[p as usize])
-        .chain(
-            others
-                .iter()
-                .zip(&on_boundary)
-                .filter(|&(&p, &b)| b && !is_vertex[p as usize])
-                .map(|(&p, _)| p),
-        )
-        .collect();
-    coplanar_points.sort_unstable();
-    let mut interior_points: Vec<u32> = others
-        .iter()
-        .zip(&on_boundary)
-        .filter(|&(_, &b)| !b)
-        .map(|(&p, _)| p)
-        .chain(hull.proved_interior.iter().copied())
-        .collect();
-    interior_points.sort_unstable();
+    // Every representative is a vertex, on the complex, on the boundary
+    // by the scan, or interior: either proved during construction or
+    // scanned strictly inside. One pass over the ascending representatives
+    // lists the points of each class in order, without sorting the
+    // interior points, which are almost all of a large input (#213).
+    let mut boundary = vec![false; hull.input.representative.len()];
+    for (&p, &b) in others.iter().zip(&on_boundary) {
+        boundary[p as usize] = b;
+    }
+    let mut coplanar_points: Vec<u32> = Vec::new();
+    let mut interior_points: Vec<u32> = Vec::new();
+    for &p in &hull.input.representatives {
+        let i = p as usize;
+        if on_complex[i] || boundary[i] {
+            if !is_vertex[i] {
+                coplanar_points.push(p);
+            }
+        } else {
+            interior_points.push(p);
+        }
+    }
+    debug_assert_eq!(
+        interior_points.len(),
+        hull.proved_interior.len() + on_boundary.iter().filter(|&&b| !b).count(),
+        "an interior point is proved during construction or scanned inside"
+    );
 
     // Boundary simplices: kept as built, or re-triangulated by placing.
     let mut simplices: Vec<ComplexSimplex> = Vec::new();
