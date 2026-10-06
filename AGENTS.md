@@ -8,6 +8,7 @@ Entry point for agents. Procedure: [CONTRIBUTING.md](CONTRIBUTING.md). Enforceme
 | Design (English)             | [docs/design.md](docs/design.md)             |
 | Order and status             | [docs/roadmap.md](docs/roadmap.md)           |
 | How results are checked      | [docs/verification.md](docs/verification.md) |
+| Measured timings             | [docs/bench.md](docs/bench.md)               |
 | Why a decision was made      | [docs/adr/](docs/adr/)                       |
 
 `docs/adr/` holds one file per decision, numbered from `0001`. `docs/conventions.md` is created when modules exist.
