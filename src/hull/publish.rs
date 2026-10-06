@@ -401,7 +401,7 @@ fn edge_normals(
             let basis = facet_basis(input, vertices)?;
             let points: BasisPoints<'_> = basis.iter().map(|&v| input.point(v)).collect();
             let cofactors = facet_cofactors(&points);
-            let normal = oriented_normal(input, &points, inner, cofactors)?;
+            let normal = oriented_normal(input, &points, inner, cofactors.as_deref())?;
             f(&basis, normal)?;
             continue;
         };
@@ -447,10 +447,10 @@ pub(crate) fn for_each_facet_normal(
                 })
             };
         for (((&(_, inner), basis), points), cofactors) in
-            chunk.iter().zip(bases).zip(&points).zip(cofactors)
+            chunk.iter().zip(bases).zip(&points).zip(&cofactors)
         {
             let basis = basis?;
-            let normal = oriented_normal(input, points, inner, cofactors)?;
+            let normal = oriented_normal(input, points, inner, cofactors.as_deref())?;
             f(&basis, normal)?;
         }
     }
@@ -488,16 +488,14 @@ fn oriented_normal(
     input: &Input<'_>,
     points: &[&[f64]],
     inner: u32,
-    cofactors: Option<Cofactors>,
+    cofactors: Option<&[(f64, f64)]>,
 ) -> Result<Vec<f64>, ConvexHullError> {
     let point = |i: u32| input.point(i);
     let with_inner =
         || -> BasisPoints<'_> { points.iter().copied().chain([point(inner)]).collect() };
     // The cofactors certify the normal and usually prove the side of
     // `inner` too, without the orientation determinant.
-    let proved = cofactors
-        .as_deref()
-        .and_then(|c| certified_side(points, c, point(inner)));
+    let proved = cofactors.and_then(|c| certified_side(points, c, point(inner)));
     let inside = match proved {
         Some(sign) => {
             debug_assert_eq!(
@@ -509,7 +507,7 @@ fn oriented_normal(
         }
         None => orient(&with_inner())?,
     };
-    unit_normal_with(points, inside.reversed(), cofactors.as_deref())?
+    unit_normal_with(points, inside.reversed(), cofactors)?
         .ok_or(ConvexHullError::NonFiniteFacetPlane)
 }
 

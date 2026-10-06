@@ -132,7 +132,6 @@ impl<T> Arena<T> {
     }
 
     /// Number of live entries.
-    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.len
     }
