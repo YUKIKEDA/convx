@@ -32,7 +32,7 @@ The orientation of the sign is fixed as follows.
 - The plane is $x \cdot n + \mathrm{offset} = 0$. $n$ is the outward unit normal.
 - Orientation is the exact sign of a determinant. `FacetPlane`'s $x \cdot n + \mathrm{offset}$ is not used for this decision.
 - Geometric degree $k$ is one less than the number of argument points. It is independent of the hull dimension $D$. $k \le 4$, that is up to five points, is computed with a dedicated formula. How the formula is expanded is left to the implementation. When $k$ exceeds 4, the predicate evaluates a filtered floating-point determinant and falls back to the exact sign only when the value lies inside the bound.
-- Householder QR produces the public unit normal of a facet with three or more points. A two-point facet publishes the cofactor direction, oriented outward, and does not run QR. For three or more points it is this crate's own factorization, of the scaled edge matrix held in one buffer. The working normal used by distance scans is the cofactor direction below, and it is not produced by QR. Householder QR is backward stable: the computed last column of Q is the exact null direction of a matrix within rounding of the edge matrix. A reflector is skipped only when the rest of its column is exactly zero. When an edge is nearly parallel to the span of the others, the smallest singular value of the edges approaches that rounding, and the null direction of the perturbed matrix can lie farther than the tolerance from the true normal while still on the correct side. So the published QR normal is compared with the unit direction of the facet's cofactor vector, whose entry $c_j$ is the determinant of the edges followed by the unit row $e_j$. That direction is certified with an error bound by the predicate filter, or computed exactly when the bound is loose. When a facet has $n \ge 5$ points, the filter evaluates every cofactor from one elimination of the $(n-1) \times n$ edge matrix $E$. Gaussian elimination with partial pivoting over its first $n - 1$ columns gives $[T \mid u]$ with $T$ upper triangular, after $s$ row swaps. Adding a multiple of one row to another leaves every maximal minor of $E$ unchanged, and a swap flips its sign. If $T x = u$, then $E$ maps $(-x, 1)$ to zero, and Cramer's rule gives $c = (-1)^s \det T \cdot (-x, 1)$. The filter carries a running bound through the elimination, the back substitution for $x$, and the products with $\det T$, so each $c_j$ has its own bound, as when it was a separate determinant. A divisor whose sign the bound does not certify leaves the cofactors uncertified, and the direction is computed exactly. When the two differ by more than the certified error plus a small fixed tolerance, the cofactor direction is used. The normal points to the side where the orientation of the ordered facet vertices has the outward sign. That side is proved from the error bound, and no determinant is evaluated. Let $u = c/|c|$ be the exact unit cofactor direction and let $|v - u| = e < 1$. Then $|v| \ge 1 - e$ and $v \cdot u = (|v|^2 + 1 - e^2)/2 \ge 1 - e > 0$. The orientation sign is the sign of $v \cdot c$, so $v$ lies on the positive side. The certified error is at most $10^{-10}$, or $D \cdot 2^{-49}$ when computed exactly, so the proof holds for the working normal. The published QR normal takes whichever of its two signs lies nearer the cofactor direction. That distance is at most $2\varepsilon + 10^{-8} < 1$, so the same proof holds.
+- The public unit normal of a facet, for any number of points, is the unit direction of the facet's cofactor vector, whose entry $c_j$ is the determinant of the edges followed by the unit row $e_j$, oriented outward. The working normal used by distance scans is the same direction. That direction is certified with an error bound by the predicate filter. When the bound exceeds $10^{-10}$, it is computed exactly and rounded once when it is made unit. Householder QR is not used. The certified direction is more accurate than the QR normal was, and its error bound is guaranteed (ADR 0002). When a facet has $n \ge 5$ points, the filter evaluates every cofactor from one elimination of the $(n-1) \times n$ edge matrix $E$. Gaussian elimination with partial pivoting over its first $n - 1$ columns gives $[T \mid u]$ with $T$ upper triangular, after $s$ row swaps. Adding a multiple of one row to another leaves every maximal minor of $E$ unchanged, and a swap flips its sign. If $T x = u$, then $E$ maps $(-x, 1)$ to zero, and Cramer's rule gives $c = (-1)^s \det T \cdot (-x, 1)$. The filter carries a running bound through the elimination, the back substitution for $x$, and the products with $\det T$, so each $c_j$ has its own bound, as when it was a separate determinant. A divisor whose sign the bound does not certify leaves the cofactors uncertified, and the direction is computed exactly. The normal points to the side where the orientation of the ordered facet vertices has the outward sign. That side is proved from the error bound, and no determinant is evaluated. Let $u = c/|c|$ be the exact unit cofactor direction and let $|v - u| = e < 1$. Then $|v| \ge 1 - e$ and $v \cdot u = (|v|^2 + 1 - e^2)/2 \ge 1 - e > 0$. The orientation sign is the sign of $v \cdot c$, so $v$ lies on the positive side. The certified error is at most $10^{-10}$, or $D \cdot 2^{-49}$ when computed exactly, so the proof holds for the working normal and for the public normal.
 
 A SIMD distance scan culls points the error bound proves strictly inside, removing them from the predicate's inputs. The side of a point against a facet, which decides visibility and outsideness, is the exact orientation sign of the facet's vertices, in outward order, and the point. The working distance may prove that sign before the orientation is evaluated, but only a strict one. When the computed distance $w$ is beyond the certified threshold $(\mathrm{slope} \cdot l + \mathrm{floor})(1 + 4u)$ on either side, the true distance to the exact plane has the same strict sign, and so does the orientation. Every other case, including a sign of zero, is decided by the orientation. The threshold is the one the cull uses: $|n - u^*| \le \tau$ and the rounding of $w$ bound $|w - (x - o) \cdot u^*|$ in absolute value, so the proof holds in both directions. A facet without a certified working normal uses the orientation only. The result is the same sign either way.
 
@@ -47,7 +47,7 @@ flowchart TD
     api["Public API: ConvexHull / DelaunayTriangulation / VoronoiDiagram"]
     topo["Topology: Quickhull / logical facets / merge / commit of a non-interfering batch"]
     pred["Predicates: orientation / distance sign / coplanar / error bound / exact sign"]
-    num["Numeric kernel: dedicated formulas for k <= 4 / filtered determinant / QR for the unit normal / SIMD distance"]
+    num["Numeric kernel: dedicated formulas for k <= 4 / filtered determinant / cofactor direction for the unit normal / SIMD distance"]
     mem["Memory: generational arena during construction / worker-local mutation"]
     api --> topo --> pred --> num --> mem
 ```
@@ -182,20 +182,18 @@ The facet array is ordered by lexicographic vertex lists. The number in that ord
 
 The plane is built from that facet's vertices. Walking index tuples in lexicographic order, the first $D$ points that are affinely independent are chosen. A tuple whose exact sign is zero is skipped, and the walk continues to the next tuple. The coordinates the predicate sees are the input bit patterns as they are. Only the public plane is built in the following order.
 
-1. Translate to a representative point
-2. Scale uniformly by the coordinate width
-3. Form the normal in `f64`, including the check against the cofactor direction of §1
-4. Make it unit length
-5. Match the sign to the exact orientation, with inside negative
-6. Compute the offset in the translated coordinates, then map it back to the original coordinates
+1. Take the certified cofactor direction of §1 as the normal. Only when it is computed exactly are the coordinates first scaled uniformly by a power of two; the scaling does not change the direction
+2. Make it unit length
+3. Match the sign to the orientation proved from the error bound, with inside negative
+4. Take the offset as $-n \cdot r$, where $r$ is the first point of the basis
 
-The published unit normal $n$ lies within Euclidean distance $10^{-8} + 2 \cdot 10^{-10}$ of $\hat c = c / \lVert c \rVert$, the unit direction of the cofactor vector $c$ of the $D$ points the plane is built from, oriented so that the inside is negative (for $D \le 56294$).
+The published unit normal $n$ lies within Euclidean distance $10^{-10}$ of $\hat c = c / \lVert c \rVert$, the unit direction of the cofactor vector $c$ of the $D$ points the plane is built from, oriented so that the inside is negative (for $D \le 56294$).
 
 $$
-\lVert n - \hat c \rVert_2 \le 10^{-8} + 2 \cdot 10^{-10}
+\lVert n - \hat c \rVert_2 \le \varepsilon \le 10^{-10}
 $$
 
-The bound follows from the check of §1. The direction used for the check is within its error bound $\varepsilon$ of the true $\hat c$. $\varepsilon$ is at most $10^{-10}$ for a direction certified by the filter, and $D \cdot 2^{-49}$ when it is computed exactly. Both are at most $10^{-10}$ when $D \le 56294$. The QR normal is kept only when it is within $\varepsilon + 10^{-8}$ of that direction, and otherwise that direction itself is used. So the distance is at most $2\varepsilon + 10^{-8}$. The bound does not affect topology, and values across versions are still not promised to agree.
+The bound follows from §1. The published normal is the certified direction itself, within its error bound $\varepsilon$ of the true $\hat c$. $\varepsilon$ is at most $10^{-10}$ for a direction certified by the filter, and $D \cdot 2^{-49}$ when it is computed exactly. Both are at most $10^{-10}$ when $D \le 56294$. The normal depends only on the $D$ points the plane is built from, not on the vertex order of a simplex during construction. The bound does not affect topology, and values across versions are still not promised to agree.
 
 If the normal or the offset is then non-finite, the build fails with `NonFiniteFacetPlane`. That failure means the hull topology was already decided and the public plane could not be made a finite `f64`. This plane is not used for the topology decision. The same binary decides the plane by this procedure. Bit-identical floats across versions are not promised.
 
@@ -404,7 +402,7 @@ impl<'a> TriangulationView<'a> {
 
 Simplex order is the lexicographic order of the ascending vertex lists before the swap. It is the same order in which §5 adds the terms of `volume()`. `boundary_cycle(facet)` returns `None` when `facet` is not a public facet number, in every dimension. It does not panic.
 
-The static API is a wrapper for stack arrays and monomorphization. It is a separate axis from swapping a solver. Dedicated orientation formulas are for geometric degree $k \le 4$, with $k + 1$ arguments. Orientations beyond that are filtered determinants. QR produces only the unit normal.
+The static API is a wrapper for stack arrays and monomorphization. It is a separate axis from swapping a solver. Dedicated orientation formulas are for geometric degree $k \le 4$, with $k + 1$ arguments. Orientations beyond that are filtered determinants.
 
 ```rust
 pub struct StaticConvexHull<const D: usize>;
@@ -479,7 +477,7 @@ The Parallel column measures the hull. Delaunay and Voronoi are built by sequent
 
 ## 11. Implementation order
 
-Phase 1 is the predicate kernel. Orientation, the distance sign, coplanar, the error bound, and the fallback to the exact sign are fixed first. The same phase places a single-threaded generational arena, SIMD distance, the dedicated formulas for geometric degree $k \le 4$, the filtered determinant, and the QR for the unit normal. Phase 1 is not complete until the predicate inputs above pass.
+Phase 1 is the predicate kernel. Orientation, the distance sign, coplanar, the error bound, and the fallback to the exact sign are fixed first. The same phase places a single-threaded generational arena, SIMD distance, the dedicated formulas for geometric degree $k \le 4$, the filtered determinant, and the cofactor direction for the unit normal. Phase 1 is not complete until the predicate inputs above pass.
 
 Phase 2 is sequential Quickhull. A $D = 2$ input whose points are mostly extreme is built by the chain in §6. Insertion proceeds with simplices. After completion, coplanar simplices are merged, and then the distance-zero points are classified. This phase includes the index partition, `volume()`, the invariants, and the convex-hull inputs above.
 
