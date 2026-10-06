@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P5-55 (#213): find duplicate points and list interior points without sorting every input point.
+P5-56 (#214): partition outside points without re-testing what the scan proved or re-gathering scattered rows.
 
 ## Dependencies
 
@@ -130,7 +130,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-52 | Feat  | Cut the copies and cache lines of the simplex record that hull construction writes and walks              | #209  | In progress              |
 | P5-53 | Docs  | Publish the certified cofactor direction as every facet's unit normal                                     | #210  | Done                     |
 | P5-54 | Feat  | Publish the certified cofactor direction and remove the published QR                                      | #212  | Done                     |
-| P5-55 | Feat  | Find duplicate points and list interior points without sorting every input point                          | #213  | Not started              |
+| P5-55 | Feat  | Find duplicate points and list interior points without sorting every input point                          | #213  | Done                     |
 | P5-56 | Feat  | Partition outside points without re-testing what the scan proved or re-gathering scattered rows           | #214  | Not started              |
 
 ## Intentionally out of scope
