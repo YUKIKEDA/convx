@@ -16,7 +16,7 @@ Error is only the rounding of evaluating that predicate. The filter carries an a
 
 The public API has no tolerance parameter. Coplanar means the exact sign of the distance is zero.
 
-Geometric degree $k$ is one less than the number of argument points, and is independent of the hull dimension $D$. $k \le 4$ (up to five points) uses a dedicated formula. $k > 4$ uses a filtered floating-point determinant. Householder QR, implemented in this crate, produces the public unit normal of a facet with three or more points. A two-point facet publishes the oriented cofactor direction. The working normal used by distance scans is the certified cofactor direction.
+Geometric degree $k$ is one less than the number of argument points, and is independent of the hull dimension $D$. $k \le 4$ (up to five points) uses a dedicated formula. $k > 4$ uses a filtered floating-point determinant. The public unit normal of every facet, and the working normal used by distance scans, is the certified cofactor direction, oriented outward.
 
 A SIMD distance scan culls points the error bound proves strictly inside, so they are not fed to the predicate. Visibility and outsideness are the strict sign of the orientation of the facet vertices and the point. The certified working distance may prove that sign first, inside or outside; zero and everything near the plane go to the orientation. Dimension is also decided by predicate signs. A new point with exact sign zero against the current basis does not extend the span.
 
