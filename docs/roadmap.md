@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P5-60 (#232): build every D = 2 hull by the filtered strict chain.
+P5-38 (#177): find where the peak memory of output-heavy builds goes.
 
 ## Dependencies
 
@@ -135,7 +135,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-57 | Spike | How does convx compare with CGAL on the hull and Delaunay timing sets?                                    | #215  | Done                     |
 | P5-58 | Spike | How much of the pass after construction can a hull of single-simplex facets skip?                         | #228  | Done                     |
 | P5-59 | Docs  | One filtered strict chain for the D = 2 hull                                                               | #230  | Done                     |
-| P5-60 | Feat  | Build every D = 2 hull by the filtered strict chain                                                        | #232  | Not started              |
+| P5-60 | Feat  | Build every D = 2 hull by the filtered strict chain                                                        | #232  | Done                     |
 
 ## Intentionally out of scope
 

@@ -128,7 +128,7 @@ impl<'a> SimplicialHull<'a> {
         };
         if hull.input.dim() == 1 {
             hull.build_segment()?;
-        } else if hull.input.dim() == 2 && hull.prefer_polygon()? {
+        } else if hull.input.dim() == 2 {
             hull.build_polygon()?;
         } else {
             let initial = hull.initial_simplex()?;
@@ -243,140 +243,45 @@ impl<'a> SimplicialHull<'a> {
         Ok(())
     }
 
-    /// Whether the extreme chain will be faster than insertion.
+    /// The polygon that discards points before the D = 2 chain (design §6):
+    /// the strict chain of the farthest representative in each of eight
+    /// directions, counterclockwise. A tie keeps the smaller index. Fewer
+    /// than three vertices mean no polygon, and the list is empty.
     ///
-    /// Fewer than 1024 representatives use the chain. Otherwise a stride of
-    /// at most 64 representatives, in input order, is tested against the
-    /// polygon of the endpoints of the four axis-aligned supporting lines.
-    /// The chain is used when at least three quarters of that sample lie
-    /// outside the polygon. A set with a large interior, such as the cube,
-    /// stays on insertion.
-    fn prefer_polygon(&self) -> Result<bool, ConvexHullError> {
-        let reps = &self.input.representatives;
-        if reps.len() < 1024 {
-            return Ok(true);
-        }
-        let point = |i: u32| self.input.point(i);
-        let mut min_x = f64::INFINITY;
-        let mut max_x = f64::NEG_INFINITY;
-        let mut min_y = f64::INFINITY;
-        let mut max_y = f64::NEG_INFINITY;
-        for &r in reps {
-            let p = point(r);
-            min_x = min_x.min(p[0]);
-            max_x = max_x.max(p[0]);
-            min_y = min_y.min(p[1]);
-            max_y = max_y.max(p[1]);
-        }
-        // Both endpoints of each supporting line. A tie keeps the smaller
-        // index. One contact point is both endpoints.
-        let better = |slot: Option<u32>, r: u32, coord: f64, axis: usize, want_min: bool| match slot
-        {
-            None => r,
-            Some(c) => {
-                let current = point(c)[axis];
-                let wins = if want_min {
-                    coord < current
-                } else {
-                    coord > current
-                };
-                if wins || (coord == current && r < c) {
-                    r
-                } else {
-                    c
+    /// The directions are compared as rounded sums and differences. Any
+    /// input points make a valid polygon, so the rounding only changes
+    /// which ones it takes.
+    fn discard_polygon(&self) -> Result<Vec<u32>, ConvexHullError> {
+        let mut best = [f64::NEG_INFINITY; 8];
+        let mut farthest = [None; 8];
+        for &r in &self.input.representatives {
+            let p = self.input.point(r);
+            let (x, y) = (p[0], p[1]);
+            let keys = [x, -x, y, -y, x + y, x - y, y - x, -x - y];
+            for ((key, best), farthest) in keys.into_iter().zip(&mut best).zip(&mut farthest) {
+                // Representatives ascend, so a strict test keeps the
+                // smaller index on a tie.
+                if key > *best {
+                    *best = key;
+                    *farthest = Some(r);
                 }
             }
-        };
-        let mut left_low = None;
-        let mut left_high = None;
-        let mut right_low = None;
-        let mut right_high = None;
-        let mut bottom_left = None;
-        let mut bottom_right = None;
-        let mut top_left = None;
-        let mut top_right = None;
-        for &r in reps {
-            let p = point(r);
-            if p[0] == min_x {
-                left_low = Some(better(left_low, r, p[1], 1, true));
-                left_high = Some(better(left_high, r, p[1], 1, false));
-            }
-            if p[0] == max_x {
-                right_low = Some(better(right_low, r, p[1], 1, true));
-                right_high = Some(better(right_high, r, p[1], 1, false));
-            }
-            if p[1] == min_y {
-                bottom_left = Some(better(bottom_left, r, p[0], 0, true));
-                bottom_right = Some(better(bottom_right, r, p[0], 0, false));
-            }
-            if p[1] == max_y {
-                top_left = Some(better(top_left, r, p[0], 0, true));
-                top_right = Some(better(top_right, r, p[0], 0, false));
-            }
         }
-        let mut unique: Vec<u32> = [
-            left_low,
-            left_high,
-            right_low,
-            right_high,
-            bottom_left,
-            bottom_right,
-            top_left,
-            top_right,
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        unique.sort_unstable();
-        unique.dedup();
-        if unique.len() < 3 {
-            return Ok(true);
-        }
-        unique.sort_by(|&a, &b| {
-            let pa = point(a);
-            let pb = point(b);
-            pa[0]
-                .total_cmp(&pb[0])
-                .then(pa[1].total_cmp(&pb[1]))
-                .then(a.cmp(&b))
-        });
-        let mut lower = Vec::new();
-        for &p in &unique {
-            self.pop_until_left(&mut lower, p)?;
-            lower.push(p);
-        }
-        let mut upper = Vec::new();
-        for &p in unique.iter().rev() {
-            self.pop_until_left(&mut upper, p)?;
-            upper.push(p);
-        }
-        let mut cycle = lower;
-        let middle = upper.len().saturating_sub(2);
-        cycle.extend(upper.into_iter().skip(1).take(middle));
-        if cycle.len() < 3 {
-            return Ok(true);
-        }
-        let step = (reps.len() / 64).max(1);
-        let mut seen = 0usize;
-        let mut outside = 0usize;
-        let mut index = 0usize;
-        while seen < 64 && index < reps.len() {
-            if !self.clearly_inside(&cycle, reps[index]) {
-                outside += 1;
-            }
-            seen += 1;
-            index += step;
-        }
-        Ok(outside * 4 >= seen * 3)
+        let mut extremes: Vec<u32> = farthest.into_iter().flatten().collect();
+        extremes.sort_unstable();
+        extremes.dedup();
+        let cycle = self.strict_cycle(extremes)?;
+        Ok(if cycle.len() < 3 { Vec::new() } else { cycle })
     }
 
-    /// `point` is a strict left turn of every edge, by the certified filter.
+    /// `point` is a strict left turn of every edge of the counterclockwise
+    /// convex `cycle`, by the certified filter: strictly inside it.
     fn clearly_inside(&self, cycle: &[u32], point: u32) -> bool {
         let n = cycle.len();
+        let c = self.input.point(point);
         for i in 0..n {
             let a = self.input.point(cycle[i]);
             let b = self.input.point(cycle[(i + 1) % n]);
-            let c = self.input.point(point);
             if crate::predicates::orient2_filter(a, b, c) != Some(Sign::Positive) {
                 return false;
             }
@@ -384,16 +289,45 @@ impl<'a> SimplicialHull<'a> {
         true
     }
 
-    /// D = 2: the cycle of strict left turns, counterclockwise.
+    /// D = 2: the cycle of strict left turns, counterclockwise (design §6).
     ///
-    /// A representative stays on the chain only while it makes a strict turn
-    /// under the exact orientation. Points on an edge or inside the polygon
-    /// are left for classification, the same split [`Self::build_segment`]
-    /// uses.
+    /// A representative proved strictly inside [`Self::discard_polygon`] is
+    /// strictly inside the hull, because the polygon's vertices are input
+    /// points. It is recorded as proved interior and takes no further part.
+    /// Of the others, a representative stays on the chain only while it
+    /// makes a strict turn under the exact orientation. Points on an edge
+    /// or inside the polygon are left for classification, the same split
+    /// [`Self::build_segment`] uses.
     fn build_polygon(&mut self) -> Result<(), ConvexHullError> {
         self.strict_edges = true;
-        let mut order = self.input.representatives.clone();
-        order.sort_by(|&a, &b| {
+        let discard = self.discard_polygon()?;
+        let mut kept = Vec::new();
+        if discard.is_empty() {
+            kept.clone_from(&self.input.representatives);
+        } else {
+            for &r in &self.input.representatives {
+                if self.clearly_inside(&discard, r) {
+                    self.proved_interior.push(r);
+                } else {
+                    kept.push(r);
+                }
+            }
+        }
+        let cycle = self.strict_cycle(kept)?;
+        debug_assert!(
+            cycle.len() >= 3,
+            "a full-dimensional set has at least three extremes"
+        );
+        self.polygon = cycle;
+        Ok(())
+    }
+
+    /// The cycle of strict left turns of `points`, counterclockwise: the
+    /// lower chain, then the upper chain without the two endpoints the
+    /// lower one already lists. Fewer than three points come back as they
+    /// are, sorted.
+    fn strict_cycle(&self, mut points: Vec<u32>) -> Result<Vec<u32>, ConvexHullError> {
+        points.sort_by(|&a, &b| {
             let pa = self.input.point(a);
             let pb = self.input.point(b);
             pa[0]
@@ -401,28 +335,20 @@ impl<'a> SimplicialHull<'a> {
                 .then(pa[1].total_cmp(&pb[1]))
                 .then(a.cmp(&b))
         });
-
         let mut lower = Vec::new();
-        for &point in &order {
+        for &point in &points {
             self.pop_until_left(&mut lower, point)?;
             lower.push(point);
         }
         let mut upper = Vec::new();
-        for &point in order.iter().rev() {
+        for &point in points.iter().rev() {
             self.pop_until_left(&mut upper, point)?;
             upper.push(point);
         }
-        // Each chain keeps both endpoints. Drop them from the upper chain so
-        // the cycle lists every extreme once, counterclockwise.
         let mut cycle = lower;
         let upper_middle = upper.len().saturating_sub(2);
         cycle.extend(upper.into_iter().skip(1).take(upper_middle));
-        debug_assert!(
-            cycle.len() >= 3,
-            "a full-dimensional set has at least three extremes"
-        );
-        self.polygon = cycle;
-        Ok(())
+        Ok(cycle)
     }
 
     /// Drops the tail while `point` is not a strict left turn from it.
