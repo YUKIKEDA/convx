@@ -647,7 +647,7 @@ impl<'a> SimplicialHull<'a> {
             if execution == Execution::Parallel {
                 let again = self.plan(start, point)?;
                 debug_assert!(
-                    again.shape() == plan.shape(),
+                    again.shape(self.input.dim()) == plan.shape(self.input.dim()),
                     "point {point}: the parallel plan differs from sequential application"
                 );
             }
@@ -964,6 +964,7 @@ impl<'a> SimplicialHull<'a> {
                     strict,
                     sides,
                     kept,
+                    copied,
                 },
             simplices,
             links,
@@ -984,7 +985,9 @@ impl<'a> SimplicialHull<'a> {
         // sorted, in one flat buffer; sorting the keys pairs the two
         // simplices that share each ridge, with no hashing and no
         // allocation per key.
-        let width = self.input.dim().saturating_sub(2);
+        // Every simplex has D vertices and D links. `links` is written here
+        // and read by the commit with the same stride, `dim`.
+        let dim = self.input.dim();
         keys.clear();
         owners.clear();
         for &(visible_id, slot, across) in horizon {
@@ -993,8 +996,7 @@ impl<'a> SimplicialHull<'a> {
             };
             let mut vertices = old.vertices.clone();
             vertices[slot] = apex;
-            let d = vertices.len();
-            debug_assert_eq!(d, width + 2, "a simplex has D vertices");
+            debug_assert_eq!(vertices.len(), dim, "a simplex has D vertices");
             let k = simplices.len();
             // The horizon ridge, sorted once with each vertex's slot; the
             // key of the ridge opposite one of them is the rest, still
@@ -1017,17 +1019,16 @@ impl<'a> SimplicialHull<'a> {
                 owners.push((k, other));
             }
             simplices.push(Simplex::bare(vertices, Sign::Positive));
-            links.extend((0..d).map(|_| Link::Old(across)));
+            links.extend((0..dim).map(|_| Link::Old(across)));
             bases.push((across, visible_id));
         }
         self.set_planes(simplices)?;
-        let d = width + 2;
         pair_equal_keys_into(keys, owners.len(), fingerprint, table, pairs);
         for &(first, second) in pairs.iter() {
             let (a, a_slot) = owners[first];
             let (b, b_slot) = owners[second];
-            links[a * d + a_slot] = Link::New(b);
-            links[b * d + b_slot] = Link::New(a);
+            links[a * dim + a_slot] = Link::New(b);
+            links[b * dim + b_slot] = Link::New(a);
         }
 
         // Reassign the outside points of the visible facets.
@@ -1041,8 +1042,7 @@ impl<'a> SimplicialHull<'a> {
         );
         // A vertex of only visible facets stops being a vertex. It is
         // proved interior on the same terms as an orphan (design §3).
-        // Size the set from the vertices this plan inserts. `width + 2`
-        // equals D only where the debug assertion above holds.
+        // Size the set from the vertices this plan inserts.
         let vertex_slots: usize = simplices.iter().map(|s| s.vertices.len()).sum();
         kept.fill(
             simplices.iter().flat_map(|s| s.vertices.iter().copied()),
@@ -1065,24 +1065,21 @@ impl<'a> SimplicialHull<'a> {
         // The orphans are scanned against the new simplices one by one. With
         // many simplices each orphan is scanned many times, and gathering its
         // row from the input every time costs more than copying the rows
-        // once into consecutive memory (#214).
-        let mut copied = copy_orphans(&self.input, simplices.len()).then(|| {
+        // once into consecutive memory (#214). The rows are kept with the
+        // plan's scratch, so a copy allocates nothing once they have grown,
+        // and both its cost and its saving are in proportion to the orphans.
+        let copy = !orphans.is_empty() && copy_orphans(&self.input, simplices.len());
+        if copy {
             #[cfg(test)]
             tests::COPIES.with(|c| c.set(c.get() + 1));
-            CopiedRows::of(&self.input, orphans)
-        });
+            copied.fill(&self.input, orphans);
+        }
         for simplex in simplices.iter_mut() {
             if orphans.is_empty() {
                 break;
             }
-            take_outside(
-                &self.input,
-                orphans,
-                strict,
-                sides,
-                copied.as_mut(),
-                simplex,
-            )?;
+            let rows = if copy { Some(&mut *copied) } else { None };
+            take_outside(&self.input, orphans, strict, sides, rows, simplex)?;
         }
         // An orphan strictly inside every new simplex lies in the open cone
         // from the apex over the hull, before the visible facet it was
@@ -1156,12 +1153,12 @@ pub(crate) enum Execution {
 impl Cone {
     /// Everything a commit writes, without the derived planes: removed
     /// facets, and per new simplex its vertices, links, the facet across,
-    /// and its outside points.
+    /// and its outside points. `dim` is the hull's dimension.
     #[cfg(debug_assertions)]
-    fn shape(&self) -> PlanShape {
-        // D links per simplex; an empty cone has no links, and any nonzero
-        // width reads none.
-        let d = self.simplices.first().map_or(1, |s| s.vertices.len());
+    fn shape(&self, dim: usize) -> PlanShape {
+        // `dim` links per simplex, the stride `plan_region` wrote and
+        // `commit` reads.
+        let d = dim;
         (
             self.region.visible.clone(),
             self.simplices
@@ -1237,6 +1234,8 @@ struct PlanScratch {
     sides: Vec<Option<Sign>>,
     /// The vertices of the new simplices.
     kept: VertexSet,
+    /// The orphans' coordinates, when the plan scans them from a copy.
+    copied: CopiedRows,
 }
 
 /// A neighbor reference inside a plan.
@@ -1414,23 +1413,26 @@ fn copy_orphans(input: &Input<'_>, created: usize) -> bool {
 
 /// The coordinates of a list of points in consecutive rows, in the list's
 /// order: row `i` is point `i` of the list. [`take_outside`] keeps the rows
-/// in step as the list shrinks.
+/// in step as the list shrinks. Both lists keep their storage from one
+/// plan to the next.
+#[derive(Default)]
 struct CopiedRows {
     rows: Vec<f64>,
-    /// `0, 1, 2, ...`: the scan's indices into `rows`.
+    /// `0, 1, 2, ...`, at least as long as the list: the scan's indices
+    /// into `rows`.
     order: Vec<u32>,
 }
 
 impl CopiedRows {
-    fn of(input: &Input<'_>, points: &[u32]) -> Self {
-        let mut rows = Vec::with_capacity(points.len() * input.dim());
+    /// Replaces the rows by those of `points`.
+    fn fill(&mut self, input: &Input<'_>, points: &[u32]) {
+        self.rows.clear();
+        self.rows.reserve(points.len() * input.dim());
         for &p in points {
-            rows.extend_from_slice(input.point(p));
+            self.rows.extend_from_slice(input.point(p));
         }
-        Self {
-            rows,
-            order: (0..points.len() as u32).collect(),
-        }
+        let known = self.order.len() as u32;
+        self.order.extend(known..points.len() as u32);
     }
 }
 
