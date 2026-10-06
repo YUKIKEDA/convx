@@ -128,7 +128,8 @@ After a correct sequential hull. These rows do not block P4.
 | P5-50 | Bug   | Run the filtered elimination under AVX2, not AVX-512 (the D = 8 lifted 9 x 9 was 24x slower)              | #195  | Done                     |
 | P5-51 | Feat  | Vectorize the filtered elimination of size 10 and up (heap rows)                                          | #203  | Not started              |
 | P5-52 | Feat  | Cut the copies and cache lines of the simplex record that hull construction writes and walks              | #209  | In progress              |
-| P5-53 | Docs  | Publish the normal of a one-simplex facet without a second factorization                                  | #210  | Set after Grill on #210  |
+| P5-53 | Docs  | Publish the certified cofactor direction as every facet's unit normal                                     | #210  | Done                     |
+| P5-54 | Feat  | Publish the certified cofactor direction and remove the published QR                                      | #212  | Done                     |
 
 ## Intentionally out of scope
 
