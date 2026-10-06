@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P5-49 (#200): find why the low-dimension cube hull is slower than Qhull's compute time.
+P5-52 (#209): cut the copies and cache lines of the simplex record that hull construction writes and walks.
 
 ## Dependencies
 
@@ -127,7 +127,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-49 | Spike | Why is the low-dimension cube hull slower than Qhull's compute time?                                      | #200  | Not started              |
 | P5-50 | Bug   | Run the filtered elimination under AVX2, not AVX-512 (the D = 8 lifted 9 x 9 was 24x slower)              | #195  | Done                     |
 | P5-51 | Feat  | Vectorize the filtered elimination of size 10 and up (heap rows)                                          | #203  | Not started              |
-| P5-52 | Feat  | Cut the copies and cache lines of the simplex record that hull construction writes and walks              | #209  | Not started              |
+| P5-52 | Feat  | Cut the copies and cache lines of the simplex record that hull construction writes and walks              | #209  | In progress              |
 | P5-53 | Docs  | Publish the normal of a one-simplex facet without a second factorization                                  | #210  | Set after Grill on #210  |
 
 ## Intentionally out of scope
