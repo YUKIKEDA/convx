@@ -39,17 +39,18 @@ use super::simplicial::{Execution, SimplicialHull};
 use super::ConvexHullError;
 use crate::arena::{FacetId, SlotMarks};
 use crate::predicates::{orient, orient_direction, Sign};
+use crate::small::Small;
 
 /// A simplex of the boundary complex.
 #[derive(Clone)]
 pub(crate) struct ComplexSimplex {
     /// D vertices.
-    pub(crate) vertices: Vec<u32>,
+    pub(crate) vertices: Small<u32, 8>,
     /// The face that contains this simplex.
     pub(crate) face: u32,
     /// `neighbors[i]` is the simplex across the ridge opposite
     /// `vertices[i]`. Empty for D = 1.
-    pub(crate) neighbors: Vec<u32>,
+    pub(crate) neighbors: Small<u32, 8>,
 }
 
 /// A logical facet with its extreme points.
@@ -175,9 +176,9 @@ fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
         // `neighbors[i]` is the simplex across the ridge opposite `vertices[i]`.
         // The tip is first, so slot 0 faces the previous edge and slot 1 the next.
         simplices.push(ComplexSimplex {
-            vertices: vec![end, start],
+            vertices: [end, start].as_slice().into(),
             face: i as u32,
-            neighbors: vec![prev as u32, next as u32],
+            neighbors: [prev as u32, next as u32].as_slice().into(),
         });
     }
     Ok(Classified {
@@ -328,19 +329,20 @@ fn classify_built(
     );
 
     // Boundary simplices: kept as built, or re-triangulated by placing.
-    let mut simplices: Vec<ComplexSimplex> = Vec::new();
+    // At least one simplex per face, and exactly one in general position.
+    let mut simplices: Vec<ComplexSimplex> = Vec::with_capacity(extremes.len());
     let mut faces: Vec<Face> = Vec::with_capacity(extremes.len());
     // Simplices kept as built, by their index here and their construction id.
-    let mut kept: Vec<(u32, FacetId)> = Vec::new();
+    let mut kept: Vec<(u32, FacetId)> = Vec::with_capacity(extremes.len());
     let unlinked = if d == 1 { 0 } else { d };
     for (g, extreme) in extremes.into_iter().enumerate() {
         let group = &mut groups.groups[g];
         let first = simplices.len() as u32;
-        let mut push = |vertices: Vec<u32>| {
+        let mut push = |vertices: Small<u32, 8>| {
             simplices.push(ComplexSimplex {
                 vertices,
                 face: g as u32,
-                neighbors: vec![UNLINKED; unlinked],
+                neighbors: core::iter::repeat_n(UNLINKED, unlinked).collect(),
             });
         };
         // A single simplex whose vertices are all extreme is kept; every
@@ -355,7 +357,7 @@ fn classify_built(
                     .find(|v| extreme.binary_search(v).is_err())
                     .unwrap_or(extreme[0]);
                 for members in place(&hull.input, &extreme, q)? {
-                    push(members);
+                    push(members.into());
                 }
                 extreme
             }
@@ -363,7 +365,7 @@ fn classify_built(
                 if let Some(&id) = group.simplices.first() {
                     if let Some(s) = hull.facets.get(id) {
                         kept.push((first, id));
-                        push(s.vertices.to_vec());
+                        push(s.vertices.clone());
                     }
                 }
                 core::mem::take(&mut group.vertices)
