@@ -124,7 +124,8 @@ pub(crate) fn classify(
 /// Classifies a strict polygon from its extreme cycle.
 ///
 /// The cycle vertices are the extreme points. A representative that missed
-/// the chain is on one edge or strictly inside; it is not a new vertex.
+/// the chain is on one edge or strictly inside; it is not a new vertex. One
+/// the build proved interior (design §6) is not tested against the cycle.
 fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHullError> {
     let n = hull.polygon.len();
     // The lists below are filtered from the representatives, in their
@@ -144,8 +145,20 @@ fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
         .copied()
         .filter(|&p| !on_cycle[p as usize])
         .collect();
+    let mut proved = vec![false; hull.input.representative.len()];
+    for &p in &hull.proved_interior {
+        debug_assert!(!on_cycle[p as usize], "a discarded point is not a vertex");
+        proved[p as usize] = true;
+    }
     let mut on_boundary = vec![false; others.len()];
     for (k, &point) in others.iter().enumerate() {
+        if proved[point as usize] {
+            debug_assert!(
+                polygon_edge(&hull.input, &hull.polygon, point)?.is_none(),
+                "point {point} was discarded and is not strictly inside"
+            );
+            continue;
+        }
         if polygon_edge(&hull.input, &hull.polygon, point)?.is_some() {
             on_boundary[k] = true;
         }
@@ -909,10 +922,11 @@ pub(crate) mod tests {
         chain
     }
 
-    /// 1024 points is the first size that may choose insertion. A filled
-    /// square does, and edge points stay coplanar.
+    /// A filled square: the discarding polygon is the square itself, so its
+    /// edge points are not proved inside and stay coplanar, and the points
+    /// off the edges are discarded as interior.
     #[test]
-    fn large_square_inserts_and_keeps_edge_points_coplanar() {
+    fn filled_square_discards_its_interior_and_keeps_edge_points_coplanar() {
         let side = 32usize;
         let mut points = Vec::with_capacity(side * side * 2);
         for y in 0..side {
@@ -950,10 +964,10 @@ pub(crate) mod tests {
         assert_eq!(by_chain, vertices, "the square's extremes are its corners");
         for execution in [Execution::Sequential, Execution::Parallel] {
             let hull = SimplicialHull::build(accept(2, &points).unwrap(), execution).unwrap();
-            assert!(
-                !hull.strict_edges,
-                "a filled square of 1024 points stays on insertion"
-            );
+            assert!(hull.strict_edges, "every D = 2 hull is the chain");
+            let mut proved = hull.proved_interior.clone();
+            proved.sort_unstable();
+            assert_eq!(proved, interior, "the points off the edges are discarded");
             let c = classify_built(hull, execution).unwrap();
             check(&c);
             assert_eq!(c.vertices, vertices);
@@ -962,7 +976,74 @@ pub(crate) mod tests {
         }
     }
 
-    /// The same size on a circle takes the chain, and every site is extreme.
+    /// The farthest points in the eight directions are only the two ends of
+    /// a segment, so there is no polygon and nothing is discarded. The point
+    /// off the segment is still a vertex, and the one on it is coplanar.
+    #[test]
+    fn collinear_directional_extremes_discard_nothing() {
+        let points = [0.0, 0.0, 1.0, 2.0, 2.0, 4.0, 1.0, 2.25];
+        for execution in [Execution::Sequential, Execution::Parallel] {
+            let hull = SimplicialHull::build(accept(2, &points).unwrap(), execution).unwrap();
+            assert!(hull.strict_edges);
+            assert!(hull.proved_interior.is_empty(), "no polygon, no discard");
+            let c = classify_built(hull, execution).unwrap();
+            check(&c);
+            assert_eq!(c.vertices, vec![0, 2, 3]);
+            assert_eq!(c.coplanar_points, vec![1]);
+            assert!(c.interior_points.is_empty());
+        }
+    }
+
+    /// Sites on a circle with `inside` more strictly inside it, placed
+    /// evenly through the input so that a stride meets them.
+    fn circle_with_interior(on_circle: usize, inside: usize) -> (Vec<f64>, Vec<u32>) {
+        let total = on_circle + inside;
+        let every = total / inside.max(1);
+        let mut points = Vec::with_capacity(2 * total);
+        let mut interior = Vec::new();
+        let mut placed = 0;
+        for i in 0..total {
+            let t = (i as f64) * core::f64::consts::TAU / (total as f64);
+            if placed < inside && i % every == every / 2 {
+                // Radius 0.25: inside the octagon of any dense circle.
+                points.extend([0.25 * t.cos(), 0.25 * t.sin()]);
+                interior.push(i as u32);
+                placed += 1;
+            } else {
+                points.extend([t.cos(), t.sin()]);
+            }
+        }
+        assert_eq!(placed, inside);
+        (points, interior)
+    }
+
+    /// One site in 16 is inside: the sample finds enough of them, and every
+    /// interior site is discarded. One in 100 is not enough: none is
+    /// discarded, and classification still finds them all.
+    #[test]
+    fn discarding_runs_only_where_it_pays() {
+        for (on_circle, inside, discards) in [(2040, 136, true), (2040, 20, false)] {
+            let (points, interior) = circle_with_interior(on_circle, inside);
+            for execution in [Execution::Sequential, Execution::Parallel] {
+                let hull = SimplicialHull::build(accept(2, &points).unwrap(), execution).unwrap();
+                let mut proved = hull.proved_interior.clone();
+                proved.sort_unstable();
+                if discards {
+                    assert_eq!(proved, interior, "{inside} inside: all are discarded");
+                } else {
+                    assert!(proved.is_empty(), "{inside} inside: none is discarded");
+                }
+                let c = classify_built(hull, execution).unwrap();
+                // check is quadratic in the facets; the lists below are
+                // what the cutoff could change.
+                assert_eq!(c.vertices.len(), on_circle);
+                assert_eq!(c.interior_points, interior, "{inside} inside");
+                assert!(c.coplanar_points.is_empty());
+            }
+        }
+    }
+
+    /// On a circle every site is extreme, and none is discarded.
     #[test]
     fn large_circle_uses_the_chain() {
         let n = 1100usize;
@@ -977,7 +1058,8 @@ pub(crate) mod tests {
         vertices.sort_unstable();
         for execution in [Execution::Sequential, Execution::Parallel] {
             let hull = SimplicialHull::build(accept(2, &points).unwrap(), execution).unwrap();
-            assert!(hull.strict_edges, "a circle takes the chain");
+            assert!(hull.strict_edges, "every D = 2 hull is the chain");
+            assert!(hull.proved_interior.is_empty(), "no site is inside");
             let c = classify_built(hull, execution).unwrap();
             check(&c);
             assert_eq!(c.vertices, vertices);
@@ -1053,7 +1135,13 @@ pub(crate) mod tests {
         for (name, dim, points) in &cases {
             let (proved, c, chain) = with_and_without_reuse(*dim, points);
             if chain {
-                assert_eq!(proved, 0, "{name}: the chain inserts no interior proof");
+                // The chain proves only the points strictly inside its
+                // discarding polygon.
+                let non_vertices = c.interior_points.len() + c.coplanar_points.len();
+                assert!(proved <= non_vertices, "{name}");
+                if name.starts_with("general") {
+                    assert!(proved > 0, "{name}: no point was discarded");
+                }
                 continue;
             }
             let non_vertices = c.interior_points.len() + c.coplanar_points.len();
