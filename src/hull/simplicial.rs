@@ -2,7 +2,8 @@
 //!
 //! D = 1 is the two endpoints. D = 2 uses the extreme chain when most of a
 //! sample lies outside the polygon of the axis-aligned extremes, and
-//! Quickhull otherwise. D >= 3 is Quickhull.
+//! Quickhull otherwise. The chain is the cycle of strict turns; it is not
+//! stored as one simplex per edge. D >= 3 is Quickhull.
 //!
 //! Every facet is a (D-1)-simplex of D vertices. `neighbors[i]` is the facet
 //! across the ridge opposite `vertices[i]`. A point is outside a facet when
@@ -102,6 +103,8 @@ pub(crate) struct SimplicialHull<'a> {
     /// The edges are a strict polygon: adjacent edges are not collinear, so
     /// the coplanar merge does not need to test them.
     pub(crate) strict_edges: bool,
+    /// Extreme vertices counterclockwise, when [`Self::strict_edges`].
+    pub(crate) polygon: Vec<u32>,
 }
 
 /// An index that no longer fits in `u32` is an exhaustion of the index
@@ -121,6 +124,7 @@ impl<'a> SimplicialHull<'a> {
             facets: Arena::new(),
             proved_interior: Vec::new(),
             strict_edges: false,
+            polygon: Vec::new(),
         };
         if hull.input.dim() == 1 {
             hull.build_segment()?;
@@ -373,39 +377,7 @@ impl<'a> SimplicialHull<'a> {
             cycle.len() >= 3,
             "a full-dimensional set has at least three extremes"
         );
-
-        let n = cycle.len();
-        let mut edges = Vec::with_capacity(n);
-        for i in 0..n {
-            let start = cycle[i];
-            let end = cycle[(i + 1) % n];
-            // Tip first: the directed edge runs clockwise, so an outside
-            // point orients positive.
-            edges.push(Simplex::bare(
-                Small::from([end, start].as_slice()),
-                Sign::Positive,
-            ));
-        }
-        // A short chain with many other points classifies them by the cull
-        // plane. A long chain does not: building a plane per edge costs more
-        // than locating the few points that missed the chain.
-        if self.input.representatives.len() - n > n {
-            self.set_planes(&mut edges)?;
-        }
-        let mut ids = Vec::with_capacity(n);
-        for edge in edges {
-            ids.push(insert_or_abort(&mut self.facets, edge));
-        }
-        for i in 0..n {
-            let prev = ids[(i + n - 1) % n];
-            let next = ids[(i + 1) % n];
-            let Some(facet) = self.facets.get_mut(ids[i]) else {
-                std::process::abort();
-            };
-            // neighbors[0] shares the start vertex with the previous edge.
-            // neighbors[1] shares the tip with the next edge.
-            facet.neighbors = Small::from([prev, next].as_slice());
-        }
+        self.polygon = cycle;
         Ok(())
     }
 
@@ -1482,6 +1454,33 @@ pub(crate) mod tests {
     /// No representative strictly outside any facet, and neighbor links are
     /// symmetric across the same ridge.
     pub(crate) fn check_invariants(hull: &SimplicialHull<'_>) {
+        if hull.strict_edges {
+            let cycle = &hull.polygon;
+            assert!(cycle.len() >= 3, "a polygon has at least three vertices");
+            let n = cycle.len();
+            let mut on_cycle = vec![false; hull.input.representative.len()];
+            for i in 0..n {
+                let sign = hull
+                    .input
+                    .orient(&[cycle[i], cycle[(i + 1) % n], cycle[(i + 2) % n]])
+                    .unwrap();
+                assert_eq!(sign, Sign::Positive, "the chain turns left");
+                on_cycle[cycle[i] as usize] = true;
+            }
+            for &p in &hull.input.representatives {
+                if on_cycle[p as usize] {
+                    continue;
+                }
+                for i in 0..n {
+                    let sign = hull
+                        .input
+                        .orient(&[cycle[i], cycle[(i + 1) % n], p])
+                        .unwrap();
+                    assert_ne!(sign, Sign::Negative, "point {p} outside");
+                }
+            }
+            return;
+        }
         for (id, facet) in hull.facets.iter() {
             for &p in &hull.input.representatives {
                 assert_ne!(
@@ -1520,6 +1519,11 @@ pub(crate) mod tests {
     }
 
     fn vertex_set(hull: &SimplicialHull<'_>) -> Vec<u32> {
+        if hull.strict_edges {
+            let mut v = hull.polygon.clone();
+            v.sort_unstable();
+            return v;
+        }
         let mut v: Vec<u32> = hull
             .facets
             .iter()
@@ -1538,6 +1542,7 @@ pub(crate) mod tests {
             facets: Arena::new(),
             proved_interior: Vec::new(),
             strict_edges: false,
+            polygon: Vec::new(),
         };
         let initial = hull.initial_simplex().unwrap();
         let candidates: Vec<u32> = hull
@@ -1921,6 +1926,7 @@ pub(crate) mod tests {
             let parallel =
                 SimplicialHull::build(accept(dim, &points).unwrap(), Execution::Parallel).unwrap();
             assert_eq!(snapshot(&sequential), snapshot(&parallel), "dim {dim}");
+            assert_eq!(sequential.polygon, parallel.polygon, "dim {dim}");
             check_invariants(&parallel);
         }
     }
@@ -1943,7 +1949,7 @@ pub(crate) mod tests {
         let hull = build(2, &points);
         check_invariants(&hull);
         assert_eq!(vertex_set(&hull), vec![0, 1, 2, 3]);
-        assert_eq!(hull.facets.len(), 4);
+        assert_eq!(hull.polygon.len(), 4);
     }
 
     #[test]

@@ -70,35 +70,20 @@ pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, ConvexHu
 
 /// One group per edge, in chain order. Adjacent edges are not collinear.
 fn polygon_groups(hull: &SimplicialHull<'_>) -> LogicalFacets {
-    let edges: Vec<_> = hull.facets.iter().collect();
-    let n = edges.len();
+    let cycle = &hull.polygon;
+    let n = cycle.len();
     let mut groups = Vec::with_capacity(n);
-    for (i, &(id, facet)) in edges.iter().enumerate() {
-        #[cfg(debug_assertions)]
-        {
-            for &neighbor in &facet.neighbors {
-                let Some(other) = hull.facets.get(neighbor) else {
-                    continue;
-                };
-                let Some(&across) = other.vertices.iter().find(|v| !facet.vertices.contains(v))
-                else {
-                    continue;
-                };
-                debug_assert_ne!(
-                    hull.side(facet, across).ok(),
-                    Some(Sign::Zero),
-                    "a polygon edge is collinear with its neighbor"
-                );
-            }
-        }
-        let mut vertices = facet.vertices.to_vec();
+    for i in 0..n {
+        let start = cycle[i];
+        let end = cycle[(i + 1) % n];
+        let mut vertices = vec![start, end];
         vertices.sort_unstable();
         let prev = if i == 0 { n - 1 } else { i - 1 };
         let next = (i + 1) % n;
         let mut neighbors = vec![prev as u32, next as u32];
         neighbors.sort_unstable();
         groups.push(Group {
-            simplices: vec![id],
+            simplices: Vec::new(),
             vertices,
             neighbors,
         });
@@ -248,7 +233,8 @@ mod tests {
 
     #[test]
     fn cubes_merge_into_their_faces() {
-        for (dim, faces, simplices_per_face) in [(2, 4, Some(1)), (3, 6, Some(2)), (4, 8, None)] {
+        // D = 2 is the extreme chain: a face is the edge, with no arena simplex.
+        for (dim, faces, simplices_per_face) in [(2, 4, Some(0)), (3, 6, Some(2)), (4, 8, None)] {
             let facets = groups_of(dim, &cube(dim));
             assert_eq!(facets.groups.len(), faces, "dim {dim}");
             for group in &facets.groups {
@@ -278,10 +264,22 @@ mod tests {
         for dim in 2..=4 {
             let points: Vec<f64> = (0..60 * dim).map(|_| rng.unit()).collect();
             let facets = groups_of(dim, &points);
-            assert!(
-                facets.groups.iter().all(|g| g.simplices.len() == 1),
-                "dim {dim}"
-            );
+            if dim == 2 {
+                // The extreme chain stores the edge as the group.
+                assert!(
+                    facets.groups.iter().all(|g| g.simplices.is_empty()),
+                    "dim {dim}"
+                );
+                assert!(
+                    facets.groups.iter().all(|g| g.vertices.len() == 2),
+                    "dim {dim}"
+                );
+            } else {
+                assert!(
+                    facets.groups.iter().all(|g| g.simplices.len() == 1),
+                    "dim {dim}"
+                );
+            }
         }
     }
 

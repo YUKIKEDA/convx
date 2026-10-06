@@ -120,12 +120,90 @@ pub(crate) fn classify(
     classify_built(built, execution)
 }
 
+/// Classifies a strict polygon from its extreme cycle.
+///
+/// The cycle vertices are the extreme points. A representative that missed
+/// the chain is on one edge or strictly inside; it is not a new vertex.
+fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHullError> {
+    let n = hull.polygon.len();
+    let mut on_cycle = vec![false; hull.input.representative.len()];
+    for &v in &hull.polygon {
+        on_cycle[v as usize] = true;
+    }
+    let others: Vec<u32> = hull
+        .input
+        .representatives
+        .iter()
+        .copied()
+        .filter(|&p| !on_cycle[p as usize])
+        .collect();
+    let mut on_boundary = vec![false; others.len()];
+    if !others.is_empty() {
+        for (k, &point) in others.iter().enumerate() {
+            if polygon_edge(&hull.input, &hull.polygon, point)?.is_some() {
+                on_boundary[k] = true;
+            }
+        }
+    }
+
+    let mut vertices = hull.polygon.clone();
+    vertices.sort_unstable();
+    let mut coplanar_points: Vec<u32> = others
+        .iter()
+        .zip(&on_boundary)
+        .filter(|&(_, &b)| b)
+        .map(|(&p, _)| p)
+        .collect();
+    coplanar_points.sort_unstable();
+    let mut interior_points: Vec<u32> = others
+        .iter()
+        .zip(&on_boundary)
+        .filter(|&(_, &b)| !b)
+        .map(|(&p, _)| p)
+        .collect();
+    interior_points.sort_unstable();
+
+    let mut faces = Vec::with_capacity(n);
+    let mut simplices = Vec::with_capacity(n);
+    for i in 0..n {
+        let start = hull.polygon[i];
+        let end = hull.polygon[(i + 1) % n];
+        let mut face_vertices = vec![start, end];
+        face_vertices.sort_unstable();
+        let prev = if i == 0 { n - 1 } else { i - 1 };
+        let next = (i + 1) % n;
+        let mut neighbors = vec![prev as u32, next as u32];
+        neighbors.sort_unstable();
+        faces.push(Face {
+            vertices: face_vertices,
+            neighbors,
+        });
+        // Tip first, so an outside point orients positive.
+        simplices.push(ComplexSimplex {
+            vertices: vec![end, start],
+            face: i as u32,
+            neighbors: vec![prev as u32, next as u32],
+        });
+    }
+    Ok(Classified {
+        input: hull.input,
+        faces,
+        simplices,
+        vertices,
+        coplanar_points,
+        interior_points,
+    })
+}
+
 /// Classifies a built simplicial hull. Its `proved_interior` points go to
 /// `interior_points` without a scan.
 fn classify_built(
     hull: SimplicialHull<'_>,
     execution: Execution,
 ) -> Result<Classified<'_>, ConvexHullError> {
+    if hull.strict_edges {
+        return classify_chain(hull);
+    }
     let mut groups = merge(&hull)?;
     let d = hull.input.dim();
     // A group's member simplices, in outward order.
