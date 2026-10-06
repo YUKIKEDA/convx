@@ -138,11 +138,9 @@ fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
         .filter(|&p| !on_cycle[p as usize])
         .collect();
     let mut on_boundary = vec![false; others.len()];
-    if !others.is_empty() {
-        for (k, &point) in others.iter().enumerate() {
-            if polygon_edge(&hull.input, &hull.polygon, point)?.is_some() {
-                on_boundary[k] = true;
-            }
+    for (k, &point) in others.iter().enumerate() {
+        if polygon_edge(&hull.input, &hull.polygon, point)?.is_some() {
+            on_boundary[k] = true;
         }
     }
 
@@ -163,22 +161,20 @@ fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
         .collect();
     interior_points.sort_unstable();
 
+    let groups = merge(&hull)?.groups;
     let mut faces = Vec::with_capacity(n);
     let mut simplices = Vec::with_capacity(n);
-    for i in 0..n {
+    for (i, group) in groups.into_iter().enumerate() {
         let start = hull.polygon[i];
         let end = hull.polygon[(i + 1) % n];
-        let mut face_vertices = vec![start, end];
-        face_vertices.sort_unstable();
         let prev = if i == 0 { n - 1 } else { i - 1 };
         let next = (i + 1) % n;
-        let mut neighbors = vec![prev as u32, next as u32];
-        neighbors.sort_unstable();
         faces.push(Face {
-            vertices: face_vertices,
-            neighbors,
+            vertices: group.vertices,
+            neighbors: group.neighbors,
         });
-        // Tip first, so an outside point orients positive.
+        // `neighbors[i]` is the simplex across the ridge opposite `vertices[i]`.
+        // The tip is first, so slot 0 faces the previous edge and slot 1 the next.
         simplices.push(ComplexSimplex {
             vertices: vec![end, start],
             face: i as u32,
@@ -242,37 +238,7 @@ fn classify_built(
         .collect();
     let mut on_boundary = vec![false; others.len()];
     let mut zero_points: Vec<Vec<u32>> = vec![Vec::new(); groups.groups.len()];
-    let polygon_search = d == 2
-        && !others.is_empty()
-        && groups.groups.first().is_none_or(|group| {
-            hull.facets
-                .get(group.simplices[0])
-                .and_then(|simplex| simplex.cull())
-                .is_none()
-        });
-    if polygon_search {
-        // One edge per group, in the chain's order. A non-vertex is on one
-        // edge or strictly inside; the chain order locates it in a few
-        // orientations instead of a plane per edge.
-        if !others.is_empty() {
-            let cycle: Vec<u32> = groups
-                .groups
-                .iter()
-                .map(|group| {
-                    let Some(simplex) = hull.facets.get(group.simplices[0]) else {
-                        std::process::abort();
-                    };
-                    simplex.vertices[1]
-                })
-                .collect();
-            for (k, &point) in others.iter().enumerate() {
-                if let Some(edge) = polygon_edge(&hull.input, &cycle, point)? {
-                    on_boundary[k] = true;
-                    zero_points[edge].push(point);
-                }
-            }
-        }
-    } else if !others.is_empty() {
+    if !others.is_empty() {
         let mut inside = vec![false; others.len()];
         for (g, group) in groups.groups.iter().enumerate() {
             let Some(simplex) = group.simplices.first().and_then(|id| hull.facets.get(*id)) else {
@@ -876,6 +842,119 @@ pub(crate) mod tests {
             }
         }
         classified(3, &points);
+    }
+
+    /// Andrew's chain, from the exact orientation, as a reference that does
+    /// not call the hull.
+    fn monotone_cycle(points: &[f64]) -> Vec<u32> {
+        let n = points.len() / 2;
+        let mut order: Vec<u32> = (0..n as u32).collect();
+        order.sort_by(|&a, &b| {
+            let (pa, pb) = (
+                &points[a as usize * 2..a as usize * 2 + 2],
+                &points[b as usize * 2..b as usize * 2 + 2],
+            );
+            pa[0]
+                .total_cmp(&pb[0])
+                .then(pa[1].total_cmp(&pb[1]))
+                .then(a.cmp(&b))
+        });
+        let p = |i: u32| &points[i as usize * 2..i as usize * 2 + 2];
+        let mut chain = Vec::new();
+        for pass in [order.clone(), order.iter().rev().copied().collect()] {
+            let start = chain.len();
+            for &i in &pass {
+                while chain.len() >= start + 2 {
+                    let sign =
+                        orient(&[p(chain[chain.len() - 2]), p(chain[chain.len() - 1]), p(i)])
+                            .unwrap();
+                    if sign == Sign::Positive {
+                        break;
+                    }
+                    chain.pop();
+                }
+                chain.push(i);
+            }
+            chain.pop();
+        }
+        chain
+    }
+
+    /// 1024 points is the first size that may choose insertion. A filled
+    /// square does, and edge points stay coplanar.
+    #[test]
+    fn large_square_inserts_and_keeps_edge_points_coplanar() {
+        let side = 32usize;
+        let mut points = Vec::with_capacity(side * side * 2);
+        for y in 0..side {
+            for x in 0..side {
+                points.push(x as f64);
+                points.push(y as f64);
+            }
+        }
+        let at = |x: usize, y: usize| (y * side + x) as u32;
+        let mut vertices = vec![
+            at(0, 0),
+            at(side - 1, 0),
+            at(0, side - 1),
+            at(side - 1, side - 1),
+        ];
+        vertices.sort_unstable();
+        let mut coplanar = Vec::new();
+        let mut interior = Vec::new();
+        for y in 0..side {
+            for x in 0..side {
+                let edge = x == 0 || y == 0 || x + 1 == side || y + 1 == side;
+                let corner = (x == 0 || x + 1 == side) && (y == 0 || y + 1 == side);
+                if corner {
+                    continue;
+                } else if edge {
+                    coplanar.push(at(x, y));
+                } else {
+                    interior.push(at(x, y));
+                }
+            }
+        }
+        let cycle = monotone_cycle(&points);
+        let mut by_chain = cycle.clone();
+        by_chain.sort_unstable();
+        assert_eq!(by_chain, vertices, "the square's extremes are its corners");
+        for execution in [Execution::Sequential, Execution::Parallel] {
+            let hull = SimplicialHull::build(accept(2, &points).unwrap(), execution).unwrap();
+            assert!(
+                !hull.strict_edges,
+                "a filled square of 1024 points stays on insertion"
+            );
+            let c = classify_built(hull, execution).unwrap();
+            check(&c);
+            assert_eq!(c.vertices, vertices);
+            assert_eq!(c.coplanar_points, coplanar);
+            assert_eq!(c.interior_points, interior);
+        }
+    }
+
+    /// The same size on a circle takes the chain, and every site is extreme.
+    #[test]
+    fn large_circle_uses_the_chain() {
+        let n = 1100usize;
+        let points: Vec<f64> = (0..n)
+            .flat_map(|i| {
+                let t = (i as f64) * core::f64::consts::TAU / (n as f64);
+                [t.cos(), t.sin()]
+            })
+            .collect();
+        let cycle = monotone_cycle(&points);
+        let mut vertices = cycle.clone();
+        vertices.sort_unstable();
+        for execution in [Execution::Sequential, Execution::Parallel] {
+            let hull = SimplicialHull::build(accept(2, &points).unwrap(), execution).unwrap();
+            assert!(hull.strict_edges, "a circle takes the chain");
+            let c = classify_built(hull, execution).unwrap();
+            check(&c);
+            assert_eq!(c.vertices, vertices);
+            assert!(c.coplanar_points.is_empty());
+            assert!(c.interior_points.is_empty());
+        }
     }
 
     /// The partition with the proved points skipped, and without: the

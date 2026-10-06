@@ -211,7 +211,7 @@ Which points form the initial simplex is not fixed by the specification in gener
 
 ## 6. Construction and the parallel commit
 
-The hull in $D = 1$ is the two endpoints. In $D = 2$, when most of a sample lies outside the polygon of the axis-aligned extremes, the hull is the chain of strict turns. Every other $D = 2$ input, and every $D \ge 3$ input, absorbs points by Quickhull. If a point is strictly outside a facet, that facet is visible. Outsideness is the strict sign of the orientation. The certified working distance may prove that sign first (§1); otherwise the orientation is evaluated. The boundary ridges of the visible region are the horizon. The face across the horizon whose neighbor slot is rewritten is called $N$.
+The hull in $D = 1$ is the two endpoints. In $D = 2$, the hull is the chain of strict turns when there are fewer than 1024 representatives, and when there are at least 1024 and at least three quarters of a stride of at most 64 representatives, taken in input order, lie outside the polygon of the endpoints of the four axis-aligned supporting lines. Every other $D = 2$ input, and every $D \ge 3$ input, absorbs points by Quickhull. If a point is strictly outside a facet, that facet is visible. Outsideness is the strict sign of the orientation. The certified working distance may prove that sign first (§1); otherwise the orientation is evaluated. The boundary ridges of the visible region are the horizon. The face across the horizon whose neighbor slot is rewritten is called $N$.
 
 ```mermaid
 flowchart TD

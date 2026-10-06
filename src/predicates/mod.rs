@@ -17,6 +17,8 @@ mod exact;
 mod filter;
 mod fixed;
 
+pub(crate) use filter::two_point_cofactors;
+
 use filter::Approx;
 
 use crate::small::Small;

@@ -371,18 +371,9 @@ fn facet_plane(
 /// The outward unit normal of one edge, when the two-point cofactors certify
 /// it. `None` leaves the facet on the general path.
 fn edge_unit_normal(input: &Input<'_>, vertices: &[u32], inner: u32) -> Option<Vec<f64>> {
-    const U: f64 = f64::EPSILON / 2.0;
-    // The same range as the two-point cofactor filter.
-    const LOW: f64 = f64::from_bits((1023 - 250) << 52);
-    const HIGH: f64 = f64::from_bits((1023 + 250) << 52);
-    let in_range = |d: f64| d == 0.0 || (LOW..=HIGH).contains(&d.abs());
     let a = input.point(vertices[0]);
     let b = input.point(vertices[1]);
-    let (ex, ey) = (b[0] - a[0], b[1] - a[1]);
-    if !in_range(ex) || !in_range(ey) {
-        return None;
-    }
-    let cofactors = [(-ey, 2.0 * U * ey.abs()), (ex, 2.0 * U * ex.abs())];
+    let cofactors = crate::predicates::two_point_cofactors(a, b)?;
     let (direction, _) = certified_cofactor_direction(2, Some(&cofactors))?;
     let side = certified_side(&[a, b], &cofactors, input.point(inner))?;
     if side == Sign::Zero {

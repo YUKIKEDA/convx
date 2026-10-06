@@ -241,56 +241,92 @@ impl<'a> SimplicialHull<'a> {
         Ok(())
     }
 
-    /// D = 2: one edge per consecutive pair of the extreme chain.
-    ///
-    /// A representative stays on the chain only while it makes a strict turn
-    /// under the exact orientation. Points on an edge or inside the polygon
-    /// are left for classification, the same split [`Self::build_segment`]
-    /// uses. The stored vertex order makes an outside point a positive
-    /// orientation.
     /// Whether the extreme chain will be faster than insertion.
     ///
-    /// A short sample of the axis-aligned extremes' polygon: when most of
-    /// the sample lies outside it, almost every point is a vertex and the
-    /// chain wins. A set with a large interior, such as the cube, stays on
-    /// insertion, which discards those points without an orientation each.
+    /// Fewer than 1024 representatives use the chain. Otherwise a stride of
+    /// at most 64 representatives, in input order, is tested against the
+    /// polygon of the endpoints of the four axis-aligned supporting lines.
+    /// The chain is used when at least three quarters of that sample lie
+    /// outside the polygon. A set with a large interior, such as the cube,
+    /// stays on insertion.
     fn prefer_polygon(&self) -> Result<bool, ConvexHullError> {
         let reps = &self.input.representatives;
         if reps.len() < 1024 {
             return Ok(true);
         }
         let point = |i: u32| self.input.point(i);
-        let mut left = reps[0];
-        let mut right = reps[0];
-        let mut low = reps[0];
-        let mut high = reps[0];
+        let mut min_x = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
         for &r in reps {
             let p = point(r);
-            let pl = point(left);
-            let pr = point(right);
-            let pb = point(low);
-            let pt = point(high);
-            if p[0] < pl[0] || (p[0] == pl[0] && r < left) {
-                left = r;
+            min_x = min_x.min(p[0]);
+            max_x = max_x.max(p[0]);
+            min_y = min_y.min(p[1]);
+            max_y = max_y.max(p[1]);
+        }
+        // Both endpoints of each supporting line. A tie keeps the smaller
+        // index. One contact point is both endpoints.
+        let better = |slot: Option<u32>, r: u32, coord: f64, axis: usize, want_min: bool| match slot
+        {
+            None => r,
+            Some(c) => {
+                let current = point(c)[axis];
+                let wins = if want_min {
+                    coord < current
+                } else {
+                    coord > current
+                };
+                if wins || (coord == current && r < c) {
+                    r
+                } else {
+                    c
+                }
             }
-            if p[0] > pr[0] || (p[0] == pr[0] && r < right) {
-                right = r;
+        };
+        let mut left_low = None;
+        let mut left_high = None;
+        let mut right_low = None;
+        let mut right_high = None;
+        let mut bottom_left = None;
+        let mut bottom_right = None;
+        let mut top_left = None;
+        let mut top_right = None;
+        for &r in reps {
+            let p = point(r);
+            if p[0] == min_x {
+                left_low = Some(better(left_low, r, p[1], 1, true));
+                left_high = Some(better(left_high, r, p[1], 1, false));
             }
-            if p[1] < pb[1] || (p[1] == pb[1] && r < low) {
-                low = r;
+            if p[0] == max_x {
+                right_low = Some(better(right_low, r, p[1], 1, true));
+                right_high = Some(better(right_high, r, p[1], 1, false));
             }
-            if p[1] > pt[1] || (p[1] == pt[1] && r < high) {
-                high = r;
+            if p[1] == min_y {
+                bottom_left = Some(better(bottom_left, r, p[0], 0, true));
+                bottom_right = Some(better(bottom_right, r, p[0], 0, false));
+            }
+            if p[1] == max_y {
+                top_left = Some(better(top_left, r, p[0], 0, true));
+                top_right = Some(better(top_right, r, p[0], 0, false));
             }
         }
-        let mut seeds = [left, right, low, high];
-        seeds.sort_unstable();
-        let mut unique = Vec::with_capacity(4);
-        for s in seeds {
-            if unique.last() != Some(&s) {
-                unique.push(s);
-            }
-        }
+        let mut unique: Vec<u32> = [
+            left_low,
+            left_high,
+            right_low,
+            right_high,
+            bottom_left,
+            bottom_right,
+            top_left,
+            top_right,
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        unique.sort_unstable();
+        unique.dedup();
         if unique.len() < 3 {
             return Ok(true);
         }
@@ -346,6 +382,12 @@ impl<'a> SimplicialHull<'a> {
         true
     }
 
+    /// D = 2: the cycle of strict left turns, counterclockwise.
+    ///
+    /// A representative stays on the chain only while it makes a strict turn
+    /// under the exact orientation. Points on an edge or inside the polygon
+    /// are left for classification, the same split [`Self::build_segment`]
+    /// uses.
     fn build_polygon(&mut self) -> Result<(), ConvexHullError> {
         self.strict_edges = true;
         let mut order = self.input.representatives.clone();

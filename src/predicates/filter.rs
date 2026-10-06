@@ -217,6 +217,18 @@ pub(super) fn cofactors(
 const SMALL_LOW: f64 = f64::from_bits((1023 - 250) << 52); // 2^-250
 const SMALL_HIGH: f64 = f64::from_bits((1023 + 250) << 52); // 2^250
 
+/// Cofactors of one edge `tip - origin`, or `None` when an entry lies
+/// outside the range [`small_cofactors`] accepts.
+pub(crate) fn two_point_cofactors(origin: &[f64], tip: &[f64]) -> Option<[(f64, f64); 2]> {
+    let (ex, ey) = (tip[0] - origin[0], tip[1] - origin[1]);
+    let inside = |d: f64| d == 0.0 || (SMALL_LOW..=SMALL_HIGH).contains(&d.abs());
+    if !inside(ex) || !inside(ey) {
+        return None;
+    }
+    let u = UNIT_ROUNDOFF;
+    Some([(-ey, 2.0 * u * ey.abs()), (ex, 2.0 * u * ex.abs())])
+}
+
 /// Every cofactor of a facet of `k = 2, 3, 4` points of dimension `k`, with
 /// one error bound per cofactor from a constant per `k` (#174).
 ///
@@ -269,9 +281,9 @@ pub(super) fn small_cofactors(facet: &[&[f64]]) -> Option<[(f64, f64); 4]> {
     match k {
         2 => {
             // c_0 = -E_1, c_1 = E_0.
-            let r = e[0];
-            out[0] = (-r[1], 2.0 * u * r[1].abs());
-            out[1] = (r[0], 2.0 * u * r[0].abs());
+            let pair = two_point_cofactors(facet[0], facet[1])?;
+            out[0] = pair[0];
+            out[1] = pair[1];
         }
         3 => {
             // c_j = (-1)^j M_j, M_j the 2 x 2 minor without column j.
