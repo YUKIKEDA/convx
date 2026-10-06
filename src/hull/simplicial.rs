@@ -498,7 +498,7 @@ impl<'a> SimplicialHull<'a> {
         facets: &[FacetId],
     ) -> Result<(), ConvexHullError> {
         let mut strict = vec![true; remaining.len()];
-        let mut inside = Vec::new();
+        let mut sides = Vec::new();
         for &id in facets {
             if remaining.is_empty() {
                 break;
@@ -506,7 +506,14 @@ impl<'a> SimplicialHull<'a> {
             let Some(facet) = self.facets.get_mut(id) else {
                 continue;
             };
-            take_outside(&self.input, &mut remaining, &mut strict, &mut inside, facet)?;
+            take_outside(
+                &self.input,
+                &mut remaining,
+                &mut strict,
+                &mut sides,
+                None,
+                facet,
+            )?;
         }
         self.proved_interior.extend(
             remaining
@@ -1036,12 +1043,28 @@ impl<'a> SimplicialHull<'a> {
         orphans.extend(lost);
         orphans.sort_unstable();
         let mut strict = vec![true; orphans.len()];
-        let mut inside = Vec::new();
+        let mut sides = Vec::new();
+        // The orphans are scanned against the new simplices one by one. With
+        // many simplices each orphan is scanned many times, and gathering its
+        // row from the input every time costs more than copying the rows
+        // once into consecutive memory (#214).
+        let mut copied = copy_orphans(&self.input, created.simplices.len()).then(|| {
+            #[cfg(test)]
+            tests::COPIES.with(|c| c.set(c.get() + 1));
+            CopiedRows::of(&self.input, &orphans)
+        });
         for simplex in &mut created.simplices {
             if orphans.is_empty() {
                 break;
             }
-            take_outside(&self.input, &mut orphans, &mut strict, &mut inside, simplex)?;
+            take_outside(
+                &self.input,
+                &mut orphans,
+                &mut strict,
+                &mut sides,
+                copied.as_mut(),
+                simplex,
+            )?;
         }
         // An orphan strictly inside every new simplex lies in the open cone
         // from the apex over the hull, before the visible facet it was
@@ -1277,52 +1300,120 @@ fn farthest(input: &Input<'_>, facet: &Simplex) -> Option<(u32, Option<f64>)> {
 /// Moves the points of `remaining` strictly outside `facet` into its outside
 /// set, keeping the order of both lists. `strict[i]` belongs to
 /// `remaining[i]` and is cleared when that point is on the supporting
-/// hyperplane of `facet`; a culled point is proved strictly inside.
-/// `inside` is scratch for the scan.
+/// hyperplane of `facet`. `sides` is scratch for the scan, which proves
+/// most points strictly inside or strictly outside; only the points it
+/// leaves undecided reach the orientation (#214). With `copied`, the scan
+/// reads the points from those rows, which follow `remaining` as it
+/// shrinks.
 fn take_outside(
     input: &Input<'_>,
     remaining: &mut Vec<u32>,
     strict: &mut Vec<bool>,
-    inside: &mut Vec<bool>,
+    sides: &mut Vec<Option<Sign>>,
+    mut copied: Option<&mut CopiedRows>,
     facet: &mut Simplex,
 ) -> Result<(), ConvexHullError> {
-    inside.clear();
-    inside.resize(remaining.len(), false);
+    sides.clear();
+    sides.resize(remaining.len(), None);
     if let Some(cull) = &facet.cull {
-        let (rows, stride) = input.rows();
         let origin = input.point(facet.vertices[0]);
-        cull.mark_inside(origin, rows, stride, remaining, inside);
+        match copied.as_deref() {
+            Some(c) => {
+                debug_assert_eq!(c.rows.len(), remaining.len() * input.dim());
+                let order = &c.order[..remaining.len()];
+                cull.mark_sides(origin, &c.rows, input.dim(), order, sides);
+            }
+            None => {
+                let (rows, stride) = input.rows();
+                cull.mark_sides(origin, rows, stride, remaining, sides);
+            }
+        }
     }
     // Kept points move down in place, in order.
     let mut kept = 0;
     for k in 0..remaining.len() {
         let p = remaining[k];
-        let sign = if inside[k] {
-            // A culled point is dropped without `side`, so debug builds check
-            // the scan's proof here, as `side` checks `proved_side`.
-            #[cfg(debug_assertions)]
-            debug_assert_eq!(
-                oriented_side(input, facet, p)?,
-                Sign::Negative,
-                "the scan culled point {p}, which is not strictly inside"
-            );
-            Sign::Negative
-        } else {
-            side(input, facet, p)?
+        let sign = match sides[k] {
+            Some(proved) => {
+                // A proved point skips `side`, so debug builds check the
+                // scan's proof here, as `side` checks `proved_side`.
+                #[cfg(debug_assertions)]
+                debug_assert_eq!(
+                    oriented_side(input, facet, p)?,
+                    proved,
+                    "the scan proved the wrong side of point {p}"
+                );
+                proved
+            }
+            None => side(input, facet, p)?,
         };
         if sign == Sign::Positive {
             facet.outside.push(p);
         } else {
             remaining[kept] = p;
             strict[kept] = strict[k] && sign == Sign::Negative;
+            if let Some(c) = copied.as_deref_mut() {
+                let d = input.dim();
+                c.rows.copy_within(k * d..(k + 1) * d, kept * d);
+            }
             kept += 1;
         }
     }
     remaining.truncate(kept);
     strict.truncate(kept);
+    if let Some(c) = copied {
+        c.rows.truncate(kept * input.dim());
+    }
     // The outside set is final: points leave it only with the facet.
     facet.farthest = farthest(input, facet);
     Ok(())
+}
+
+/// A plan with at least this many new simplices may scan its orphans from
+/// [`CopiedRows`]. On hull `cube` D = 5, 10^6 points, such plans hold
+/// about 90% of the orphan scans, at 10 to 450 scans per orphan. Below it,
+/// at 3 to 5 scans per orphan (`cube` D = 3, 10^6), the copy cost what the
+/// scans saved (#214).
+const COPY_ORPHANS_FROM: usize = 32;
+
+/// Input coordinates, in bytes, below which no plan copies its orphans.
+/// Rows of a smaller input stay in cache, so gathering them again is
+/// cheap and the copy is pure cost: on `cube` D = 5, 10^4 points (400 KB)
+/// copying made the build 5 to 7% slower (#214).
+const COPY_ORPHANS_OVER_BYTES: usize = 4 << 20;
+
+/// Whether a plan of `created` new simplices scans its orphans from
+/// [`CopiedRows`]: [`COPY_ORPHANS_FROM`] and [`COPY_ORPHANS_OVER_BYTES`],
+/// or a test's override on this thread, which ignores the input size.
+fn copy_orphans(input: &Input<'_>, created: usize) -> bool {
+    #[cfg(test)]
+    if let Some(from) = tests::COPY_FROM.with(core::cell::Cell::get) {
+        return created >= from;
+    }
+    created >= COPY_ORPHANS_FROM
+        && core::mem::size_of_val(input.rows().0) >= COPY_ORPHANS_OVER_BYTES
+}
+
+/// The coordinates of a list of points in consecutive rows, in the list's
+/// order: row `i` is point `i` of the list. [`take_outside`] keeps the rows
+/// in step as the list shrinks.
+struct CopiedRows {
+    rows: Vec<f64>,
+    /// `0, 1, 2, ...`: the scan's indices into `rows`.
+    order: Vec<u32>,
+}
+
+impl CopiedRows {
+    fn of(input: &Input<'_>, points: &[u32]) -> Self {
+        let mut rows = Vec::with_capacity(points.len() * input.dim());
+        for &p in points {
+            rows.extend_from_slice(input.point(p));
+        }
+        Self {
+            rows,
+            order: (0..points.len() as u32).collect(),
+        }
+    }
 }
 
 /// The region a point would replace: its visible facets V and its horizon
@@ -1940,6 +2031,64 @@ pub(crate) mod tests {
             }
         }
         check_invariants(&hull);
+    }
+
+    thread_local! {
+        /// Overrides [`copy_orphans`] for sequential builds on this thread:
+        /// copy from this many new simplices, at any input size.
+        pub(super) static COPY_FROM: core::cell::Cell<Option<usize>> =
+            const { core::cell::Cell::new(None) };
+        /// Plans on this thread that scanned copied rows.
+        pub(super) static COPIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    }
+
+    /// The sequential build of `points` with orphans copied from plans of
+    /// `from` new simplices, and the number of plans that copied.
+    fn build_copying_from(dim: usize, points: &[f64], from: usize) -> (SimplicialHull<'_>, usize) {
+        COPY_FROM.with(|c| c.set(Some(from)));
+        COPIES.with(|c| c.set(0));
+        let hull =
+            SimplicialHull::build(accept(dim, points).unwrap(), Execution::Sequential).unwrap();
+        COPY_FROM.with(|c| c.set(None));
+        (hull, COPIES.with(core::cell::Cell::get))
+    }
+
+    #[test]
+    fn copied_orphan_rows_change_no_plan() {
+        // Every plan copies (from 1) or none does (from usize::MAX): the
+        // arena, the outside sets, and the proved interior points agree.
+        // Points on a sphere keep most orphans outside some new simplex;
+        // points in a cube are mostly proved interior.
+        let mut rng = Rng(214);
+        for (dim, count, on_sphere) in [
+            (3, 300, true),
+            (4, 120, true),
+            (5, 60, true),
+            (3, 800, false),
+            (4, 400, false),
+        ] {
+            let mut points = Vec::new();
+            for _ in 0..count {
+                let v: Vec<f64> = (0..dim).map(|_| rng.unit()).collect();
+                let norm = if on_sphere {
+                    v.iter().map(|x| x * x).sum::<f64>().sqrt()
+                } else {
+                    1.0
+                };
+                points.extend(v.iter().map(|x| x / norm));
+            }
+            let (copying, copies) = build_copying_from(dim, &points, 1);
+            let (gathering, none) = build_copying_from(dim, &points, usize::MAX);
+            assert!(copies > 0, "dim {dim}: no plan copied");
+            assert_eq!(none, 0, "dim {dim}: a plan copied past the bound");
+            assert_eq!(snapshot(&copying), snapshot(&gathering), "dim {dim}");
+            let mut a = copying.proved_interior.clone();
+            let mut b = gathering.proved_interior.clone();
+            a.sort_unstable();
+            b.sort_unstable();
+            assert_eq!(a, b, "dim {dim}");
+            check_invariants(&copying);
+        }
     }
 
     /// The arena as (id, vertices, neighbors, outward, outside), in id order.
