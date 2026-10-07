@@ -29,6 +29,8 @@ A speedup that keeps new state per object (per facet, per point) first times a b
 
 Time the sets the Issue names. Before adding a larger set, estimate its time from a smaller one; a single run longer than a few minutes needs a reason in the PR. In #116, `main` took 32 minutes for one D = 7 run that no Issue asked for.
 
+A change after review that touches the timed path makes a new head. Time the base and that head again, both on one machine. A table of the base against the earlier head from one machine, next to the earlier head against the new head from another, is not the base against the shipped head (#259).
+
 When instruction counts drop but wall time stays inside the spread, the PR reports both and claims no speedup. Whether to merge is the owner's call on those numbers (#92).
 
 A timing names what its timed section contains. Reuse buffers across repetitions. Keep work common to every variant outside the section. Name the inputs: set, seed, repetitions, toolchain, and cores. Timers or profiling hooks added to measure are not committed; the PR records the method instead.

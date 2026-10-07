@@ -19,6 +19,8 @@ The checkout already open is where the edit goes. `.dev/reviews/` is the only pa
 
 A change that belongs in the repo is not finished as a local edit. It is finished only when its Issue has an open pull request (`.cursor/rules/workflow.mdc`).
 
+A script that writes scratch stops at its first failed command (`set -e` in bash, `$ErrorActionPreference = 'Stop'` in PowerShell) and names its targets by absolute path. Do not rely on a `cd` earlier in an `&&` chain: when a command before it fails, the lines after the chain run in the repository. In #259 that overwrote `Cargo.toml` and left two files in the checkout.
+
 ```text
 # BAD — a worktree, a timing crate, and a profile still on disk after the reply
 git worktree add .dev/wt-133
