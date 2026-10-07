@@ -32,7 +32,7 @@ use crate::hull::classify::placing;
 use crate::hull::input::{accept, minimum_basis, Input};
 use crate::hull::merge::merge;
 use crate::hull::ridge::{fingerprint, pair_equal_keys_with_border};
-use crate::hull::simplicial::{Execution, SimplicialHull};
+use crate::hull::simplicial::SimplicialHull;
 use crate::hull::ConvexHullError;
 use crate::lists::Lists;
 use crate::predicates::{orient, Sign};
@@ -61,7 +61,6 @@ pub(crate) const NO_NEIGHBOR: u32 = u32::MAX;
 pub struct DelaunayBuilder<'a> {
     dim: usize,
     points: &'a [f64],
-    execution: Execution,
 }
 
 impl<'a> DelaunayBuilder<'a> {
@@ -69,26 +68,17 @@ impl<'a> DelaunayBuilder<'a> {
     /// the lifted one), stored row-major in `points`.
     #[must_use]
     pub fn new(dim: usize, points: &'a [f64]) -> Self {
-        Self {
-            dim,
-            points,
-            execution: Execution::Sequential,
-        }
+        Self { dim, points }
     }
 
-    /// Runs the hull core of a flat lift on rayon's global pool when
-    /// `enable` is true. The insertion itself is sequential either way
-    /// (design §6), so the result is identical. Off by default.
+    /// Requests a parallel build. Off by default.
+    ///
+    /// The current version runs the same sequential insertion either way
+    /// (design §6), so the result is identical, diagonals included.
     #[must_use]
     pub fn parallel(self, enable: bool) -> Self {
-        Self {
-            execution: if enable {
-                Execution::Parallel
-            } else {
-                Execution::Sequential
-            },
-            ..self
-        }
+        let _ = enable;
+        self
     }
 
     /// Builds the triangulation.
@@ -101,7 +91,7 @@ impl<'a> DelaunayBuilder<'a> {
     /// [`ConvexHullError::ExactEvaluationExhausted`]. Sites that all lie on
     /// one sphere succeed.
     pub fn build(self) -> Result<DelaunayTriangulation, ConvexHullError> {
-        Ok(publish(complex(self.dim, self.points, self.execution)?))
+        Ok(publish(complex(self.dim, self.points)?))
     }
 }
 
@@ -379,15 +369,11 @@ fn ascending(row: &[u32]) -> (Small<(u32, usize), 11>, bool) {
 /// lift built by insertion, or the pulling triangulation as one group when
 /// the lift is flat. Input checks and `DegenerateDimension` concern the
 /// original sites, with their original indices.
-pub(crate) fn complex(
-    dim: usize,
-    points: &[f64],
-    execution: Execution,
-) -> Result<Complex, ConvexHullError> {
+pub(crate) fn complex(dim: usize, points: &[f64]) -> Result<Complex, ConvexHullError> {
     let input = accept(dim, points)?;
     let sites = insert::Sites::of(&input);
     let complex = if flat(&input, &sites)? {
-        pull(input, execution)?
+        pull(input)?
     } else {
         inserted(&input, &sites)?
     };
@@ -621,9 +607,9 @@ fn publish(complex: Complex) -> DelaunayTriangulation {
 /// is split by the same rule, and `v` joins every simplex found; a face that
 /// is already a simplex is returned as it is. The recursion runs on an
 /// explicit stack.
-fn pull(sites: Input<'_>, execution: Execution) -> Result<Complex, ConvexHullError> {
+fn pull(sites: Input<'_>) -> Result<Complex, ConvexHullError> {
     let d = sites.dim();
-    let hull = SimplicialHull::build(sites, execution)?;
+    let hull = SimplicialHull::build(sites)?;
     let facets: Vec<Vec<u32>> = merge(&hull)?.vertices.iter().map(<[u32]>::to_vec).collect();
     let input = &hull.input;
     let point = |i: u32| input.point(i);

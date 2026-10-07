@@ -12,7 +12,7 @@ The library's meaning, the invariants, and the named completion inputs are the d
 | ------ | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | P1     | Predicate sign, the exact-sign fallback, and the predicate inputs named in the design                    | None                                                                                     |
 | P2     | Hull topology, volume, the index partition, the hull invariants, the named hull inputs, hull simulations | P1 records stay. They are not hull expectations                                          |
-| P3     | Sequential and parallel agreement on the same batch, in one binary                                       | Hull expectations stay. Parallel output does not replace them                            |
+| P3     | Agreement of `parallel(true)` and `parallel(false)`, in one binary                                       | Hull expectations stay. Parallel output does not replace them                            |
 | P4     | Delaunay, Voronoi, and the named Delaunay inputs                                                         | Hull expectations stay. A Delaunay or Voronoi field is added only when P4 can produce it |
 | P5     | Wider SIMD, caches, and faster predicates and classification                                              | Expectations stay. A faster path that disagrees is wrong                                 |
 | Timing | Wall time against Qhull, after a correct sequential hull                                                 | Performance files stay separate from correctness records                                 |
@@ -67,7 +67,7 @@ The same seed would build different points. Every correctness record tied to tha
 
 ### Keep the result across a new path
 
-A refactor, the parallel commit, or a P5 optimization produces a result the sequential lock already names. The lock stays. The new path is compared to it. Parallel agreement is the sequential path and the parallel path in the same binary, on the same batch. That comparison does not create a second record.
+A refactor, the parallel commit, or a P5 optimization produces a result the sequential lock already names. The lock stays. The new path is compared to it. Parallel agreement is `parallel(true)` against `parallel(false)` in the same binary; since ADR 0004 both run the same construction. That comparison does not create a second record.
 
 ### Retire a record
 

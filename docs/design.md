@@ -473,7 +473,7 @@ impl StaticConvexHull<D> {
 
 The only conversion from `[[f64; D]]` to `&[f64]` is `as_flattened()`. There is no `unsafe`. The MSRV is 1.89. The AVX-512 level of `pulp` (its `x86-v4` feature) uses the AVX-512 intrinsics, which are stable from 1.89. `faer`, which provides the Voronoi linear solve, declares `rust-version` 1.84 from 0.21 on, and the last release usable on 1.80 is the unmaintained 0.19 series. The range of $D$ is emitted by a macro or by separate implementations, matching the stable-Rust constraint that a single `impl` cannot carry a constant bound.
 
-Dependencies are `faer`, `rayon`, `pulp`, and `thiserror`. The implementation language is Rust. The runtime `parallel` flag is accepted (§6). The build assumes `std`.
+Dependencies are `faer`, `pulp`, and `thiserror`. The implementation language is Rust. The runtime `parallel` flag is accepted (§6). The build assumes `std`.
 
 The distance kernel is runtime CPU detection through `pulp`, up to AVX-512 (`x86-v4`). Every instruction-set level returns the same cull set. The cofactor elimination of facets with 5 to 9 points runs four facets at once, one per lane of a `pulp` AVX2 (`x86-v3`) vector, when the CPU has it, and one facet at a time otherwise. Each lane performs the operations of the single elimination in the same order, so the cofactors and their bounds are bitwise identical on every CPU.
 

@@ -19,5 +19,9 @@ dbg_macro = "deny"
 [dependencies]
 faer = { version = "0.24", default-features = false, features = ["std"] }
 pulp = { version = "0.22", features = ["x86-v4"] }
-rayon = "1"
 thiserror = "2"
+
+[dev-dependencies]
+# The fixture test runs its records on rayon's pool; the library has no
+# parallel path (design §6).
+rayon = "1"

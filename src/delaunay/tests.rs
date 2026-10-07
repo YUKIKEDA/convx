@@ -134,7 +134,7 @@ fn degenerate_sites_report_original_indices() {
     // 1 duplicates 0; all on the line y = x.
     let points = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 2.0, 2.0];
     assert_eq!(
-        complex(2, &points, Execution::Sequential).err(),
+        complex(2, &points).err(),
         Some(ConvexHullError::DegenerateDimension {
             actual_dim: 1,
             spanning_points: vec![0, 2],

@@ -35,7 +35,7 @@ use std::collections::HashMap;
 use super::input::{accept, Input};
 use super::merge::merge;
 use super::ridge::{fingerprint, pair_equal_keys};
-use super::simplicial::{Execution, SimplicialHull};
+use super::simplicial::SimplicialHull;
 use super::ConvexHullError;
 use crate::arena::{FacetId, SlotMarks};
 use crate::lists::Lists;
@@ -138,12 +138,9 @@ fn polygon_edge(
 }
 
 /// Builds and classifies the hull of an accepted input.
-pub(crate) fn classify(
-    input: Input<'_>,
-    execution: Execution,
-) -> Result<Classified<'_>, ConvexHullError> {
-    let built = SimplicialHull::build(input, execution)?;
-    classify_built(built, execution)
+pub(crate) fn classify(input: Input<'_>) -> Result<Classified<'_>, ConvexHullError> {
+    let built = SimplicialHull::build(input)?;
+    classify_built(built)
 }
 
 /// Classifies a strict polygon from its extreme cycle.
@@ -237,10 +234,7 @@ fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
 
 /// Classifies a built simplicial hull. Its `proved_interior` points go to
 /// `interior_points` without a scan.
-fn classify_built(
-    hull: SimplicialHull<'_>,
-    execution: Execution,
-) -> Result<Classified<'_>, ConvexHullError> {
+fn classify_built(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHullError> {
     if hull.strict_edges {
         return classify_chain(hull);
     }
@@ -338,12 +332,7 @@ fn classify_built(
         candidates.sort_unstable();
         candidates.dedup();
         let plane = members(g).next().unwrap_or(&[]);
-        extremes.push(Some(face_extremes(
-            &hull.input,
-            plane,
-            &candidates,
-            execution,
-        )?));
+        extremes.push(Some(face_extremes(&hull.input, plane, &candidates)?));
     }
 
     let mut is_vertex = vec![false; hull.input.representative.len()];
@@ -490,7 +479,6 @@ fn face_extremes(
     input: &Input<'_>,
     plane: &[u32],
     candidates: &[u32],
-    execution: Execution,
 ) -> Result<Vec<u32>, ConvexHullError> {
     let d = input.dim();
     if d == 1 {
@@ -525,7 +513,7 @@ fn face_extremes(
                 .map(|(_, &x)| x)
         })
         .collect();
-    let sub = classify(accept(d - 1, &projected)?, execution)?;
+    let sub = classify(accept(d - 1, &projected)?)?;
     Ok(sub
         .vertices
         .iter()
@@ -742,7 +730,7 @@ pub(crate) mod tests {
     use crate::hull::simplicial::tests::Rng;
 
     pub(crate) fn classified(dim: usize, points: &[f64]) -> Classified<'_> {
-        let c = classify(accept(dim, points).unwrap(), Execution::Sequential).unwrap();
+        let c = classify(accept(dim, points).unwrap()).unwrap();
         check(&c);
         c
     }
@@ -993,13 +981,13 @@ pub(crate) mod tests {
         let mut by_chain = cycle.clone();
         by_chain.sort_unstable();
         assert_eq!(by_chain, vertices, "the square's extremes are its corners");
-        for execution in [Execution::Sequential, Execution::Parallel] {
-            let hull = SimplicialHull::build(accept(2, &points).unwrap(), execution).unwrap();
+        {
+            let hull = SimplicialHull::build(accept(2, &points).unwrap()).unwrap();
             assert!(hull.strict_edges, "every D = 2 hull is the chain");
             let mut proved = hull.proved_interior.clone();
             proved.sort_unstable();
             assert_eq!(proved, interior, "the points off the edges are discarded");
-            let c = classify_built(hull, execution).unwrap();
+            let c = classify_built(hull).unwrap();
             check(&c);
             assert_eq!(c.vertices, vertices);
             assert_eq!(c.coplanar_points, coplanar);
@@ -1013,11 +1001,11 @@ pub(crate) mod tests {
     #[test]
     fn collinear_directional_extremes_discard_nothing() {
         let points = [0.0, 0.0, 1.0, 2.0, 2.0, 4.0, 1.0, 2.25];
-        for execution in [Execution::Sequential, Execution::Parallel] {
-            let hull = SimplicialHull::build(accept(2, &points).unwrap(), execution).unwrap();
+        {
+            let hull = SimplicialHull::build(accept(2, &points).unwrap()).unwrap();
             assert!(hull.strict_edges);
             assert!(hull.proved_interior.is_empty(), "no polygon, no discard");
-            let c = classify_built(hull, execution).unwrap();
+            let c = classify_built(hull).unwrap();
             check(&c);
             assert_eq!(c.vertices, vec![0, 2, 3]);
             assert_eq!(c.coplanar_points, vec![1]);
@@ -1055,8 +1043,8 @@ pub(crate) mod tests {
     fn discarding_runs_only_where_it_pays() {
         for (on_circle, inside, discards) in [(2040, 136, true), (2040, 20, false)] {
             let (points, interior) = circle_with_interior(on_circle, inside);
-            for execution in [Execution::Sequential, Execution::Parallel] {
-                let hull = SimplicialHull::build(accept(2, &points).unwrap(), execution).unwrap();
+            {
+                let hull = SimplicialHull::build(accept(2, &points).unwrap()).unwrap();
                 let mut proved = hull.proved_interior.clone();
                 proved.sort_unstable();
                 if discards {
@@ -1064,7 +1052,7 @@ pub(crate) mod tests {
                 } else {
                     assert!(proved.is_empty(), "{inside} inside: none is discarded");
                 }
-                let c = classify_built(hull, execution).unwrap();
+                let c = classify_built(hull).unwrap();
                 // check is quadratic in the facets; the lists below are
                 // what the cutoff could change.
                 assert_eq!(c.vertices.len(), on_circle);
@@ -1087,11 +1075,11 @@ pub(crate) mod tests {
         let cycle = monotone_cycle(&points);
         let mut vertices = cycle.clone();
         vertices.sort_unstable();
-        for execution in [Execution::Sequential, Execution::Parallel] {
-            let hull = SimplicialHull::build(accept(2, &points).unwrap(), execution).unwrap();
+        {
+            let hull = SimplicialHull::build(accept(2, &points).unwrap()).unwrap();
             assert!(hull.strict_edges, "every D = 2 hull is the chain");
             assert!(hull.proved_interior.is_empty(), "no site is inside");
-            let c = classify_built(hull, execution).unwrap();
+            let c = classify_built(hull).unwrap();
             check(&c);
             assert_eq!(c.vertices, vertices);
             assert!(c.coplanar_points.is_empty());
@@ -1102,29 +1090,21 @@ pub(crate) mod tests {
     /// The partition with the proved points skipped, and without: the
     /// reference scans every representative against every group.
     fn with_and_without_reuse(dim: usize, points: &[f64]) -> (usize, Classified<'_>, bool) {
-        let built =
-            |execution| SimplicialHull::build(accept(dim, points).unwrap(), execution).unwrap();
-        let sequential = built(Execution::Sequential);
+        let built = || SimplicialHull::build(accept(dim, points).unwrap()).unwrap();
+        let sequential = built();
         let chain = sequential.strict_edges;
         let mut proved = sequential.proved_interior.clone();
         proved.sort_unstable();
-        // The parallel build inserts in another order and may prove other
-        // points; its partition is the same (design §6).
-        let parallel = built(Execution::Parallel);
-        let parallel_proved = parallel.proved_interior.clone();
 
-        let reused = classify_built(sequential, Execution::Sequential).unwrap();
-        let parallel = classify_built(parallel, Execution::Parallel).unwrap();
-        let mut reference = built(Execution::Sequential);
+        let reused = classify_built(sequential).unwrap();
+        let mut reference = built();
         reference.proved_interior.clear();
-        let reference = classify_built(reference, Execution::Sequential).unwrap();
+        let reference = classify_built(reference).unwrap();
         check(&reused);
-        for c in [&reused, &parallel] {
-            assert_eq!(c.vertices, reference.vertices);
-            assert_eq!(c.coplanar_points, reference.coplanar_points);
-            assert_eq!(c.interior_points, reference.interior_points);
-        }
-        for p in proved.iter().chain(&parallel_proved) {
+        assert_eq!(reused.vertices, reference.vertices);
+        assert_eq!(reused.coplanar_points, reference.coplanar_points);
+        assert_eq!(reused.interior_points, reference.interior_points);
+        for p in &proved {
             assert!(
                 reference.interior_points.binary_search(p).is_ok(),
                 "{p} is interior"

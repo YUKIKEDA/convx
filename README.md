@@ -50,7 +50,7 @@ Only the public plane is built by translating to a representative, scaling unifo
 
 `volume()` returns the polyhedron volume. It is not used for topology. A successful build does not promise a finite return value. For $D = 1$ the volume is $|x_{\max} - x_{\min}|$. `triangulation()` returns the boundary simplicial complex, not a decomposition of the interior into $D$-simplices. The split of a coplanar region need not be geometrically unique, and it may change across versions. Within one binary, the split does not depend on the order of insertion. `boundary_cycle` returns a cycle only for $D$ of 1, 2, or 3, and returns `None` for $D \ge 4$ and for a facet number that is out of range.
 
-Under Quickhull, a facet is visible to a point when that point is strictly outside it by orientation. The sequential build inserts one point at a time and changes the hull in place. The parallel build absorbs points in batches: two points share a batch only when the facets they delete and their horizons are disjoint, and then neither point is strictly outside the other's prospective simplices by orientation; debug builds check that second condition. Packing order is largest outside distance first; an equal distance takes the smaller input index, and a candidate with no distance packs later. A round examines only the first 64 candidates; the rest wait for a later round. Apply order is ascending input index. `parallel` defaults to off. The published hull does not depend on the order of insertion, so both builds return the same result on one binary. Across versions, what the public result promises, after normalization, is that logical-facet vertex sets and neighbor sets agree. Identical output bytes across versions are not promised.
+Under Quickhull, a facet is visible to a point when that point is strictly outside it by orientation. The sequential build inserts one point at a time and changes the hull in place. `parallel(true)` runs the same sequential build: a parallel build in rounds did not beat it when measured (`docs/adr/0004-parallel-runs-the-sequential-hull.md`). `parallel` defaults to off. The published hull does not depend on the order of insertion, so any construction that reaches the same hull returns the same result. Across versions, what the public result promises, after normalization, is that logical-facet vertex sets and neighbor sets agree. Identical output bytes across versions are not promised.
 
 ## Delaunay is the lower hull of the lift
 
@@ -94,7 +94,7 @@ let hull = ConvexHullBuilder::new(2, points)
 
 `points` is row-major and its length is a multiple of the dimension. The static API is a wrapper for stack arrays and monomorphization. It is a separate axis from swapping a solver. `StaticConvexHull` covers $1 \le D \le 8$. `StaticDelaunay` and `StaticVoronoi` cover $1 \le D \le 8$ too. They return `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram`. `build` takes `&[[f64; D]]` and passes `as_flattened()` to the core. That is the only conversion from `[[f64; D]]` to `&[f64]`. There is no `unsafe`. Parallelism stays on the dynamic builder.
 
-Dependencies are `faer`, `rayon`, `pulp`, and `thiserror`. The implementation language is Rust. Parallelism is the runtime `parallel` flag. The build assumes `std`. The MSRV is 1.89. The distance kernel is runtime CPU detection through `pulp`, up to AVX-512.
+Dependencies are `faer`, `pulp`, and `thiserror`. The implementation language is Rust. The runtime `parallel` flag is accepted; the current version builds sequentially either way. The build assumes `std`. The MSRV is 1.89. The distance kernel is runtime CPU detection through `pulp`, up to AVX-512.
 
 The sign convention and the lift-as-formula are part of the Delaunay specification from the start.
 
@@ -104,6 +104,6 @@ Debug builds and CI check the Euler characteristic of the simplicial complex and
 
 Sequential and `parallel(true)` agree, on the same binary, on the published hull and on Delaunay simplices.
 
-Speedup numbers are written after the sequential core exists and Qhull has been measured. The reference Qhull run has no joggling and no input perturbation, in the same dimension. The comparison is logical facets, not a triangulated dump and not a joggled dump. The columns are performance, correctness, robustness, memory, and parallel time at 1, 2, 4, 8, and 16 threads.
+Speedup numbers are written after the sequential core exists and Qhull has been measured. The reference Qhull run has no joggling and no input perturbation, in the same dimension. The comparison is logical facets, not a triangulated dump and not a joggled dump. The columns are performance, correctness, robustness, memory, and parallel (the time of `parallel(true)` against `parallel(false)`).
 
 Formula expansions, the outside-of-ridge test, and the per-phase acceptance inputs are in [docs/design.md](docs/design.md) and [docs/design.ja.md](docs/design.ja.md). When the two differ, follow the Japanese file. Development procedure: [CONTRIBUTING.md](CONTRIBUTING.md). Agent entry: [AGENTS.md](AGENTS.md).
