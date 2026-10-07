@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P6-3 (#251): sequential hull inserts one point at a time in place; batch extraction only parallel.
+P6-4 (#252): store the hull, Delaunay, and Voronoi results in flat arrays behind views.
 
 ## Dependencies
 
@@ -146,7 +146,7 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | ---- | ---- | ------------------------------------------------------------------------------------ | ----- | ----------- |
 | P6-1 | Feat | Semi-static filter for orientations and lifted orientations with k ≤ 4               | #249  | Done        |
 | P6-2 | Task | Time Qhull's whole run and convx's construction alone next to `build()`              | #250  | Done        |
-| P6-3 | Docs | Sequential hull inserts one point at a time in place; batch extraction only parallel | #251  | Not started |
+| P6-3 | Docs | Sequential hull inserts one point at a time in place; batch extraction only parallel | #251  | Done        |
 | P6-4 | Docs | Store the hull, Delaunay, and Voronoi results in flat arrays behind views             | #252  | Not started |
 | P6-5 | Feat | Facet store sized to the hull's dimension and sequential Quickhull in place          | #253  | Not started |
 | P6-6 | Feat | Flat result storage and views for the hull, Delaunay, and Voronoi                    | #254  | Not started |
