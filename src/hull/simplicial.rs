@@ -208,10 +208,10 @@ impl<'a> SimplicialHull<'a> {
                 Self::push_plane(points, outward[first + lane], cofactors.as_deref(), planes)?;
             }
         }
-        for k in full..count {
+        for (k, &outward) in outward.iter().enumerate().skip(full) {
             let points = self.coords_of(simplex(k));
             let cofactors = facet_cofactors(&points);
-            Self::push_plane(&points, outward[k], cofactors.as_deref(), planes)?;
+            Self::push_plane(&points, outward, cofactors.as_deref(), planes)?;
         }
         Ok(())
     }
