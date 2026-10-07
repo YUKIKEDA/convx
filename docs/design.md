@@ -151,7 +151,7 @@ struct Simplex {
 
 Numbers after publication are `u32` values packed after deletions. The generation on `FacetId` is used only to prevent dangling references during construction. Public API numbers are packed indices. A logical facet's plane is owned by the group and stored apart from each simplex's working normal.
 
-The arena is a generational index in chunks. Construction has one thread inserting one point at a time and changing the hull in place, whatever `parallel` is set to (§6). Linking logical groups may be Union-Find, or a rebuild after construction.
+The arena is a generational index in chunks. Construction has one thread inserting one point at a time and changing the hull in place (§6). Linking logical groups may be Union-Find, or a rebuild after construction.
 
 For $D = 1$, a facet is a single endpoint. The neighbor list is empty. The two endpoints are the logical facets, and the volume is the absolute difference of the endpoint coordinates $|x_{\max} - x_{\min}|$.
 
@@ -229,11 +229,11 @@ The sequential build inserts outside points one at a time and changes the hull i
 
 The published hull does not depend on the order of insertion. A logical facet is unique as a face of the polytope, and its plane is decided by its vertex set alone through the procedure of §5. A face that is not a simplex is split by the placing triangulation of §3, and a face that is a simplex is itself. The index partition is decided by whether a point is extreme, a non-extreme boundary point, or interior. `volume()` adds its terms in the order that triangulation fixes. So any construction that reaches the same hull returns the same published result. A parallel construction may rely on this uniqueness.
 
-With `parallel(true)` the hull is built by the same sequential construction as with `parallel(false)`. `parallel` defaults to off, and its value changes neither the construction nor the published result. A debug build checks that the published result of `parallel(true)` equals that of `parallel(false)` on the same input.
+The hull is built sequentially only. The builders have no parallel switch.
 
-The parallel build of earlier versions absorbed points by a batch extraction per round and a commit in input-index order. The extraction took the first $K = 64$ candidates by outside distance and reserved their visible facets and horizons. Measured, it did not beat the sequential build beyond the spread even on four threads. The extraction and the commit were serial, and a round's planning did not pay for waking the threads (`docs/adr/0004-parallel-runs-the-sequential-hull.md`). It is no longer part of the specification. A parallel hull construction returns to this section when a scheme that beats the sequential build by measurement is decided through a Grill.
+The parallel build of earlier versions absorbed points by a batch extraction per round and a commit in input-index order. The extraction took the first $K = 64$ candidates by outside distance and reserved their visible facets and horizons. Measured, it did not beat the sequential build beyond the spread even on four threads. The extraction and the commit were serial, and a round's planning did not pay for waking the threads (`docs/adr/0004-sequential-hull-only.md`). It is no longer part of the specification, and neither is the `parallel` flag that selected it. A parallel hull construction returns to this section, with its public API, when a scheme that beats the sequential build by measurement is decided through a Grill.
 
-Delaunay and Voronoi also run the one incremental insertion of §7 whatever `parallel` is set to, and the hull core they call for a flat lift is the same sequential construction. So both values of `parallel` agree even on diagonals that are not unique.
+Delaunay and Voronoi also run the one incremental insertion of §7, and the hull core they call for a flat lift is the same sequential construction.
 
 After construction, no remaining facet has any input point strictly outside it.
 
@@ -266,7 +266,7 @@ Delaunay returns `DegenerateDimension` only when the affine dimension of the ori
 
 Published simplices are only the projection of the lower hull. Vertices are stored in ascending order, and a swap of the last two points makes the orientation positive in the original space. When the exact orientation is zero, the ascending order is kept.
 
-When the orientation of the lifted points is exactly zero and several diagonals exist, the build returns the split chosen by that version's insertion order. Which of the sites are extreme is unique, so the extreme set is promised. Agreement of diagonals is limited to the sequential and parallel paths of the same binary.
+When the orientation of the lifted points is exactly zero and several diagonals exist, the build returns the split chosen by that version's insertion order. Which of the sites are extreme is unique, so the extreme set is promised. The same binary returns the same diagonals for the same input. Agreement of diagonals across versions is not promised.
 
 Dimension degeneracy is reported from the affine dimension of the input sites. The indices used in the report are those of the original sites. The report does not use the dimension count of the lift.
 
@@ -403,14 +403,13 @@ An interior site's cell has no ray. A cell of a site on the boundary of the conv
 
 ## 9. Public API
 
-The core input is row-major `&[f64]`. A builder takes a dimension and a point slice, switches `parallel`, and returns the result from `build`. The default is sequential. In the current version `parallel` does not change the construction: the hull, Delaunay, and Voronoi all run the same sequential construction whatever its value (§6).
+The core input is row-major `&[f64]`. A builder takes a dimension and a point slice and returns the result from `build`. Construction is sequential (§6).
 
 ```rust
-pub struct ConvexHullBuilder<'a> { /* dim, points, parallel */ }
+pub struct ConvexHullBuilder<'a> { /* dim, points */ }
 
 impl<'a> ConvexHullBuilder<'a> {
     pub fn new(dim: usize, points: &'a [f64]) -> Self;
-    pub fn parallel(self, enable: bool) -> Self;
     pub fn build(self) -> Result<ConvexHull, ConvexHullError>;
 }
 ```
@@ -469,11 +468,11 @@ impl StaticConvexHull<D> {
 }
 ```
 
-`StaticConvexHull` covers $1 \le D \le 8$. `StaticDelaunay` and `StaticVoronoi` also cover $1 \le D \le 8$, and `build` has the same shape. The return types are `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram` respectively. The three static types share one range. Delaunay is built by the incremental insertion of §7 and uses no internal hull of dimension $D+1$, so there is no reason for Delaunay and Voronoi to cover less than the hull. `build` takes `&[[f64; D]]` and passes `as_flattened()` to the core. Only the dynamic builders have the `parallel` flag.
+`StaticConvexHull` covers $1 \le D \le 8$. `StaticDelaunay` and `StaticVoronoi` also cover $1 \le D \le 8$, and `build` has the same shape. The return types are `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram` respectively. The three static types share one range. Delaunay is built by the incremental insertion of §7 and uses no internal hull of dimension $D+1$, so there is no reason for Delaunay and Voronoi to cover less than the hull. `build` takes `&[[f64; D]]` and passes `as_flattened()` to the core.
 
 The only conversion from `[[f64; D]]` to `&[f64]` is `as_flattened()`. There is no `unsafe`. The MSRV is 1.89. The AVX-512 level of `pulp` (its `x86-v4` feature) uses the AVX-512 intrinsics, which are stable from 1.89. `faer`, which provides the Voronoi linear solve, declares `rust-version` 1.84 from 0.21 on, and the last release usable on 1.80 is the unmaintained 0.19 series. The range of $D$ is emitted by a macro or by separate implementations, matching the stable-Rust constraint that a single `impl` cannot carry a constant bound.
 
-Dependencies are `faer`, `rayon`, `pulp`, and `thiserror`. The implementation language is Rust. The runtime `parallel` flag is accepted (§6). The build assumes `std`.
+Dependencies are `faer`, `pulp`, and `thiserror`. The implementation language is Rust. The build assumes `std`.
 
 The distance kernel is runtime CPU detection through `pulp`, up to AVX-512 (`x86-v4`). Every instruction-set level returns the same cull set. The cofactor elimination of facets with 5 to 9 points runs four facets at once, one per lane of a `pulp` AVX2 (`x86-v3`) vector, when the CPU has it, and one facet at a time otherwise. Each lane performs the operations of the single elimination in the same order, so the cofactors and their bounds are bitwise identical on every CPU.
 
@@ -506,7 +505,7 @@ $$
 
 - Containment is decided by a predicate.
 
-`parallel(false)` and `parallel(true)` agree, on the same binary, on the published hull and on Delaunay simplices, because both run the same sequential construction (§6). A debug build compares every `parallel(true)` hull with the published result of `parallel(false)`, as a check that the flag changes nothing.
+Construction is sequential only (§6), so on the same binary and the same input the published hull and the Delaunay simplices agree on every run.
 
 The inputs that are completion criteria are as follows.
 
@@ -524,9 +523,8 @@ Targets are measured in the following columns. Placing the columns is the specif
 | Correctness | The invariants above, and the oracles                                  |
 | Robustness  | Random, adversarial, near-degenerate, huge coordinates, high dimension |
 | Memory      | Bytes per input point                                                  |
-| Parallel    | Time of `parallel(true)` against `parallel(false)`                      |
 
-Every construction of the current version is sequential, so the Parallel column checks that `parallel(true)` takes the same time as `parallel(false)` within the spread. When a parallel construction returns to §6, this column returns to the time at 1, 2, 4, 8, and 16 threads. A deterministic parallel insertion (Delaunay) is a roadmap row.
+There is no Parallel column. When a parallel construction returns to §6, a column of the time at 1, 2, 4, 8, and 16 threads returns with it. A deterministic parallel insertion (Delaunay) is a roadmap row.
 
 ---
 
@@ -536,7 +534,7 @@ Phase 1 is the predicate kernel. Orientation, the distance sign, coplanar, the e
 
 Phase 2 is sequential Quickhull. A $D = 2$ input is built by the chain in §6. Insertion proceeds with simplices. After completion, coplanar simplices are merged, and then the distance-zero points are classified. This phase includes the index partition, `volume()`, the invariants, and the convex-hull inputs above.
 
-Phase 3 was parallel. It included the batch extraction, the reservation with its debug check of prospective-simplex conflicts, worker-local mutation, commit in index order, and the check of agreement with the published result of the sequential build. The sequential build does not use this extraction; it inserts one point at a time in place (`docs/adr/0003-sequential-hull-in-place.md`). Measured, the parallel build did not beat the sequential build, so `parallel(true)` runs the sequential build and the extraction is no longer part of the specification (`docs/adr/0004-parallel-runs-the-sequential-hull.md`).
+Phase 3 was parallel. It included the batch extraction, the reservation with its debug check of prospective-simplex conflicts, worker-local mutation, commit in index order, and the check of agreement with the published result of the sequential build. The sequential build does not use this extraction; it inserts one point at a time in place (`docs/adr/0003-sequential-hull-in-place.md`). Measured, the parallel build did not beat the sequential build, so the extraction and the `parallel` flag are no longer part of the specification (`docs/adr/0004-sequential-hull-only.md`).
 
 Phase 4 is the static API, Delaunay, Voronoi, and the oracles. Phase 4 is not complete until the Delaunay inputs above pass. The pulling triangulation for a flat lift, and the procedure that merges cospherical simplices into one Voronoi vertex, are internal procedures of this phase.
 

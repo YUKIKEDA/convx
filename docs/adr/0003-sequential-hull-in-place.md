@@ -43,4 +43,4 @@ A later change that makes the sequential build depend on the parallel protocol a
 
 ## Outcome
 
-#256 measured the parallel hull on the new store, and it did not meet the criterion above. `parallel(true)` runs the sequential build (`docs/adr/0004-parallel-runs-the-sequential-hull.md`).
+#256 measured the parallel hull on the new store, and it did not meet the criterion above. The hull is built sequentially only, and the `parallel` flag is removed (`docs/adr/0004-sequential-hull-only.md`).

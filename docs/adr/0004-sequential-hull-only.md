@@ -1,4 +1,4 @@
-# 0004. parallel(true) runs the sequential hull build
+# 0004. The hull is built sequentially only
 
 ## Status
 
@@ -33,13 +33,13 @@ The parallel build was the round protocol of design §6:
 
 ## Decision
 
-- `parallel(true)` builds the hull by the same sequential in-place construction as `parallel(false)`.
+- The hull is built only by the sequential in-place construction.
 - The batch extraction, K, the T and H reservation, the conflict check, and the ordered commit are removed from the specification (design §6, §10, §11) and from the code (#267).
-- The `parallel` flag stays in the public API. Delaunay and Voronoi already ran one sequential insertion for both values, and the hull core they call for a flat lift is now sequential as well.
-- Debug builds keep comparing the published result of `parallel(true)` with that of `parallel(false)`, as a check that the flag changes nothing.
-- The Parallel column of design §10 checks that `parallel(true)` takes the same time as `parallel(false)` within the spread.
+- The `parallel` flag is removed from all three builders. Kept, it would be a switch that does nothing. The crate is unpublished (version 0.0.0, `publish = false`), so no caller needs it kept for compatibility. Delaunay and Voronoi already ran one sequential insertion whatever its value.
+- With the flag go its debug comparison and its tests, and design §10's Parallel column. The column returns, as times at 1, 2, 4, 8, and 16 threads, with a parallel construction.
+- `rayon` leaves the library's dependencies.
 
-A parallel hull construction returns only through a Grill, with a measurement that it beats the sequential build under the criterion above. Coarse-grained schemes are admissible because the published hull does not depend on the insertion order (ADR 0003), and #269 measures them before any design work:
+A parallel hull construction, with whatever public switch it needs, returns only through a Grill, with a measurement that it beats the sequential build under the criterion above. Coarse-grained schemes are admissible because the published hull does not depend on the insertion order (ADR 0003), and #269 measures them before any design work:
 
 - hulls of chunks followed by a final hull;
 - parallel merge, classification, and publication;
