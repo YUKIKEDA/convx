@@ -12,4 +12,6 @@ Names describe convx concepts: hulls, facets, predicates, signs. Do not name an 
 
 The public surface lives in `docs/design.ja.md` and `docs/design.md`. Do not copy the type list, the function list, or the error variants into this rule. When the design and the code disagree, change the code or open a `design` Issue. Do not silently widen the API.
 
+Every public type that a public method returns or takes is exported from `lib.rs`, and a test names it in a signature. A `pub struct` that is reachable only as a return type cannot be written in a caller's signature and is missing from rustdoc (#264: the four Voronoi collection views).
+
 Japanese `///` comments in the design are notes for the spec. Implementation rustdoc is English (`.cursor/rules/rust-docs.mdc`).
