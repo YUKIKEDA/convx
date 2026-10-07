@@ -30,7 +30,7 @@ The orientation of the sign is fixed as follows.
 
 - If $x \cdot n + \mathrm{offset} > 0$, the point is outside the plane.
 - The plane is $x \cdot n + \mathrm{offset} = 0$. $n$ is the outward unit normal.
-- Orientation is the exact sign of a determinant. `FacetPlane`'s $x \cdot n + \mathrm{offset}$ is not used for this decision.
+- Orientation is the exact sign of a determinant. The $x \cdot n + \mathrm{offset}$ of a published facet's `normal()` and `offset()` is not used for this decision.
 - Geometric degree $k$ is one less than the number of argument points. It is independent of the hull dimension $D$. $k \le 4$, that is up to five points, is computed with a dedicated formula. How the formula is expanded is left to the implementation. When $k$ exceeds 4, the predicate evaluates a filtered floating-point determinant and falls back to the exact sign only when the value lies inside the bound.
 - The public unit normal of a facet, for any number of points, is the unit direction of the facet's cofactor vector, whose entry $c_j$ is the determinant of the edges followed by the unit row $e_j$, oriented outward. The working normal used by distance scans is the same direction. That direction is certified with an error bound by the predicate filter. When the bound exceeds $10^{-10}$, it is computed exactly and rounded once when it is made unit. Householder QR is not used. The certified direction is more accurate than the QR normal was, and its error bound is guaranteed (ADR 0002). When a facet has $n \ge 5$ points, the filter evaluates every cofactor from one elimination of the $(n-1) \times n$ edge matrix $E$. Gaussian elimination with partial pivoting over its first $n - 1$ columns gives $[T \mid u]$ with $T$ upper triangular, after $s$ row swaps. Adding a multiple of one row to another leaves every maximal minor of $E$ unchanged, and a swap flips its sign. If $T x = u$, then $E$ maps $(-x, 1)$ to zero, and Cramer's rule gives $c = (-1)^s \det T \cdot (-x, 1)$. The filter carries a running bound through the elimination, the back substitution for $x$, and the products with $\det T$, so each $c_j$ has its own bound, as when it was a separate determinant. A divisor whose sign the bound does not certify leaves the cofactors uncertified, and the direction is computed exactly. The normal points to the side where the orientation of the ordered facet vertices has the outward sign. That side is proved from the error bound, and no determinant is evaluated. Let $u = c/|c|$ be the exact unit cofactor direction and let $|v - u| = e < 1$. Then $|v| \ge 1 - e$ and $v \cdot u = (|v|^2 + 1 - e^2)/2 \ge 1 - e > 0$. The orientation sign is the sign of $v \cdot c$, so $v$ lies on the positive side. The certified error is at most $10^{-10}$, or $D \cdot 2^{-49}$ when computed exactly, so the proof holds for the working normal and for the public normal.
 
@@ -116,7 +116,7 @@ The representative set splits into the following three lists. Each is ascending.
 
 Delaunay and Voronoi sites are the entire representative set. Interior points and non-vertex boundary points are sites. Nearby points that differ in bits and fail `==` are not snapped to one point.
 
-Classification runs after outside points have been absorbed and adjacent coplanar simplices have been merged into one logical facet. The distance sign here is the orientation of $D$ affinely independent points of that face and the query point. The inner product of `FacetPlane` is not used.
+Classification runs after outside points have been absorbed and adjacent coplanar simplices have been merged into one logical facet. The distance sign here is the orientation of $D$ affinely independent points of that face and the query point. The inner product of the public plane is not used.
 
 - If the distance to some logical facet is strictly positive, the point is outside. A successful result contains no outside point.
 - If the distance to every facet is strictly negative, the point is interior.
@@ -163,22 +163,36 @@ While points are being inserted, the complex stays simplicial. After every point
 
 A connected boundary on one supporting plane is one logical facet, because one supporting plane of a convex polyhedron cuts one face. Whether a point becomes a vertex, a non-vertex on the boundary, or an interior point is decided by the classification in §3.
 
-The public shape is the same in every dimension.
+The public shape is the same in every dimension. A logical facet holds no `Vec` of its own. `ConvexHull` keeps the vertex lists, normals, offsets, and neighbors of every facet in flat arrays and publishes each facet as a borrowed view (§9).
 
 ```rust
-pub struct FacetPlane {
-    pub normal: Vec<f64>, // length D. Outward unit vector
-    pub offset: f64,      // offset of the plane x·n + offset = 0
+pub struct Facets<'a> { /* borrows the ConvexHull */ }
+
+impl<'a> Facets<'a> {
+    pub fn len(&self) -> usize;
+    pub fn is_empty(&self) -> bool;
+    /// By public facet number. An out-of-range number returns None.
+    pub fn get(&self, facet: u32) -> Option<Facet<'a>>;
+    /// In public number order.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = Facet<'a>> + 'a;
 }
 
-pub struct LogicalFacet {
-    pub vertices: Vec<u32>, // extreme points, ascending
-    pub plane: FacetPlane,
-    pub neighbors: Vec<u32>, // set of neighbor facet numbers, ascending
+#[derive(Clone, Copy)]
+pub struct Facet<'a> { /* borrows the ConvexHull */ }
+
+impl<'a> Facet<'a> {
+    /// Extreme points, ascending.
+    pub fn vertices(&self) -> &'a [u32];
+    /// Length D. Outward unit vector.
+    pub fn normal(&self) -> &'a [f64];
+    /// Offset of the plane x·n + offset = 0.
+    pub fn offset(&self) -> f64;
+    /// Set of neighbor facet numbers, ascending.
+    pub fn neighbors(&self) -> &'a [u32];
 }
 ```
 
-The facet array is ordered by lexicographic vertex lists. The number in that order is the public number. `neighbors` is the set of neighbor facet numbers. A slot's position does not correspond to a shared ridge. A shared ridge is a face of affine dimension $D-2$ in the intersection of the two vertex sets. The ridge's vertex list is not public. Ascending neighbor numbers agree with the lexicographic order of the other facet's vertex list.
+Facets are ordered by lexicographic vertex lists. The number in that order is the public number. `neighbors()` is the set of neighbor facet numbers. A slot's position does not correspond to a shared ridge. A shared ridge is a face of affine dimension $D-2$ in the intersection of the two vertex sets. The ridge's vertex list is not public. Ascending neighbor numbers agree with the lexicographic order of the other facet's vertex list.
 
 The plane is built from that facet's vertices. Walking index tuples in lexicographic order, the first $D$ points that are affinely independent are chosen. A tuple whose exact sign is zero is skipped, and the walk continues to the next tuple. The coordinates the predicate sees are the input bit patterns as they are. Only the public plane is built in the following order.
 
@@ -282,19 +296,36 @@ When the orientation of the lifted points is exactly zero and several diagonals 
 Dimension degeneracy is reported from the affine dimension of the input sites. The indices used in the report are those of the original sites. The report does not use the dimension count of the lift.
 
 ```rust
-pub struct DelaunayTriangulation {
-    pub dim: usize,
-    pub representative: Vec<u32>,
-    pub simplices: Vec<DelaunaySimplex>,
+pub struct DelaunayTriangulation { /* private */ }
+
+impl DelaunayTriangulation {
+    pub fn dim(&self) -> usize;
+    pub fn representative(&self) -> &[u32];
+    pub fn simplices(&self) -> Simplices<'_>;
 }
 
-pub struct DelaunaySimplex {
-    pub vertices: Vec<u32>, // length D+1. Orientation is as in the text
-    pub neighbors: Vec<u32>, // length D+1. The far side of the shared face. u32::MAX if none
+pub struct Simplices<'a> { /* borrows the DelaunayTriangulation */ }
+
+impl<'a> Simplices<'a> {
+    pub fn len(&self) -> usize;
+    pub fn is_empty(&self) -> bool;
+    /// By simplex number. An out-of-range number returns None.
+    pub fn get(&self, simplex: u32) -> Option<DelaunaySimplex<'a>>;
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = DelaunaySimplex<'a>> + 'a;
+}
+
+#[derive(Clone, Copy)]
+pub struct DelaunaySimplex<'a> { /* borrows the DelaunayTriangulation */ }
+
+impl<'a> DelaunaySimplex<'a> {
+    /// Length D+1. Orientation is as in the text.
+    pub fn vertices(&self) -> &'a [u32];
+    /// Length D+1. The simplex number across the shared face. u32::MAX if none.
+    pub fn neighbors(&self) -> &'a [u32];
 }
 ```
 
-A slot with no neighbor holds `u32::MAX`. Point numbers are below `u32::MAX`, so this value does not name a point. Simplex order is the lexicographic order of the ascending vertex lists before orientation is fixed.
+The vertices and the neighbors of the simplices are each kept as one flat array of rows of length $D+1$. A simplex number is the position in that order. A slot with no neighbor holds `u32::MAX`. Point numbers are below `u32::MAX`, so this value does not name a point. Simplex order is the lexicographic order of the ascending vertex lists before orientation is fixed.
 
 ---
 
@@ -304,49 +335,94 @@ The Voronoi diagram is the dual of the Delaunay complex before diagonals are ins
 
 A finite Voronoi vertex is one lower logical facet of the lifted convex hull. Simplices that are exactly coplanar across a shared ridge, by the lifted orientation, are merged into one by walking neighbors. This merge does not depend on the order in which the complex was built. Closeness of the `f64` circumcenter is not the reason to merge. When the whole set is flat there is one lower facet, so there is one Voronoi vertex. It is not split per simplex of the pulling triangulation. The incident sites are the union of the sites of the member simplices, duplicates removed, in ascending order. The length is at least $D+1$. The coordinates are computed by taking the member simplex whose vertex list is lexicographically minimum, translating one vertex to the origin, and computing the circumcenter. If that value is non-finite, the next simplex in the same lexicographic order is tried. If every one is non-finite, the build fails with `NonFiniteCircumcenter`. This error is not a geometric degeneracy. Delaunay simplices and neighbors are published as they were before the merge. Every vertex coordinate of a successful diagram is finite. The hull and the Delaunay triangulation do not compute a circumcenter. Circumcenter rounding is not used to decide topology.
 
-A `VoronoiInterface` is built only when two cells meet in dimension $D-1$. An interface whose `vertices` are empty is not built. When two distinct Voronoi vertices both contain sites $a$ and $b$, and the edge $ab$ is a face of both cells, that interface has finite vertices as its ends. When only one vertex contains $a$ and $b$, and the edge $ab$ lies on a logical facet of the site hull, that interface carries a ray. A diagonal interior to the site set of the same vertex is not an interface. A finite boundary face in $D = 1$ is a single vertex, and `rays` may be empty. An interface that is only rays is not built.
+A `VoronoiInterface` is built only when two cells meet in dimension $D-1$. An interface whose `vertices` are empty is not built. When two distinct Voronoi vertices both contain sites $a$ and $b$, and the edge $ab$ is a face of both cells, that interface has finite vertices as its ends. When only one vertex contains $a$ and $b$, and the edge $ab$ lies on a logical facet of the site hull, that interface carries a ray. A diagonal interior to the site set of the same vertex is not an interface. A finite boundary face in $D = 1$ is a single vertex, and `rays()` may be empty. An interface that is only rays is not built.
 
 There is one ray for each pair of a merged Voronoi vertex and a logical facet of the site hull in the original space such that the vertex's group polytope has a face of dimension $D-1$ lying in that facet. The direction is the outward unit normal of that logical facet. The same facet with a different apex is a different ray. A cell holds that ray when its site lies on that face, that is, when it is one of the group's sites on the facet's hyperplane. When the facet has no boundary site that is not extreme, this is the same as the site belonging to both the facet and the vertex. When a boundary face has several rays, those rays are the ends of that face. A direction between adjacent normals is not a separate object. A successful result always has an apex. A configuration that cannot have an apex has already failed, before construction, as a dimension degeneracy of the original sites. For $D \le 3$, the boundary cycle of a boundary face is derived from the finite vertices and the rays. The stored form itself is the vertex set and the ray set. For $D \ge 4$, pairs of vertices and rays record incidence. They are not a complete complex of cells.
 
 ```rust
-pub struct VoronoiDiagram {
-    pub dim: usize,
-    pub representative: Vec<u32>,
-    pub vertices: Vec<VoronoiVertex>,
-    pub cells: Vec<VoronoiCell>,
-    pub interfaces: Vec<VoronoiInterface>,
+pub struct VoronoiDiagram { /* private */ }
+
+impl VoronoiDiagram {
+    pub fn dim(&self) -> usize;
+    pub fn representative(&self) -> &[u32];
+    pub fn vertices(&self) -> VoronoiVertices<'_>;
+    pub fn rays(&self) -> VoronoiRays<'_>;
+    pub fn cells(&self) -> VoronoiCells<'_>;
+    pub fn interfaces(&self) -> VoronoiInterfaces<'_>;
 }
 
-pub struct VoronoiVertex {
-    pub coords: Vec<f64>, // length D
-    pub sites: Vec<u32>,  // ascending. Length at least D+1
+pub struct VoronoiVertices<'a> { /* borrows the VoronoiDiagram */ }
+pub struct VoronoiRays<'a> { /* likewise */ }
+pub struct VoronoiCells<'a> { /* likewise */ }
+pub struct VoronoiInterfaces<'a> { /* likewise */ }
+
+// VoronoiVertices, VoronoiRays, VoronoiCells, and VoronoiInterfaces share one shape.
+// Their items are VoronoiVertex, VoronoiRay, VoronoiCell, and VoronoiInterface.
+impl<'a> VoronoiVertices<'a> {
+    pub fn len(&self) -> usize;
+    pub fn is_empty(&self) -> bool;
+    /// By number. An out-of-range number returns None.
+    pub fn get(&self, index: u32) -> Option<VoronoiVertex<'a>>;
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = VoronoiVertex<'a>> + 'a;
 }
 
-pub struct VoronoiRay {
-    pub apex: u32,             // index into vertices
-    pub direction: Vec<f64>,   // length D. Outward unit normal of the site hull
-    pub hull_facet: Vec<u32>,  // extreme points of the site hull in the original space. Ascending
+#[derive(Clone, Copy)]
+pub struct VoronoiVertex<'a> { /* borrows the VoronoiDiagram */ }
+
+impl<'a> VoronoiVertex<'a> {
+    /// Length D.
+    pub fn coords(&self) -> &'a [f64];
+    /// Ascending. Length at least D+1.
+    pub fn sites(&self) -> &'a [u32];
 }
 
-pub struct VoronoiCell {
-    pub site: u32,
-    pub vertices: Vec<u32>, // incident finite vertices. Numbers after the merge. Ascending
-    pub rays: Vec<VoronoiRay>,
+#[derive(Clone, Copy)]
+pub struct VoronoiRay<'a> { /* borrows the VoronoiDiagram */ }
+
+impl<'a> VoronoiRay<'a> {
+    /// Number in vertices().
+    pub fn apex(&self) -> u32;
+    /// Length D. Outward unit normal of the site hull.
+    pub fn direction(&self) -> &'a [f64];
+    /// Extreme points of the site hull in the original space. Ascending.
+    pub fn hull_facet(&self) -> &'a [u32];
 }
 
-pub struct VoronoiInterface {
-    pub sites: [u32; 2], // ascending. Built only when two cells meet in dimension D-1
-    pub vertices: Vec<u32>,
-    pub rays: Vec<VoronoiRay>,
+#[derive(Clone, Copy)]
+pub struct VoronoiCell<'a> { /* borrows the VoronoiDiagram */ }
+
+impl<'a> VoronoiCell<'a> {
+    pub fn site(&self) -> u32;
+    /// Incident finite vertices. Numbers after the merge. Ascending.
+    pub fn vertices(&self) -> &'a [u32];
+    /// Numbers in rays() of this cell's rays. Ascending.
+    pub fn ray_numbers(&self) -> &'a [u32];
+    /// The rays, in the order of ray_numbers().
+    pub fn rays(&self) -> impl ExactSizeIterator<Item = VoronoiRay<'a>> + 'a;
+}
+
+#[derive(Clone, Copy)]
+pub struct VoronoiInterface<'a> { /* borrows the VoronoiDiagram */ }
+
+impl<'a> VoronoiInterface<'a> {
+    /// Ascending. Built only when two cells meet in dimension D-1.
+    pub fn sites(&self) -> [u32; 2];
+    pub fn vertices(&self) -> &'a [u32];
+    pub fn ray_numbers(&self) -> &'a [u32];
+    pub fn rays(&self) -> impl ExactSizeIterator<Item = VoronoiRay<'a>> + 'a;
 }
 ```
+
+Vertex coordinates and sites, ray directions and `hull_facet`, and the vertices and rays of cells and boundary faces are each kept in flat arrays. The rays form one table for the whole diagram, and cells and boundary faces hold numbers into it. A cell and a boundary face that share a ray hold the same number.
+
+`VoronoiInterface::sites()` returns the array `[u32; 2]` by value, because its length is 2 at compile time. Every other list of numbers or coordinates has a length known only at run time and is returned as a slice.
 
 Vertex numbers on cells and on boundary faces are numbers in `vertices` after the merge. The same number is stored once. Order is fixed as follows.
 
 - Finite vertices are in lexicographic order of `sites`
 - Cells are in ascending site order, one per representative
 - Boundary faces are in lexicographic order of `sites`
-- Rays are compared by apex number, then by `hull_facet` as a sequence of `u32`, lexicographically
+- Rays are compared by apex number, then by `hull_facet` as a sequence of `u32`, lexicographically. A number in `rays()` is the position in this order, and every cell's and boundary face's `ray_numbers()` ascend in it
 
 An interior site's cell has no ray. A cell of a site on the boundary of the convex hull has at least one ray.
 
@@ -369,16 +445,16 @@ impl<'a> ConvexHullBuilder<'a> {
 `DelaunayBuilder` and `VoronoiBuilder` have the same shape. Both return `ConvexHullError` on failure. Delaunay's `dim` is the dimension of the original space, not the dimension after the lift.
 
 ```rust
-pub struct ConvexHull {
-    pub dim: usize,
-    pub representative: Vec<u32>,
-    pub vertices: Vec<u32>,
-    pub coplanar_points: Vec<u32>,
-    pub interior_points: Vec<u32>,
-    pub facets: Vec<LogicalFacet>,
-}
+pub struct ConvexHull { /* private */ }
 
 impl ConvexHull {
+    pub fn dim(&self) -> usize;
+    pub fn representative(&self) -> &[u32];
+    pub fn vertices(&self) -> &[u32];
+    pub fn coplanar_points(&self) -> &[u32];
+    pub fn interior_points(&self) -> &[u32];
+    /// The logical facets of §5.
+    pub fn facets(&self) -> Facets<'_>;
     /// Not used for topology. Finiteness is not guaranteed.
     pub fn volume(&self) -> f64;
     /// The coplanar split is not part of the stability promise across versions.
@@ -388,7 +464,7 @@ impl ConvexHull {
 }
 ```
 
-`ConvexHull` keeps the boundary simplicial complex in a private field, so it cannot be built by a struct literal outside the crate. `triangulation()` returns a view that borrows that complex.
+Every field of the three results, `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram`, is private. They hold no `Vec` per item: each list is kept flat (an array of values and an array of start positions, or a fixed stride when the length is fixed) and published through borrowed views. So none can be built by a struct literal outside the crate. The results implement `Clone`, `Debug`, and `PartialEq`, and the views implement `Clone`, `Copy`, and `Debug`. A view's `Debug` prints what its accessors return. `ConvexHull` also keeps the boundary simplicial complex in a private field. `triangulation()` returns a view that borrows that complex.
 
 ```rust
 pub struct TriangulationView<'a> { /* borrows the ConvexHull */ }
