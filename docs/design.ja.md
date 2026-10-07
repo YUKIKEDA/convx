@@ -28,7 +28,7 @@ pub enum Sign {
 
 - $x \cdot n + \mathrm{offset} > 0$ なら、その点は平面の外側にある。
 - 平面の式は $x \cdot n + \mathrm{offset} = 0$ とする。$n$ は外向きの単位法線である。
-- 向きの判定は行列式の厳密符号で行う。`FacetPlane` の $x \cdot n + \mathrm{offset}$ は、この判定に使わない。
+- 向きの判定は行列式の厳密符号で行う。公開ファセットの `normal()` と `offset()` による $x \cdot n + \mathrm{offset}$ は、この判定に使わない。
 - 幾何次数 $k$ は、引数の点の数から 1 を引いた値である。包の次元 $D$ とは独立である。$k \le 4$、つまり点 5 個までを専用式で計算する。式の展開の仕方は実装に任せる。$k$ が 4 を超えるときは、フィルタ付きの浮動小数行列式で評価し、上界以内のときだけ厳密符号に落とす。
 - 公開用の単位法線は、点の個数によらず、ファセットの余因子ベクトル（辺の並びに単位行 $e_j$ を加えた行列式 $c_j$）の単位方向を外向きに合わせたものである。距離走査の作業用法線も同じ方向である。この方向は、述語のフィルタで誤差上界とともに確定させる。上界が $10^{-10}$ を超えるときは厳密に計算し、単位化で一度だけ丸める。Householder QR は使わない。確定した方向は、QR の法線より正確であり、誤差上界も保証される（ADR 0002）。ファセットの点が 5 個以上のときは、その個数を $n$ として、$(n-1) \times n$ の辺行列 $E$ を一度消去し、そこからすべての余因子を得る。最初の $n - 1$ 列について部分ピボット付きの Gauss 消去を行うと、$s$ 回の行交換のあとに $[T \mid u]$ が得られ、$T$ は上三角である。ある行の定数倍をほかの行に足しても $E$ の最大小行列式は変わらず、行交換はその符号を反転する。$T x = u$ なら $E$ は $(-x, 1)$ を零へ写し、Cramer の公式から $c = (-1)^s \det T \cdot (-x, 1)$ となる。フィルタは消去、$x$ の後退代入、$\det T$ との積の全体にわたって誤差上界を運ぶので、各 $c_j$ は、別々の行列式だったときと同じく自分の上界をもつ。上界が符号を確定できない除数に出会ったときは余因子を確定させず、方向を厳密に計算する。法線の向きは、ファセットの頂点の並びで orientation が外向きの符号になる側である。この向きは誤差上界から証明し、行列式を評価しない。余因子の厳密な単位方向を $u = c/|c|$ とし、ベクトル $v$ が $|v - u| = e < 1$ を満たすとする。このとき $|v| \ge 1 - e$ であり、$v \cdot u = (|v|^2 + 1 - e^2)/2 \ge 1 - e > 0$ となる。向きの符号は $v \cdot c$ の符号なので、$v$ は正の側にある。確定した方向の誤差は $10^{-10}$ 以下、厳密計算では $D \cdot 2^{-49}$ なので、作業用法線にも公開用の法線にもこの証明が成り立つ。
 
@@ -114,7 +114,7 @@ pub enum ConvexHullError {
 
 Delaunay と Voronoi のサイトは代表の集合全体である。内部点と、境界上の非頂点もサイトに含める。ビットが異なり `==` でもない近い点は、一つの点に吸着しない。
 
-分類は、外側の点を取り込み、共面で隣接する単体を一つの論理ファセットへまとめたあとに行う。ここでの距離の符号は、その面のアフィン独立な $D$ 点と対象点の orientation である。`FacetPlane` の内積は使わない。
+分類は、外側の点を取り込み、共面で隣接する単体を一つの論理ファセットへまとめたあとに行う。ここでの距離の符号は、その面のアフィン独立な $D$ 点と対象点の orientation である。公開平面の内積は使わない。
 
 - ある論理ファセットへの距離が厳密に正なら、その点は外側にある。成功した結果に外側の点は残らない。
 - すべてのファセットへの距離が厳密に負なら、内部点である。
@@ -161,22 +161,36 @@ $D = 1$ では、ファセットは端点一つである。隣接リストは空
 
 同一支持平面上の連結な境界は、一つの論理ファセットになる。凸多面体の一つの支持平面が切る面は一つだからである。点が頂点になるか、境界上の非頂点になるか、内部になるかは、第3節の分類で決まる。
 
-公開形は全次元で共通である。
+公開形は全次元で共通である。論理ファセットは要素ごとの `Vec` を持たない。`ConvexHull` がすべてのファセットの頂点列、法線、offset、隣接を平坦な配列にまとめて持ち、ファセットごとには借用ビューで公開する（第9節）。
 
 ```rust
-pub struct FacetPlane {
-    pub normal: Vec<f64>, // 長さ D。外向き単位ベクトル
-    pub offset: f64,      // 平面 x·n + offset = 0 の offset
+pub struct Facets<'a> { /* ConvexHull を借用する */ }
+
+impl<'a> Facets<'a> {
+    pub fn len(&self) -> usize;
+    pub fn is_empty(&self) -> bool;
+    /// 公開ファセット番号で引く。範囲外の番号には None を返す。
+    pub fn get(&self, facet: u32) -> Option<Facet<'a>>;
+    /// 公開番号の順。
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = Facet<'a>> + 'a;
 }
 
-pub struct LogicalFacet {
-    pub vertices: Vec<u32>, // 昇順の極点
-    pub plane: FacetPlane,
-    pub neighbors: Vec<u32>, // 隣接ファセット番号の集合。昇順
+#[derive(Clone, Copy)]
+pub struct Facet<'a> { /* ConvexHull を借用する */ }
+
+impl<'a> Facet<'a> {
+    /// 昇順の極点。
+    pub fn vertices(&self) -> &'a [u32];
+    /// 長さ D。外向き単位ベクトル。
+    pub fn normal(&self) -> &'a [f64];
+    /// 平面 x·n + offset = 0 の offset。
+    pub fn offset(&self) -> f64;
+    /// 隣接ファセット番号の集合。昇順。
+    pub fn neighbors(&self) -> &'a [u32];
 }
 ```
 
-ファセット配列は、頂点列を辞書順に並べる。この順での番号が公開番号になる。`neighbors` は隣接ファセットの番号の集合であり、配列の位置は共有リッジと対応しない。共有リッジは、両方の頂点集合の交差のうち、アフィン次元が $D-2$ の面である。リッジの頂点列は公開しない。隣接番号の昇順は、相手ファセットの頂点列の辞書順と一致する。
+ファセットは、頂点列の辞書順に並べる。この順での番号が公開番号になる。`neighbors()` は隣接ファセットの番号の集合であり、配列の位置は共有リッジと対応しない。共有リッジは、両方の頂点集合の交差のうち、アフィン次元が $D-2$ の面である。リッジの頂点列は公開しない。隣接番号の昇順は、相手ファセットの頂点列の辞書順と一致する。
 
 平面は、そのファセットの頂点から作る。インデックスの組を辞書順に見て、最初にアフィン独立になる $D$ 点を選ぶ。厳密符号がゼロの組は飛ばし、次の組へ進む。述語が見る座標は、入力のビット列のままである。公開平面だけ、次の順で作る。
 
@@ -280,19 +294,36 @@ Delaunay が `DegenerateDimension` を返すのは、元のサイトのアフィ
 次元退化は、入力サイトのアフィン次元で報告する。報告に使うインデックスは元のサイトのものである。持ち上げ先の次元数では報告しない。
 
 ```rust
-pub struct DelaunayTriangulation {
-    pub dim: usize,
-    pub representative: Vec<u32>,
-    pub simplices: Vec<DelaunaySimplex>,
+pub struct DelaunayTriangulation { /* 非公開 */ }
+
+impl DelaunayTriangulation {
+    pub fn dim(&self) -> usize;
+    pub fn representative(&self) -> &[u32];
+    pub fn simplices(&self) -> Simplices<'_>;
 }
 
-pub struct DelaunaySimplex {
-    pub vertices: Vec<u32>, // 長さ D+1。向きは本文のとおり
-    pub neighbors: Vec<u32>, // 長さ D+1。共有する面の向こう側。無ければ u32::MAX
+pub struct Simplices<'a> { /* DelaunayTriangulation を借用する */ }
+
+impl<'a> Simplices<'a> {
+    pub fn len(&self) -> usize;
+    pub fn is_empty(&self) -> bool;
+    /// 単体番号で引く。範囲外の番号には None を返す。
+    pub fn get(&self, simplex: u32) -> Option<DelaunaySimplex<'a>>;
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = DelaunaySimplex<'a>> + 'a;
+}
+
+#[derive(Clone, Copy)]
+pub struct DelaunaySimplex<'a> { /* DelaunayTriangulation を借用する */ }
+
+impl<'a> DelaunaySimplex<'a> {
+    /// 長さ D+1。向きは本文のとおり。
+    pub fn vertices(&self) -> &'a [u32];
+    /// 長さ D+1。共有する面の向こう側の単体番号。無ければ u32::MAX。
+    pub fn neighbors(&self) -> &'a [u32];
 }
 ```
 
-隣接が無いスロットには `u32::MAX` を入れる。点の番号は `u32::MAX` 未満なので、この値は点を指さない。単体の並びは、向きを決める前の昇順頂点列の辞書順である。
+単体の頂点と隣接は、どちらも長さ $D+1$ の行を並べた平坦な配列に持つ。単体番号は、その並びでの位置である。隣接が無いスロットには `u32::MAX` を入れる。点の番号は `u32::MAX` 未満なので、この値は点を指さない。単体の並びは、向きを決める前の昇順頂点列の辞書順である。
 
 ---
 
@@ -302,49 +333,92 @@ Voronoi 図は、対角を入れる前の Delaunay 複体の双対である。�
 
 有限な Voronoi 頂点は、持ち上げた凸包の下側論理ファセット一つである。共有リッジの両側が、持ち上げた orientation で厳密に共面な単体を、隣接をたどって一つにまとめる。このまとめ方は、複体をどの順に挿入して作ったかに依らない。外心の `f64` が近いかではまとめない。全体が平坦なときは下側ファセットが一つなので、Voronoi 頂点も一つである。pulling triangulation の各単体には分けない。入射サイトは、属する単体のサイトの和で、重複を除いた昇順列である。長さは $D+1$ 以上になる。座標は、属する単体のうち頂点列が辞書順で最小のものから、一つの頂点を原点へ移して外心を計算する。それが非有限なら、同じ辞書順で次の単体を試す。すべて非有限なら `NonFiniteCircumcenter` で失敗する。このエラーは幾何の退化ではない。Delaunay の単体と隣接は、まとめる前のまま公開する。成功した図の頂点座標はすべて有限である。凸包と Delaunay は外心を計算しない。外心の丸めは、トポロジーの決定に使わない。
 
-`VoronoiInterface` は、二つのセルが次元 $D-1$ で接するときだけ作る。`vertices` が空の interface は作らない。二つの異なる Voronoi 頂点がどちらもサイト $a$ と $b$ を含み、辺 $ab$ が両方のセルの面であるとき、その interface は有限頂点を端に持つ。一つの頂点だけが $a$ と $b$ を含み、辺 $ab$ がサイト凸包の論理ファセット上にあるとき、その interface はレイを持つ。同じ頂点のサイト集合の内部にある対角は、interface にしない。$D = 1$ の有限な境界面は頂点一つで、`rays` は空でもよい。レイだけの interface は作らない。
+`VoronoiInterface` は、二つのセルが次元 $D-1$ で接するときだけ作る。`vertices` が空の interface は作らない。二つの異なる Voronoi 頂点がどちらもサイト $a$ と $b$ を含み、辺 $ab$ が両方のセルの面であるとき、その interface は有限頂点を端に持つ。一つの頂点だけが $a$ と $b$ を含み、辺 $ab$ がサイト凸包の論理ファセット上にあるとき、その interface はレイを持つ。同じ頂点のサイト集合の内部にある対角は、interface にしない。$D = 1$ の有限な境界面は頂点一つで、`rays()` は空でもよい。レイだけの interface は作らない。
 
 レイは、まとめ後の Voronoi 頂点と、元の空間にあるサイト凸包の論理ファセットの組のうち、その頂点のグループの多面体が次元 $D-1$ の面をそのファセット上に持つ組ごとに一本である。方向は、その論理ファセットの外向き単位法線である。同じファセットでも起点が違えば、別のレイになる。セルは、サイトがその面、つまりグループのサイトのうちそのファセットの超平面上にあるものに含まれるとき、そのレイを持つ。ファセット上に極点でない境界サイトがなければ、これはサイトがそのファセットと頂点の両方に属することと同じである。境界面が複数のレイを持つとき、それらがその面の端である。隣り合う法線の間の方向は、別のオブジェクトにしない。成功した結果では起点は常にある。起点を持てない配置は、元のサイトの次元退化として構築の前に失敗している。$D \le 3$ では、境界面の境界閉路を有限頂点とレイから導出する。保存形式の本体は、頂点集合とレイの集合である。$D \ge 4$ では、頂点とレイの組は接続を表す。胞体としての完全な複体にはならない。
 
 ```rust
-pub struct VoronoiDiagram {
-    pub dim: usize,
-    pub representative: Vec<u32>,
-    pub vertices: Vec<VoronoiVertex>,
-    pub cells: Vec<VoronoiCell>,
-    pub interfaces: Vec<VoronoiInterface>,
+pub struct VoronoiDiagram { /* 非公開 */ }
+
+impl VoronoiDiagram {
+    pub fn dim(&self) -> usize;
+    pub fn representative(&self) -> &[u32];
+    pub fn vertices(&self) -> VoronoiVertices<'_>;
+    pub fn rays(&self) -> VoronoiRays<'_>;
+    pub fn cells(&self) -> VoronoiCells<'_>;
+    pub fn interfaces(&self) -> VoronoiInterfaces<'_>;
 }
 
-pub struct VoronoiVertex {
-    pub coords: Vec<f64>, // 長さ D
-    pub sites: Vec<u32>,  // 昇順。長さは D+1 以上
+pub struct VoronoiVertices<'a> { /* VoronoiDiagram を借用する */ }
+pub struct VoronoiRays<'a> { /* 同上 */ }
+pub struct VoronoiCells<'a> { /* 同上 */ }
+pub struct VoronoiInterfaces<'a> { /* 同上 */ }
+
+// VoronoiVertices、VoronoiRays、VoronoiCells、VoronoiInterfaces は同じ形である。
+// Item はそれぞれ VoronoiVertex、VoronoiRay、VoronoiCell、VoronoiInterface。
+impl<'a> VoronoiVertices<'a> {
+    pub fn len(&self) -> usize;
+    pub fn is_empty(&self) -> bool;
+    /// 番号で引く。範囲外の番号には None を返す。
+    pub fn get(&self, index: u32) -> Option<VoronoiVertex<'a>>;
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = VoronoiVertex<'a>> + 'a;
 }
 
-pub struct VoronoiRay {
-    pub apex: u32,             // vertices の番号
-    pub direction: Vec<f64>,   // 長さ D。サイト凸包の外向き単位法線
-    pub hull_facet: Vec<u32>,  // 元の空間のサイト凸包の極点。昇順
+#[derive(Clone, Copy)]
+pub struct VoronoiVertex<'a> { /* VoronoiDiagram を借用する */ }
+
+impl<'a> VoronoiVertex<'a> {
+    /// 長さ D。
+    pub fn coords(&self) -> &'a [f64];
+    /// 昇順。長さは D+1 以上。
+    pub fn sites(&self) -> &'a [u32];
 }
 
-pub struct VoronoiCell {
-    pub site: u32,
-    pub vertices: Vec<u32>, // 入射する有限頂点。まとめ後の番号。昇順
-    pub rays: Vec<VoronoiRay>,
+#[derive(Clone, Copy)]
+pub struct VoronoiRay<'a> { /* VoronoiDiagram を借用する */ }
+
+impl<'a> VoronoiRay<'a> {
+    /// vertices() の番号。
+    pub fn apex(&self) -> u32;
+    /// 長さ D。サイト凸包の外向き単位法線。
+    pub fn direction(&self) -> &'a [f64];
+    /// 元の空間のサイト凸包の極点。昇順。
+    pub fn hull_facet(&self) -> &'a [u32];
 }
 
-pub struct VoronoiInterface {
-    pub sites: [u32; 2], // 昇順。二つのセルが次元 D-1 で接するときだけ作る
-    pub vertices: Vec<u32>,
-    pub rays: Vec<VoronoiRay>,
+#[derive(Clone, Copy)]
+pub struct VoronoiCell<'a> { /* VoronoiDiagram を借用する */ }
+
+impl<'a> VoronoiCell<'a> {
+    pub fn site(&self) -> u32;
+    /// 入射する有限頂点。まとめ後の番号。昇順。
+    pub fn vertices(&self) -> &'a [u32];
+    /// このセルのレイの rays() での番号。昇順。
+    pub fn ray_numbers(&self) -> &'a [u32];
+    /// ray_numbers() の順のレイ。
+    pub fn rays(&self) -> impl ExactSizeIterator<Item = VoronoiRay<'a>> + 'a;
+}
+
+#[derive(Clone, Copy)]
+pub struct VoronoiInterface<'a> { /* VoronoiDiagram を借用する */ }
+
+impl<'a> VoronoiInterface<'a> {
+    /// 昇順。二つのセルが次元 D-1 で接するときだけ作る。
+    pub fn sites(&self) -> [u32; 2];
+    pub fn vertices(&self) -> &'a [u32];
+    pub fn ray_numbers(&self) -> &'a [u32];
+    pub fn rays(&self) -> impl ExactSizeIterator<Item = VoronoiRay<'a>> + 'a;
 }
 ```
+
+頂点の座標とサイト、レイの方向と `hull_facet`、セルと境界面の頂点とレイは、それぞれ平坦な配列に持つ。レイは図全体で一つの表にまとめ、セルと境界面はその番号を持つ。同じレイを共有するセルと境界面は、同じ番号を指す。
 
 セルと境界面の頂点番号は、まとめ後の `vertices` の番号である。同じ番号は一度だけ入れる。並べ方は次で固定する。
 
 - 有限頂点は、`sites` の辞書順
 - セルはサイトの昇順で、代表ごとに一つ
 - 境界面は `sites` の辞書順
-- レイは、起点の番号、次いで `hull_facet` を `u32` の列として辞書順に比較する
+- レイは、起点の番号、次いで `hull_facet` を `u32` の列として辞書順に比較する。`rays()` の番号はこの順での位置であり、各セルと境界面の `ray_numbers()` も、この番号の昇順である
 
 内部サイトのセルにレイは付かない。凸包の境界上のサイトのセルには、少なくとも一つのレイが付く。
 
@@ -367,16 +441,16 @@ impl<'a> ConvexHullBuilder<'a> {
 `DelaunayBuilder` と `VoronoiBuilder` も同じ形である。失敗はどちらも `ConvexHullError` を返す。Delaunay の `dim` は元の空間の次元であり、持ち上げ後の次元ではない。
 
 ```rust
-pub struct ConvexHull {
-    pub dim: usize,
-    pub representative: Vec<u32>,
-    pub vertices: Vec<u32>,
-    pub coplanar_points: Vec<u32>,
-    pub interior_points: Vec<u32>,
-    pub facets: Vec<LogicalFacet>,
-}
+pub struct ConvexHull { /* 非公開 */ }
 
 impl ConvexHull {
+    pub fn dim(&self) -> usize;
+    pub fn representative(&self) -> &[u32];
+    pub fn vertices(&self) -> &[u32];
+    pub fn coplanar_points(&self) -> &[u32];
+    pub fn interior_points(&self) -> &[u32];
+    /// 第5節の論理ファセット。
+    pub fn facets(&self) -> Facets<'_>;
     /// トポロジーには使わない。有限であることは保証しない。
     pub fn volume(&self) -> f64;
     /// 共面の切り方は、版をまたいだ安定性の約束に入らない。
@@ -386,7 +460,7 @@ impl ConvexHull {
 }
 ```
 
-`ConvexHull` は境界の単体複体を非公開のフィールドに持つ。そのため、クレートの外では構造体リテラルで作れない。`triangulation()` は、この複体を借用するビューを返す。
+三つの結果型 `ConvexHull`、`DelaunayTriangulation`、`VoronoiDiagram` のフィールドはすべて非公開である。要素ごとの `Vec` は持たず、各リストを平坦な配列（値の配列と開始位置の配列、長さが決まっているときは固定の幅）に持ち、借用ビューで公開する。そのため、クレートの外では構造体リテラルで作れない。結果型は `Clone`、`Debug`、`PartialEq` を実装し、ビューは `Clone` と `Copy` を実装する。`ConvexHull` は境界の単体複体も非公開のフィールドに持つ。`triangulation()` は、この複体を借用するビューを返す。
 
 ```rust
 pub struct TriangulationView<'a> { /* ConvexHull を借用する */ }
