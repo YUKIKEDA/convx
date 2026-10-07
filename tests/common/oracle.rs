@@ -110,36 +110,36 @@ fn face(v: &[u32], skip: usize) -> Vec<u32> {
 /// the shared face, and coverage of the site hull (exact volume against the
 /// public hull's boundary, and the Euler characteristic of the boundary).
 pub fn check_delaunay(t: &DelaunayTriangulation, points: &[f64]) {
-    let d = t.dim;
+    let d = t.dim();
     let sites = integer_sites(d, points);
-    let reps = representatives(&t.representative);
+    let reps = representatives(t.representative());
     let mut sorted: Vec<Vec<u32>> = Vec::new();
-    for (i, s) in t.simplices.iter().enumerate() {
-        assert_eq!(s.vertices.len(), d + 1);
-        assert_eq!(s.neighbors.len(), d + 1);
-        let o = orientation(&sites, &s.vertices);
+    for (i, s) in t.simplices().iter().enumerate() {
+        assert_eq!(s.vertices().len(), d + 1);
+        assert_eq!(s.neighbors().len(), d + 1);
+        let o = orientation(&sites, s.vertices());
         assert!(o > 0, "simplex {i} is not positively oriented");
         for &q in &reps {
-            if s.vertices.contains(&q) {
+            if s.vertices().contains(&q) {
                 continue;
             }
-            let mut with = s.vertices.clone();
+            let mut with = s.vertices().to_vec();
             with.push(q);
             assert!(
                 lifted(&sites, &with) >= 0,
                 "site {q} inside the sphere of simplex {i}"
             );
         }
-        for (slot, &n) in s.neighbors.iter().enumerate() {
+        for (slot, &n) in s.neighbors().iter().enumerate() {
             if n == u32::MAX {
                 continue;
             }
-            let other = &t.simplices[n as usize];
-            let back = other.neighbors.iter().position(|&b| b == i as u32);
+            let other = &t.simplices().get((n as usize) as u32).unwrap();
+            let back = other.neighbors().iter().position(|&b| b == i as u32);
             let back = back.unwrap_or_else(|| panic!("neighbor {n} does not link back to {i}"));
-            assert_eq!(face(&s.vertices, slot), face(&other.vertices, back));
+            assert_eq!(face(s.vertices(), slot), face(other.vertices(), back));
         }
-        let mut v = s.vertices.clone();
+        let mut v = s.vertices().to_vec();
         v.sort_unstable();
         sorted.push(v);
     }
@@ -151,13 +151,13 @@ pub fn check_delaunay(t: &DelaunayTriangulation, points: &[f64]) {
     // Coverage: D! times the total volume equals the hull's, from the
     // public hull's boundary simplices joined to one extreme point.
     let total: i128 = t
-        .simplices
+        .simplices()
         .iter()
-        .map(|s| orientation(&sites, &s.vertices))
+        .map(|s| orientation(&sites, s.vertices()))
         .sum();
     let hull = ConvexHullBuilder::new(d, points).build().unwrap();
     if d >= 2 {
-        let apex = hull.vertices[0];
+        let apex = hull.vertices()[0];
         let hull_total: i128 = hull
             .triangulation()
             .iter()
@@ -175,7 +175,7 @@ pub fn check_delaunay(t: &DelaunayTriangulation, points: &[f64]) {
         );
     } else {
         let xs: Vec<i128> = hull
-            .vertices
+            .vertices()
             .iter()
             .map(|&v| sites[v as usize][0])
             .collect();
@@ -184,7 +184,7 @@ pub fn check_delaunay(t: &DelaunayTriangulation, points: &[f64]) {
     // Every site is a vertex.
     for &r in &reps {
         assert!(
-            t.simplices.iter().any(|s| s.vertices.contains(&r)),
+            t.simplices().iter().any(|s| s.vertices().contains(&r)),
             "site {r} missing"
         );
     }
@@ -192,12 +192,12 @@ pub fn check_delaunay(t: &DelaunayTriangulation, points: &[f64]) {
     // 2 for odd D, 0 for even D, counting every subface once.
     if d >= 2 {
         let mut faces: std::collections::BTreeSet<Vec<u32>> = Default::default();
-        for s in &t.simplices {
-            for (slot, &n) in s.neighbors.iter().enumerate() {
+        for s in t.simplices().iter() {
+            for (slot, &n) in s.neighbors().iter().enumerate() {
                 if n != u32::MAX {
                     continue;
                 }
-                let f = face(&s.vertices, slot);
+                let f = face(s.vertices(), slot);
                 for mask in 1_u64..(1 << f.len()) {
                     let sub: Vec<u32> = (0..f.len())
                         .filter(|&b| mask >> b & 1 == 1)
@@ -225,37 +225,38 @@ pub fn check_delaunay(t: &DelaunayTriangulation, points: &[f64]) {
 /// exactly one vertex. Then checks the interfaces and the rays against
 /// [`check_voronoi_faces`].
 pub fn check_voronoi(v: &VoronoiDiagram, t: &DelaunayTriangulation, points: &[f64]) {
-    let d = v.dim;
+    let d = v.dim();
     let sites = integer_sites(d, points);
-    let reps = representatives(&v.representative);
-    for (i, vertex) in v.vertices.iter().enumerate() {
+    let reps = representatives(v.representative());
+    for (i, vertex) in v.vertices().iter().enumerate() {
         // A simplex of the vertex's sites fixes its sphere.
         let basis = t
-            .simplices
+            .simplices()
             .iter()
-            .find(|s| s.vertices.iter().all(|x| vertex.sites.contains(x)))
+            .find(|s| s.vertices().iter().all(|x| vertex.sites().contains(x)))
             .unwrap_or_else(|| panic!("vertex {i} holds no Delaunay simplex"));
         for &q in &reps {
-            let mut with = basis.vertices.clone();
+            let mut with = basis.vertices().to_vec();
             with.push(q);
             let l = lifted(&sites, &with);
-            if vertex.sites.contains(&q) {
+            if vertex.sites().contains(&q) {
                 assert_eq!(l, 0, "site {q} of vertex {i} is off its sphere");
             } else {
                 assert!(l > 0, "site {q} is on or inside the sphere of vertex {i}");
             }
         }
     }
-    for s in &t.simplices {
+    for s in t.simplices().iter() {
         let holders = v
-            .vertices
+            .vertices()
             .iter()
-            .filter(|x| s.vertices.iter().all(|y| x.sites.contains(y)))
+            .filter(|x| s.vertices().iter().all(|y| x.sites().contains(y)))
             .count();
         assert_eq!(
-            holders, 1,
+            holders,
+            1,
             "simplex {:?} lies in {holders} vertices",
-            s.vertices
+            s.vertices()
         );
     }
     check_voronoi_faces(v, &sites, &reps);
@@ -326,7 +327,7 @@ fn smallest_face(facets: &[Vec<u32>], set: &[u32], members: &[u32]) -> Vec<u32> 
 /// an interior one has none.
 fn check_voronoi_faces(v: &VoronoiDiagram, sites: &[Vec<i128>], reps: &[u32]) {
     type Ray = (u32, Vec<u32>);
-    let d = v.dim;
+    let d = v.dim();
     let hull_facets = supporting(sites, reps, d);
     let extreme: Vec<u32> = reps
         .iter()
@@ -337,9 +338,9 @@ fn check_voronoi_faces(v: &VoronoiDiagram, sites: &[Vec<i128>], reps: &[u32]) {
     let mut rays: Vec<(u32, Vec<u32>, Vec<u32>)> = Vec::new();
     let mut interfaces: std::collections::BTreeMap<[u32; 2], (Vec<u32>, Vec<Ray>)> =
         Default::default();
-    for (apex, vertex) in v.vertices.iter().enumerate() {
+    for (apex, vertex) in v.vertices().iter().enumerate() {
         let apex = apex as u32;
-        let group = &vertex.sites;
+        let group = &vertex.sites();
         let facets = supporting(sites, group, d);
         let mut own: Vec<(Vec<u32>, Vec<u32>)> = Vec::new();
         for f in &hull_facets {
@@ -366,13 +367,13 @@ fn check_voronoi_faces(v: &VoronoiDiagram, sites: &[Vec<i128>], reps: &[u32]) {
         rays.extend(own.into_iter().map(|(ends, meet)| (apex, ends, meet)));
     }
 
-    let shape = |r: &[convx::VoronoiRay]| -> Vec<Ray> {
-        r.iter().map(|x| (x.apex, x.hull_facet.clone())).collect()
+    let shape = |r: &mut dyn Iterator<Item = convx::VoronoiRay<'_>>| -> Vec<Ray> {
+        r.map(|x| (x.apex(), x.hull_facet().to_vec())).collect()
     };
     let got: Vec<([u32; 2], Vec<u32>, Vec<Ray>)> = v
-        .interfaces
+        .interfaces()
         .iter()
-        .map(|f| (f.sites, f.vertices.clone(), shape(&f.rays)))
+        .map(|f| (f.sites(), f.vertices().to_vec(), shape(&mut f.rays())))
         .collect();
     let want: Vec<([u32; 2], Vec<u32>, Vec<Ray>)> = interfaces
         .into_iter()
@@ -383,27 +384,27 @@ fn check_voronoi_faces(v: &VoronoiDiagram, sites: &[Vec<i128>], reps: &[u32]) {
         .collect();
     assert_eq!(got, want, "interfaces differ from the oracle");
 
-    let cell_sites: Vec<u32> = v.cells.iter().map(|c| c.site).collect();
+    let cell_sites: Vec<u32> = v.cells().iter().map(|c| c.site()).collect();
     assert_eq!(cell_sites, reps, "one cell per site");
-    for cell in &v.cells {
+    for cell in v.cells().iter() {
         let mut want: Vec<Ray> = rays
             .iter()
-            .filter(|(_, _, meet)| meet.contains(&cell.site))
+            .filter(|(_, _, meet)| meet.contains(&cell.site()))
             .map(|(apex, ends, _)| (*apex, ends.clone()))
             .collect();
         want.sort();
         assert_eq!(
-            shape(&cell.rays),
+            shape(&mut cell.rays()),
             want,
             "rays of cell {} differ from the oracle",
-            cell.site
+            cell.site()
         );
-        let boundary = hull_facets.iter().any(|f| f.contains(&cell.site));
+        let boundary = hull_facets.iter().any(|f| f.contains(&cell.site()));
         assert_eq!(
-            !cell.rays.is_empty(),
+            cell.rays().len() != 0,
             boundary,
             "site {} has rays exactly when it is on the site hull",
-            cell.site
+            cell.site()
         );
     }
 }

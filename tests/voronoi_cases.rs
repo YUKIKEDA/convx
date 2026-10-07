@@ -36,14 +36,20 @@ fn square_has_one_vertex_whatever_the_diagonal() {
     // In a, the diagonal is (0,0)-(2,2): sites 0 and 2. In b, site 0 is
     // (2,0), so the diagonal is (2,0)-(0,2): again sites 0 and 2 by index,
     // the other diagonal by position.
-    assert!(da.simplices.iter().all(|s| s.vertices.contains(&0)));
-    assert!(db.simplices.iter().all(|s| s.vertices.contains(&0)));
+    assert!(da.simplices().iter().all(|s| s.vertices().contains(&0)));
+    assert!(db.simplices().iter().all(|s| s.vertices().contains(&0)));
     for (points, name) in [(&a, "a"), (&b, "b")] {
         let v = build(2, points);
-        assert_eq!(v.vertices.len(), 1, "{name}");
-        assert_eq!(v.vertices[0].sites, vec![0, 1, 2, 3]);
-        assert!(v.vertices[0].coords.iter().all(|x| (x - 1.0).abs() < 1e-12));
-        let pairs: Vec<[u32; 2]> = v.interfaces.iter().map(|f| f.sites).collect();
+        assert_eq!(v.vertices().len(), 1, "{name}");
+        assert_eq!(v.vertices().get(0_u32).unwrap().sites(), vec![0, 1, 2, 3]);
+        assert!(v
+            .vertices()
+            .get(0_u32)
+            .unwrap()
+            .coords()
+            .iter()
+            .all(|x| (x - 1.0).abs() < 1e-12));
+        let pairs: Vec<[u32; 2]> = v.interfaces().iter().map(|f| f.sites()).collect();
         assert!(
             !pairs.contains(&[0, 2]) && !pairs.contains(&[1, 3]),
             "{name}: {pairs:?}"
@@ -76,7 +82,7 @@ fn hand_inputs_match_the_oracle() {
     ];
     for (dim, points, vertices) in cases {
         let v = build(dim, &points);
-        assert_eq!(v.vertices.len(), vertices, "D = {dim}, {points:?}");
+        assert_eq!(v.vertices().len(), vertices, "D = {dim}, {points:?}");
     }
 }
 
@@ -117,16 +123,16 @@ fn overflowing_lift_does_not_fail() {
     let small = build(2, &points);
     let big = VoronoiBuilder::new(2, &huge).build().unwrap();
     let sites = |v: &VoronoiDiagram| {
-        v.vertices
+        v.vertices()
             .iter()
-            .map(|x| x.sites.clone())
+            .map(|x| x.sites().to_vec())
             .collect::<Vec<_>>()
     };
     assert_eq!(sites(&big), sites(&small));
-    assert_eq!(big.interfaces.len(), small.interfaces.len());
+    assert_eq!(big.interfaces().len(), small.interfaces().len());
     // The circumcenters are the small ones scaled by 2^600.
-    for (b, s) in big.vertices.iter().zip(&small.vertices) {
-        for (x, y) in b.coords.iter().zip(&s.coords) {
+    for (b, s) in big.vertices().iter().zip(small.vertices().iter()) {
+        for (x, y) in b.coords().iter().zip(s.coords()) {
             assert!((x / 2f64.powi(600) - y).abs() <= 1e-12 * y.abs().max(1.0));
         }
     }

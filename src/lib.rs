@@ -9,15 +9,16 @@ mod arena;
 mod cull;
 mod delaunay;
 mod hull;
+mod lists;
 mod normal;
 mod predicates;
 mod small;
 mod static_api;
 mod voronoi;
 
-pub use delaunay::{DelaunayBuilder, DelaunaySimplex, DelaunayTriangulation};
+pub use delaunay::{DelaunayBuilder, DelaunaySimplex, DelaunayTriangulation, Simplices};
 pub use hull::{
-    BoundarySimplex, ConvexHull, ConvexHullBuilder, ConvexHullError, FacetPlane, LogicalFacet,
+    BoundarySimplex, ConvexHull, ConvexHullBuilder, ConvexHullError, Facet, Facets,
     TriangulationView,
 };
 pub use predicates::Sign;
