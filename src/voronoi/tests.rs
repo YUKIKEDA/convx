@@ -6,11 +6,6 @@ use crate::{ConvexHullBuilder, DelaunayBuilder};
 
 fn diagram(dim: usize, points: &[f64]) -> VoronoiDiagram {
     let v = VoronoiBuilder::new(dim, points).build().unwrap();
-    let parallel = VoronoiBuilder::new(dim, points)
-        .parallel(true)
-        .build()
-        .unwrap();
-    assert_eq!(v, parallel, "the parallel build differs");
     check(&v, points);
     v
 }

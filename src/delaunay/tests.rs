@@ -417,25 +417,7 @@ fn degenerate_grids_are_delaunay() {
             flat_boundary > 0 && cospherical > 0,
             "case {i}: boundary sites on a plane {flat_boundary}, cospherical {cospherical}"
         );
-        let parallel = DelaunayBuilder::new(*dim, &points)
-            .parallel(true)
-            .build()
-            .unwrap();
-        assert_eq!(t, parallel, "case {i}: parallel agrees");
     }
-}
-
-#[test]
-fn parallel_execution_agrees() {
-    let sites = random_sites(3, 60, 99, 1 << 20);
-    let points: Vec<f64> = sites.iter().flatten().map(|&x| x as f64).collect();
-    let sequential = triangulate(3, &points);
-    let parallel = DelaunayBuilder::new(3, &points)
-        .parallel(true)
-        .build()
-        .unwrap();
-    assert_eq!(sequential, parallel);
-    check(&sequential, &points);
 }
 
 #[test]
@@ -480,11 +462,6 @@ fn cospherical_groups_sharing_a_face_split_it_alike() {
 
 fn built(dim: usize, points: &[f64]) -> DelaunayTriangulation {
     let t = DelaunayBuilder::new(dim, points).build().unwrap();
-    let parallel = DelaunayBuilder::new(dim, points)
-        .parallel(true)
-        .build()
-        .unwrap();
-    assert_eq!(t, parallel, "the parallel build differs");
     check(&t, points);
     t
 }

@@ -8,7 +8,7 @@
 //! The triangulation is built by incremental insertion ([`insert`]): the
 //! representatives join one at a time, in a deterministic order, and each
 //! keeps the complex the projection of the lower hull of the lift of the
-//! sites so far. `parallel` runs the same insertion (design §6).
+//! sites so far.
 //!
 //! The simplices of one lower logical facet of the lift (a cospherical
 //! group) are merged by walking neighbors whose lifted orientation is zero
@@ -69,16 +69,6 @@ impl<'a> DelaunayBuilder<'a> {
     #[must_use]
     pub fn new(dim: usize, points: &'a [f64]) -> Self {
         Self { dim, points }
-    }
-
-    /// Requests a parallel build. Off by default.
-    ///
-    /// The current version runs the same sequential insertion either way
-    /// (design §6), so the result is identical, diagonals included.
-    #[must_use]
-    pub fn parallel(self, enable: bool) -> Self {
-        let _ = enable;
-        self
     }
 
     /// Builds the triangulation.

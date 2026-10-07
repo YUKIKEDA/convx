@@ -64,16 +64,6 @@ impl<'a> VoronoiBuilder<'a> {
         Self { dim, points }
     }
 
-    /// Requests a parallel build. Off by default.
-    ///
-    /// The current version runs the same sequential insertion either way
-    /// (design §6), so the result is identical, diagonals included.
-    #[must_use]
-    pub fn parallel(self, enable: bool) -> Self {
-        let _ = enable;
-        self
-    }
-
     /// Builds the diagram.
     ///
     /// # Errors

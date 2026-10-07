@@ -20,7 +20,7 @@
 //! reusable flat lists, and applies it at once. There is no round and no
 //! reservation.
 //!
-//! `parallel(true)` runs this same build (design §6, ADR 0004).
+//! It is the only build (design §6, ADR 0004).
 
 use std::collections::BinaryHeap;
 

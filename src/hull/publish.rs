@@ -33,35 +33,13 @@ use crate::small::Small;
 pub struct ConvexHullBuilder<'a> {
     dim: usize,
     points: &'a [f64],
-    /// Read only by the debug comparison of `build`: the construction is the
-    /// same either way (design §6).
-    #[cfg_attr(not(debug_assertions), allow(dead_code))]
-    parallel: bool,
 }
 
 impl<'a> ConvexHullBuilder<'a> {
     /// A builder for points of dimension `dim`, stored row-major in `points`.
     #[must_use]
     pub fn new(dim: usize, points: &'a [f64]) -> Self {
-        Self {
-            dim,
-            points,
-            parallel: false,
-        }
-    }
-
-    /// Requests a parallel build. Off by default.
-    ///
-    /// The current version builds the hull by the same sequential
-    /// construction either way (design §6): a parallel build did not beat
-    /// it when measured. The result is identical: the same logical facets,
-    /// the same triangulation, and the same planes.
-    #[must_use]
-    pub fn parallel(self, enable: bool) -> Self {
-        Self {
-            parallel: enable,
-            ..self
-        }
+        Self { dim, points }
     }
 
     /// Builds the hull.
@@ -78,15 +56,6 @@ impl<'a> ConvexHullBuilder<'a> {
         {
             if let Err(violation) = super::invariants::check(&hull, self.points) {
                 debug_assert!(false, "convx hull invariant violated: {violation}");
-            }
-            // Design §6: the two builds publish the same hull.
-            if self.parallel {
-                let input = accept(self.dim, self.points)?;
-                let sequential = publish(classify(input)?)?;
-                debug_assert!(
-                    hull == sequential,
-                    "the parallel build published another hull"
-                );
             }
         }
         Ok(hull)

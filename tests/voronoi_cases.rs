@@ -11,13 +11,6 @@ use convx::{ConvexHullError, DelaunayBuilder, VoronoiBuilder, VoronoiDiagram};
 
 fn build(dim: usize, points: &[f64]) -> VoronoiDiagram {
     let v = VoronoiBuilder::new(dim, points).build().unwrap();
-    assert_eq!(
-        v,
-        VoronoiBuilder::new(dim, points)
-            .parallel(true)
-            .build()
-            .unwrap()
-    );
     let t = DelaunayBuilder::new(dim, points).build().unwrap();
     check_delaunay(&t, points);
     check_voronoi(&v, &t, points);
