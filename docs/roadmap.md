@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-None. The P6-11 spike (#269) recommends adding no parallel hull now; the next row waits on the Grill of that recommendation.
+P6-13 (#276): a ParGeo-style fully parallel hull, at 4 and 16 threads.
 
 ## Dependencies
 
@@ -155,6 +155,8 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-9 | Docs | The hull is built sequentially only; the parallel round protocol and flag leave      | #266  | Done        |
 | P6-10 | Refactor | Remove the parallel round protocol and the `parallel` flag                       | #267  | Done        |
 | P6-11 | Spike | Which coarse-grained parallel hull strategies can beat the sequential build?     | #269  | Done        |
+| P6-12 | Task | Measure convx after P6 against Qhull and CGAL; rank the remaining gaps             | #275  | Done        |
+| P6-13 | Spike | Can a ParGeo-style fully parallel hull beat the sequential build at 4 and 16 threads? | #276  | Not started |
 
 ## Intentionally out of scope
 
