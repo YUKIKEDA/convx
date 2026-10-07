@@ -40,3 +40,7 @@ Decided in the Grill of 2026-10-07 (Q4, option A):
 - Whether the parallel hull stays is decided by measurement in #256. It stays only if four threads beat the sequential build beyond the spread on the timing sets with at least 10^4 facets. Otherwise a design Issue makes `parallel(true)` run the sequential build.
 
 A later change that makes the sequential build depend on the parallel protocol again needs a measurement showing that the protocol costs the sequential build nothing beyond the spread.
+
+## Outcome
+
+#256 measured the parallel hull on the new store, and it did not meet the criterion above. `parallel(true)` runs the sequential build (`docs/adr/0004-parallel-runs-the-sequential-hull.md`).
