@@ -34,7 +34,7 @@ The sharing is not what makes the builds agree. The published hull does not depe
 
 Decided in the Grill of 2026-10-07 (Q4, option A):
 
-- The sequential hull inserts outside points one at a time and changes the hull in place. The order is a deterministic order the implementation chooses, decided by the values and the order of the input alone. There is no plan separate from the commit, no reservation, and no round.
+- The sequential hull inserts outside points one at a time and changes the hull in place. The order is a deterministic order the implementation chooses, decided by the values and the order of the input alone. Each point is planned against the hull as it is at that point and applied at once; there is no reservation and no round.
 - The batch extraction, K = 64, the T and H reservation, the conflict check, and the commit in ascending input index are the parallel build's procedure only.
 - Sequential and parallel builds promise the same published hull on one binary. This follows from the uniqueness above. Debug builds compare the published result of every parallel build with that of the sequential build, in place of comparing a parallel round with the sequential application of the same batch.
 - Whether the parallel hull stays is decided by measurement in #256. It stays only if four threads beat the sequential build beyond the spread on the timing sets with at least 10^4 facets. Otherwise a design Issue makes `parallel(true)` run the sequential build.
