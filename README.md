@@ -4,7 +4,7 @@ English | [日本語](README.ja.md)
 
 convx is a pure Rust library for n-dimensional convex hulls, Delaunay triangulations, and Voronoi diagrams. Correctness is ordered as the sign of a geometric predicate, the topological decision from that sign, and the mutation that follows the decision. Public results are compared as normalized logical facets: vertex sets and neighbor sets.
 
-The crate is not in the tree yet. The API below is the shape fixed by the specification. Implementation order is P1 through P4 in [docs/roadmap.md](docs/roadmap.md): predicates, sequential Quickhull, parallel commit, then the static API, Delaunay, Voronoi, and oracles.
+The crate is not in the tree yet. The API below is the shape fixed by the specification. Implementation order is P1 through P4 in [docs/roadmap.md](docs/roadmap.md): predicates, sequential Quickhull, then the static API, Delaunay, Voronoi, and oracles.
 
 ## Predicates return `Sign`
 
