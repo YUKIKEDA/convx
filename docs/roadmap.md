@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P6-1 (#249): semi-static filter for orientations and lifted orientations with k ≤ 4.
+P6-2 (#250): time Qhull's whole run and convx's construction alone next to `build()`.
 
 ## Dependencies
 
@@ -144,7 +144,7 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 
 | ID   | Kind | Title                                                                                | Issue | Status      |
 | ---- | ---- | ------------------------------------------------------------------------------------ | ----- | ----------- |
-| P6-1 | Feat | Semi-static filter for orientations and lifted orientations with k ≤ 4               | #249  | Not started |
+| P6-1 | Feat | Semi-static filter for orientations and lifted orientations with k ≤ 4               | #249  | Done        |
 | P6-2 | Task | Time Qhull's whole run and convx's construction alone next to `build()`              | #250  | Not started |
 | P6-3 | Docs | Sequential hull inserts one point at a time in place; batch extraction only parallel | #251  | Not started |
 | P6-4 | Docs | Store the hull, Delaunay, and Voronoi results in flat arrays behind views             | #252  | Not started |
