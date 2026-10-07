@@ -44,3 +44,13 @@ A parallel hull construction, with whatever public switch it needs, returns only
 - hulls of chunks followed by a final hull;
 - parallel merge, classification, and publication;
 - parallel initial assignment.
+
+## Outcome of #269
+
+The spike measured three coarse-grained strategies.
+
+- Chunked hulls won only on small-output sets and lost 12 to 31% on output-heavy ones.
+- Parallel publication was never slower, but gained 6 to 16% on 6 of 15 sets, with a ceiling of about 0.78 of the sequential build.
+- Initial assignment is at most 0.5% of the build on the sets the criterion covers.
+
+The Grill of 2026-10-07 on #269 chose option A: no parallel hull now. The roadmap lists it under Intentionally out of scope.
