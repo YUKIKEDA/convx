@@ -11,13 +11,6 @@ use convx::{ConvexHullBuilder, ConvexHullError, DelaunayBuilder, DelaunayTriangu
 
 fn build(dim: usize, points: &[f64]) -> DelaunayTriangulation {
     let t = DelaunayBuilder::new(dim, points).build().unwrap();
-    assert_eq!(
-        t,
-        DelaunayBuilder::new(dim, points)
-            .parallel(true)
-            .build()
-            .unwrap()
-    );
     check_delaunay(&t, points);
     t
 }

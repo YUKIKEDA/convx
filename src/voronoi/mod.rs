@@ -26,7 +26,6 @@ use crate::delaunay::{complex, NO_NEIGHBOR};
 use crate::hull::classify::classify;
 use crate::hull::input::accept;
 use crate::hull::publish::{for_each_facet_normal, inner_reference};
-use crate::hull::simplicial::Execution;
 use crate::hull::ConvexHullError;
 use crate::lists::Lists;
 use crate::normal::{binary_exponent, scale_by_power_of_two};
@@ -56,32 +55,13 @@ use crate::small::Small;
 pub struct VoronoiBuilder<'a> {
     dim: usize,
     points: &'a [f64],
-    execution: Execution,
 }
 
 impl<'a> VoronoiBuilder<'a> {
     /// A builder for sites of dimension `dim`, stored row-major in `points`.
     #[must_use]
     pub fn new(dim: usize, points: &'a [f64]) -> Self {
-        Self {
-            dim,
-            points,
-            execution: Execution::Sequential,
-        }
-    }
-
-    /// Plans the points of each batch on rayon's global pool when `enable`
-    /// is true. Off by default. The result is identical either way.
-    #[must_use]
-    pub fn parallel(self, enable: bool) -> Self {
-        Self {
-            execution: if enable {
-                Execution::Parallel
-            } else {
-                Execution::Sequential
-            },
-            ..self
-        }
+        Self { dim, points }
     }
 
     /// Builds the diagram.
@@ -92,7 +72,7 @@ impl<'a> VoronoiBuilder<'a> {
     /// and [`ConvexHullError::NonFiniteCircumcenter`] when every simplex of
     /// some vertex has a non-finite circumcenter in `f64`.
     pub fn build(self) -> Result<VoronoiDiagram, ConvexHullError> {
-        build(self.dim, self.points, self.execution)
+        build(self.dim, self.points)
     }
 }
 
@@ -418,12 +398,8 @@ struct GroupRay {
     face: Vec<u32>,
 }
 
-fn build(
-    dim: usize,
-    points: &[f64],
-    execution: Execution,
-) -> Result<VoronoiDiagram, ConvexHullError> {
-    let complex = complex(dim, points, execution)?;
+fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> {
+    let complex = complex(dim, points)?;
     let d = complex.dim;
     let point = |i: u32| &points[i as usize * d..(i as usize + 1) * d];
     let orient_of = |set: &[u32]| -> Result<Sign, ConvexHullError> {
@@ -432,7 +408,7 @@ fn build(
     };
 
     // The site hull of the original sites, for the rays' facets.
-    let hull = classify(accept(dim, points)?, execution)?;
+    let hull = classify(accept(dim, points)?)?;
     let queries: Vec<(&[u32], u32)> = hull
         .faces
         .iter()

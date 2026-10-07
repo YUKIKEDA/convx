@@ -2,9 +2,7 @@
 //! dynamic core with `as_flattened()`.
 //!
 //! `build` exists only for the dimensions §9 names, emitted by a macro since
-//! a single `impl` cannot carry a constant bound on stable Rust. The static
-//! types run the sequential build; parallelism belongs to the dynamic
-//! builders.
+//! a single `impl` cannot carry a constant bound on stable Rust.
 //!
 //! A dimension outside the range has no `build`:
 //!

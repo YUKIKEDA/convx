@@ -210,11 +210,9 @@ mod tests {
     use super::*;
     use crate::hull::input::accept;
     use crate::hull::simplicial::tests::Rng;
-    use crate::hull::simplicial::Execution;
 
     fn groups_of(dim: usize, points: &[f64]) -> LogicalFacets {
-        let hull =
-            SimplicialHull::build(accept(dim, points).unwrap(), Execution::Sequential).unwrap();
+        let hull = SimplicialHull::build(accept(dim, points).unwrap()).unwrap();
         let facets = merge(&hull).unwrap();
         // Every simplex belongs to exactly one group.
         let mut members: Vec<FacetId> = facets

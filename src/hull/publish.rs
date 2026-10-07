@@ -4,7 +4,6 @@ use core::cmp::Ordering;
 
 use super::classify::{classify, Classified};
 use super::input::{accept, minimum_basis, Input};
-use super::simplicial::Execution;
 use super::ConvexHullError;
 use crate::lists::Lists;
 use crate::normal::{certified_side, facet_cofactors, facet_cofactors_in_lanes, working_normal};
@@ -34,38 +33,13 @@ use crate::small::Small;
 pub struct ConvexHullBuilder<'a> {
     dim: usize,
     points: &'a [f64],
-    execution: Execution,
 }
 
 impl<'a> ConvexHullBuilder<'a> {
     /// A builder for points of dimension `dim`, stored row-major in `points`.
     #[must_use]
     pub fn new(dim: usize, points: &'a [f64]) -> Self {
-        Self {
-            dim,
-            points,
-            execution: Execution::Sequential,
-        }
-    }
-
-    /// Absorbs points in rounds planned on rayon's global pool when `enable`
-    /// is true. Off by default.
-    ///
-    /// The parallel build inserts points in another order than the
-    /// sequential one, and the published hull does not depend on the order
-    /// (design §6), so the result is identical: the same logical facets, the
-    /// same triangulation, and the same planes. The number of threads is
-    /// rayon's, configured by the caller through rayon.
-    #[must_use]
-    pub fn parallel(self, enable: bool) -> Self {
-        Self {
-            execution: if enable {
-                Execution::Parallel
-            } else {
-                Execution::Sequential
-            },
-            ..self
-        }
+        Self { dim, points }
     }
 
     /// Builds the hull.
@@ -77,20 +51,11 @@ impl<'a> ConvexHullBuilder<'a> {
     /// plane is not finite, and [`ConvexHullError::ExactEvaluationExhausted`].
     pub fn build(self) -> Result<ConvexHull, ConvexHullError> {
         let input = accept(self.dim, self.points)?;
-        let hull = publish(classify(input, self.execution)?)?;
+        let hull = publish(classify(input)?)?;
         #[cfg(debug_assertions)]
         {
             if let Err(violation) = super::invariants::check(&hull, self.points) {
                 debug_assert!(false, "convx hull invariant violated: {violation}");
-            }
-            // Design §6: the two builds publish the same hull.
-            if self.execution == Execution::Parallel {
-                let input = accept(self.dim, self.points)?;
-                let sequential = publish(classify(input, Execution::Sequential)?)?;
-                debug_assert!(
-                    hull == sequential,
-                    "the parallel build published another hull"
-                );
             }
         }
         Ok(hull)

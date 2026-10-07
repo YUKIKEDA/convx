@@ -8,16 +8,8 @@
 
 use convx::{ConvexHull, ConvexHullBuilder, ConvexHullError};
 
-/// Builds sequentially, and checks that the parallel build is identical
-/// (design §6, P3-4): every hand case runs on both paths.
 fn build(dim: usize, points: &[f64]) -> ConvexHull {
-    let hull = ConvexHullBuilder::new(dim, points).build().unwrap();
-    let parallel = ConvexHullBuilder::new(dim, points)
-        .parallel(true)
-        .build()
-        .unwrap();
-    assert_eq!(hull, parallel, "the parallel build differs");
-    hull
+    ConvexHullBuilder::new(dim, points).build().unwrap()
 }
 
 fn facet_sets(hull: &ConvexHull) -> Vec<Vec<u32>> {
