@@ -90,13 +90,13 @@ Not timed: `sphere` D6 10^5 (one convx run estimated at about 5 minutes from the
 - Hull, all points extreme (`sphere`), D >= 3: convx is behind CGAL by 1.2 to 3.0, the per-simplex construction cost of #199 and #209.
 - Delaunay: convx is behind CGAL everywhere, by 5.6 to 13 at D = 2, 2.5 to 7.7 at D = 3, and 1.5 to 2.2 at D = 4 and 5. The gap is largest where CGAL has dedicated 2D and 3D classes.
 
-## Four timed sections, convx `029eb3f` (#250)
+## Four timed sections, convx `430af36` (#250)
 
 ### Method
 
 | Item | Value |
 | --- | --- |
-| convx | `feat/249-semi-static-filter` at `029eb3f` (P6-1 on top of `main` at `f9e24ea`), rustc 1.97.0, `--release` with debug info, baseline target |
+| convx | `029eb3f`, the head of #259 when this was measured (P6-1 on top of `main` at `f9e24ea`); #259 is on `main` as `430af36`. rustc 1.97.0, `--release` with debug info, baseline target |
 | CGAL | 5.6 (Ubuntu `libcgal-dev`), g++ 13.3, the program and flags of #215 unchanged |
 | Qhull | 2020.2 (Ubuntu `qhull-bin`), `qconvex i s TI <file> TO <out>` and `qdelaunay i s TI <file> TO <out>` |
 | Machine | Linux VM, 4 vCPU Intel Xeon @ 2.10 GHz (AVX-512), the machine of the section above |
@@ -104,6 +104,8 @@ Not timed: `sphere` D6 10^5 (one convx run estimated at about 5 minutes from the
 | Points | `benches/sets.txt`, seed 1, generator `xoshiro256starstar-v1`, written by `export_qhull_sets`; every tool reads the same file |
 | Rounds | One unrecorded convx build per set first. Tools alternated per round (convx, CGAL, Qhull). When that build took under 1.5 s: 5 rounds × 3 builds per process (Qhull: 3 runs per round). Longer: 3 rounds × 1 |
 | Reported | Median, with min–max in parentheses. Ratios are medians divided; below 1 means convx is faster |
+
+#259 gained one commit after this measurement, `83f53c6`: each formula of the semi-static stage returns its determinant and bound, and a test reads them. The tables below were not timed again. On another machine, `build()` at `83f53c6` was timed against `b613adb`, whose source is that of `029eb3f`, on six sets at 10^5 (Delaunay `cube` and `sphere` D2 and D3, hull `sphere` D3, hull `cube` D4). Every ratio was 0.99 to 1.02, inside the spread; the table is on #259.
 
 The four columns are those of `docs/verification.md` (Performance sets): convx `build()`; convx construction alone (`SimplicialHull::build`, or for Delaunay the insertion order and `insert::Mesh::build`), from a timer in a scratch copy that is not committed; Qhull's "CPU seconds to compute hull (after input)"; and the wall time of the whole Qhull process, which reads the file and writes the facet list. CGAL is its construction call only, as in #215. Qhull's work counters are from the same `s` summary: hyperplanes created / distance tests.
 
