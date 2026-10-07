@@ -120,7 +120,7 @@ pub(crate) fn merge_except(
         if cut.contains(id) {
             continue;
         }
-        for &neighbor in &facet.neighbors {
+        for neighbor in facet.neighbors() {
             let Some(j) = dense.get(neighbor) else {
                 continue;
             };
@@ -134,7 +134,11 @@ pub(crate) fn merge_except(
             let Some(other) = hull.facets.get(neighbor) else {
                 continue;
             };
-            let Some(&across) = other.vertices.iter().find(|v| !facet.vertices.contains(v)) else {
+            let Some(&across) = other
+                .vertices()
+                .iter()
+                .find(|v| !facet.vertices().contains(v))
+            else {
                 continue;
             };
             // The side of `across` is the orientation of the facet's
@@ -171,7 +175,7 @@ pub(crate) fn merge_except(
     for group in &mut groups {
         for id in &group.simplices {
             if let Some(facet) = hull.facets.get(*id) {
-                group.vertices.extend_from_slice(&facet.vertices);
+                group.vertices.extend_from_slice(facet.vertices());
             }
         }
         group.vertices.sort_unstable();
@@ -189,8 +193,8 @@ pub(crate) fn merge_except(
                     .simplices
                     .iter()
                     .filter_map(|id| hull.facets.get(*id))
-                    .flat_map(|facet| facet.neighbors.iter())
-                    .filter_map(|&n| group_of.get(n))
+                    .flat_map(|facet| facet.neighbors())
+                    .filter_map(|n| group_of.get(n))
                     .filter(|&g| g as usize != number),
             );
             neighbors.sort_unstable();
