@@ -48,6 +48,7 @@
 use crate::hull::input::Input;
 use crate::hull::ConvexHullError;
 use crate::predicates::{orient, orient_lifted_with, LiftedHeight, Sign};
+use crate::small::Small;
 
 /// The vertex at infinity of an outside simplex. Site numbers are below
 /// `u32::MAX`, so it names no site.
@@ -660,7 +661,8 @@ pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
     };
     let morton = |s: u32| -> u64 {
         let p = rows.point(s);
-        let cell: Vec<u64> = (0..d)
+        // On the stack for D <= 16, so the order allocates nothing per site.
+        let cell: Small<u64, 16> = (0..d)
             .map(|j| {
                 let width = high[j] - low[j];
                 let t = if width > 0.0 {
