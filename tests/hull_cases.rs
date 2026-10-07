@@ -8,20 +8,15 @@
 
 use convx::{ConvexHull, ConvexHullBuilder, ConvexHullError};
 
-/// Builds sequentially, and checks that the parallel build is identical
-/// (design §6, P3-4): every hand case runs on both paths.
 fn build(dim: usize, points: &[f64]) -> ConvexHull {
-    let hull = ConvexHullBuilder::new(dim, points).build().unwrap();
-    let parallel = ConvexHullBuilder::new(dim, points)
-        .parallel(true)
-        .build()
-        .unwrap();
-    assert_eq!(hull, parallel, "the parallel build differs");
-    hull
+    ConvexHullBuilder::new(dim, points).build().unwrap()
 }
 
 fn facet_sets(hull: &ConvexHull) -> Vec<Vec<u32>> {
-    hull.facets.iter().map(|f| f.vertices.clone()).collect()
+    hull.facets()
+        .iter()
+        .map(|f| f.vertices().to_vec())
+        .collect()
 }
 
 fn cube() -> Vec<f64> {
@@ -35,22 +30,22 @@ fn cube() -> Vec<f64> {
 #[test]
 fn one_dimension_two_points() {
     let hull = build(1, &[3.0, -2.0]);
-    assert_eq!(hull.vertices, vec![0, 1]);
-    assert_eq!(hull.facets.len(), 2);
-    assert!(hull.facets.iter().all(|f| f.neighbors.is_empty()));
+    assert_eq!(hull.vertices(), vec![0, 1]);
+    assert_eq!(hull.facets().len(), 2);
+    assert!(hull.facets().iter().all(|f| f.neighbors().is_empty()));
     // Facets are ordered by vertex list: [0] (x = 3), then [1] (x = -2).
     assert_eq!(hull.boundary_cycle(0), Some(vec![0]));
     assert_eq!(hull.boundary_cycle(1), Some(vec![1]));
-    assert_eq!(hull.facets[0].plane.normal, vec![1.0]);
+    assert_eq!(hull.facets().get(0_u32).unwrap().normal(), vec![1.0]);
 }
 
 #[test]
 fn one_dimension_duplicates_and_signed_zero() {
     let hull = build(1, &[0.0, 1.0, -0.0, 1.0, 0.5]);
-    assert_eq!(hull.representative, vec![0, 1, 0, 1, 4]);
-    assert_eq!(hull.vertices, vec![0, 1]);
-    assert_eq!(hull.interior_points, vec![4]);
-    assert!(hull.facets.iter().all(|f| f.neighbors.is_empty()));
+    assert_eq!(hull.representative(), vec![0, 1, 0, 1, 4]);
+    assert_eq!(hull.vertices(), vec![0, 1]);
+    assert_eq!(hull.interior_points(), vec![4]);
+    assert!(hull.facets().iter().all(|f| f.neighbors().is_empty()));
 }
 
 // D = 2
@@ -58,7 +53,7 @@ fn one_dimension_duplicates_and_signed_zero() {
 #[test]
 fn triangle() {
     let hull = build(2, &[0.0, 0.0, 4.0, 0.0, 0.0, 3.0]);
-    assert_eq!(hull.vertices, vec![0, 1, 2]);
+    assert_eq!(hull.vertices(), vec![0, 1, 2]);
     assert_eq!(facet_sets(&hull), vec![vec![0, 1], vec![0, 2], vec![1, 2]]);
     assert_eq!(hull.volume(), 6.0);
 }
@@ -68,9 +63,9 @@ fn square_with_edge_point_and_interior_point() {
     let points = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 1.0, 0.25, 0.75];
     let hull = build(2, &points);
     // The fourth corner is extreme; the edge midpoint is not.
-    assert_eq!(hull.vertices, vec![0, 1, 2, 3]);
-    assert_eq!(hull.coplanar_points, vec![4]);
-    assert_eq!(hull.interior_points, vec![5]);
+    assert_eq!(hull.vertices(), vec![0, 1, 2, 3]);
+    assert_eq!(hull.coplanar_points(), vec![4]);
+    assert_eq!(hull.interior_points(), vec![5]);
 }
 
 #[test]
@@ -78,9 +73,9 @@ fn collinear_basis_point_is_coplanar() {
     // (1, 0) lies on the segment (0, 0)-(2, 0) and belongs to the minimum
     // basis. It is not an extreme vertex.
     let hull = build(2, &[0.0, 0.0, 1.0, 0.0, 2.0, 0.0, 0.0, 1.0, 1.0, 1.0]);
-    assert_eq!(hull.vertices, vec![0, 2, 3, 4]);
-    assert_eq!(hull.coplanar_points, vec![1]);
-    assert!(hull.interior_points.is_empty());
+    assert_eq!(hull.vertices(), vec![0, 2, 3, 4]);
+    assert_eq!(hull.coplanar_points(), vec![1]);
+    assert!(hull.interior_points().is_empty());
 }
 
 #[test]
@@ -90,9 +85,9 @@ fn many_duplicates() {
         points.extend([0.0, 0.0, 2.0, 0.0, 0.0, 2.0, 0.5, 0.5]);
     }
     let hull = build(2, &points);
-    assert_eq!(hull.vertices, vec![0, 1, 2]);
-    assert_eq!(hull.interior_points, vec![3]);
-    for (i, &r) in hull.representative.iter().enumerate() {
+    assert_eq!(hull.vertices(), vec![0, 1, 2]);
+    assert_eq!(hull.interior_points(), vec![3]);
+    for (i, &r) in hull.representative().iter().enumerate() {
         assert_eq!(r as usize, i % 4);
     }
 }
@@ -118,9 +113,9 @@ fn tetrahedron() {
         3,
         &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
     );
-    assert_eq!(hull.vertices, vec![0, 1, 2, 3]);
-    assert_eq!(hull.facets.len(), 4);
-    assert!(hull.facets.iter().all(|f| f.neighbors.len() == 3));
+    assert_eq!(hull.vertices(), vec![0, 1, 2, 3]);
+    assert_eq!(hull.facets().len(), 4);
+    assert!(hull.facets().iter().all(|f| f.neighbors().len() == 3));
 }
 
 #[test]
@@ -128,10 +123,10 @@ fn cube_with_face_and_edge_points() {
     let mut points = cube();
     points.extend([0.5, 0.5, 1.0, 1.0, 0.5, 0.0, 0.5, 0.5, 0.5]);
     let hull = build(3, &points);
-    assert_eq!(hull.vertices, (0..8).collect::<Vec<u32>>());
-    assert_eq!(hull.coplanar_points, vec![8, 9]);
-    assert_eq!(hull.interior_points, vec![10]);
-    assert_eq!(hull.facets.len(), 6);
+    assert_eq!(hull.vertices(), (0..8).collect::<Vec<u32>>());
+    assert_eq!(hull.coplanar_points(), vec![8, 9]);
+    assert_eq!(hull.interior_points(), vec![10]);
+    assert_eq!(hull.facets().len(), 6);
 }
 
 #[test]
@@ -142,9 +137,9 @@ fn near_coplanar_input_succeeds() {
         0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, lift, 0.5, 0.5, -1.0,
     ];
     let hull = build(3, &points);
-    assert_eq!(hull.vertices, vec![0, 1, 2, 3, 4]);
+    assert_eq!(hull.vertices(), vec![0, 1, 2, 3, 4]);
     // The top is two triangles, not one quadrilateral.
-    assert!(hull.facets.iter().all(|f| f.vertices.len() == 3));
+    assert!(hull.facets().iter().all(|f| f.vertices().len() == 3));
 }
 
 #[test]
@@ -235,11 +230,11 @@ fn renormalized(hull: &ConvexHull, dim: usize, points: &[f64]) -> Vec<(u32, Vec<
             let mut vertices = simplex.vertices.to_vec();
             vertices.sort_unstable();
             if dim >= 2 {
-                let facet = &hull.facets[simplex.facet as usize];
+                let facet = &hull.facets().get((simplex.facet as usize) as u32).unwrap();
                 let apex = *hull
-                    .vertices
+                    .vertices()
                     .iter()
-                    .find(|v| facet.vertices.binary_search(v).is_err())
+                    .find(|v| facet.vertices().binary_search(v).is_err())
                     .unwrap();
                 if orientation(dim, points, &vertices, apex) > 0 {
                     vertices.swap(dim - 2, dim - 1);
@@ -262,12 +257,12 @@ fn check_transform(dim: usize, points: &[f64], map: impl Fn(&[f64]) -> Vec<f64>)
     let moved: Vec<f64> = points.chunks_exact(dim).flat_map(map).collect();
     let transformed = build(dim, &moved);
     assert_eq!(facet_sets(&original), facet_sets(&transformed));
-    assert_eq!(original.vertices, transformed.vertices);
-    assert_eq!(original.coplanar_points, transformed.coplanar_points);
-    assert_eq!(original.interior_points, transformed.interior_points);
+    assert_eq!(original.vertices(), transformed.vertices());
+    assert_eq!(original.coplanar_points(), transformed.coplanar_points());
+    assert_eq!(original.interior_points(), transformed.interior_points());
     // In D = 2 every facet is a segment of two vertices.
     assert!(
-        dim < 3 || original.facets.iter().any(|f| f.vertices.len() > dim),
+        dim < 3 || original.facets().iter().any(|f| f.vertices().len() > dim),
         "no non-simplex facet, so no diagonal is compared"
     );
     // The oriented simplices, diagonals included, agree once the original
@@ -322,12 +317,12 @@ fn input_permutation_keeps_facets_after_mapping() {
     let moved = build(dim, &shuffled);
     // Map each shuffled index to the original index, then to its
     // representative in the original hull.
-    let to_original = |j: u32| original.representative[permutation[j as usize]];
+    let to_original = |j: u32| original.representative()[permutation[j as usize]];
     let mut mapped: Vec<Vec<u32>> = moved
-        .facets
+        .facets()
         .iter()
         .map(|f| {
-            let mut v: Vec<u32> = f.vertices.iter().map(|&j| to_original(j)).collect();
+            let mut v: Vec<u32> = f.vertices().iter().map(|&j| to_original(j)).collect();
             v.sort_unstable();
             v
         })

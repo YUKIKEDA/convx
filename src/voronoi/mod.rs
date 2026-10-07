@@ -22,13 +22,12 @@ use std::collections::BTreeMap;
 use faer::linalg::solvers::Solve;
 use faer::Mat;
 
-use crate::delaunay::complex;
+use crate::delaunay::{complex, NO_NEIGHBOR};
 use crate::hull::classify::classify;
 use crate::hull::input::accept;
 use crate::hull::publish::{for_each_facet_normal, inner_reference};
-use crate::hull::ridge::{fingerprint, pair_equal_keys_with_border};
-use crate::hull::simplicial::Execution;
 use crate::hull::ConvexHullError;
+use crate::lists::Lists;
 use crate::normal::{binary_exponent, scale_by_power_of_two};
 use crate::predicates::{orient, Sign};
 use crate::small::Small;
@@ -42,45 +41,27 @@ use crate::small::Small;
 /// // vertex at the center, four rays, and no interface across a diagonal.
 /// let points = [0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0];
 /// let voronoi = VoronoiBuilder::new(2, &points).build()?;
-/// assert_eq!(voronoi.vertices.len(), 1);
+/// assert_eq!(voronoi.vertices().len(), 1);
+/// let center = voronoi.vertices().get(0).unwrap();
 /// // The center (1, 1), solved in f64.
-/// assert!(voronoi.vertices[0].coords.iter().all(|x| (x - 1.0).abs() < 1e-12));
-/// assert_eq!(voronoi.vertices[0].sites, [0, 1, 2, 3]);
-/// let pairs: Vec<[u32; 2]> = voronoi.interfaces.iter().map(|f| f.sites).collect();
+/// assert!(center.coords().iter().all(|x| (x - 1.0).abs() < 1e-12));
+/// assert_eq!(center.sites(), [0, 1, 2, 3]);
+/// let pairs: Vec<[u32; 2]> = voronoi.interfaces().iter().map(|f| f.sites()).collect();
 /// assert_eq!(pairs, [[0, 1], [0, 3], [1, 2], [2, 3]]);
-/// assert!(voronoi.cells.iter().all(|c| c.rays.len() == 2));
+/// assert!(voronoi.cells().iter().all(|c| c.rays().len() == 2));
 /// # Ok::<(), convx::ConvexHullError>(())
 /// ```
 #[derive(Clone, Copy, Debug)]
 pub struct VoronoiBuilder<'a> {
     dim: usize,
     points: &'a [f64],
-    execution: Execution,
 }
 
 impl<'a> VoronoiBuilder<'a> {
     /// A builder for sites of dimension `dim`, stored row-major in `points`.
     #[must_use]
     pub fn new(dim: usize, points: &'a [f64]) -> Self {
-        Self {
-            dim,
-            points,
-            execution: Execution::Sequential,
-        }
-    }
-
-    /// Plans the points of each batch on rayon's global pool when `enable`
-    /// is true. Off by default. The result is identical either way.
-    #[must_use]
-    pub fn parallel(self, enable: bool) -> Self {
-        Self {
-            execution: if enable {
-                Execution::Parallel
-            } else {
-                Execution::Sequential
-            },
-            ..self
-        }
+        Self { dim, points }
     }
 
     /// Builds the diagram.
@@ -91,66 +72,312 @@ impl<'a> VoronoiBuilder<'a> {
     /// and [`ConvexHullError::NonFiniteCircumcenter`] when every simplex of
     /// some vertex has a non-finite circumcenter in `f64`.
     pub fn build(self) -> Result<VoronoiDiagram, ConvexHullError> {
-        build(self.dim, self.points, self.execution)
+        build(self.dim, self.points)
     }
 }
 
 /// A Voronoi diagram of points in dimension D.
+///
+/// Every list is kept flat and published through borrowed views (design
+/// §8, §9). Rays form one table, numbered by apex and then by
+/// `hull_facet`; cells and interfaces hold numbers into it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct VoronoiDiagram {
+    dim: usize,
+    representative: Vec<u32>,
+    /// D coordinates per finite vertex.
+    vertex_coords: Vec<f64>,
+    vertex_sites: Lists<u32>,
+    ray_apexes: Vec<u32>,
+    /// D entries per ray.
+    ray_directions: Vec<f64>,
+    ray_hull_facets: Lists<u32>,
+    cell_sites: Vec<u32>,
+    cell_vertices: Lists<u32>,
+    cell_rays: Lists<u32>,
+    interface_sites: Vec<[u32; 2]>,
+    interface_vertices: Lists<u32>,
+    interface_rays: Lists<u32>,
+}
+
+impl VoronoiDiagram {
     /// Dimension D of the sites.
-    pub dim: usize,
+    #[must_use]
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+
     /// For each input index, the smallest index of a point equal to it.
-    pub representative: Vec<u32>,
-    /// Finite vertices, in the lexicographic order of `sites`.
-    pub vertices: Vec<VoronoiVertex>,
+    #[must_use]
+    pub fn representative(&self) -> &[u32] {
+        &self.representative
+    }
+
+    /// Finite vertices, in the lexicographic order of their sites.
+    #[must_use]
+    pub fn vertices(&self) -> VoronoiVertices<'_> {
+        VoronoiVertices { diagram: self }
+    }
+
+    /// Every ray, by apex, then by `hull_facet`.
+    #[must_use]
+    pub fn rays(&self) -> VoronoiRays<'_> {
+        VoronoiRays { diagram: self }
+    }
+
     /// One cell per representative, in ascending site order.
-    pub cells: Vec<VoronoiCell>,
-    /// Faces shared by two cells, in the lexicographic order of `sites`.
-    pub interfaces: Vec<VoronoiInterface>,
+    #[must_use]
+    pub fn cells(&self) -> VoronoiCells<'_> {
+        VoronoiCells { diagram: self }
+    }
+
+    /// Faces shared by two cells, in the lexicographic order of their sites.
+    #[must_use]
+    pub fn interfaces(&self) -> VoronoiInterfaces<'_> {
+        VoronoiInterfaces { diagram: self }
+    }
 }
 
-/// A finite Voronoi vertex.
-#[derive(Clone, Debug, PartialEq)]
-pub struct VoronoiVertex {
+/// A numbered list of views into a [`VoronoiDiagram`], one type per item.
+macro_rules! collection {
+    ($(#[$meta:meta])* $name:ident, $item:ident, $len:expr) => {
+        $(#[$meta])*
+        #[derive(Clone, Copy)]
+        pub struct $name<'a> {
+            diagram: &'a VoronoiDiagram,
+        }
+
+        impl<'a> $name<'a> {
+            /// Number of items.
+            #[must_use]
+            pub fn len(&self) -> usize {
+                let len: fn(&VoronoiDiagram) -> usize = $len;
+                len(self.diagram)
+            }
+
+            /// Whether there are no items.
+            #[must_use]
+            pub fn is_empty(&self) -> bool {
+                self.len() == 0
+            }
+
+            /// The item numbered `index`, or `None` when no item has that
+            /// number.
+            #[must_use]
+            pub fn get(&self, index: u32) -> Option<$item<'a>> {
+                ((index as usize) < self.len()).then_some($item {
+                    diagram: self.diagram,
+                    index,
+                })
+            }
+
+            /// Every item, in order.
+            pub fn iter(&self) -> impl ExactSizeIterator<Item = $item<'a>> + 'a {
+                let diagram = self.diagram;
+                (0..self.len() as u32).map(move |index| $item { diagram, index })
+            }
+        }
+
+        impl core::fmt::Debug for $name<'_> {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.debug_list().entries(self.iter()).finish()
+            }
+        }
+    };
+}
+
+collection!(
+    /// The finite vertices of a [`VoronoiDiagram`].
+    VoronoiVertices,
+    VoronoiVertex,
+    |d| d.vertex_sites.len()
+);
+collection!(
+    /// The rays of a [`VoronoiDiagram`].
+    VoronoiRays,
+    VoronoiRay,
+    |d| d.ray_apexes.len()
+);
+collection!(
+    /// The cells of a [`VoronoiDiagram`].
+    VoronoiCells,
+    VoronoiCell,
+    |d| d.cell_sites.len()
+);
+collection!(
+    /// The interfaces of a [`VoronoiDiagram`].
+    VoronoiInterfaces,
+    VoronoiInterface,
+    |d| d.interface_sites.len()
+);
+
+/// A finite Voronoi vertex: a view into its [`VoronoiDiagram`].
+#[derive(Clone, Copy)]
+pub struct VoronoiVertex<'a> {
+    diagram: &'a VoronoiDiagram,
+    index: u32,
+}
+
+impl<'a> VoronoiVertex<'a> {
     /// The circumcenter. Length D, finite.
-    pub coords: Vec<f64>,
+    #[must_use]
+    pub fn coords(&self) -> &'a [f64] {
+        let d = self.diagram.dim;
+        let i = self.index as usize;
+        &self.diagram.vertex_coords[i * d..(i + 1) * d]
+    }
+
     /// The cospherical sites of this vertex, ascending. At least D + 1.
-    pub sites: Vec<u32>,
+    #[must_use]
+    pub fn sites(&self) -> &'a [u32] {
+        self.diagram.vertex_sites.get(self.index as usize)
+    }
 }
 
-/// An unbounded edge: a finite vertex and a facet of the site hull.
-#[derive(Clone, Debug, PartialEq)]
-pub struct VoronoiRay {
-    /// Index of the apex in [`VoronoiDiagram::vertices`].
-    pub apex: u32,
+/// An unbounded edge, a finite vertex and a facet of the site hull: a view
+/// into its [`VoronoiDiagram`].
+#[derive(Clone, Copy)]
+pub struct VoronoiRay<'a> {
+    diagram: &'a VoronoiDiagram,
+    index: u32,
+}
+
+impl<'a> VoronoiRay<'a> {
+    /// Number of the apex in [`VoronoiDiagram::vertices`].
+    #[must_use]
+    pub fn apex(&self) -> u32 {
+        self.diagram.ray_apexes[self.index as usize]
+    }
+
     /// The outward unit normal of the site-hull facet. Length D.
-    pub direction: Vec<f64>,
+    #[must_use]
+    pub fn direction(&self) -> &'a [f64] {
+        let d = self.diagram.dim;
+        let i = self.index as usize;
+        &self.diagram.ray_directions[i * d..(i + 1) * d]
+    }
+
     /// The extreme points of that site-hull facet, ascending.
-    pub hull_facet: Vec<u32>,
+    #[must_use]
+    pub fn hull_facet(&self) -> &'a [u32] {
+        self.diagram.ray_hull_facets.get(self.index as usize)
+    }
 }
 
-/// The Voronoi cell of one site.
-#[derive(Clone, Debug, PartialEq)]
-pub struct VoronoiCell {
+/// The rays numbered `numbers` in `diagram`, in that order.
+fn rays_of<'a>(
+    diagram: &'a VoronoiDiagram,
+    numbers: &'a [u32],
+) -> impl ExactSizeIterator<Item = VoronoiRay<'a>> + 'a {
+    numbers
+        .iter()
+        .map(move |&index| VoronoiRay { diagram, index })
+}
+
+/// The Voronoi cell of one site: a view into its [`VoronoiDiagram`].
+#[derive(Clone, Copy)]
+pub struct VoronoiCell<'a> {
+    diagram: &'a VoronoiDiagram,
+    index: u32,
+}
+
+impl<'a> VoronoiCell<'a> {
     /// The site.
-    pub site: u32,
+    #[must_use]
+    pub fn site(&self) -> u32 {
+        self.diagram.cell_sites[self.index as usize]
+    }
+
     /// Incident finite vertices, ascending.
-    pub vertices: Vec<u32>,
-    /// Incident rays, by apex, then by `hull_facet`. Empty for an interior
-    /// site; at least one for a site on the boundary of the site hull.
-    pub rays: Vec<VoronoiRay>,
+    #[must_use]
+    pub fn vertices(&self) -> &'a [u32] {
+        self.diagram.cell_vertices.get(self.index as usize)
+    }
+
+    /// Numbers in [`VoronoiDiagram::rays`] of the incident rays, ascending:
+    /// by apex, then by `hull_facet`. Empty for an interior site; at least
+    /// one for a site on the boundary of the site hull.
+    #[must_use]
+    pub fn ray_numbers(&self) -> &'a [u32] {
+        self.diagram.cell_rays.get(self.index as usize)
+    }
+
+    /// The incident rays, in the order of [`Self::ray_numbers`].
+    pub fn rays(&self) -> impl ExactSizeIterator<Item = VoronoiRay<'a>> + 'a {
+        rays_of(self.diagram, self.ray_numbers())
+    }
 }
 
-/// The face where two cells meet in dimension D - 1.
-#[derive(Clone, Debug, PartialEq)]
-pub struct VoronoiInterface {
+/// The face where two cells meet in dimension D - 1: a view into its
+/// [`VoronoiDiagram`].
+#[derive(Clone, Copy)]
+pub struct VoronoiInterface<'a> {
+    diagram: &'a VoronoiDiagram,
+    index: u32,
+}
+
+impl<'a> VoronoiInterface<'a> {
     /// The two sites, ascending.
-    pub sites: [u32; 2],
+    #[must_use]
+    pub fn sites(&self) -> [u32; 2] {
+        self.diagram.interface_sites[self.index as usize]
+    }
+
     /// Finite vertices of the face, ascending. Never empty.
-    pub vertices: Vec<u32>,
-    /// Rays of the face, by apex, then by `hull_facet`.
-    pub rays: Vec<VoronoiRay>,
+    #[must_use]
+    pub fn vertices(&self) -> &'a [u32] {
+        self.diagram.interface_vertices.get(self.index as usize)
+    }
+
+    /// Numbers in [`VoronoiDiagram::rays`] of the face's rays, ascending.
+    #[must_use]
+    pub fn ray_numbers(&self) -> &'a [u32] {
+        self.diagram.interface_rays.get(self.index as usize)
+    }
+
+    /// The face's rays, in the order of [`Self::ray_numbers`].
+    pub fn rays(&self) -> impl ExactSizeIterator<Item = VoronoiRay<'a>> + 'a {
+        rays_of(self.diagram, self.ray_numbers())
+    }
+}
+
+impl core::fmt::Debug for VoronoiVertex<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("VoronoiVertex")
+            .field("coords", &self.coords())
+            .field("sites", &self.sites())
+            .finish()
+    }
+}
+
+impl core::fmt::Debug for VoronoiRay<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("VoronoiRay")
+            .field("apex", &self.apex())
+            .field("direction", &self.direction())
+            .field("hull_facet", &self.hull_facet())
+            .finish()
+    }
+}
+
+impl core::fmt::Debug for VoronoiCell<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("VoronoiCell")
+            .field("site", &self.site())
+            .field("vertices", &self.vertices())
+            .field("ray_numbers", &self.ray_numbers())
+            .finish()
+    }
+}
+
+impl core::fmt::Debug for VoronoiInterface<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("VoronoiInterface")
+            .field("sites", &self.sites())
+            .field("vertices", &self.vertices())
+            .field("ray_numbers", &self.ray_numbers())
+            .finish()
+    }
 }
 
 /// A facet of the site hull: extreme points, a basis of its hyperplane, and
@@ -163,17 +390,16 @@ struct HullFacet {
 
 /// A ray of one vertex with the face of the group's polytope it leaves.
 struct GroupRay {
-    ray: VoronoiRay,
+    /// The site-hull facet the face lies in, by index.
+    hull_facet: usize,
+    /// The ray's number in the diagram's table.
+    number: u32,
     /// The group's sites on the site-hull facet.
     face: Vec<u32>,
 }
 
-fn build(
-    dim: usize,
-    points: &[f64],
-    execution: Execution,
-) -> Result<VoronoiDiagram, ConvexHullError> {
-    let complex = complex(dim, points, execution)?;
+fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> {
+    let complex = complex(dim, points)?;
     let d = complex.dim;
     let point = |i: u32| &points[i as usize * d..(i as usize + 1) * d];
     let orient_of = |set: &[u32]| -> Result<Sign, ConvexHullError> {
@@ -182,42 +408,42 @@ fn build(
     };
 
     // The site hull of the original sites, for the rays' facets.
-    let hull = classify(accept(dim, points)?, execution)?;
+    let hull = classify(accept(dim, points)?)?;
     let queries: Vec<(&[u32], u32)> = hull
         .faces
         .iter()
         .map(|face| {
-            let vertices = face.vertices.as_slice();
-            (vertices, inner_reference(&hull.vertices, vertices))
+            (
+                face.vertices,
+                inner_reference(&hull.vertices, face.vertices),
+            )
         })
         .collect();
     let mut hull_facets = Vec::with_capacity(hull.faces.len());
     for_each_facet_normal(&hull.input, &queries, |basis, normal| {
         hull_facets.push(HullFacet {
-            vertices: hull.faces[hull_facets.len()].vertices.clone(),
+            vertices: hull.faces.get(hull_facets.len()).vertices.to_vec(),
             basis: basis.to_vec(),
-            normal,
+            normal: normal.to_vec(),
         });
         Ok(())
     })?;
 
-    let mut groups = complex.groups;
-    groups.sort_unstable_by(|a, b| a.sites.cmp(&b.sites));
-
-    // Every face of D sites of every cell, as sorted keys in cell order. A
-    // face that no other cell shares is on the boundary of the site hull.
-    let mut face_keys: Vec<u32> = Vec::new();
-    for group in &groups {
-        for cell in &group.cells {
-            push_faces(&mut face_keys, cell);
-        }
-    }
-    let faces = face_keys.len() / d;
-    let mut on_hull = vec![true; faces];
-    for (a, b) in pair_equal_keys_with_border(&face_keys, faces, fingerprint) {
-        on_hull[a] = false;
-        on_hull[b] = false;
-    }
+    // Groups in the order of their site lists, and each group's cells in
+    // their public order, which is the lexicographic order of their rows.
+    let k = d + 1;
+    let group_sites = &complex.sites;
+    let mut groups: Vec<u32> = (0..group_sites.len() as u32).collect();
+    groups.sort_unstable_by(|&a, &b| group_sites.get(a as usize).cmp(group_sites.get(b as usize)));
+    let mut members_of: Vec<(u32, u32)> = complex
+        .group
+        .iter()
+        .enumerate()
+        .map(|(c, &g)| (g, c as u32))
+        .collect();
+    let members = lists_of(group_sites.len(), &mut members_of);
+    drop(members_of);
+    let row = |c: u32| &complex.cells[c as usize * k..(c as usize + 1) * k];
 
     // The site-hull facets incident to each hull vertex, as offsets into one
     // list.
@@ -256,43 +482,55 @@ fn build(
         Ok(None)
     };
 
-    let mut vertices = Vec::with_capacity(groups.len());
+    let mut vertex_coords = Vec::with_capacity(groups.len() * d);
+    let mut vertex_sites = Lists::with_capacity(groups.len(), groups.len() * (d + 1));
+    let mut ray_apexes: Vec<u32> = Vec::new();
+    let mut ray_directions: Vec<f64> = Vec::new();
+    let mut ray_hull_facets = Lists::default();
     let mut rays_of: Vec<Vec<GroupRay>> = Vec::with_capacity(groups.len());
-    let mut interfaces: BTreeMap<[u32; 2], (Vec<u32>, Vec<VoronoiRay>)> = BTreeMap::new();
-    let mut first_face = 0;
+    let mut interfaces: BTreeMap<[u32; 2], (Vec<u32>, Vec<u32>)> = BTreeMap::new();
     let mut tile_keys: Vec<u32> = Vec::new();
-    for (index, group) in groups.iter().enumerate() {
-        let apex = index as u32;
-        vertices.push(VoronoiVertex {
-            coords: vertex_coords(d, &point, &group.cells)?,
-            sites: group.sites.clone(),
-        });
+    let mut tile_hull: Vec<bool> = Vec::new();
+    for (apex, &g) in groups.iter().enumerate() {
+        let apex = apex as u32;
+        let sites = group_sites.get(g as usize);
+        let cells = members.get(g as usize);
+        vertex_coords.extend(vertex_coords_of(d, &point, cells.iter().map(|&c| row(c)))?);
+        vertex_sites.push(sites);
 
-        // Facets of the group's polytope: each face of a cell that no other
-        // cell of the group shares tiles one; the facet is every site of the
-        // group on that face's hyperplane.
+        // Facets of the group's polytope: each face of a cell whose cell
+        // across is in another group, or on the site hull, tiles one; the
+        // facet is every site of the group on that face's hyperplane.
         tile_keys.clear();
-        for cell in &group.cells {
-            push_faces(&mut tile_keys, cell);
-        }
-        let group_faces = tile_keys.len() / d;
-        let mut tiled = vec![true; group_faces];
-        for (a, b) in pair_equal_keys_with_border(&tile_keys, group_faces, fingerprint) {
-            tiled[a] = false;
-            tiled[b] = false;
+        tile_hull.clear();
+        for &c in cells {
+            for skip in 0..k {
+                let across = complex.neighbors[c as usize * k + skip];
+                if across != NO_NEIGHBOR && complex.group[across as usize] == g {
+                    continue;
+                }
+                tile_keys.extend(
+                    row(c)
+                        .iter()
+                        .enumerate()
+                        .filter(|&(i, _)| i != skip)
+                        .map(|(_, &v)| v),
+                );
+                tile_hull.push(across == NO_NEIGHBOR);
+            }
         }
         let key = |i: usize| &tile_keys[i * d..(i + 1) * d];
-        let mut tile_list: Vec<usize> = (0..group_faces).filter(|&i| tiled[i]).collect();
+        let mut tile_list: Vec<usize> = (0..tile_hull.len()).collect();
         tile_list.sort_unstable_by(|&a, &b| key(a).cmp(key(b)));
         let mut facets: Vec<(Vec<u32>, bool)> = Vec::new();
         for i in tile_list {
             let tile = key(i);
             // A simplex has no site on the hyperplane of a face but the face's.
-            let facet = if group.cells.len() == 1 {
+            let facet = if cells.len() == 1 {
                 tile.to_vec()
             } else {
                 let mut facet = Vec::new();
-                for &s in &group.sites {
+                for &s in sites {
                     let set: Small<u32, 11> = tile.iter().copied().chain([s]).collect();
                     if tile.contains(&s) || on_hyperplane(&orient_of, &set)? {
                         facet.push(s);
@@ -303,9 +541,8 @@ fn build(
             if facets.iter().any(|(f, _)| *f == facet) {
                 continue;
             }
-            facets.push((facet, on_hull[first_face + i]));
+            facets.push((facet, tile_hull[i]));
         }
-        first_face += group_faces;
 
         // One ray per boundary facet, along the site-hull facet it lies in.
         // The face spans D - 1 dimensions, so one logical facet holds it; a
@@ -331,31 +568,42 @@ fn build(
             } else {
                 found = scan_hull(face)?;
             }
-            let Some(hull_facet) = found.map(|f| &hull_facets[f]) else {
+            let Some(hull_facet) = found else {
                 debug_assert!(false, "a boundary face lies in a site-hull facet");
                 continue;
             };
             group_rays.push(GroupRay {
-                ray: VoronoiRay {
-                    apex,
-                    direction: hull_facet.normal.clone(),
-                    hull_facet: hull_facet.vertices.clone(),
-                },
+                hull_facet,
+                number: 0,
                 face: face.clone(),
             });
         }
+        // The rays of one apex, by `hull_facet`, numbered after those of
+        // every earlier apex: the order of the diagram's ray table.
+        group_rays.sort_by(|x, y| {
+            hull_facets[x.hull_facet]
+                .vertices
+                .cmp(&hull_facets[y.hull_facet].vertices)
+        });
+        for group_ray in &mut group_rays {
+            let hull_facet = &hull_facets[group_ray.hull_facet];
+            group_ray.number = ray_apexes.len() as u32;
+            ray_apexes.push(apex);
+            ray_directions.extend_from_slice(&hull_facet.normal);
+            ray_hull_facets.push(&hull_facet.vertices);
+        }
 
         // Interfaces: the edges of the group's polytope.
-        for (i, &a) in group.sites.iter().enumerate() {
-            for &b in &group.sites[i + 1..] {
-                if !is_edge(d, group.sites.len(), &facets, a, b) {
+        for (i, &a) in sites.iter().enumerate() {
+            for &b in &sites[i + 1..] {
+                if !is_edge(d, sites.len(), &facets, a, b) {
                     continue;
                 }
                 let entry = interfaces.entry([a, b]).or_default();
                 entry.0.push(apex);
                 for group_ray in &group_rays {
                     if group_ray.face.contains(&a) && group_ray.face.contains(&b) {
-                        entry.1.push(group_ray.ray.clone());
+                        entry.1.push(group_ray.number);
                     }
                 }
             }
@@ -366,71 +614,71 @@ fn build(
     let representatives: Vec<u32> = (0..complex.representative.len() as u32)
         .filter(|&i| complex.representative[i as usize] == i)
         .collect();
-    // Each cell's vertices in group order and its rays in the order of
-    // `rays_of`, from one pass; every site of a group is a representative.
+    // Each cell's vertices in group order and its rays in number order, as
+    // (cell, item) pairs sorted into flat lists; every site of a group is a
+    // representative.
     let mut cell_of = vec![u32::MAX; complex.representative.len()];
     for (c, &site) in representatives.iter().enumerate() {
         cell_of[site as usize] = c as u32;
     }
-    let mut cells: Vec<VoronoiCell> = representatives
-        .iter()
-        .map(|&site| VoronoiCell {
-            site,
-            vertices: Vec::new(),
-            rays: Vec::new(),
-        })
-        .collect();
-    for (v, group) in groups.iter().enumerate() {
-        for &site in &group.sites {
+    let mut pairs: Vec<(u32, u32)> = Vec::new();
+    for (v, &g) in groups.iter().enumerate() {
+        for &site in group_sites.get(g as usize) {
             if let Some(cell) = cell_index(&cell_of, site) {
-                cells[cell].vertices.push(v as u32);
+                pairs.push((cell as u32, v as u32));
             }
         }
     }
+    let cell_vertices = lists_of(representatives.len(), &mut pairs);
+    pairs.clear();
     for group_ray in rays_of.iter().flatten() {
         for &site in &group_ray.face {
             if let Some(cell) = cell_index(&cell_of, site) {
-                cells[cell].rays.push(group_ray.ray.clone());
+                pairs.push((cell as u32, group_ray.number));
             }
         }
     }
-    for cell in &mut cells {
-        sort_rays(&mut cell.rays);
+    let cell_rays = lists_of(representatives.len(), &mut pairs);
+    let mut interface_sites = Vec::with_capacity(interfaces.len());
+    let mut interface_vertices = Lists::with_capacity(interfaces.len(), 2 * interfaces.len());
+    let mut interface_rays = Lists::with_capacity(interfaces.len(), 0);
+    for (sites, (mut vertices, mut rays)) in interfaces {
+        vertices.sort_unstable();
+        vertices.dedup();
+        rays.sort_unstable();
+        interface_sites.push(sites);
+        interface_vertices.push(&vertices);
+        interface_rays.push(&rays);
     }
-    let interfaces = interfaces
-        .into_iter()
-        .map(|(sites, (mut vertices, mut rays))| {
-            vertices.sort_unstable();
-            vertices.dedup();
-            sort_rays(&mut rays);
-            VoronoiInterface {
-                sites,
-                vertices,
-                rays,
-            }
-        })
-        .collect();
     Ok(VoronoiDiagram {
         dim: d,
         representative: complex.representative,
-        vertices,
-        cells,
-        interfaces,
+        vertex_coords,
+        vertex_sites,
+        ray_apexes,
+        ray_directions,
+        ray_hull_facets,
+        cell_sites: representatives,
+        cell_vertices,
+        cell_rays,
+        interface_sites,
+        interface_vertices,
+        interface_rays,
     })
 }
 
-/// Appends the faces of D sites of a cell of D + 1 ascending sites to
-/// `keys`, each ascending, the face without site `i` at position `i`.
-fn push_faces(keys: &mut Vec<u32>, cell: &[u32]) {
-    debug_assert!(cell.windows(2).all(|w| w[0] < w[1]), "a cell is ascending");
-    for skip in 0..cell.len() {
-        keys.extend(
-            cell.iter()
-                .enumerate()
-                .filter(|&(i, _)| i != skip)
-                .map(|(_, &v)| v),
-        );
+/// The lists of `count` owners from (owner, item) pairs: owner `i`'s list
+/// is its items in ascending order. Sorts `pairs`.
+fn lists_of(count: usize, pairs: &mut [(u32, u32)]) -> Lists<u32> {
+    pairs.sort_unstable();
+    let mut lists = Lists::with_capacity(count, pairs.len());
+    let mut rest = &pairs[..];
+    for owner in 0..count as u32 {
+        let take = rest.iter().take_while(|&&(o, _)| o == owner).count();
+        lists.push_iter(rest[..take].iter().map(|&(_, item)| item));
+        rest = &rest[take..];
     }
+    lists
 }
 
 /// Whether the last site of `set` lies on the hyperplane through the first
@@ -475,24 +723,14 @@ fn cell_index(cell_of: &[u32], site: u32) -> Option<usize> {
     cell.filter(|&c| c != u32::MAX).map(|c| c as usize)
 }
 
-fn sort_rays(rays: &mut [VoronoiRay]) {
-    rays.sort_by(|x, y| {
-        x.apex
-            .cmp(&y.apex)
-            .then_with(|| x.hull_facet.cmp(&y.hull_facet))
-    });
-}
-
 /// The circumcenter of the lexicographically minimum cell with a finite
-/// one, trying the cells in that order (design §8).
-fn vertex_coords<'p>(
+/// one, trying `cells`, which come in that order (design §8).
+fn vertex_coords_of<'p>(
     d: usize,
     point: &impl Fn(u32) -> &'p [f64],
-    cells: &[Vec<u32>],
+    cells: impl Iterator<Item = &'p [u32]>,
 ) -> Result<Vec<f64>, ConvexHullError> {
-    let mut order: Vec<&Vec<u32>> = cells.iter().collect();
-    order.sort_unstable();
-    for cell in order {
+    for cell in cells {
         if let Some(center) = circumcenter(d, point, cell) {
             return Ok(center);
         }

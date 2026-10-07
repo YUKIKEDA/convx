@@ -30,7 +30,7 @@ The orientation of the sign is fixed as follows.
 
 - If $x \cdot n + \mathrm{offset} > 0$, the point is outside the plane.
 - The plane is $x \cdot n + \mathrm{offset} = 0$. $n$ is the outward unit normal.
-- Orientation is the exact sign of a determinant. `FacetPlane`'s $x \cdot n + \mathrm{offset}$ is not used for this decision.
+- Orientation is the exact sign of a determinant. The $x \cdot n + \mathrm{offset}$ of a published facet's `normal()` and `offset()` is not used for this decision.
 - Geometric degree $k$ is one less than the number of argument points. It is independent of the hull dimension $D$. $k \le 4$, that is up to five points, is computed with a dedicated formula. How the formula is expanded is left to the implementation. When $k$ exceeds 4, the predicate evaluates a filtered floating-point determinant and falls back to the exact sign only when the value lies inside the bound.
 - The public unit normal of a facet, for any number of points, is the unit direction of the facet's cofactor vector, whose entry $c_j$ is the determinant of the edges followed by the unit row $e_j$, oriented outward. The working normal used by distance scans is the same direction. That direction is certified with an error bound by the predicate filter. When the bound exceeds $10^{-10}$, it is computed exactly and rounded once when it is made unit. Householder QR is not used. The certified direction is more accurate than the QR normal was, and its error bound is guaranteed (ADR 0002). When a facet has $n \ge 5$ points, the filter evaluates every cofactor from one elimination of the $(n-1) \times n$ edge matrix $E$. Gaussian elimination with partial pivoting over its first $n - 1$ columns gives $[T \mid u]$ with $T$ upper triangular, after $s$ row swaps. Adding a multiple of one row to another leaves every maximal minor of $E$ unchanged, and a swap flips its sign. If $T x = u$, then $E$ maps $(-x, 1)$ to zero, and Cramer's rule gives $c = (-1)^s \det T \cdot (-x, 1)$. The filter carries a running bound through the elimination, the back substitution for $x$, and the products with $\det T$, so each $c_j$ has its own bound, as when it was a separate determinant. A divisor whose sign the bound does not certify leaves the cofactors uncertified, and the direction is computed exactly. The normal points to the side where the orientation of the ordered facet vertices has the outward sign. That side is proved from the error bound, and no determinant is evaluated. Let $u = c/|c|$ be the exact unit cofactor direction and let $|v - u| = e < 1$. Then $|v| \ge 1 - e$ and $v \cdot u = (|v|^2 + 1 - e^2)/2 \ge 1 - e > 0$. The orientation sign is the sign of $v \cdot c$, so $v$ lies on the positive side. The certified error is at most $10^{-10}$, or $D \cdot 2^{-49}$ when computed exactly, so the proof holds for the working normal and for the public normal.
 
@@ -45,10 +45,10 @@ Dimension is decided by predicate signs. The basis grows one point at a time. If
 ```mermaid
 flowchart TD
     api["Public API: ConvexHull / DelaunayTriangulation / VoronoiDiagram"]
-    topo["Topology: Quickhull / logical facets / merge / commit of a non-interfering batch"]
+    topo["Topology: Quickhull / logical facets / merge"]
     pred["Predicates: orientation / distance sign / coplanar / error bound / exact sign"]
     num["Numeric kernel: dedicated formulas for k <= 4 / filtered determinant / cofactor direction for the unit normal / SIMD distance"]
-    mem["Memory: generational arena during construction / worker-local mutation"]
+    mem["Memory: generational arena during construction"]
     api --> topo --> pred --> num --> mem
 ```
 
@@ -116,11 +116,11 @@ The representative set splits into the following three lists. Each is ascending.
 
 Delaunay and Voronoi sites are the entire representative set. Interior points and non-vertex boundary points are sites. Nearby points that differ in bits and fail `==` are not snapped to one point.
 
-Classification runs after outside points have been absorbed and adjacent coplanar simplices have been merged into one logical facet. The distance sign here is the orientation of $D$ affinely independent points of that face and the query point. The inner product of `FacetPlane` is not used.
+Classification runs after outside points have been absorbed and adjacent coplanar simplices have been merged into one logical facet. The distance sign here is the orientation of $D$ affinely independent points of that face and the query point. The inner product of the public plane is not used.
 
 - If the distance to some logical facet is strictly positive, the point is outside. A successful result contains no outside point.
 - If the distance to every facet is strictly negative, the point is interior.
-- Construction may prove this first. A point that construction drops while every sign it tested was strictly negative is interior, and needs no sign against the logical facets. The facets tested are every facet of the initial simplex, or, when the point was in the outside set of a visible facet or was a vertex of only visible facets, every new simplex of that insertion. A point the cull proves inside counts as strictly negative (§6). In the first case the point is strictly inside the initial simplex, and the interior stays interior as the hull grows. In the second case, let $P$ be the hull the insertion is planned against, $a$ its apex, and $Q = \mathrm{conv}(P \cup \{a\})$. Every new simplex contains $a$. Their supporting planes are the planes through $a$ and the horizon ridges, and the intersection of their closed inner sides is the cone from $a$ over $P$. The point $p$ is strictly inside all of them, so the ray from $a$ through $p$ meets $P$ at some point $y$. The point $p$ was strictly outside a visible facet $f$. The apex is strictly outside $f$ too, and $y$, being in $P$, is on or inside the plane of $f$. A ray crosses one plane once, so $p$ lies on the open segment from $a$ to $y$, and $p \in Q$. Against a kept facet $g$, both $a$ (which does not see $g$) and $y$ are on or inside the plane of $g$, so $p$ is too, and $p$ is on that plane only when $a$ and $y$ both are. If $a$ is on the plane of $g$, the face of $Q$ in that plane contains the vertex $a$, so a new simplex lies in that plane with the same outer side, and $p$ would have sign zero against it. So $p$ is strictly inside every facet plane of $Q$: it is in the interior of $Q$. A batch plans each region against the hull at the start of its round, and the final hull contains $Q$, so $p$ is in the interior of the final hull. Third, a vertex $v$ of $P$ whose every incident simplex is visible stops being a vertex of the complex after the insertion. It is interior too when its sign against every new simplex of that insertion is strictly negative. Since $v \in P$, it is on or inside the plane of every kept facet $g$. Suppose it is on that plane. The face of $P$ in that plane contains $v$ and is covered by boundary simplices in that plane. The boundary is a simplicial complex, so a simplex that contains $v$ has $v$ as a vertex. That simplex has the plane and outer side of $g$, so its sign against $a$ is that of $g$, and it is kept. Then $v$ is a vertex of a kept simplex, against the assumption. So $v$ is strictly inside every facet plane of $Q$, and it is in the interior of $Q$. As in the second case, a batch plans each region against the hull at the start of its round, and the final hull contains $Q$, so $v$ is in the interior of the final hull. A point with any zero sign is classified by the rules here.
+- Construction may prove this first. A point that construction drops while every sign it tested was strictly negative is interior, and needs no sign against the logical facets. The facets tested are every facet of the initial simplex, or, when the point was in the outside set of a visible facet or was a vertex of only visible facets, every new simplex of that insertion. A point the cull proves inside counts as strictly negative (§6). In the first case the point is strictly inside the initial simplex, and the interior stays interior as the hull grows. In the second case, let $P$ be the hull the insertion is planned against, $a$ its apex, and $Q = \mathrm{conv}(P \cup \{a\})$. Every new simplex contains $a$. Their supporting planes are the planes through $a$ and the horizon ridges, and the intersection of their closed inner sides is the cone from $a$ over $P$. The point $p$ is strictly inside all of them, so the ray from $a$ through $p$ meets $P$ at some point $y$. The point $p$ was strictly outside a visible facet $f$. The apex is strictly outside $f$ too, and $y$, being in $P$, is on or inside the plane of $f$. A ray crosses one plane once, so $p$ lies on the open segment from $a$ to $y$, and $p \in Q$. Against a kept facet $g$, both $a$ (which does not see $g$) and $y$ are on or inside the plane of $g$, so $p$ is too, and $p$ is on that plane only when $a$ and $y$ both are. If $a$ is on the plane of $g$, the face of $Q$ in that plane contains the vertex $a$, so a new simplex lies in that plane with the same outer side, and $p$ would have sign zero against it. So $p$ is strictly inside every facet plane of $Q$: it is in the interior of $Q$. Each insertion is planned against the hull as it is at that point, and the final hull contains $Q$, so $p$ is in the interior of the final hull. Third, a vertex $v$ of $P$ whose every incident simplex is visible stops being a vertex of the complex after the insertion. It is interior too when its sign against every new simplex of that insertion is strictly negative. Since $v \in P$, it is on or inside the plane of every kept facet $g$. Suppose it is on that plane. The face of $P$ in that plane contains $v$ and is covered by boundary simplices in that plane. The boundary is a simplicial complex, so a simplex that contains $v$ has $v$ as a vertex. That simplex has the plane and outer side of $g$, so its sign against $a$ is that of $g$, and it is kept. Then $v$ is a vertex of a kept simplex, against the assumption. So $v$ is strictly inside every facet plane of $Q$, and it is in the interior of $Q$. As in the second case, the final hull contains $Q$, so $v$ is in the interior of the final hull. A point with any zero sign is classified by the rules here.
 - If some facet has distance exactly zero and the rest are negative or zero, the point is on the boundary. When several faces have distance zero, the test is per face.
 - On a face of distance zero, let the vertex set be $V$. Whether the point is outside $\mathrm{conv}(V)$ is decided by orientation on the input coordinates as they are. The ridges used are those that, in the face's current triangulation, belong to exactly one simplex of this face. Let $a$ be the vertex of that simplex that is not on the ridge. $q$ is the extreme point of smallest index that is not in $V$. Point $p$ is outside that ridge when the signs of $\mathrm{orient}(R, p, q)$ and $\mathrm{orient}(R, a, q)$ are both nonzero and opposite each other. For $D = 1$ there is no such ridge, and no boundary point other than the endpoints appears. If the point is outside on one or more faces, it goes into `vertices` and is added to the vertex set of every face where it was outside. If it is outside on no face, it goes into `coplanar_points`.
 - Vertices of the simplicial complex are classified by the same rule. A vertex that was extreme when it was inserted can later fall in the relative interior of an edge or a face, because strict visibility leaves a coplanar neighboring simplex in place. A face's vertex set is the set of extreme points of its simplicial vertices together with its distance-zero points. A simplicial vertex that is no longer extreme goes into `coplanar_points`.
@@ -151,7 +151,7 @@ struct Simplex {
 
 Numbers after publication are `u32` values packed after deletions. The generation on `FacetId` is used only to prevent dangling references during construction. Public API numbers are packed indices. A logical facet's plane is owned by the group and stored apart from each simplex's working normal.
 
-The arena is a generational index in chunks. Sequential construction has one thread growing the arena. Parallel construction has workers building mutations locally and, after a barrier, committing them to the global arena in ascending input-index order. At commit, a worker-local `FacetId` is renumbered to a global number. Linking logical groups may be Union-Find, or a rebuild at commit.
+The arena is a generational index in chunks. Construction has one thread inserting one point at a time and changing the hull in place (§6). Linking logical groups may be Union-Find, or a rebuild after construction.
 
 For $D = 1$, a facet is a single endpoint. The neighbor list is empty. The two endpoints are the logical facets, and the volume is the absolute difference of the endpoint coordinates $|x_{\max} - x_{\min}|$.
 
@@ -163,22 +163,36 @@ While points are being inserted, the complex stays simplicial. After every point
 
 A connected boundary on one supporting plane is one logical facet, because one supporting plane of a convex polyhedron cuts one face. Whether a point becomes a vertex, a non-vertex on the boundary, or an interior point is decided by the classification in §3.
 
-The public shape is the same in every dimension.
+The public shape is the same in every dimension. A logical facet holds no `Vec` of its own. `ConvexHull` keeps the vertex lists, normals, offsets, and neighbors of every facet in flat arrays and publishes each facet as a borrowed view (§9).
 
 ```rust
-pub struct FacetPlane {
-    pub normal: Vec<f64>, // length D. Outward unit vector
-    pub offset: f64,      // offset of the plane x·n + offset = 0
+pub struct Facets<'a> { /* borrows the ConvexHull */ }
+
+impl<'a> Facets<'a> {
+    pub fn len(&self) -> usize;
+    pub fn is_empty(&self) -> bool;
+    /// By public facet number. An out-of-range number returns None.
+    pub fn get(&self, facet: u32) -> Option<Facet<'a>>;
+    /// In public number order.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = Facet<'a>> + 'a;
 }
 
-pub struct LogicalFacet {
-    pub vertices: Vec<u32>, // extreme points, ascending
-    pub plane: FacetPlane,
-    pub neighbors: Vec<u32>, // set of neighbor facet numbers, ascending
+#[derive(Clone, Copy)]
+pub struct Facet<'a> { /* borrows the ConvexHull */ }
+
+impl<'a> Facet<'a> {
+    /// Extreme points, ascending.
+    pub fn vertices(&self) -> &'a [u32];
+    /// Length D. Outward unit vector.
+    pub fn normal(&self) -> &'a [f64];
+    /// Offset of the plane x·n + offset = 0.
+    pub fn offset(&self) -> f64;
+    /// Set of neighbor facet numbers, ascending.
+    pub fn neighbors(&self) -> &'a [u32];
 }
 ```
 
-The facet array is ordered by lexicographic vertex lists. The number in that order is the public number. `neighbors` is the set of neighbor facet numbers. A slot's position does not correspond to a shared ridge. A shared ridge is a face of affine dimension $D-2$ in the intersection of the two vertex sets. The ridge's vertex list is not public. Ascending neighbor numbers agree with the lexicographic order of the other facet's vertex list.
+Facets are ordered by lexicographic vertex lists. The number in that order is the public number. `neighbors()` is the set of neighbor facet numbers. A slot's position does not correspond to a shared ridge. A shared ridge is a face of affine dimension $D-2$ in the intersection of the two vertex sets. The ridge's vertex list is not public. Ascending neighbor numbers agree with the lexicographic order of the other facet's vertex list.
 
 The plane is built from that facet's vertices. Walking index tuples in lexicographic order, the first $D$ points that are affinely independent are chosen. A tuple whose exact sign is zero is skipped, and the walk continues to the next tuple. The coordinates the predicate sees are the input bit patterns as they are. Only the public plane is built in the following order.
 
@@ -199,50 +213,31 @@ If the normal or the offset is then non-finite, the build fails with `NonFiniteF
 
 For $D \le 3$, the boundary cycle is derived from the stored vertex set and the outward normal. The start vertex is the minimum index. The direction agrees with the outward normal. The cycle is not the stored form itself. For $D = 1$, `boundary_cycle` is `Some` and contains that single endpoint. For $D = 2$ it is the two endpoints. For $D = 3$ its length is at least 3. A logical facet for $D \ge 4$ is a $(D-1)$-dimensional polyhedron, so a cycle is not defined. `boundary_cycle` returns `None` for $D \ge 4$.
 
-`triangulation()` returns the boundary simplicial complex. Each simplex has $D$ vertices. It is not a decomposition of the hull interior into $D$-simplices. For $D = 1$ each simplex is one endpoint, and there is no swap. For $D \ge 2$, vertices are stored in ascending order and only the last two points are swapped so that the order is outward. The split of a coplanar region need not be geometrically unique, and it may change when the version changes. Within the same binary, sequential and parallel builds produce the same split.
+`triangulation()` returns the boundary simplicial complex. Each simplex has $D$ vertices. It is not a decomposition of the hull interior into $D$-simplices. For $D = 1$ each simplex is one endpoint, and there is no swap. For $D \ge 2$, vertices are stored in ascending order and only the last two points are swapped so that the order is outward. The split of a coplanar region need not be geometrically unique, and it may change when the version changes. Within the same binary, the split does not depend on the order of insertion (§6).
 
 `volume()` returns the volume of the polyhedron. It is not used for topology. A successful build does not promise that the return value is finite. For $D = 1$ the volume is $|x_{\max} - x_{\min}|$. For $D \ge 2$, let $r$ be the extreme point of minimum index. Each boundary simplex, in the outward order that swaps the last two points as `triangulation()` does, contributes its signed `f64` volume with $r$. A term that includes $r$ may be 0. The addition order is the lexicographic order of the ascending vertex lists before the swap. The terms are added from the left in that order, and the absolute value is returned at the end. Agreement with other implementations is judged by the relative error of each fixture.
 
-Which points form the initial simplex is not fixed by the specification in general. The exception is flat-lift Delaunay, where the pulling triangulation of §7 decides the simplices. The triangulation of a face that is not a simplex is decided by the placing procedure in §3. Sequential and parallel builds choose the initial simplex with the same function. Any other choice of initial simplex remains a reason that coplanar and cospherical splits may change across versions.
+Which points form the initial simplex is not fixed by the specification in general. The exception is flat-lift Delaunay, where the pulling triangulation of §7 decides the simplices. The triangulation of a face that is not a simplex is decided by the placing procedure in §3, so the published hull depends neither on the initial simplex nor on the order of insertion. The choice of initial simplex remains a reason that Delaunay's cospherical splits may change across versions.
 
 ---
 
-## 6. Construction and the parallel commit
+## 6. Construction
 
 The hull in $D = 1$ is the two endpoints. In $D = 2$, the hull is the chain of strict turns. Before the chain is built, the points that can be proved inside are set aside. In each of eight directions ($\pm x$, $\pm y$, $\pm x \pm y$) the farthest representative is taken, and the smaller input index on a tie. The chain of strict turns of those points is the polygon used to discard. A point that the filtered orientation proves strictly left of every edge of that polygon is an interior point of the hull: the polygon's vertices are input points, so its strict interior lies in the strict interior of the hull. A point that is not proved stays, and the chain of the points that stay is the hull. When the polygon has fewer than three vertices, no point is discarded. No point is discarded either when discarding would not pay: up to 1024 representatives are taken at an even stride in input order, and fewer than one in 32 of them is proved inside. A point that is not discarded is handled by the chain and by classification, so this choice changes neither the hull nor the partition. The eight directions are compared as `f64` sums and differences. Their rounding changes only which input points the polygon takes, not the hull or the partition. Every $D \ge 3$ input absorbs points by Quickhull. If a point is strictly outside a facet, that facet is visible. Outsideness is the strict sign of the orientation. The certified working distance may prove that sign first (§1); otherwise the orientation is evaluated. The boundary ridges of the visible region are the horizon. The face across the horizon whose neighbor slot is rewritten is called $N$.
 
-```mermaid
-flowchart TD
-    scan["Cull points proved inside"]
-    pick["Take the farthest point of each facet as a candidate"]
-    reserve["Examine the first K by largest distance, then smaller index, missing distance last; reserve unreserved T and H"]
-    conflict["Debug build: check that no prospective simplices conflict"]
-    commit["Commit in ascending input-index order"]
-    scan --> pick --> reserve --> conflict --> commit
-```
+The sequential build inserts outside points one at a time and changes the hull in place. Each inserted point is strictly outside some facet of the hull at that point. Which point is inserted, and in what order, is a deterministic order the implementation chooses, decided by the values and the order of the input alone. The visible region is removed, a new simplex joins the point to each horizon ridge, the outside sets of the removed facets are assigned again to the new simplices, and then the next point is taken. Each point is planned against the hull as it is at that point and applied at once. There is no reservation and no round.
 
-For a point $P$ the following names are used.
+The published hull does not depend on the order of insertion. A logical facet is unique as a face of the polytope, and its plane is decided by its vertex set alone through the procedure of §5. A face that is not a simplex is split by the placing triangulation of §3, and a face that is a simplex is itself. The index partition is decided by whether a point is extreme, a non-extreme boundary point, or interior. `volume()` adds its terms in the order that triangulation fixes. So any construction that reaches the same hull returns the same published result. A parallel construction may rely on this uniqueness.
 
-- $V(P)$: the visible facets to delete
-- $H(P)$: the horizon ridges
-- $N(P)$: the faces across the horizon
-- $T(P) = V(P) \cup N(P)$
+The hull is built sequentially only. The builders have no parallel switch.
 
-Two points $P, Q$ that share a batch satisfy
+The parallel build of earlier versions absorbed points by a batch extraction per round and a commit in input-index order. The extraction took the first $K = 64$ candidates by outside distance and reserved their visible facets and horizons. Measured, it did not beat the sequential build beyond the spread even on four threads. The extraction and the commit were serial, and a round's planning did not pay for waking the threads (`docs/adr/0004-sequential-hull-only.md`). It is no longer part of the specification, and neither is the `parallel` flag that selected it. A parallel hull construction returns to this section, with its public API, when a scheme that beats the sequential build by measurement is decided through a Grill.
 
-$$
-T(P) \cap T(Q) = \emptyset, \quad H(P) \cap H(Q) = \emptyset
-$$
+Delaunay and Voronoi also run the one incremental insertion of §7, and the hull core they call for a flat lift is the same sequential construction.
 
-Disjoint $T$ and $H$ are the condition for two points to share a batch. A horizon ridge lies in exactly two facets, one visible and one in $N$, so if $H(P)$ and $H(Q)$ meet, $T(P)$ and $T(Q)$ meet too. The $H$ condition therefore follows from the $T$ condition, and the implementation may decide by $T$ alone. Debug builds check that $H$ is disjoint. A prospective simplex is the vertices of a horizon ridge with that point added, known before commit. Two points conflict if $Q$ is strictly outside a prospective simplex of $P$ by orientation, or the reverse. Once $T$ and $H$ are disjoint, no conflict can occur. A prospective simplex of $P$ sits on a horizon ridge, and that ridge lies on exactly two facets: a visible one and one of $N(P)$, both supporting hyperplanes of the convex hull. The strict outer side of the prospective simplex is covered by the strict outer sides of those two facets, and a point strictly outside a facet's hyperplane sees that facet. So a $Q$ strictly outside a prospective simplex of $P$ sees a facet of $T(P)$, and the reverse holds the same way. The connectivity of the visible region is what puts every facet across the horizon into $N(P)$. Disjoint $H$ remains the condition that two commits do not write the same ridge. A debug build checks the conflict test on every batch, as it checks the sequential application of a parallel batch. A release build does not evaluate it, because its cost grows with the square of the batch size and it never changes a batch.
+After construction, no remaining facet has any input point strictly outside it.
 
-The order of packing into a batch is largest outside distance first. An equal distance takes the smaller input index, and a candidate with no distance packs after every candidate that has one. A round examines only the first $K = 64$ candidates in this order. The other candidates stay in their outside sets and become candidates in a later round. $K$ is a constant of the specification, not a public setting. The candidates late in the order are points near the hull, and most of their simplices are removed again when farther points are inserted. Examining only the first ones inserts the far points first and builds fewer simplices that are later removed. No point is taken before the first candidate, so every round inserts at least one point. A candidate whose walk of its visible region meets a facet already in the $T$ of a taken candidate is rejected there, and the rest of its region is not built; a candidate whose starting facet is already taken is rejected without a walk. Its region would meet that $T$ anyway, so the batch is the same. The order of applying the batch is ascending input index. Sequential and parallel builds both use this extraction and this commit. The sequential build runs it on one thread. `parallel` defaults to off. When it is on, the input point slice is immutable, workers build mutations locally, and a barrier commits them in the order above. A debug build checks that the topology of applying the same batch sequentially in index order agrees with the topology of the parallel commit.
-
-A logical facet is unique as a face of the polyhedron, independent of insertion order. Delaunay and Voronoi do not use this extraction. They run the one incremental insertion of §7 whatever `parallel` is set to, so the sequential and parallel settings agree even on diagonals that are not unique.
-
-After commit, no remaining facet has any input point strictly outside it.
-
-What the public result promises, after normalization, is that logical-facet vertex sets and neighbor sets agree. Identical output bytes are not promised.
+What the public result promises across versions, after normalization, is that logical-facet vertex sets and neighbor sets agree. Identical output bytes across versions are not promised.
 
 ---
 
@@ -271,24 +266,41 @@ Delaunay returns `DegenerateDimension` only when the affine dimension of the ori
 
 Published simplices are only the projection of the lower hull. Vertices are stored in ascending order, and a swap of the last two points makes the orientation positive in the original space. When the exact orientation is zero, the ascending order is kept.
 
-When the orientation of the lifted points is exactly zero and several diagonals exist, the build returns the split chosen by that version's insertion order. Which of the sites are extreme is unique, so the extreme set is promised. Agreement of diagonals is limited to the sequential and parallel paths of the same binary.
+When the orientation of the lifted points is exactly zero and several diagonals exist, the build returns the split chosen by that version's insertion order. Which of the sites are extreme is unique, so the extreme set is promised. The same binary returns the same diagonals for the same input. Agreement of diagonals across versions is not promised.
 
 Dimension degeneracy is reported from the affine dimension of the input sites. The indices used in the report are those of the original sites. The report does not use the dimension count of the lift.
 
 ```rust
-pub struct DelaunayTriangulation {
-    pub dim: usize,
-    pub representative: Vec<u32>,
-    pub simplices: Vec<DelaunaySimplex>,
+pub struct DelaunayTriangulation { /* private */ }
+
+impl DelaunayTriangulation {
+    pub fn dim(&self) -> usize;
+    pub fn representative(&self) -> &[u32];
+    pub fn simplices(&self) -> Simplices<'_>;
 }
 
-pub struct DelaunaySimplex {
-    pub vertices: Vec<u32>, // length D+1. Orientation is as in the text
-    pub neighbors: Vec<u32>, // length D+1. The far side of the shared face. u32::MAX if none
+pub struct Simplices<'a> { /* borrows the DelaunayTriangulation */ }
+
+impl<'a> Simplices<'a> {
+    pub fn len(&self) -> usize;
+    pub fn is_empty(&self) -> bool;
+    /// By simplex number. An out-of-range number returns None.
+    pub fn get(&self, simplex: u32) -> Option<DelaunaySimplex<'a>>;
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = DelaunaySimplex<'a>> + 'a;
+}
+
+#[derive(Clone, Copy)]
+pub struct DelaunaySimplex<'a> { /* borrows the DelaunayTriangulation */ }
+
+impl<'a> DelaunaySimplex<'a> {
+    /// Length D+1. Orientation is as in the text.
+    pub fn vertices(&self) -> &'a [u32];
+    /// Length D+1. The simplex number across the shared face. u32::MAX if none.
+    pub fn neighbors(&self) -> &'a [u32];
 }
 ```
 
-A slot with no neighbor holds `u32::MAX`. Point numbers are below `u32::MAX`, so this value does not name a point. Simplex order is the lexicographic order of the ascending vertex lists before orientation is fixed.
+The vertices and the neighbors of the simplices are each kept as one flat array of rows of length $D+1$. A simplex number is the position in that order. A slot with no neighbor holds `u32::MAX`. Point numbers are below `u32::MAX`, so this value does not name a point. Simplex order is the lexicographic order of the ascending vertex lists before orientation is fixed.
 
 ---
 
@@ -298,49 +310,94 @@ The Voronoi diagram is the dual of the Delaunay complex before diagonals are ins
 
 A finite Voronoi vertex is one lower logical facet of the lifted convex hull. Simplices that are exactly coplanar across a shared ridge, by the lifted orientation, are merged into one by walking neighbors. This merge does not depend on the order in which the complex was built. Closeness of the `f64` circumcenter is not the reason to merge. When the whole set is flat there is one lower facet, so there is one Voronoi vertex. It is not split per simplex of the pulling triangulation. The incident sites are the union of the sites of the member simplices, duplicates removed, in ascending order. The length is at least $D+1$. The coordinates are computed by taking the member simplex whose vertex list is lexicographically minimum, translating one vertex to the origin, and computing the circumcenter. If that value is non-finite, the next simplex in the same lexicographic order is tried. If every one is non-finite, the build fails with `NonFiniteCircumcenter`. This error is not a geometric degeneracy. Delaunay simplices and neighbors are published as they were before the merge. Every vertex coordinate of a successful diagram is finite. The hull and the Delaunay triangulation do not compute a circumcenter. Circumcenter rounding is not used to decide topology.
 
-A `VoronoiInterface` is built only when two cells meet in dimension $D-1$. An interface whose `vertices` are empty is not built. When two distinct Voronoi vertices both contain sites $a$ and $b$, and the edge $ab$ is a face of both cells, that interface has finite vertices as its ends. When only one vertex contains $a$ and $b$, and the edge $ab$ lies on a logical facet of the site hull, that interface carries a ray. A diagonal interior to the site set of the same vertex is not an interface. A finite boundary face in $D = 1$ is a single vertex, and `rays` may be empty. An interface that is only rays is not built.
+A `VoronoiInterface` is built only when two cells meet in dimension $D-1$. An interface whose `vertices` are empty is not built. When two distinct Voronoi vertices both contain sites $a$ and $b$, and the edge $ab$ is a face of both cells, that interface has finite vertices as its ends. When only one vertex contains $a$ and $b$, and the edge $ab$ lies on a logical facet of the site hull, that interface carries a ray. A diagonal interior to the site set of the same vertex is not an interface. A finite boundary face in $D = 1$ is a single vertex, and `rays()` may be empty. An interface that is only rays is not built.
 
 There is one ray for each pair of a merged Voronoi vertex and a logical facet of the site hull in the original space such that the vertex's group polytope has a face of dimension $D-1$ lying in that facet. The direction is the outward unit normal of that logical facet. The same facet with a different apex is a different ray. A cell holds that ray when its site lies on that face, that is, when it is one of the group's sites on the facet's hyperplane. When the facet has no boundary site that is not extreme, this is the same as the site belonging to both the facet and the vertex. When a boundary face has several rays, those rays are the ends of that face. A direction between adjacent normals is not a separate object. A successful result always has an apex. A configuration that cannot have an apex has already failed, before construction, as a dimension degeneracy of the original sites. For $D \le 3$, the boundary cycle of a boundary face is derived from the finite vertices and the rays. The stored form itself is the vertex set and the ray set. For $D \ge 4$, pairs of vertices and rays record incidence. They are not a complete complex of cells.
 
 ```rust
-pub struct VoronoiDiagram {
-    pub dim: usize,
-    pub representative: Vec<u32>,
-    pub vertices: Vec<VoronoiVertex>,
-    pub cells: Vec<VoronoiCell>,
-    pub interfaces: Vec<VoronoiInterface>,
+pub struct VoronoiDiagram { /* private */ }
+
+impl VoronoiDiagram {
+    pub fn dim(&self) -> usize;
+    pub fn representative(&self) -> &[u32];
+    pub fn vertices(&self) -> VoronoiVertices<'_>;
+    pub fn rays(&self) -> VoronoiRays<'_>;
+    pub fn cells(&self) -> VoronoiCells<'_>;
+    pub fn interfaces(&self) -> VoronoiInterfaces<'_>;
 }
 
-pub struct VoronoiVertex {
-    pub coords: Vec<f64>, // length D
-    pub sites: Vec<u32>,  // ascending. Length at least D+1
+pub struct VoronoiVertices<'a> { /* borrows the VoronoiDiagram */ }
+pub struct VoronoiRays<'a> { /* likewise */ }
+pub struct VoronoiCells<'a> { /* likewise */ }
+pub struct VoronoiInterfaces<'a> { /* likewise */ }
+
+// VoronoiVertices, VoronoiRays, VoronoiCells, and VoronoiInterfaces share one shape.
+// Their items are VoronoiVertex, VoronoiRay, VoronoiCell, and VoronoiInterface.
+impl<'a> VoronoiVertices<'a> {
+    pub fn len(&self) -> usize;
+    pub fn is_empty(&self) -> bool;
+    /// By number. An out-of-range number returns None.
+    pub fn get(&self, index: u32) -> Option<VoronoiVertex<'a>>;
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = VoronoiVertex<'a>> + 'a;
 }
 
-pub struct VoronoiRay {
-    pub apex: u32,             // index into vertices
-    pub direction: Vec<f64>,   // length D. Outward unit normal of the site hull
-    pub hull_facet: Vec<u32>,  // extreme points of the site hull in the original space. Ascending
+#[derive(Clone, Copy)]
+pub struct VoronoiVertex<'a> { /* borrows the VoronoiDiagram */ }
+
+impl<'a> VoronoiVertex<'a> {
+    /// Length D.
+    pub fn coords(&self) -> &'a [f64];
+    /// Ascending. Length at least D+1.
+    pub fn sites(&self) -> &'a [u32];
 }
 
-pub struct VoronoiCell {
-    pub site: u32,
-    pub vertices: Vec<u32>, // incident finite vertices. Numbers after the merge. Ascending
-    pub rays: Vec<VoronoiRay>,
+#[derive(Clone, Copy)]
+pub struct VoronoiRay<'a> { /* borrows the VoronoiDiagram */ }
+
+impl<'a> VoronoiRay<'a> {
+    /// Number in vertices().
+    pub fn apex(&self) -> u32;
+    /// Length D. Outward unit normal of the site hull.
+    pub fn direction(&self) -> &'a [f64];
+    /// Extreme points of the site hull in the original space. Ascending.
+    pub fn hull_facet(&self) -> &'a [u32];
 }
 
-pub struct VoronoiInterface {
-    pub sites: [u32; 2], // ascending. Built only when two cells meet in dimension D-1
-    pub vertices: Vec<u32>,
-    pub rays: Vec<VoronoiRay>,
+#[derive(Clone, Copy)]
+pub struct VoronoiCell<'a> { /* borrows the VoronoiDiagram */ }
+
+impl<'a> VoronoiCell<'a> {
+    pub fn site(&self) -> u32;
+    /// Incident finite vertices. Numbers after the merge. Ascending.
+    pub fn vertices(&self) -> &'a [u32];
+    /// Numbers in rays() of this cell's rays. Ascending.
+    pub fn ray_numbers(&self) -> &'a [u32];
+    /// The rays, in the order of ray_numbers().
+    pub fn rays(&self) -> impl ExactSizeIterator<Item = VoronoiRay<'a>> + 'a;
+}
+
+#[derive(Clone, Copy)]
+pub struct VoronoiInterface<'a> { /* borrows the VoronoiDiagram */ }
+
+impl<'a> VoronoiInterface<'a> {
+    /// Ascending. Built only when two cells meet in dimension D-1.
+    pub fn sites(&self) -> [u32; 2];
+    pub fn vertices(&self) -> &'a [u32];
+    pub fn ray_numbers(&self) -> &'a [u32];
+    pub fn rays(&self) -> impl ExactSizeIterator<Item = VoronoiRay<'a>> + 'a;
 }
 ```
+
+Vertex coordinates and sites, ray directions and `hull_facet`, and the vertices and rays of cells and boundary faces are each kept in flat arrays. The rays form one table for the whole diagram, and cells and boundary faces hold numbers into it. A cell and a boundary face that share a ray hold the same number.
+
+`VoronoiInterface::sites()` returns the array `[u32; 2]` by value, because its length is 2 at compile time. Every other list of numbers or coordinates has a length known only at run time and is returned as a slice.
 
 Vertex numbers on cells and on boundary faces are numbers in `vertices` after the merge. The same number is stored once. Order is fixed as follows.
 
 - Finite vertices are in lexicographic order of `sites`
 - Cells are in ascending site order, one per representative
 - Boundary faces are in lexicographic order of `sites`
-- Rays are compared by apex number, then by `hull_facet` as a sequence of `u32`, lexicographically
+- Rays are compared by apex number, then by `hull_facet` as a sequence of `u32`, lexicographically. A number in `rays()` is the position in this order, and every cell's and boundary face's `ray_numbers()` ascend in it
 
 An interior site's cell has no ray. A cell of a site on the boundary of the convex hull has at least one ray.
 
@@ -348,14 +405,13 @@ An interior site's cell has no ray. A cell of a site on the boundary of the conv
 
 ## 9. Public API
 
-The core input is row-major `&[f64]`. A builder takes a dimension and a point slice, switches `parallel`, and returns the result from `build`. The default is sequential.
+The core input is row-major `&[f64]`. A builder takes a dimension and a point slice and returns the result from `build`. Construction is sequential (§6).
 
 ```rust
-pub struct ConvexHullBuilder<'a> { /* dim, points, parallel */ }
+pub struct ConvexHullBuilder<'a> { /* dim, points */ }
 
 impl<'a> ConvexHullBuilder<'a> {
     pub fn new(dim: usize, points: &'a [f64]) -> Self;
-    pub fn parallel(self, enable: bool) -> Self;
     pub fn build(self) -> Result<ConvexHull, ConvexHullError>;
 }
 ```
@@ -363,16 +419,16 @@ impl<'a> ConvexHullBuilder<'a> {
 `DelaunayBuilder` and `VoronoiBuilder` have the same shape. Both return `ConvexHullError` on failure. Delaunay's `dim` is the dimension of the original space, not the dimension after the lift.
 
 ```rust
-pub struct ConvexHull {
-    pub dim: usize,
-    pub representative: Vec<u32>,
-    pub vertices: Vec<u32>,
-    pub coplanar_points: Vec<u32>,
-    pub interior_points: Vec<u32>,
-    pub facets: Vec<LogicalFacet>,
-}
+pub struct ConvexHull { /* private */ }
 
 impl ConvexHull {
+    pub fn dim(&self) -> usize;
+    pub fn representative(&self) -> &[u32];
+    pub fn vertices(&self) -> &[u32];
+    pub fn coplanar_points(&self) -> &[u32];
+    pub fn interior_points(&self) -> &[u32];
+    /// The logical facets of §5.
+    pub fn facets(&self) -> Facets<'_>;
     /// Not used for topology. Finiteness is not guaranteed.
     pub fn volume(&self) -> f64;
     /// The coplanar split is not part of the stability promise across versions.
@@ -382,7 +438,7 @@ impl ConvexHull {
 }
 ```
 
-`ConvexHull` keeps the boundary simplicial complex in a private field, so it cannot be built by a struct literal outside the crate. `triangulation()` returns a view that borrows that complex.
+Every field of the three results, `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram`, is private. They hold no `Vec` per item: each list is kept flat (an array of values and an array of start positions, or a fixed stride when the length is fixed) and published through borrowed views. So none can be built by a struct literal outside the crate. The results implement `Clone`, `Debug`, and `PartialEq`, and the views implement `Clone`, `Copy`, and `Debug`. A view's `Debug` prints what its accessors return. `ConvexHull` also keeps the boundary simplicial complex in a private field. `triangulation()` returns a view that borrows that complex.
 
 ```rust
 pub struct TriangulationView<'a> { /* borrows the ConvexHull */ }
@@ -414,11 +470,11 @@ impl StaticConvexHull<D> {
 }
 ```
 
-`StaticConvexHull` covers $1 \le D \le 8$. `StaticDelaunay` and `StaticVoronoi` also cover $1 \le D \le 8$, and `build` has the same shape. The return types are `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram` respectively. The three static types share one range. Delaunay is built by the incremental insertion of §7 and uses no internal hull of dimension $D+1$, so there is no reason for Delaunay and Voronoi to cover less than the hull. `build` takes `&[[f64; D]]` and passes `as_flattened()` to the core. Parallelism is the dynamic builder's responsibility.
+`StaticConvexHull` covers $1 \le D \le 8$. `StaticDelaunay` and `StaticVoronoi` also cover $1 \le D \le 8$, and `build` has the same shape. The return types are `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram` respectively. The three static types share one range. Delaunay is built by the incremental insertion of §7 and uses no internal hull of dimension $D+1$, so there is no reason for Delaunay and Voronoi to cover less than the hull. `build` takes `&[[f64; D]]` and passes `as_flattened()` to the core.
 
 The only conversion from `[[f64; D]]` to `&[f64]` is `as_flattened()`. There is no `unsafe`. The MSRV is 1.89. The AVX-512 level of `pulp` (its `x86-v4` feature) uses the AVX-512 intrinsics, which are stable from 1.89. `faer`, which provides the Voronoi linear solve, declares `rust-version` 1.84 from 0.21 on, and the last release usable on 1.80 is the unmaintained 0.19 series. The range of $D$ is emitted by a macro or by separate implementations, matching the stable-Rust constraint that a single `impl` cannot carry a constant bound.
 
-Dependencies are `faer`, `rayon`, `pulp`, and `thiserror`. The implementation language is Rust. Parallelism is switched by the runtime `parallel` flag. The build assumes `std`.
+Dependencies are `faer`, `pulp`, and `thiserror`. The implementation language is Rust. The build assumes `std`.
 
 The distance kernel is runtime CPU detection through `pulp`, up to AVX-512 (`x86-v4`). Every instruction-set level returns the same cull set. The cofactor elimination of facets with 5 to 9 points runs four facets at once, one per lane of a `pulp` AVX2 (`x86-v3`) vector, when the CPU has it, and one facet at a time otherwise. Each lane performs the operations of the single elimination in the same order, so the cofactors and their bounds are bitwise identical on every CPU.
 
@@ -451,7 +507,7 @@ $$
 
 - Containment is decided by a predicate.
 
-Sequential and `parallel(true)` agree, on the same binary, on normalized logical facets and on Delaunay simplices. Delaunay and Voronoi run the same sequential insertion whatever `parallel` is set to (§6). A Phase 3 debug build also checks that the topology of applying the same batch sequentially in index order agrees with the topology of the parallel commit.
+Construction is sequential only (§6), so on the same binary and the same input the published hull and the Delaunay simplices agree on every run.
 
 The inputs that are completion criteria are as follows.
 
@@ -469,9 +525,8 @@ Targets are measured in the following columns. Placing the columns is the specif
 | Correctness | The invariants above, and the oracles                                  |
 | Robustness  | Random, adversarial, near-degenerate, huge coordinates, high dimension |
 | Memory      | Bytes per input point                                                  |
-| Parallel    | Time at 1, 2, 4, 8, and 16 threads                                     |
 
-The Parallel column measures the hull. Delaunay and Voronoi are built by sequential insertion, so their time does not change with the thread count. A deterministic parallel insertion is a roadmap row.
+There is no Parallel column. When a parallel construction returns to §6, a column of the time at 1, 2, 4, 8, and 16 threads returns with it. A deterministic parallel insertion (Delaunay) is a roadmap row.
 
 ---
 
@@ -481,7 +536,7 @@ Phase 1 is the predicate kernel. Orientation, the distance sign, coplanar, the e
 
 Phase 2 is sequential Quickhull. A $D = 2$ input is built by the chain in §6. Insertion proceeds with simplices. After completion, coplanar simplices are merged, and then the distance-zero points are classified. This phase includes the index partition, `volume()`, the invariants, and the convex-hull inputs above.
 
-Phase 3 is parallel. It includes the same batch extraction as the sequential build, the reservation of §6 with its debug check of prospective-simplex conflicts, worker-local mutation, commit in index order, and the check of agreement with the sequential result. Sequential and parallel builds choose the initial simplex with the same function. A debug build compares sequential application of the same batch with the parallel commit.
+Phase 3 was parallel. It included the batch extraction, the reservation with its debug check of prospective-simplex conflicts, worker-local mutation, commit in index order, and the check of agreement with the published result of the sequential build. The sequential build does not use this extraction; it inserts one point at a time in place (`docs/adr/0003-sequential-hull-in-place.md`). Measured, the parallel build did not beat the sequential build, so the extraction and the `parallel` flag are no longer part of the specification (`docs/adr/0004-sequential-hull-only.md`).
 
 Phase 4 is the static API, Delaunay, Voronoi, and the oracles. Phase 4 is not complete until the Delaunay inputs above pass. The pulling triangulation for a flat lift, and the procedure that merges cospherical simplices into one Voronoi vertex, are internal procedures of this phase.
 

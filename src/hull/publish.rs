@@ -4,10 +4,12 @@ use core::cmp::Ordering;
 
 use super::classify::{classify, Classified};
 use super::input::{accept, minimum_basis, Input};
-use super::simplicial::Execution;
 use super::ConvexHullError;
-use crate::normal::{certified_side, facet_cofactors, facet_cofactors_in_lanes, unit_normal_with};
-use crate::predicates::{certified_cofactor_direction, orient, Cofactors, Sign, COFACTOR_LANES};
+use crate::lists::Lists;
+use crate::normal::{certified_side, facet_cofactors, facet_cofactors_in_lanes, working_normal};
+use crate::predicates::{
+    certified_cofactor_direction, orient, Cofactors, Direction, Sign, COFACTOR_LANES,
+};
 use crate::small::Small;
 
 /// Builds a [`ConvexHull`] from row-major coordinates.
@@ -18,9 +20,12 @@ use crate::small::Small;
 /// // A unit square with its center.
 /// let points = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
 /// let hull = ConvexHullBuilder::new(2, &points).build()?;
-/// assert_eq!(hull.vertices, vec![0, 1, 2, 3]);
-/// assert_eq!(hull.interior_points, vec![4]);
-/// assert_eq!(hull.facets.len(), 4);
+/// assert_eq!(hull.vertices(), [0, 1, 2, 3]);
+/// assert_eq!(hull.interior_points(), [4]);
+/// assert_eq!(hull.facets().len(), 4);
+/// let bottom = hull.facets().get(0).unwrap();
+/// assert_eq!(bottom.vertices(), [0, 1]);
+/// assert_eq!(bottom.normal(), [0.0, -1.0]);
 /// assert_eq!(hull.volume(), 1.0);
 /// # Ok::<(), convx::ConvexHullError>(())
 /// ```
@@ -28,37 +33,13 @@ use crate::small::Small;
 pub struct ConvexHullBuilder<'a> {
     dim: usize,
     points: &'a [f64],
-    execution: Execution,
 }
 
 impl<'a> ConvexHullBuilder<'a> {
     /// A builder for points of dimension `dim`, stored row-major in `points`.
     #[must_use]
     pub fn new(dim: usize, points: &'a [f64]) -> Self {
-        Self {
-            dim,
-            points,
-            execution: Execution::Sequential,
-        }
-    }
-
-    /// Plans the points of each batch on rayon's global pool when `enable`
-    /// is true. Off by default.
-    ///
-    /// The batches and the commit order are the same either way, so the
-    /// result is identical to the sequential build: the same logical facets,
-    /// the same triangulation, and the same planes. The number of threads is
-    /// rayon's, configured by the caller through rayon.
-    #[must_use]
-    pub fn parallel(self, enable: bool) -> Self {
-        Self {
-            execution: if enable {
-                Execution::Parallel
-            } else {
-                Execution::Sequential
-            },
-            ..self
-        }
+        Self { dim, points }
     }
 
     /// Builds the hull.
@@ -70,61 +51,132 @@ impl<'a> ConvexHullBuilder<'a> {
     /// plane is not finite, and [`ConvexHullError::ExactEvaluationExhausted`].
     pub fn build(self) -> Result<ConvexHull, ConvexHullError> {
         let input = accept(self.dim, self.points)?;
-        let hull = publish(classify(input, self.execution)?)?;
+        let hull = publish(classify(input)?)?;
         #[cfg(debug_assertions)]
-        if let Err(violation) = super::invariants::check(&hull, self.points) {
-            debug_assert!(false, "convx hull invariant violated: {violation}");
+        {
+            if let Err(violation) = super::invariants::check(&hull, self.points) {
+                debug_assert!(false, "convx hull invariant violated: {violation}");
+            }
         }
         Ok(hull)
     }
 }
 
-/// The supporting hyperplane `x . normal + offset = 0` of a facet.
-///
-/// Built only for the public result; topology never uses it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct FacetPlane {
-    /// Outward unit normal. Length D.
-    pub normal: Vec<f64>,
-    /// Offset of the plane `x . normal + offset = 0`.
-    pub offset: f64,
-}
-
-/// A face of the hull of dimension D - 1.
-#[derive(Clone, Debug, PartialEq)]
-pub struct LogicalFacet {
-    /// Extreme points of this face, ascending.
-    pub vertices: Vec<u32>,
-    /// The supporting hyperplane.
-    pub plane: FacetPlane,
-    /// Numbers of the neighboring facets, ascending.
-    pub neighbors: Vec<u32>,
-}
-
 /// A convex hull.
 ///
-/// Facets are ordered by their vertex lists, lexicographically; a facet's
-/// position is its public number.
+/// Every list is kept flat and published through borrowed views (design
+/// §9). Facets are ordered by their vertex lists, lexicographically; a
+/// facet's position is its public number.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConvexHull {
-    /// Dimension D.
-    pub dim: usize,
-    /// For each input index, the smallest index of a point equal to it.
-    pub representative: Vec<u32>,
-    /// Extreme points, ascending.
-    pub vertices: Vec<u32>,
-    /// Boundary points that are not extreme, ascending.
-    pub coplanar_points: Vec<u32>,
-    /// Interior points, ascending.
-    pub interior_points: Vec<u32>,
-    /// The logical facets.
-    pub facets: Vec<LogicalFacet>,
+    dim: usize,
+    representative: Vec<u32>,
+    vertices: Vec<u32>,
+    coplanar_points: Vec<u32>,
+    interior_points: Vec<u32>,
+    /// Per facet, in public order, its extreme points.
+    facet_vertices: Lists<u32>,
+    /// Per facet, its neighboring facets.
+    facet_neighbors: Lists<u32>,
+    /// D entries per facet: its outward unit normal.
+    normals: Vec<f64>,
+    /// Per facet, the offset of its plane.
+    offsets: Vec<f64>,
     /// Boundary simplices, D vertices each, flattened in public order.
     simplex_vertices: Vec<u32>,
     /// The facet of each boundary simplex.
     simplex_facets: Vec<u32>,
     /// Input coordinates of the extreme points, for `volume`.
     vertex_coordinates: Vec<f64>,
+}
+
+/// The logical facets of a [`ConvexHull`], in public order.
+#[derive(Clone, Copy)]
+pub struct Facets<'a> {
+    hull: &'a ConvexHull,
+}
+
+impl<'a> Facets<'a> {
+    /// Number of facets.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.hull.offsets.len()
+    }
+
+    /// Whether there are no facets. Never true for a built hull.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.hull.offsets.is_empty()
+    }
+
+    /// The facet with public number `facet`, or `None` when no facet has
+    /// that number.
+    #[must_use]
+    pub fn get(&self, facet: u32) -> Option<Facet<'a>> {
+        ((facet as usize) < self.len()).then_some(Facet {
+            hull: self.hull,
+            index: facet,
+        })
+    }
+
+    /// Every facet, in public number order.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = Facet<'a>> + 'a {
+        let hull = self.hull;
+        (0..self.len() as u32).map(move |index| Facet { hull, index })
+    }
+}
+
+impl core::fmt::Debug for Facets<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
+    }
+}
+
+/// A face of the hull of dimension D - 1: a view into its [`ConvexHull`].
+#[derive(Clone, Copy)]
+pub struct Facet<'a> {
+    hull: &'a ConvexHull,
+    index: u32,
+}
+
+impl<'a> Facet<'a> {
+    /// Extreme points of this face, ascending.
+    #[must_use]
+    pub fn vertices(&self) -> &'a [u32] {
+        self.hull.facet_vertices.get(self.index as usize)
+    }
+
+    /// Outward unit normal of the supporting hyperplane. Length D. Built
+    /// only for the public result; topology never uses it.
+    #[must_use]
+    pub fn normal(&self) -> &'a [f64] {
+        let d = self.hull.dim;
+        let i = self.index as usize;
+        &self.hull.normals[i * d..(i + 1) * d]
+    }
+
+    /// Offset of the supporting hyperplane `x . normal + offset = 0`.
+    #[must_use]
+    pub fn offset(&self) -> f64 {
+        self.hull.offsets[self.index as usize]
+    }
+
+    /// Numbers of the neighboring facets, ascending.
+    #[must_use]
+    pub fn neighbors(&self) -> &'a [u32] {
+        self.hull.facet_neighbors.get(self.index as usize)
+    }
+}
+
+impl core::fmt::Debug for Facet<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Facet")
+            .field("vertices", &self.vertices())
+            .field("normal", &self.normal())
+            .field("offset", &self.offset())
+            .field("neighbors", &self.neighbors())
+            .finish()
+    }
 }
 
 /// A simplex of the boundary complex.
@@ -180,6 +232,56 @@ impl<'a> TriangulationView<'a> {
 }
 
 impl ConvexHull {
+    /// Dimension D.
+    #[must_use]
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+
+    /// For each input index, the smallest index of a point equal to it.
+    #[must_use]
+    pub fn representative(&self) -> &[u32] {
+        &self.representative
+    }
+
+    /// Extreme points, ascending.
+    #[must_use]
+    pub fn vertices(&self) -> &[u32] {
+        &self.vertices
+    }
+
+    /// Boundary points that are not extreme, ascending.
+    #[must_use]
+    pub fn coplanar_points(&self) -> &[u32] {
+        &self.coplanar_points
+    }
+
+    /// Interior points, ascending.
+    #[must_use]
+    pub fn interior_points(&self) -> &[u32] {
+        &self.interior_points
+    }
+
+    /// Rewrites the extreme points and the facet neighbor lists through
+    /// owned copies, for the tests that break an invariant on purpose.
+    #[cfg(test)]
+    pub(crate) fn edit_lists(&mut self, edit: impl FnOnce(&mut Vec<u32>, &mut Vec<Vec<u32>>)) {
+        let mut neighbors: Vec<Vec<u32>> =
+            self.facet_neighbors.iter().map(<[u32]>::to_vec).collect();
+        edit(&mut self.vertices, &mut neighbors);
+        let mut lists = Lists::default();
+        for list in &neighbors {
+            lists.push(list);
+        }
+        self.facet_neighbors = lists;
+    }
+
+    /// The logical facets (design §5), in public order.
+    #[must_use]
+    pub fn facets(&self) -> Facets<'_> {
+        Facets { hull: self }
+    }
+
     /// The volume of the polytope. Not used for topology. Finiteness is not
     /// guaranteed.
     ///
@@ -239,9 +341,9 @@ impl ConvexHull {
     /// not a facet.
     #[must_use]
     pub fn boundary_cycle(&self, facet: u32) -> Option<Vec<u32>> {
-        let face = self.facets.get(facet as usize)?;
+        let vertices = self.facet_vertices.try_get(facet as usize)?;
         match self.dim {
-            1 | 2 => Some(face.vertices.clone()),
+            1 | 2 => Some(vertices.to_vec()),
             3 => {
                 // Directed edges of the facet's outward triangles; interior
                 // edges appear in both directions and cancel.
@@ -256,7 +358,7 @@ impl ConvexHull {
                         }
                     }
                 }
-                let start = *face.vertices.first()?;
+                let start = *vertices.first()?;
                 let mut cycle = vec![start];
                 let mut current = start;
                 while cycle.len() < edges.len() {
@@ -346,31 +448,24 @@ pub(crate) fn inner_reference(vertices: &[u32], facet_vertices: &[u32]) -> u32 {
         .unwrap_or(vertices[0])
 }
 
-/// The public plane of a facet (design §5) from its [`for_each_facet_normal`]
-/// basis and normal: the first D affinely independent vertices in
-/// lexicographic order, and the certified unit cofactor direction of that
-/// basis, oriented by the exact sign so that the inside is negative.
-fn facet_plane(
-    input: &Input<'_>,
-    basis: &[u32],
-    normal: Vec<f64>,
-) -> Result<FacetPlane, ConvexHullError> {
-    let point = |i: u32| input.point(i);
-    // The plane passes through the first basis point r: offset = -n . r.
+/// The offset of the public plane of a facet (design §5) from its
+/// [`for_each_facet_normal`] basis and normal: the plane passes through the
+/// first basis point `r`, so the offset is `-n . r`.
+fn plane_offset(input: &Input<'_>, basis: &[u32], normal: &[f64]) -> Result<f64, ConvexHullError> {
     let offset = -normal
         .iter()
-        .zip(point(basis[0]))
+        .zip(input.point(basis[0]))
         .map(|(n, x)| n * x)
         .sum::<f64>();
     if !offset.is_finite() || normal.iter().any(|x| !x.is_finite()) {
         return Err(ConvexHullError::NonFiniteFacetPlane);
     }
-    Ok(FacetPlane { normal, offset })
+    Ok(offset)
 }
 
 /// The outward unit normal of one edge, when the two-point cofactors certify
 /// it. `None` leaves the facet on the general path.
-fn edge_unit_normal(input: &Input<'_>, vertices: &[u32], inner: u32) -> Option<Vec<f64>> {
+fn edge_unit_normal(input: &Input<'_>, vertices: &[u32], inner: u32) -> Option<Direction> {
     let a = input.point(vertices[0]);
     let b = input.point(vertices[1]);
     let cofactors = crate::predicates::two_point_cofactors(a, b)?;
@@ -386,7 +481,7 @@ fn edge_unit_normal(input: &Input<'_>, vertices: &[u32], inner: u32) -> Option<V
         normal[0] = -normal[0];
         normal[1] = -normal[1];
     }
-    Some(normal.to_vec())
+    Some(normal.as_slice().into())
 }
 
 /// [`for_each_facet_normal`] for edges. A facet the filter does not certify
@@ -394,7 +489,7 @@ fn edge_unit_normal(input: &Input<'_>, vertices: &[u32], inner: u32) -> Option<V
 fn edge_normals(
     input: &Input<'_>,
     facets: &[(&[u32], u32)],
-    mut f: impl FnMut(&[u32], Vec<f64>) -> Result<(), ConvexHullError>,
+    mut f: impl FnMut(&[u32], &[f64]) -> Result<(), ConvexHullError>,
 ) -> Result<(), ConvexHullError> {
     for &(vertices, inner) in facets {
         let Some(normal) = edge_unit_normal(input, vertices, inner) else {
@@ -402,10 +497,10 @@ fn edge_normals(
             let points: BasisPoints<'_> = basis.iter().map(|&v| input.point(v)).collect();
             let cofactors = facet_cofactors(&points);
             let normal = oriented_normal(input, &points, inner, cofactors.as_deref())?;
-            f(&basis, normal)?;
+            f(&basis, &normal)?;
             continue;
         };
-        f(vertices, normal)?;
+        f(vertices, &normal)?;
     }
     Ok(())
 }
@@ -417,10 +512,11 @@ fn edge_normals(
 /// receives the basis and the normal of each, in order, and the first error
 /// of a facet or of `f` ends the walk. The cofactors of four bases at a
 /// time share one elimination in lanes, bit for bit those of each alone.
+/// No facet allocates: the normal is lent to `f` from the stack.
 pub(crate) fn for_each_facet_normal(
     input: &Input<'_>,
     facets: &[(&[u32], u32)],
-    mut f: impl FnMut(&[u32], Vec<f64>) -> Result<(), ConvexHullError>,
+    mut f: impl FnMut(&[u32], &[f64]) -> Result<(), ConvexHullError>,
 ) -> Result<(), ConvexHullError> {
     if input.dim() == 2 && facets.iter().all(|(vertices, _)| vertices.len() == 2) {
         return edge_normals(input, facets, f);
@@ -451,7 +547,7 @@ pub(crate) fn for_each_facet_normal(
         {
             let basis = basis?;
             let normal = oriented_normal(input, points, inner, cofactors.as_deref())?;
-            f(&basis, normal)?;
+            f(&basis, &normal)?;
         }
     }
     Ok(())
@@ -489,7 +585,7 @@ fn oriented_normal(
     points: &[&[f64]],
     inner: u32,
     cofactors: Option<&[(f64, f64)]>,
-) -> Result<Vec<f64>, ConvexHullError> {
+) -> Result<Direction, ConvexHullError> {
     let point = |i: u32| input.point(i);
     let with_inner =
         || -> BasisPoints<'_> { points.iter().copied().chain([point(inner)]).collect() };
@@ -507,56 +603,56 @@ fn oriented_normal(
         }
         None => orient(&with_inner())?,
     };
-    unit_normal_with(points, inside.reversed(), cofactors)?
+    // The published normal is the working normal, the certified cofactor
+    // direction (design §1).
+    working_normal(points, inside.reversed(), cofactors)?
         .ok_or(ConvexHullError::NonFiniteFacetPlane)
 }
 
 /// Numbers facets and simplices in the public order and builds the planes.
-fn publish(mut c: Classified<'_>) -> Result<ConvexHull, ConvexHullError> {
+fn publish(c: Classified<'_>) -> Result<ConvexHull, ConvexHullError> {
     let d = c.input.dim();
 
     // Facets ordered by vertex list.
-    let order = lexicographic_order(
-        c.faces.len(),
-        |i| c.faces[i].vertices.as_slice(),
-        |a, b| a.cmp(&b),
-    );
+    let order = lexicographic_order(c.faces.len(), |i| c.faces.vertices.get(i), |a, b| a.cmp(&b));
     let mut number = vec![0_u32; c.faces.len()];
     for (public, &internal) in order.iter().enumerate() {
         number[internal as usize] = public as u32;
     }
 
-    let mut neighbor_lists: Vec<Vec<u32>> = c
-        .faces
-        .iter_mut()
-        .map(|face| core::mem::take(&mut face.neighbors))
-        .collect();
-    let queries: Vec<(&[u32], u32)> = order
+    // Every list of the result is written flat, in public order, so no
+    // facet allocates (#254).
+    let facet_count = order.len();
+    let mut facet_vertices =
+        Lists::with_capacity(facet_count, c.faces.vertices.iter().map(<[u32]>::len).sum());
+    let mut facet_neighbors = Lists::with_capacity(
+        facet_count,
+        c.faces.neighbors.iter().map(<[u32]>::len).sum(),
+    );
+    for (public, &internal) in order.iter().enumerate() {
+        let internal = internal as usize;
+        facet_vertices.push(c.faces.vertices.get(internal));
+        facet_neighbors.push_iter(
+            c.faces
+                .neighbors
+                .get(internal)
+                .iter()
+                .map(|&n| number[n as usize]),
+        );
+        facet_neighbors.get_mut(public).sort_unstable();
+    }
+    let queries: Vec<(&[u32], u32)> = facet_vertices
         .iter()
-        .map(|&internal| {
-            let vertices = &c.faces[internal as usize].vertices;
-            (vertices.as_slice(), inner_reference(&c.vertices, vertices))
-        })
+        .map(|vertices| (vertices, inner_reference(&c.vertices, vertices)))
         .collect();
-    let mut facets = Vec::with_capacity(order.len());
+    let mut normals = Vec::with_capacity(facet_count * d);
+    let mut offsets = Vec::with_capacity(facet_count);
     for_each_facet_normal(&c.input, &queries, |basis, normal| {
-        let mut neighbors = core::mem::take(&mut neighbor_lists[order[facets.len()] as usize]);
-        for n in &mut neighbors {
-            *n = number[*n as usize];
-        }
-        neighbors.sort_unstable();
-        facets.push(LogicalFacet {
-            vertices: Vec::new(),
-            plane: facet_plane(&c.input, basis, normal)?,
-            neighbors,
-        });
+        offsets.push(plane_offset(&c.input, basis, normal)?);
+        normals.extend_from_slice(normal);
         Ok(())
     })?;
     drop(queries);
-    let mut faces = c.faces;
-    for (facet, &internal) in facets.iter_mut().zip(&order) {
-        facet.vertices = core::mem::take(&mut faces[internal as usize].vertices);
-    }
 
     // Boundary simplices: ascending vertex lists, ordered lexicographically,
     // then the last two swapped where that makes the order outward. Every
@@ -590,7 +686,7 @@ fn publish(mut c: Classified<'_>) -> Result<ConvexHull, ConvexHullError> {
         if d >= 2 {
             #[cfg(debug_assertions)]
             {
-                let inner = inner_reference(&c.vertices, &facets[facet as usize].vertices);
+                let inner = inner_reference(&c.vertices, facet_vertices.get(facet as usize));
                 let mut points: Vec<&[f64]> = row(i).iter().map(|&v| c.input.point(v)).collect();
                 points.push(c.input.point(inner));
                 debug_assert_eq!(
@@ -617,7 +713,10 @@ fn publish(mut c: Classified<'_>) -> Result<ConvexHull, ConvexHullError> {
         vertices: c.vertices,
         coplanar_points: c.coplanar_points,
         interior_points: c.interior_points,
-        facets,
+        facet_vertices,
+        facet_neighbors,
+        normals,
+        offsets,
         simplex_vertices,
         simplex_facets,
         vertex_coordinates,

@@ -56,16 +56,33 @@ const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
 /// 2^-1073.
 const ETA: f64 = f64::from_bits(2);
 
-/// A facet prepared for culling.
-pub(crate) struct CullPlane {
-    /// The working unit normal, inline up to dimension 8. The origin
-    /// vertex is the facet's first point, which every caller passes in.
-    normal: Small<f64, 8>,
-    /// The origin the plane was prepared with, to check the callers'.
+/// A facet prepared for culling. `N` holds the working unit normal: inline
+/// when the plane is prepared, or borrowed from the rows of a facet store
+/// (see [`CullPlane::from_parts`]).
+pub(crate) struct CullPlane<N = Small<f64, 8>> {
+    /// The working unit normal. The origin vertex is the facet's first
+    /// point, which every caller passes in.
+    normal: N,
+    /// The origin the plane was prepared with, to check the callers'. A
+    /// plane read back from stored parts has none.
     #[cfg(debug_assertions)]
-    origin: Small<f64, 8>,
+    origin: Option<Small<f64, 8>>,
     slope: f64,
     floor: f64,
+}
+
+impl<'a> CullPlane<&'a [f64]> {
+    /// A plane from the normal, slope, and floor of a plane prepared by
+    /// [`CullPlane::with_cofactors`] and stored apart.
+    pub(crate) fn from_parts(normal: &'a [f64], slope: f64, floor: f64) -> Self {
+        Self {
+            normal,
+            #[cfg(debug_assertions)]
+            origin: None,
+            slope,
+            floor,
+        }
+    }
 }
 
 impl CullPlane {
@@ -103,12 +120,24 @@ impl CullPlane {
         slope.is_finite().then(|| Self {
             normal: normal.into(),
             #[cfg(debug_assertions)]
-            origin: facet[0].into(),
+            origin: Some(facet[0].into()),
             slope,
             floor,
         })
     }
 
+    /// The slope of the certified threshold.
+    pub(crate) fn slope(&self) -> f64 {
+        self.slope
+    }
+
+    /// The floor of the certified threshold.
+    pub(crate) fn floor(&self) -> f64 {
+        self.floor
+    }
+}
+
+impl<N: core::ops::Deref<Target = [f64]>> CullPlane<N> {
     /// The dimension of the plane's points.
     fn dim(&self) -> usize {
         self.normal.len()
@@ -124,13 +153,15 @@ impl CullPlane {
     fn check_origin(&self, origin: &[f64]) {
         debug_assert_eq!(origin.len(), self.dim(), "the origin is one point");
         #[cfg(debug_assertions)]
-        debug_assert!(
-            origin
-                .iter()
-                .zip(self.origin.iter())
-                .all(|(a, b)| a.to_bits() == b.to_bits()),
-            "the origin is the facet's first point"
-        );
+        if let Some(prepared) = &self.origin {
+            debug_assert!(
+                origin
+                    .iter()
+                    .zip(prepared.iter())
+                    .all(|(a, b)| a.to_bits() == b.to_bits()),
+                "the origin is the facet's first point"
+            );
+        }
     }
 
     /// The working distance and the L1 distance of one point from the
@@ -301,8 +332,8 @@ const MAX_LANES: usize = 8;
 /// One lane per point; the per-lane sequence matches [`CullPlane::scalar_terms`].
 /// Each block's flags are decided as soon as its terms are known, so the
 /// scan keeps no per-point buffer (#120).
-struct Scan<'a> {
-    plane: &'a CullPlane,
+struct Scan<'a, N> {
+    plane: &'a CullPlane<N>,
     origin: &'a [f64],
     points: &'a [f64],
     stride: usize,
@@ -319,7 +350,7 @@ enum ScanOut<'a> {
     Terms(&'a mut [f64], &'a mut [f64]),
 }
 
-impl Scan<'_> {
+impl<N: core::ops::Deref<Target = [f64]>> Scan<'_, N> {
     fn put(&mut self, i: usize, w: f64, l: f64) {
         match &mut self.out {
             ScanOut::Sides(sides) => {
@@ -334,7 +365,7 @@ impl Scan<'_> {
     }
 }
 
-impl WithSimd for Scan<'_> {
+impl<N: core::ops::Deref<Target = [f64]>> WithSimd for Scan<'_, N> {
     type Output = ();
 
     #[inline(always)]

@@ -19,7 +19,7 @@ use crate::predicates::{orient, Sign};
 
 /// The smallest hull vertex that is not on a facet with `facet_vertices`.
 fn off_facet(hull: &ConvexHull, facet_vertices: &[u32]) -> Result<u32, String> {
-    hull.vertices
+    hull.vertices()
         .iter()
         .copied()
         .find(|v| facet_vertices.binary_search(v).is_err())
@@ -28,19 +28,19 @@ fn off_facet(hull: &ConvexHull, facet_vertices: &[u32]) -> Result<u32, String> {
 
 /// Returns a description of the first violated invariant.
 pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
-    let d = hull.dim;
+    let d = hull.dim();
     let point = |i: u32| &points[i as usize * d..(i as usize + 1) * d];
     let expected_euler = if d.is_multiple_of(2) { 0 } else { 2 };
 
     // 5. Index partition.
-    let fixed: Vec<u32> = (0..hull.representative.len() as u32)
-        .filter(|&i| hull.representative[i as usize] == i)
+    let fixed: Vec<u32> = (0..hull.representative().len() as u32)
+        .filter(|&i| hull.representative()[i as usize] == i)
         .collect();
     let mut lists: Vec<u32> = hull
-        .vertices
+        .vertices()
         .iter()
-        .chain(&hull.coplanar_points)
-        .chain(&hull.interior_points)
+        .chain(hull.coplanar_points())
+        .chain(hull.interior_points())
         .copied()
         .collect();
     let total = lists.len();
@@ -49,8 +49,8 @@ pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
     if lists.len() != total || lists != fixed {
         return Err("the three lists do not partition the representatives".into());
     }
-    for (i, &r) in hull.representative.iter().enumerate() {
-        if hull.representative[r as usize] != r || r as usize > i {
+    for (i, &r) in hull.representative().iter().enumerate() {
+        if hull.representative()[r as usize] != r || r as usize > i {
             return Err(format!(
                 "representative of {i} is not a fixed point at or below it"
             ));
@@ -103,7 +103,11 @@ pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
 
     // 2. Logical-facet complex: close the facet vertex sets under
     // intersection and count each face by its affine dimension.
-    let facet_sets: Vec<Vec<u32>> = hull.facets.iter().map(|f| f.vertices.clone()).collect();
+    let facet_sets: Vec<Vec<u32>> = hull
+        .facets()
+        .iter()
+        .map(|f| f.vertices().to_vec())
+        .collect();
     // Facets by vertex: only a facet that shares a vertex can meet a face.
     let mut by_vertex: HashMap<u32, Vec<usize>> = HashMap::new();
     for (f, facet) in facet_sets.iter().enumerate() {
@@ -150,19 +154,19 @@ pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
     // 4 on the logical-facet graph: two facets are neighbors exactly when
     // they meet in a ridge, a vertex set of affine dimension D - 2. In D = 1
     // there are no ridges and every list is empty.
-    for (f, facet) in hull.facets.iter().enumerate() {
+    for (f, facet) in hull.facets().iter().enumerate() {
         let mut expected = Vec::new();
         if d >= 2 {
-            for g in sharing(&facet.vertices) {
+            for g in sharing(facet.vertices()) {
                 if g == f {
                     continue;
                 }
-                let other = &hull.facets[g];
+                let other = hull.facets().get(g as u32).ok_or("no facet")?;
                 let meet: Vec<u32> = facet
-                    .vertices
+                    .vertices()
                     .iter()
                     .copied()
-                    .filter(|v| other.vertices.binary_search(v).is_ok())
+                    .filter(|v| other.vertices().binary_search(v).is_ok())
                     .collect();
                 if meet.len() < d - 1 {
                     continue;
@@ -173,10 +177,10 @@ pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
                 }
             }
         }
-        if facet.neighbors != expected {
+        if facet.neighbors() != expected {
             return Err(format!(
                 "facet {f} lists neighbors {:?}, its ridges give {expected:?}",
-                facet.neighbors
+                facet.neighbors()
             ));
         }
     }
@@ -184,13 +188,13 @@ pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
     // 3. No point strictly outside any facet. The side is the orientation of
     // D affinely independent facet vertices and the point, signed so that a
     // hull vertex off the facet is inside.
-    for (f, facet) in hull.facets.iter().enumerate() {
-        let basis: Vec<u32> = minimum_basis(d, &facet.vertices, point)
+    for (f, facet) in hull.facets().iter().enumerate() {
+        let basis: Vec<u32> = minimum_basis(d, facet.vertices(), point)
             .map_err(|e| e.to_string())?
             .into_iter()
             .take(d)
             .collect();
-        let inner = off_facet(hull, &facet.vertices)?;
+        let inner = off_facet(hull, facet.vertices())?;
         let side = |q: u32| -> Result<Sign, String> {
             let mut pts: Vec<&[f64]> = basis.iter().map(|&v| point(v)).collect();
             pts.push(point(q));
@@ -200,7 +204,7 @@ pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
         if inside == Sign::Zero {
             return Err(format!("facet {f} is not supporting"));
         }
-        for q in 0..hull.representative.len() as u32 {
+        for q in 0..hull.representative().len() as u32 {
             if side(q)? == inside.reversed() {
                 return Err(format!("point {q} is outside facet {f}"));
             }
@@ -210,8 +214,8 @@ pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
     // on the negative side.
     if d >= 2 {
         for simplex in hull.triangulation().iter() {
-            let facet = &hull.facets[simplex.facet as usize];
-            let inner = off_facet(hull, &facet.vertices)?;
+            let facet = hull.facets().get(simplex.facet).ok_or("no facet")?;
+            let inner = off_facet(hull, facet.vertices())?;
             let mut pts: Vec<&[f64]> = simplex.vertices.iter().map(|&v| point(v)).collect();
             pts.push(point(inner));
             if orient(&pts).map_err(|_| "exact evaluation exhausted".to_string())? != Sign::Negative
@@ -238,22 +242,28 @@ mod tests {
         assert_eq!(check(&hull, &points), Ok(()));
 
         let mut missing = hull.clone();
-        missing.vertices.pop();
+        missing.edit_lists(|vertices, _| {
+            vertices.pop();
+        });
         assert!(check(&missing, &points).is_err());
 
         let mut one_sided = hull.clone();
-        one_sided.facets[0].neighbors.pop();
+        one_sided.edit_lists(|_, neighbors| {
+            neighbors[0].pop();
+        });
         assert!(check(&one_sided, &points).is_err());
 
         // Dropping a shared ridge from both sides keeps the lists symmetric.
         let mut both_sides = hull.clone();
-        let n = both_sides.facets[0].neighbors.remove(0);
-        both_sides.facets[n as usize].neighbors.retain(|&m| m != 0);
+        both_sides.edit_lists(|_, neighbors| {
+            let n = neighbors[0].remove(0);
+            neighbors[n as usize].retain(|&m| m != 0);
+        });
         assert!(check(&both_sides, &points).is_err());
 
         // A facet listed as its own neighbor is not a ridge neighbor.
         let mut extra = hull.clone();
-        extra.facets[0].neighbors.push(0);
+        extra.edit_lists(|_, neighbors| neighbors[0].push(0));
         assert!(check(&extra, &points).is_err());
 
         // In D = 1 the lists are empty.
@@ -261,8 +271,10 @@ mod tests {
         let segment = ConvexHullBuilder::new(1, &line).build().unwrap();
         assert_eq!(check(&segment, &line), Ok(()));
         let mut linked = segment.clone();
-        linked.facets[0].neighbors.push(1);
-        linked.facets[1].neighbors.push(0);
+        linked.edit_lists(|_, neighbors| {
+            neighbors[0].push(1);
+            neighbors[1].push(0);
+        });
         assert!(check(&linked, &line).is_err());
 
         let mut moved = points;

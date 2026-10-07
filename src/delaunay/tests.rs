@@ -3,6 +3,14 @@
 
 use super::*;
 
+/// Every simplex as its (vertices, neighbors), in order.
+fn rows(t: &DelaunayTriangulation) -> Vec<(Vec<u32>, Vec<u32>)> {
+    t.simplices()
+        .iter()
+        .map(|s| (s.vertices().to_vec(), s.neighbors().to_vec()))
+        .collect()
+}
+
 /// Whether the lift of `points` is flat (every site on one sphere).
 fn is_flat(dim: usize, points: &[f64]) -> bool {
     let input = accept(dim, points).unwrap();
@@ -19,10 +27,10 @@ fn triangulate(dim: usize, points: &[f64]) -> DelaunayTriangulation {
 /// Ascending vertex lists of the simplices, sorted.
 fn cells(t: &DelaunayTriangulation) -> Vec<Vec<u32>> {
     let mut cells: Vec<Vec<u32>> = t
-        .simplices
+        .simplices()
         .iter()
         .map(|s| {
-            let mut v = s.vertices.clone();
+            let mut v = s.vertices().to_vec();
             v.sort_unstable();
             v
         })
@@ -34,13 +42,13 @@ fn cells(t: &DelaunayTriangulation) -> Vec<Vec<u32>> {
 /// Structural checks from §7: order, orientation, and neighbor symmetry
 /// across the shared face.
 fn check(t: &DelaunayTriangulation, points: &[f64]) {
-    let d = t.dim;
+    let d = t.dim();
     let point = |i: u32| &points[i as usize * d..(i as usize + 1) * d];
     let sorted: Vec<Vec<u32>> = t
-        .simplices
+        .simplices()
         .iter()
         .map(|s| {
-            let mut v = s.vertices.clone();
+            let mut v = s.vertices().to_vec();
             v.sort_unstable();
             v
         })
@@ -49,16 +57,20 @@ fn check(t: &DelaunayTriangulation, points: &[f64]) {
         sorted.windows(2).all(|w| w[0] < w[1]),
         "lexicographic order"
     );
-    for (i, s) in t.simplices.iter().enumerate() {
-        assert_eq!(s.vertices.len(), d + 1);
-        let refs: Vec<&[f64]> = s.vertices.iter().map(|&v| point(v)).collect();
+    for (i, s) in t.simplices().iter().enumerate() {
+        assert_eq!(s.vertices().len(), d + 1);
+        let refs: Vec<&[f64]> = s.vertices().iter().map(|&v| point(v)).collect();
         assert_eq!(orient(&refs).unwrap(), Sign::Positive, "simplex {i}");
-        for (slot, &n) in s.neighbors.iter().enumerate() {
+        for (slot, &n) in s.neighbors().iter().enumerate() {
             if n == NO_NEIGHBOR {
                 continue;
             }
-            let other = &t.simplices[n as usize];
-            let back = other.neighbors.iter().position(|&b| b == i as u32).unwrap();
+            let other = &t.simplices().get((n as usize) as u32).unwrap();
+            let back = other
+                .neighbors()
+                .iter()
+                .position(|&b| b == i as u32)
+                .unwrap();
             let face = |v: &[u32], skip: usize| -> Vec<u32> {
                 let mut f: Vec<u32> = v
                     .iter()
@@ -69,7 +81,7 @@ fn check(t: &DelaunayTriangulation, points: &[f64]) {
                 f.sort_unstable();
                 f
             };
-            assert_eq!(face(&s.vertices, slot), face(&other.vertices, back));
+            assert_eq!(face(s.vertices(), slot), face(other.vertices(), back));
         }
     }
 }
@@ -94,21 +106,12 @@ fn partly_cocircular_square() {
     let t = triangulate(2, &points);
     let m = NO_NEIGHBOR;
     assert_eq!(
-        t.simplices,
+        rows(&t),
         vec![
-            DelaunaySimplex {
-                vertices: vec![0, 1, 2],
-                neighbors: vec![m, 2, 1],
-            },
+            (vec![0, 1, 2], vec![m, 2, 1]),
             // (0,0), (2,0), (1,-3) is clockwise, so the last two swap.
-            DelaunaySimplex {
-                vertices: vec![0, 4, 1],
-                neighbors: vec![m, 0, m],
-            },
-            DelaunaySimplex {
-                vertices: vec![0, 2, 3],
-                neighbors: vec![m, m, 0],
-            },
+            (vec![0, 4, 1], vec![m, 0, m]),
+            (vec![0, 2, 3], vec![m, m, 0]),
         ]
     );
     check(&t, &points);
@@ -131,7 +134,7 @@ fn degenerate_sites_report_original_indices() {
     // 1 duplicates 0; all on the line y = x.
     let points = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 2.0, 2.0];
     assert_eq!(
-        complex(2, &points, Execution::Sequential).err(),
+        complex(2, &points).err(),
         Some(ConvexHullError::DegenerateDimension {
             actual_dim: 1,
             spanning_points: vec![0, 2],
@@ -143,8 +146,8 @@ fn degenerate_sites_report_original_indices() {
 fn duplicates_map_to_their_representative() {
     let points = [0.0, 0.0, 4.0, 0.0, 0.0, 4.0, 4.0, 0.0, 1.0, 1.0];
     let t = triangulate(2, &points);
-    assert_eq!(t.representative, vec![0, 1, 2, 1, 4]);
-    assert!(t.simplices.iter().all(|s| !s.vertices.contains(&3)));
+    assert_eq!(t.representative(), vec![0, 1, 2, 1, 4]);
+    assert!(t.simplices().iter().all(|s| !s.vertices().contains(&3)));
 }
 
 // Brute-force reference: a (D+1)-subset of sites in general position is a
@@ -319,13 +322,13 @@ fn general_position_in_three_dimensions() {
 fn check_delaunay(t: &DelaunayTriangulation, sites: &[Vec<i64>]) -> (usize, usize) {
     let (mut flat_boundary, mut cospherical) = (0, 0);
     let mut used = vec![false; sites.len()];
-    for s in &t.simplices {
-        let cell: Vec<usize> = s.vertices.iter().map(|&v| v as usize).collect();
+    for s in t.simplices().iter() {
+        let cell: Vec<usize> = s.vertices().iter().map(|&v| v as usize).collect();
         let orientation = plain(sites, &cell);
         assert!(orientation > 0, "{cell:?} is positive");
         let mut on_sphere = false;
         for q in 0..sites.len() {
-            if t.representative[q] != q as u32 || cell.contains(&q) {
+            if t.representative()[q] != q as u32 || cell.contains(&q) {
                 continue;
             }
             let mut with = cell.clone();
@@ -337,7 +340,7 @@ fn check_delaunay(t: &DelaunayTriangulation, sites: &[Vec<i64>]) -> (usize, usiz
             on_sphere |= l == 0;
         }
         cospherical += usize::from(on_sphere);
-        for (slot, &n) in s.neighbors.iter().enumerate() {
+        for (slot, &n) in s.neighbors().iter().enumerate() {
             if n != NO_NEIGHBOR {
                 continue;
             }
@@ -345,7 +348,7 @@ fn check_delaunay(t: &DelaunayTriangulation, sites: &[Vec<i64>]) -> (usize, usiz
             // each site: positive means beyond the face, away from it.
             let mut on_plane = false;
             for q in 0..sites.len() {
-                if t.representative[q] != q as u32 || cell.contains(&q) {
+                if t.representative()[q] != q as u32 || cell.contains(&q) {
                     continue;
                 }
                 let mut with = cell.clone();
@@ -362,7 +365,7 @@ fn check_delaunay(t: &DelaunayTriangulation, sites: &[Vec<i64>]) -> (usize, usiz
     }
     for (q, &is_vertex) in used.iter().enumerate() {
         assert!(
-            is_vertex || t.representative[q] != q as u32,
+            is_vertex || t.representative()[q] != q as u32,
             "site {q} is a vertex"
         );
     }
@@ -414,25 +417,7 @@ fn degenerate_grids_are_delaunay() {
             flat_boundary > 0 && cospherical > 0,
             "case {i}: boundary sites on a plane {flat_boundary}, cospherical {cospherical}"
         );
-        let parallel = DelaunayBuilder::new(*dim, &points)
-            .parallel(true)
-            .build()
-            .unwrap();
-        assert_eq!(t, parallel, "case {i}: parallel agrees");
     }
-}
-
-#[test]
-fn parallel_execution_agrees() {
-    let sites = random_sites(3, 60, 99, 1 << 20);
-    let points: Vec<f64> = sites.iter().flatten().map(|&x| x as f64).collect();
-    let sequential = triangulate(3, &points);
-    let parallel = DelaunayBuilder::new(3, &points)
-        .parallel(true)
-        .build()
-        .unwrap();
-    assert_eq!(sequential, parallel);
-    check(&sequential, &points);
 }
 
 #[test]
@@ -449,19 +434,19 @@ fn cospherical_groups_sharing_a_face_split_it_alike() {
     let t = triangulate(3, &points);
     check(&t, &points);
     let boundary: usize = t
-        .simplices
+        .simplices()
         .iter()
-        .map(|s| s.neighbors.iter().filter(|&&n| n == NO_NEIGHBOR).count())
+        .map(|s| s.neighbors().iter().filter(|&&n| n == NO_NEIGHBOR).count())
         .sum();
     assert_eq!(boundary, 14);
     // Volumes of integer tetrahedra are exact sixths: cube 8, pyramid 20/3.
     let point = |i: u32| &points[i as usize * 3..i as usize * 3 + 3];
     let six_volume: f64 = t
-        .simplices
+        .simplices()
         .iter()
         .map(|s| {
-            let o = point(s.vertices[0]);
-            let r: Vec<Vec<f64>> = s.vertices[1..]
+            let o = point(s.vertices()[0]);
+            let r: Vec<Vec<f64>> = s.vertices()[1..]
                 .iter()
                 .map(|&v| point(v).iter().zip(o).map(|(x, y)| x - y).collect())
                 .collect();
@@ -477,11 +462,6 @@ fn cospherical_groups_sharing_a_face_split_it_alike() {
 
 fn built(dim: usize, points: &[f64]) -> DelaunayTriangulation {
     let t = DelaunayBuilder::new(dim, points).build().unwrap();
-    let parallel = DelaunayBuilder::new(dim, points)
-        .parallel(true)
-        .build()
-        .unwrap();
-    assert_eq!(t, parallel, "the parallel build differs");
     check(&t, points);
     t
 }
@@ -493,16 +473,10 @@ fn square_is_pulled_from_its_smallest_site() {
     let t = built(2, &points);
     let m = NO_NEIGHBOR;
     assert_eq!(
-        t.simplices,
+        rows(&t),
         vec![
-            DelaunaySimplex {
-                vertices: vec![0, 1, 2],
-                neighbors: vec![m, 1, m],
-            },
-            DelaunaySimplex {
-                vertices: vec![0, 2, 3],
-                neighbors: vec![m, m, 0],
-            },
+            (vec![0, 1, 2], vec![m, 1, m]),
+            (vec![0, 2, 3], vec![m, m, 0]),
         ]
     );
 }
@@ -526,12 +500,12 @@ fn cube_corners_are_six_tetrahedra_from_corner_0() {
         .flat_map(|i: u32| (0..3).map(move |a| f64::from((i >> a) & 1) * 2.0))
         .collect();
     let t = built(3, &points);
-    assert_eq!(t.simplices.len(), 6);
-    assert!(t.simplices.iter().all(|s| s.vertices.contains(&0)));
+    assert_eq!(t.simplices().len(), 6);
+    assert!(t.simplices().iter().all(|s| s.vertices().contains(&0)));
     let boundary: usize = t
-        .simplices
+        .simplices()
         .iter()
-        .map(|s| s.neighbors.iter().filter(|&&n| n == NO_NEIGHBOR).count())
+        .map(|s| s.neighbors().iter().filter(|&&n| n == NO_NEIGHBOR).count())
         .sum();
     assert_eq!(boundary, 12);
     // Squares x = 2 (corners 1, 3, 5, 7), y = 2 (2, 3, 6, 7), z = 2 (4, 5,
@@ -554,7 +528,10 @@ fn d_plus_one_sites_are_one_simplex() {
     let triangle = [0.0, 0.0, 3.0, 0.0, 0.0, 2.0];
     let t = built(2, &triangle);
     assert_eq!(cells(&t), vec![vec![0, 1, 2]]);
-    assert_eq!(t.simplices[0].neighbors, vec![NO_NEIGHBOR; 3]);
+    assert_eq!(
+        t.simplices().get(0_u32).unwrap().neighbors(),
+        vec![NO_NEIGHBOR; 3]
+    );
     let tetrahedron = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
     assert_eq!(cells(&built(3, &tetrahedron)), vec![vec![0, 1, 2, 3]]);
 }
@@ -566,7 +543,7 @@ fn one_dimension() {
     let two = [3.0, -1.0];
     let t = built(1, &two);
     // Ascending [0, 1] runs from 3 to -1, negative, so the two swap.
-    assert_eq!(t.simplices[0].vertices, vec![1, 0]);
+    assert_eq!(t.simplices().get(0_u32).unwrap().vertices(), vec![1, 0]);
     let line = [0.0, 3.0, 1.0, 7.0];
     assert_eq!(
         cells(&built(1, &line)),
@@ -583,10 +560,10 @@ fn pulled_simplices_have_empty_circumspheres() {
         5.0, 0.0, 3.0, 4.0, -3.0, 4.0, -5.0, 0.0, 0.0, -5.0, 4.0, -3.0,
     ];
     let t = built(2, &points);
-    for s in &t.simplices {
+    for s in t.simplices().iter() {
         for q in 0..6_u32 {
             let mut p: Vec<&[f64]> = s
-                .vertices
+                .vertices()
                 .iter()
                 .map(|&v| &points[v as usize * 2..v as usize * 2 + 2])
                 .collect();
@@ -594,5 +571,5 @@ fn pulled_simplices_have_empty_circumspheres() {
             assert_eq!(crate::predicates::orient_lifted(&p).unwrap(), Sign::Zero);
         }
     }
-    assert_eq!(t.simplices.len(), 4);
+    assert_eq!(t.simplices().len(), 4);
 }

@@ -11,22 +11,15 @@ use convx::{ConvexHullBuilder, ConvexHullError, DelaunayBuilder, DelaunayTriangu
 
 fn build(dim: usize, points: &[f64]) -> DelaunayTriangulation {
     let t = DelaunayBuilder::new(dim, points).build().unwrap();
-    assert_eq!(
-        t,
-        DelaunayBuilder::new(dim, points)
-            .parallel(true)
-            .build()
-            .unwrap()
-    );
     check_delaunay(&t, points);
     t
 }
 
 fn cells(t: &DelaunayTriangulation) -> Vec<Vec<u32>> {
-    t.simplices
+    t.simplices()
         .iter()
         .map(|s| {
-            let mut v = s.vertices.clone();
+            let mut v = s.vertices().to_vec();
             v.sort_unstable();
             v
         })
@@ -36,9 +29,12 @@ fn cells(t: &DelaunayTriangulation) -> Vec<Vec<u32>> {
 #[test]
 fn one_dimension_two_points() {
     let t = build(1, &[5.0, -2.0]);
-    assert_eq!(t.simplices.len(), 1);
-    assert_eq!(t.simplices[0].vertices, vec![1, 0]);
-    assert_eq!(t.simplices[0].neighbors, vec![u32::MAX, u32::MAX]);
+    assert_eq!(t.simplices().len(), 1);
+    assert_eq!(t.simplices().get(0_u32).unwrap().vertices(), vec![1, 0]);
+    assert_eq!(
+        t.simplices().get(0_u32).unwrap().neighbors(),
+        vec![u32::MAX, u32::MAX]
+    );
 }
 
 #[test]
@@ -50,7 +46,7 @@ fn two_dimensions_three_points() {
 #[test]
 fn square_entirely_cocircular() {
     let t = build(2, &[0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0]);
-    assert_eq!(t.simplices.len(), 2);
+    assert_eq!(t.simplices().len(), 2);
 }
 
 #[test]
@@ -61,7 +57,7 @@ fn partly_cocircular() {
         2,
         &[0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0, 1.0, -3.0, 5.0, 1.0],
     );
-    assert_eq!(t.simplices.len(), 5);
+    assert_eq!(t.simplices().len(), 5);
 }
 
 #[test]
@@ -79,11 +75,11 @@ fn entirely_cospherical() {
     let cube: Vec<f64> = (0..8)
         .flat_map(|i: u32| (0..3).map(move |a| f64::from((i >> a) & 1) * 2.0))
         .collect();
-    assert_eq!(build(3, &cube).simplices.len(), 6);
+    assert_eq!(build(3, &cube).simplices().len(), 6);
     let octahedron = [
         1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0,
     ];
-    assert_eq!(build(3, &octahedron).simplices.len(), 4);
+    assert_eq!(build(3, &octahedron).simplices().len(), 4);
 }
 
 #[test]
@@ -93,7 +89,7 @@ fn exactly_d_plus_one_points() {
             .flat_map(|i| (0..dim).map(move |a| if i == a + 1 { 2.0 } else { 0.0 }))
             .collect();
         let t = build(dim, &points);
-        assert_eq!(t.simplices.len(), 1, "D = {dim}");
+        assert_eq!(t.simplices().len(), 1, "D = {dim}");
     }
 }
 
@@ -142,7 +138,7 @@ fn sample(dim: usize, count: usize, seed: u64) -> Vec<f64> {
 /// The original simplices renormalized on `moved`: ascending, the last two
 /// swapped when the orientation on the moved sites is negative.
 fn renormalized(t: &DelaunayTriangulation, moved: &[f64]) -> Vec<Vec<u32>> {
-    let d = t.dim;
+    let d = t.dim();
     let sites = integer_sites(d, moved);
     let mut out: Vec<Vec<u32>> = cells(t)
         .into_iter()
@@ -163,7 +159,10 @@ fn renormalized(t: &DelaunayTriangulation, moved: &[f64]) -> Vec<Vec<u32>> {
 }
 
 fn oriented(t: &DelaunayTriangulation) -> Vec<Vec<u32>> {
-    t.simplices.iter().map(|s| s.vertices.clone()).collect()
+    t.simplices()
+        .iter()
+        .map(|s| s.vertices().to_vec())
+        .collect()
 }
 
 #[test]
@@ -211,7 +210,7 @@ fn input_permutation_keeps_general_position_simplices() {
         .collect();
     let original = build(dim, &points);
     let moved = build(dim, &shuffled);
-    let to_original = |j: u32| original.representative[permutation[j as usize]];
+    let to_original = |j: u32| original.representative()[permutation[j as usize]];
     let mut mapped: Vec<Vec<u32>> = cells(&moved)
         .into_iter()
         .map(|c| {
@@ -223,7 +222,7 @@ fn input_permutation_keeps_general_position_simplices() {
     mapped.sort();
     // This sample has no cospherical group: one Voronoi vertex per simplex.
     let voronoi = convx::VoronoiBuilder::new(dim, &points).build().unwrap();
-    assert_eq!(voronoi.vertices.len(), original.simplices.len());
+    assert_eq!(voronoi.vertices().len(), original.simplices().len());
     assert_eq!(mapped, cells(&original));
 }
 

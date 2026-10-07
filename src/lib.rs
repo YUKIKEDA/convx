@@ -9,21 +9,23 @@ mod arena;
 mod cull;
 mod delaunay;
 mod hull;
+mod lists;
 mod normal;
 mod predicates;
 mod small;
 mod static_api;
 mod voronoi;
 
-pub use delaunay::{DelaunayBuilder, DelaunaySimplex, DelaunayTriangulation};
+pub use delaunay::{DelaunayBuilder, DelaunaySimplex, DelaunayTriangulation, Simplices};
 pub use hull::{
-    BoundarySimplex, ConvexHull, ConvexHullBuilder, ConvexHullError, FacetPlane, LogicalFacet,
+    BoundarySimplex, ConvexHull, ConvexHullBuilder, ConvexHullError, Facet, Facets,
     TriangulationView,
 };
 pub use predicates::Sign;
 pub use static_api::{StaticConvexHull, StaticDelaunay, StaticVoronoi};
 pub use voronoi::{
-    VoronoiBuilder, VoronoiCell, VoronoiDiagram, VoronoiInterface, VoronoiRay, VoronoiVertex,
+    VoronoiBuilder, VoronoiCell, VoronoiCells, VoronoiDiagram, VoronoiInterface, VoronoiInterfaces,
+    VoronoiRay, VoronoiRays, VoronoiVertex, VoronoiVertices,
 };
 
 #[cfg(test)]

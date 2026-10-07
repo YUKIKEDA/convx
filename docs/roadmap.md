@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P6-3 (#251): sequential hull inserts one point at a time in place; batch extraction only parallel.
+P6-11 (#269): which coarse-grained parallel hull strategies can beat the sequential build.
 
 ## Dependencies
 
@@ -119,7 +119,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-40 | Docs  | Let the filter rescale tiny inputs by an exact power of two                                               | #179  | Set after Grill on #179  |
 | P5-41 | Spike | How many NonFiniteCircumcenter failures have a circumcenter that fits in f64?                             | #180  | Not started              |
 | P5-42 | Spike | Why does hull sphere D2 wall time grow faster than its instruction count?                                 | #182  | Done                     |
-| P5-43 | Spike | Coplanar points are scanned again for every new facet: can construction stop rescanning them?             | #183  | Absorbed by P6-5 (#253)  |
+| P5-43 | Spike | Coplanar points are scanned again for every new facet: can construction stop rescanning them?             | #183  | Not started              |
 | P5-44 | Feat  | Reuse the work space of the heap exact stage across predicate calls                                       | #185  | Not started              |
 | P5-45 | Spike | Near-cospherical sites send almost every lifted predicate to the exact stage                              | #187  | Not started              |
 | P5-46 | Feat  | Build Delaunay and Voronoi by incremental insertion in every dimension (design #188)                      | #189  | Done                     |
@@ -146,12 +146,15 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | ---- | ---- | ------------------------------------------------------------------------------------ | ----- | ----------- |
 | P6-1 | Feat | Semi-static filter for orientations and lifted orientations with k ≤ 4               | #249  | Done        |
 | P6-2 | Task | Time Qhull's whole run and convx's construction alone next to `build()`              | #250  | Done        |
-| P6-3 | Docs | Sequential hull inserts one point at a time in place; batch extraction only parallel | #251  | Not started |
-| P6-4 | Docs | Store the hull, Delaunay, and Voronoi results in flat arrays behind views             | #252  | Not started |
-| P6-5 | Feat | Facet store sized to the hull's dimension and sequential Quickhull in place          | #253  | Not started |
-| P6-6 | Feat | Flat result storage and views for the hull, Delaunay, and Voronoi                    | #254  | Not started |
-| P6-7 | Feat | Delaunay: link across the cavity boundary and publish from the mesh                  | #255  | Not started |
-| P6-8 | Feat | Parallel hull on the new facet store, kept only if it beats the sequential build     | #256  | Not started |
+| P6-3 | Docs | Sequential hull inserts one point at a time in place; batch extraction only parallel | #251  | Done        |
+| P6-4 | Docs | Store the hull, Delaunay, and Voronoi results in flat arrays behind views             | #252  | Done        |
+| P6-5 | Feat | Facet store sized to the hull's dimension and sequential Quickhull in place          | #253  | Done        |
+| P6-6 | Feat | Flat result storage and views for the hull, Delaunay, and Voronoi                    | #254  | Done        |
+| P6-7 | Feat | Delaunay: link across the cavity boundary and publish from the mesh                  | #255  | Done        |
+| P6-8 | Feat | Parallel hull on the new facet store, kept only if it beats the sequential build     | #256  | Done        |
+| P6-9 | Docs | The hull is built sequentially only; the parallel round protocol and flag leave      | #266  | Done        |
+| P6-10 | Refactor | Remove the parallel round protocol and the `parallel` flag                       | #267  | Done        |
+| P6-11 | Spike | Which coarse-grained parallel hull strategies can beat the sequential build?     | #269  | Not started |
 
 ## Intentionally out of scope
 
