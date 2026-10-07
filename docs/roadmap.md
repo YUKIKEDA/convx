@@ -154,6 +154,7 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-8 | Feat | Parallel hull on the new facet store, kept only if it beats the sequential build     | #256  | Done        |
 | P6-9 | Docs | `parallel(true)` runs the sequential hull build (option C)                           | #266  | Not started |
 | P6-10 | Refactor | Remove the parallel round protocol from the hull                                 | #267  | Not started |
+| P6-11 | Spike | Which coarse-grained parallel hull strategies can beat the sequential build?     | #269  | Not started |
 
 ## Intentionally out of scope
 
