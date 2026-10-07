@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P6-11 (#269): which coarse-grained parallel hull strategies can beat the sequential build.
+None. The P6-11 spike (#269) recommends adding no parallel hull now; the next row waits on the Grill of that recommendation.
 
 ## Dependencies
 
@@ -154,7 +154,7 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-8 | Feat | Parallel hull on the new facet store, kept only if it beats the sequential build     | #256  | Done        |
 | P6-9 | Docs | The hull is built sequentially only; the parallel round protocol and flag leave      | #266  | Done        |
 | P6-10 | Refactor | Remove the parallel round protocol and the `parallel` flag                       | #267  | Done        |
-| P6-11 | Spike | Which coarse-grained parallel hull strategies can beat the sequential build?     | #269  | Not started |
+| P6-11 | Spike | Which coarse-grained parallel hull strategies can beat the sequential build?     | #269  | Done        |
 
 ## Intentionally out of scope
 
