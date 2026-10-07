@@ -31,11 +31,24 @@
 //! same power with respect to both, so both or neither would conflict. So
 //! every new finite simplex has positive orientation, and debug builds
 //! check it.
+//!
+//! The new simplices are linked from the cavity, with no search by vertex
+//! set (#255). A new simplex shares each face through `q` with the new
+//! simplex of the boundary face next to its own around the ridge they have
+//! in common, and turning around that ridge through the cavity reaches it.
+//!
+//! The insertion also records, for each face it links to a finite simplex
+//! outside the cavity, whether the two simplices are cospherical: the
+//! conflict test already evaluated that lifted orientation. Two new
+//! simplices whose boundary faces lie in one finite cavity simplex are not
+//! cospherical, since together they hold its sites and `q`, which is
+//! strictly inside its circumsphere. Only the other faces between new
+//! simplices have no recorded answer.
 
 use crate::hull::input::Input;
-use crate::hull::ridge::{fingerprint, pair_equal_keys};
 use crate::hull::ConvexHullError;
 use crate::predicates::{orient, orient_lifted_with, LiftedHeight, Sign};
+use crate::small::Small;
 
 /// The vertex at infinity of an outside simplex. Site numbers are below
 /// `u32::MAX`, so it names no site.
@@ -47,6 +60,20 @@ const NONE: u32 = u32::MAX;
 /// Up to this many points, a predicate gathers its rows on the stack.
 const INLINE: usize = 18;
 
+/// Whether the two simplices across a face are cospherical, as the
+/// insertion left it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Across {
+    /// Not decided: a face between two simplices created together from
+    /// boundary faces of different cavity simplices, or one with a simplex
+    /// at infinity.
+    Unknown,
+    /// The far vertex of either is not on the circumsphere of the other.
+    Distinct,
+    /// The two simplices lie on one sphere.
+    Cospherical,
+}
+
 /// The triangulation being built: `k = D + 1` vertices and neighbors per
 /// simplex, in flat arrays with stride `k`. `neighbors[c * k + i]` is the
 /// simplex across the face opposite vertex `i` of simplex `c`.
@@ -55,6 +82,9 @@ pub(super) struct Mesh<'a> {
     k: usize,
     vertices: Vec<u32>,
     neighbors: Vec<u32>,
+    /// Per face, as `neighbors`: what the insertion knows of the two
+    /// simplices across it.
+    across: Vec<Across>,
     alive: Vec<bool>,
     mark: Vec<u32>,
     free: Vec<u32>,
@@ -67,10 +97,8 @@ pub(super) struct Mesh<'a> {
     /// Work space reused by every insertion.
     stack: Vec<u32>,
     cavity: Vec<u32>,
-    boundary: Vec<(u32, usize)>,
+    boundary: Vec<(u32, usize, Across)>,
     created: Vec<u32>,
-    keys: Vec<u32>,
-    owners: Vec<(u32, usize)>,
 }
 
 /// Every input site with its filtered lifted height, by index: one row
@@ -186,6 +214,25 @@ impl<'a> Mesh<'a> {
         self.neighbors[c as usize * k + slot] = n;
     }
 
+    /// What the insertion knows of simplex `c` and its neighbor across the
+    /// face opposite vertex `slot`.
+    pub(super) fn across(&self, c: u32, slot: usize) -> Across {
+        self.across[c as usize * self.k + slot]
+    }
+
+    /// The slot of simplex `c` whose neighbor is `n`.
+    pub(super) fn back(&self, c: u32, n: u32) -> Option<usize> {
+        (0..self.k).find(|&s| self.neighbor(c, s) == n)
+    }
+
+    /// The slot of vertex `v` in simplex `c`. Every caller read `v` from the
+    /// vertices of `c`, so the slot exists; debug builds assert it.
+    fn slot_of(&self, c: u32, v: u32) -> usize {
+        let slot = self.vertices_of(c).iter().position(|&x| x == v);
+        debug_assert!(slot.is_some(), "the vertex is in the simplex");
+        slot.unwrap_or(0)
+    }
+
     pub(super) fn is_finite(&self, c: u32) -> bool {
         !self.vertices_of(c).contains(&INFINITE)
     }
@@ -218,6 +265,11 @@ impl<'a> Mesh<'a> {
     /// because each cospherical group is split again by placing (see
     /// `super::inserted`).
     fn in_sphere(&self, c: u32, q: u32) -> Result<bool, ConvexHullError> {
+        Ok(self.sphere_sign(c, q)? == self.inside)
+    }
+
+    /// The lifted orientation of finite simplex `c` followed by `q`.
+    fn sphere_sign(&self, c: u32, q: u32) -> Result<Sign, ConvexHullError> {
         let k = self.k;
         let sign = if k < INLINE {
             let mut ids = [0_u32; INLINE];
@@ -229,7 +281,7 @@ impl<'a> Mesh<'a> {
             ids.push(q);
             self.lifted_ids(&ids)?
         };
-        Ok(sign == self.inside)
+        Ok(sign)
     }
 
     /// The orientation of simplex `c` with vertex `slot` replaced by `q`.
@@ -249,13 +301,30 @@ impl<'a> Mesh<'a> {
 
     /// Whether simplex `c` conflicts with `q` (module docs).
     fn conflicts(&self, c: u32, q: u32) -> Result<bool, ConvexHullError> {
+        Ok(self.conflict(c, q)?.0)
+    }
+
+    /// Whether simplex `c` conflicts with `q`, and for a finite `c`, whether
+    /// `c` and `q` are cospherical.
+    fn conflict(&self, c: u32, q: u32) -> Result<(bool, Across), ConvexHullError> {
         match self.vertices_of(c).iter().position(|&v| v == INFINITE) {
-            None => self.in_sphere(c, q),
-            Some(slot) => match self.replaced(c, slot, q)? {
-                Sign::Positive => Ok(true),
-                Sign::Negative => Ok(false),
-                Sign::Zero => self.in_sphere(self.neighbor(c, slot), q),
-            },
+            None => {
+                let sign = self.sphere_sign(c, q)?;
+                let across = if sign == Sign::Zero {
+                    Across::Cospherical
+                } else {
+                    Across::Distinct
+                };
+                Ok((sign == self.inside, across))
+            }
+            Some(slot) => {
+                let conflict = match self.replaced(c, slot, q)? {
+                    Sign::Positive => true,
+                    Sign::Negative => false,
+                    Sign::Zero => self.in_sphere(self.neighbor(c, slot), q)?,
+                };
+                Ok((conflict, Across::Unknown))
+            }
         }
     }
 
@@ -265,51 +334,54 @@ impl<'a> Mesh<'a> {
             let at = c as usize * k;
             self.vertices[at..at + k].copy_from_slice(vertices);
             self.neighbors[at..at + k].fill(NONE);
+            self.across[at..at + k].fill(Across::Unknown);
             self.alive[c as usize] = true;
             self.mark[c as usize] = 0;
             c
         } else {
             self.vertices.extend_from_slice(vertices);
             self.neighbors.extend(core::iter::repeat_n(NONE, k));
+            self.across.extend(core::iter::repeat_n(Across::Unknown, k));
             self.alive.push(true);
             self.mark.push(0);
             (self.alive.len() - 1) as u32
         }
     }
 
-    /// Links the faces of `cells` that are still unlinked, by their vertex
-    /// sets: two simplices that share a face are neighbors across it. Every
-    /// unlinked face of `cells` lies in exactly two of them.
-    fn link(&mut self, cells: &[u32]) {
+    /// Links the initial simplex and its D + 1 outside simplices: two of
+    /// them are neighbors across the face they share. There are D + 2, so
+    /// comparing every pair of faces costs nothing that grows with the input.
+    fn link_initial(&mut self, cells: &[u32]) {
         let k = self.k;
-        let mut keys = core::mem::take(&mut self.keys);
-        let mut owners = core::mem::take(&mut self.owners);
-        keys.clear();
-        owners.clear();
-        for &c in cells {
-            for slot in 0..k {
-                if self.neighbor(c, slot) != NONE {
-                    continue;
+        let face = |mesh: &Self, c: u32, slot: usize| -> Vec<u32> {
+            let mut face: Vec<u32> = mesh
+                .vertices_of(c)
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| i != slot)
+                .map(|(_, &v)| v)
+                .collect();
+            face.sort_unstable();
+            face
+        };
+        for (i, &a) in cells.iter().enumerate() {
+            for &b in &cells[i + 1..] {
+                for sa in 0..k {
+                    for sb in 0..k {
+                        if face(self, a, sa) == face(self, b, sb) {
+                            self.set_neighbor(a, sa, b);
+                            self.set_neighbor(b, sb, a);
+                        }
+                    }
                 }
-                let start = keys.len();
-                keys.extend(
-                    self.vertices_of(c)
-                        .iter()
-                        .enumerate()
-                        .filter(|&(i, _)| i != slot)
-                        .map(|(_, &v)| v),
-                );
-                keys[start..].sort_unstable();
-                owners.push((c, slot));
             }
         }
-        for (a, b) in pair_equal_keys(&keys, owners.len(), fingerprint) {
-            let ((ca, sa), (cb, sb)) = (owners[a], owners[b]);
-            self.set_neighbor(ca, sa, cb);
-            self.set_neighbor(cb, sb, ca);
-        }
-        self.keys = keys;
-        self.owners = owners;
+        debug_assert!(
+            cells
+                .iter()
+                .all(|&c| (0..k).all(|s| self.neighbor(c, s) != NONE)),
+            "every face of the initial simplices is shared"
+        );
     }
 
     /// The triangulation of the sites `order` after the initial simplex
@@ -327,6 +399,7 @@ impl<'a> Mesh<'a> {
             k,
             vertices: Vec::with_capacity(order.len() * k * (2 * d)),
             neighbors: Vec::with_capacity(order.len() * k * (2 * d)),
+            across: Vec::with_capacity(order.len() * k * (2 * d)),
             alive: Vec::new(),
             mark: Vec::new(),
             free: Vec::new(),
@@ -337,8 +410,6 @@ impl<'a> Mesh<'a> {
             cavity: Vec::new(),
             boundary: Vec::new(),
             created: Vec::new(),
-            keys: Vec::new(),
-            owners: Vec::new(),
         };
         let mut simplex = first.to_vec();
         match mesh.orient_ids(&simplex)? {
@@ -358,12 +429,39 @@ impl<'a> Mesh<'a> {
             outside.swap(j, (j + 1) % k);
             cells.push(mesh.alloc(&outside));
         }
-        mesh.link(&cells);
+        mesh.link_initial(&cells);
         mesh.last = s;
         for &q in order {
             mesh.insert(q)?;
         }
+        debug_assert!(mesh.linked(), "neighbors are symmetric and share a face");
         Ok(mesh)
+    }
+
+    /// Whether every live simplex's neighbor across each face is live,
+    /// points back, and holds that face. A debug check of the linking.
+    fn linked(&self) -> bool {
+        let k = self.k;
+        (0..self.alive.len() as u32)
+            .filter(|&c| self.alive[c as usize])
+            .all(|c| {
+                (0..k).all(|slot| {
+                    let n = self.neighbor(c, slot);
+                    if n == NONE || !self.alive[n as usize] {
+                        return false;
+                    }
+                    let Some(back) = self.back(n, c) else {
+                        return false;
+                    };
+                    self.across(c, slot) == self.across(n, back)
+                        && self
+                            .vertices_of(c)
+                            .iter()
+                            .enumerate()
+                            .filter(|&(i, _)| i != slot)
+                            .all(|(_, v)| self.vertices_of(n).contains(v))
+                })
+            })
     }
 
     /// The simplex where `q` is located: one that conflicts with it. A
@@ -409,6 +507,12 @@ impl<'a> Mesh<'a> {
         let start = self.locate(q)?;
         debug_assert!(self.conflicts(start, q)?, "the located simplex conflicts");
         self.epoch = self.epoch.wrapping_add(1);
+        if self.epoch == 0 {
+            // A simplex outside every cavity so far carries 0; after a wrap
+            // no old mark may equal the new epoch.
+            self.mark.fill(0);
+            self.epoch = 1;
+        }
         let epoch = self.epoch;
         self.mark[start as usize] = epoch;
         let mut stack = core::mem::take(&mut self.stack);
@@ -427,45 +531,102 @@ impl<'a> Mesh<'a> {
                 if self.mark[n as usize] == epoch {
                     continue;
                 }
-                if self.conflicts(n, q)? {
+                let (conflict, across) = self.conflict(n, q)?;
+                if conflict {
                     self.mark[n as usize] = epoch;
                     stack.push(n);
                     cavity.push(n);
                 } else {
-                    boundary.push((c, slot));
+                    boundary.push((c, slot, across));
                 }
             }
         }
-        let mut vertices = [0_u32; INLINE];
+
+        // One new simplex per boundary face, linked to the simplex outside
+        // it. The cavity simplex's slot is pointed at the new simplex too,
+        // so that the turns below end on it.
+        let mut row = [0_u32; INLINE];
         let mut spill = Vec::new();
-        for &(c, slot) in &boundary {
-            let row: &mut [u32] = if k <= INLINE {
-                &mut vertices[..k]
+        for &(c, slot, across) in &boundary {
+            let vertices: &mut [u32] = if k <= INLINE {
+                &mut row[..k]
             } else {
                 spill.resize(k, 0);
                 &mut spill
             };
-            row.copy_from_slice(self.vertices_of(c));
-            row[slot] = q;
+            vertices.copy_from_slice(self.vertices_of(c));
+            vertices[slot] = q;
             let outside = self.neighbor(c, slot);
             let new = if k <= INLINE {
-                self.alloc(&vertices[..k])
+                self.alloc(&row[..k])
             } else {
                 self.alloc(&spill)
             };
-            self.set_neighbor(new, slot, outside);
-            let back = (0..k).find(|&s| self.neighbor(outside, s) == c);
+            let at = new as usize * k + slot;
+            self.neighbors[at] = outside;
+            self.across[at] = across;
+            let back = self.back(outside, c);
             debug_assert!(back.is_some(), "neighbors are symmetric");
             if let Some(back) = back {
-                self.set_neighbor(outside, back, new);
+                let at = outside as usize * k + back;
+                self.neighbors[at] = new;
+                self.across[at] = across;
             }
+            self.set_neighbor(c, slot, new);
             debug_assert!(
                 !self.is_finite(new) || self.orient_ids(self.vertices_of(new))? == Sign::Positive,
                 "a new finite simplex is positive"
             );
             created.push(new);
         }
-        self.link(&created);
+
+        // The face of a new simplex opposite vertex `i` holds `q` and the
+        // ridge of its boundary face without that vertex. Turning around
+        // that ridge through the cavity, from the boundary face, ends at the
+        // next boundary face around it, whose new simplex shares the face.
+        for (&(c, slot, _), &new) in boundary.iter().zip(&created) {
+            for i in 0..k {
+                if i == slot || self.neighbor(new, i) != NONE {
+                    continue;
+                }
+                // `cur` holds the ridge and `behind` and `ahead`; the face
+                // opposite `behind` was crossed, the one opposite `ahead` is
+                // next.
+                let (mut cur, mut behind, mut ahead) =
+                    (c, self.vertices_of(c)[slot], self.vertices_of(c)[i]);
+                // The turn passes each cavity simplex around the ridge at
+                // most once, so it ends within the size of the cavity.
+                let mut turned = 0_usize;
+                loop {
+                    turned += 1;
+                    debug_assert!(turned <= cavity.len(), "the turn leaves the cavity");
+                    let next = self.neighbor(cur, self.slot_of(cur, ahead));
+                    if self.mark[next as usize] != epoch {
+                        // `next` is the new simplex of the boundary face
+                        // opposite `ahead` in `cur`; it has `cur`'s layout,
+                        // so the shared face is opposite `behind`'s slot.
+                        let slot = self.slot_of(cur, behind);
+                        debug_assert_eq!(self.neighbor(next, slot), NONE, "linked once");
+                        self.set_neighbor(new, i, next);
+                        self.set_neighbor(next, slot, new);
+                        // Both boundary faces in `c`: the two new simplices
+                        // hold the sites of `c` and `q`, and `q` is strictly
+                        // inside the circumsphere of a finite simplex of the
+                        // cavity, so the two are not cospherical.
+                        if cur == c && self.is_finite(c) {
+                            self.across[new as usize * k + i] = Across::Distinct;
+                            self.across[next as usize * k + slot] = Across::Distinct;
+                        }
+                        break;
+                    }
+                    let entry = self.back(next, cur);
+                    debug_assert!(entry.is_some(), "neighbors are symmetric");
+                    let far = self.vertices_of(next)[entry.unwrap_or(0)];
+                    (cur, behind, ahead) = (next, far, behind);
+                }
+            }
+        }
+
         for &c in &cavity {
             self.alive[c as usize] = false;
             self.free.push(c);
@@ -506,7 +667,8 @@ pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
     };
     let morton = |s: u32| -> u64 {
         let p = rows.point(s);
-        let cell: Vec<u64> = (0..d)
+        // On the stack for D <= 16, so the order allocates nothing per site.
+        let cell: Small<u64, 16> = (0..d)
             .map(|j| {
                 let width = high[j] - low[j];
                 let t = if width > 0.0 {

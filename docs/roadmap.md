@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P6-7 (#255): Delaunay links across the cavity boundary and publishes from the mesh.
+P6-8 (#256): parallel hull on the new facet store, kept only if it beats the sequential build.
 
 ## Dependencies
 
@@ -150,7 +150,7 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-4 | Docs | Store the hull, Delaunay, and Voronoi results in flat arrays behind views             | #252  | Done        |
 | P6-5 | Feat | Facet store sized to the hull's dimension and sequential Quickhull in place          | #253  | Done        |
 | P6-6 | Feat | Flat result storage and views for the hull, Delaunay, and Voronoi                    | #254  | Done        |
-| P6-7 | Feat | Delaunay: link across the cavity boundary and publish from the mesh                  | #255  | Not started |
+| P6-7 | Feat | Delaunay: link across the cavity boundary and publish from the mesh                  | #255  | Done        |
 | P6-8 | Feat | Parallel hull on the new facet store, kept only if it beats the sequential build     | #256  | Not started |
 
 ## Intentionally out of scope
