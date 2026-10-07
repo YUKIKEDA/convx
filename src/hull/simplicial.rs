@@ -457,7 +457,9 @@ impl<'a> SimplicialHull<'a> {
         // opposite vertex v lies the facet omitting v.
         for (i, vertices) in ordered.iter().enumerate() {
             for (slot, v) in vertices.iter().enumerate() {
-                let across = slots[simplex.iter().position(|s| s == v).unwrap_or(0)];
+                let omitted = simplex.iter().position(|s| s == v);
+                debug_assert!(omitted.is_some(), "a facet's vertex is in the simplex");
+                let across = slots[omitted.unwrap_or(0)];
                 self.facets.neighbors_mut(slots[i])[slot] = across;
             }
         }
@@ -934,8 +936,9 @@ impl<'a> SimplicialHull<'a> {
                         .facet(neighbor)
                         .neighbor_slots()
                         .iter()
-                        .position(|&b| b == slot)
-                        .unwrap_or(0);
+                        .position(|&b| b == slot);
+                    debug_assert!(back.is_some(), "the facet across points back");
+                    let back = back.unwrap_or(0);
                     horizon.push(Horizon {
                         visible: slot,
                         slot: m as u32,
@@ -960,7 +963,9 @@ impl<'a> SimplicialHull<'a> {
     /// the hull.
     #[cfg(any(test, debug_assertions))]
     fn plan(&self, start: FacetId, apex: u32) -> Result<Cone, ConvexHullError> {
-        let start = self.facets.slot_of(start).unwrap_or(0);
+        let slot = self.facets.slot_of(start);
+        debug_assert!(slot.is_some(), "the start facet is live");
+        let start = slot.unwrap_or(0);
         let mut cone = Cone {
             region: self.visible_region(start, apex)?,
             ..Cone::default()
