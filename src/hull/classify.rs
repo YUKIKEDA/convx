@@ -38,6 +38,7 @@ use super::ridge::{fingerprint, pair_equal_keys};
 use super::simplicial::{Execution, SimplicialHull};
 use super::ConvexHullError;
 use crate::arena::{FacetId, SlotMarks};
+use crate::lists::Lists;
 use crate::predicates::{orient, orient_direction, Sign};
 use crate::small::Small;
 
@@ -53,20 +54,44 @@ pub(crate) struct ComplexSimplex {
     pub(crate) neighbors: Small<u32, 8>,
 }
 
-/// A logical facet with its extreme points.
-#[derive(Clone)]
-pub(crate) struct Face {
-    /// Extreme points, ascending.
-    pub(crate) vertices: Vec<u32>,
-    /// Neighboring faces, ascending.
-    pub(crate) neighbors: Vec<u32>,
+/// The logical facets with their extreme points, in flat lists (#254).
+#[derive(Clone, Default)]
+pub(crate) struct Faces {
+    /// Per face, its extreme points, ascending.
+    pub(crate) vertices: Lists<u32>,
+    /// Per face, its neighboring faces, ascending.
+    pub(crate) neighbors: Lists<u32>,
+}
+
+/// One face of [`Faces`].
+#[derive(Clone, Copy)]
+pub(crate) struct Face<'a> {
+    pub(crate) vertices: &'a [u32],
+    pub(crate) neighbors: &'a [u32],
+}
+
+impl Faces {
+    pub(crate) fn len(&self) -> usize {
+        self.vertices.len()
+    }
+
+    pub(crate) fn get(&self, i: usize) -> Face<'_> {
+        Face {
+            vertices: self.vertices.get(i),
+            neighbors: self.neighbors.get(i),
+        }
+    }
+
+    pub(crate) fn iter(&self) -> impl ExactSizeIterator<Item = Face<'_>> + '_ {
+        (0..self.len()).map(move |i| self.get(i))
+    }
 }
 
 /// The hull after classification. Faces are in construction order; the
 /// public numbering is fixed when the hull is published.
 pub(crate) struct Classified<'a> {
     pub(crate) input: Input<'a>,
-    pub(crate) faces: Vec<Face>,
+    pub(crate) faces: Faces,
     pub(crate) simplices: Vec<ComplexSimplex>,
     pub(crate) vertices: Vec<u32>,
     pub(crate) coplanar_points: Vec<u32>,
@@ -180,18 +205,18 @@ fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
         .map(|(&p, _)| p)
         .collect();
 
-    let groups = merge(&hull)?.groups;
-    let mut faces = Vec::with_capacity(n);
+    let groups = merge(&hull)?;
+    debug_assert_eq!(groups.groups.len(), n, "one group per edge");
+    let faces = Faces {
+        vertices: groups.vertices,
+        neighbors: groups.neighbors,
+    };
     let mut simplices = Vec::with_capacity(n);
-    for (i, group) in groups.into_iter().enumerate() {
+    for i in 0..n {
         let start = hull.polygon[i];
         let end = hull.polygon[(i + 1) % n];
         let prev = if i == 0 { n - 1 } else { i - 1 };
         let next = (i + 1) % n;
-        faces.push(Face {
-            vertices: group.vertices,
-            neighbors: group.neighbors,
-        });
         // `neighbors[i]` is the simplex across the ridge opposite `vertices[i]`.
         // The tip is first, so slot 0 faces the previous edge and slot 1 the next.
         simplices.push(ComplexSimplex {
@@ -219,7 +244,7 @@ fn classify_built(
     if hull.strict_edges {
         return classify_chain(hull);
     }
-    let mut groups = merge(&hull)?;
+    let groups = merge(&hull)?;
     let d = hull.input.dim();
     // A group's member simplices, in outward order.
     let members = |g: usize| {
@@ -308,7 +333,7 @@ fn classify_built(
             extremes.push(None);
             continue;
         }
-        let mut candidates = group.vertices.clone();
+        let mut candidates = groups.vertices.get(g).to_vec();
         candidates.extend_from_slice(&zero_points[g]);
         candidates.sort_unstable();
         candidates.dedup();
@@ -323,7 +348,7 @@ fn classify_built(
 
     let mut is_vertex = vec![false; hull.input.representative.len()];
     for (g, e) in extremes.iter().enumerate() {
-        for &v in e.as_deref().unwrap_or(&groups.groups[g].vertices) {
+        for &v in e.as_deref().unwrap_or(groups.vertices.get(g)) {
             is_vertex[v as usize] = true;
         }
     }
@@ -369,12 +394,16 @@ fn classify_built(
     // Boundary simplices: kept as built, or re-triangulated by placing.
     // At least one simplex per face, and exactly one in general position.
     let mut simplices: Vec<ComplexSimplex> = Vec::with_capacity(extremes.len());
-    let mut faces: Vec<Face> = Vec::with_capacity(extremes.len());
+    let mut faces = Faces {
+        vertices: Lists::with_capacity(extremes.len(), extremes.len() * d),
+        neighbors: Lists::with_capacity(extremes.len(), extremes.len() * d),
+    };
     // Simplices kept as built, by their index here and their construction id.
     let mut kept: Vec<(u32, FacetId)> = Vec::with_capacity(extremes.len());
     let unlinked = if d == 1 { 0 } else { d };
     for (g, extreme) in extremes.into_iter().enumerate() {
-        let group = &mut groups.groups[g];
+        let group = &groups.groups[g];
+        let group_vertices = groups.vertices.get(g);
         let first = simplices.len() as u32;
         let mut push = |vertices: Small<u32, 8>| {
             simplices.push(ComplexSimplex {
@@ -387,8 +416,8 @@ fn classify_built(
         // other facet is re-triangulated by placing, so facets that share a
         // lower face split it the same way.
         let single = group.simplices.len() == 1;
-        let extreme = match extreme {
-            Some(extreme) if !(single && extreme == group.vertices) => {
+        match extreme {
+            Some(extreme) if !(single && extreme == group_vertices) => {
                 let q = vertices
                     .iter()
                     .copied()
@@ -397,7 +426,7 @@ fn classify_built(
                 for members in place(&hull.input, &extreme, q)? {
                     push(members.into());
                 }
-                extreme
+                faces.vertices.push(&extreme);
             }
             _ => {
                 if let Some(&id) = group.simplices.first() {
@@ -406,13 +435,10 @@ fn classify_built(
                         push(s.vertices().into());
                     }
                 }
-                core::mem::take(&mut group.vertices)
+                faces.vertices.push(group_vertices);
             }
-        };
-        faces.push(Face {
-            vertices: extreme,
-            neighbors: core::mem::take(&mut group.neighbors),
-        });
+        }
+        faces.neighbors.push(groups.neighbors.get(g));
     }
     // A kept simplex has its construction vertex order, so its neighbor
     // across slot i during construction, when kept too, is its neighbor
@@ -647,7 +673,7 @@ const UNLINKED: u32 = u32::MAX;
 /// polytope lies on exactly two facets, so the simplex across any ridge on
 /// it belongs to the other. Groups and faces are therefore adjacent alike,
 /// however the faces are triangulated; debug builds check it.
-fn link_neighbors(d: usize, simplices: &mut [ComplexSimplex], faces: &[Face]) {
+fn link_neighbors(d: usize, simplices: &mut [ComplexSimplex], faces: &Faces) {
     if d == 1 {
         // A segment has no ridge. Each simplex's neighbor list is empty
         // (`unlinked` is 0), so there is no triangulation to compare with
@@ -702,7 +728,8 @@ fn link_neighbors(d: usize, simplices: &mut [ComplexSimplex], faces: &[Face]) {
             neighbors.sort_unstable();
             neighbors.dedup();
             debug_assert_eq!(
-                face.neighbors, neighbors,
+                face.neighbors,
+                &neighbors[..],
                 "face {f}: the group neighbors differ from the triangulation's"
             );
         }
@@ -734,7 +761,11 @@ pub(crate) mod tests {
             all, c.input.representatives,
             "the three lists partition the representatives"
         );
-        let mut face_vertices: Vec<u32> = c.faces.iter().flat_map(|f| f.vertices.clone()).collect();
+        let mut face_vertices: Vec<u32> = c
+            .faces
+            .iter()
+            .flat_map(|f| f.vertices.iter().copied())
+            .collect();
         face_vertices.sort_unstable();
         face_vertices.dedup();
         assert_eq!(face_vertices, c.vertices);
@@ -775,12 +806,12 @@ pub(crate) mod tests {
                 .collect();
             assert!(!(signs.contains(&Sign::Positive) && signs.contains(&Sign::Negative)));
             for v in &simplex.vertices {
-                assert!(c.faces[simplex.face as usize].vertices.contains(v));
+                assert!(c.faces.get(simplex.face as usize).vertices.contains(v));
             }
         }
         for (f, face) in c.faces.iter().enumerate() {
-            for &n in &face.neighbors {
-                assert!(c.faces[n as usize].neighbors.contains(&(f as u32)));
+            for &n in face.neighbors {
+                assert!(c.faces.get(n as usize).neighbors.contains(&(f as u32)));
             }
         }
     }

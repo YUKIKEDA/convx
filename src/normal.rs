@@ -114,6 +114,7 @@ pub(crate) fn facet_cofactors_in_lanes(
 /// `outward` must be [`Sign::Positive`] or [`Sign::Negative`]. Returns
 /// `Ok(None)` when no finite vector with that certified orientation could be
 /// formed, for example when the points are not affinely independent.
+#[cfg(test)]
 pub(crate) fn unit_normal_with(
     facet: &[&[f64]],
     outward: Sign,
