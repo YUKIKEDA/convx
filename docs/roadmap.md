@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P6-8 (#256): parallel hull on the new facet store, kept only if it beats the sequential build.
+P6-9 (#266): `parallel(true)` runs the sequential hull build (option C).
 
 ## Dependencies
 
@@ -151,7 +151,10 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-5 | Feat | Facet store sized to the hull's dimension and sequential Quickhull in place          | #253  | Done        |
 | P6-6 | Feat | Flat result storage and views for the hull, Delaunay, and Voronoi                    | #254  | Done        |
 | P6-7 | Feat | Delaunay: link across the cavity boundary and publish from the mesh                  | #255  | Done        |
-| P6-8 | Feat | Parallel hull on the new facet store, kept only if it beats the sequential build     | #256  | Not started |
+| P6-8 | Feat | Parallel hull on the new facet store, kept only if it beats the sequential build     | #256  | Done        |
+| P6-9 | Docs | `parallel(true)` runs the sequential hull build (option C)                           | #266  | Not started |
+| P6-10 | Refactor | Remove the parallel round protocol from the hull                                 | #267  | Not started |
+| P6-11 | Spike | Which coarse-grained parallel hull strategies can beat the sequential build?     | #269  | Not started |
 
 ## Intentionally out of scope
 
