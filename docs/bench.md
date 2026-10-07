@@ -90,13 +90,13 @@ Not timed: `sphere` D6 10^5 (one convx run estimated at about 5 minutes from the
 - Hull, all points extreme (`sphere`), D >= 3: convx is behind CGAL by 1.2 to 3.0, the per-simplex construction cost of #199 and #209.
 - Delaunay: convx is behind CGAL everywhere, by 5.6 to 13 at D = 2, 2.5 to 7.7 at D = 3, and 1.5 to 2.2 at D = 4 and 5. The gap is largest where CGAL has dedicated 2D and 3D classes.
 
-## Four timed sections, convx `029eb3f` (#250)
+## Four timed sections, convx `430af36` (#250)
 
 ### Method
 
 | Item | Value |
 | --- | --- |
-| convx | `feat/249-semi-static-filter` at `029eb3f` (P6-1 on top of `main` at `f9e24ea`), rustc 1.97.0, `--release` with debug info, baseline target |
+| convx | `029eb3f`, the head of #259 when this was measured (P6-1 on top of `main` at `f9e24ea`); #259 is on `main` as `430af36`. rustc 1.97.0, `--release` with debug info, baseline target |
 | CGAL | 5.6 (Ubuntu `libcgal-dev`), g++ 13.3, the program and flags of #215 unchanged |
 | Qhull | 2020.2 (Ubuntu `qhull-bin`), `qconvex i s TI <file> TO <out>` and `qdelaunay i s TI <file> TO <out>` |
 | Machine | Linux VM, 4 vCPU Intel Xeon @ 2.10 GHz (AVX-512), the machine of the section above |
@@ -104,6 +104,8 @@ Not timed: `sphere` D6 10^5 (one convx run estimated at about 5 minutes from the
 | Points | `benches/sets.txt`, seed 1, generator `xoshiro256starstar-v1`, written by `export_qhull_sets`; every tool reads the same file |
 | Rounds | One unrecorded convx build per set first. Tools alternated per round (convx, CGAL, Qhull). When that build took under 1.5 s: 5 rounds × 3 builds per process (Qhull: 3 runs per round). Longer: 3 rounds × 1 |
 | Reported | Median, with min–max in parentheses. Ratios are medians divided; below 1 means convx is faster |
+
+#259 gained one commit after this measurement, `83f53c6`: each formula of the semi-static stage returns its determinant and bound, and a test reads them. The tables below were not timed again. On another machine, `build()` at `83f53c6` was timed against `b613adb`, whose source is that of `029eb3f`, on six sets at 10^5 (Delaunay `cube` and `sphere` D2 and D3, hull `sphere` D3, hull `cube` D4). Every ratio was 0.99 to 1.02, inside the spread; the table is on #259.
 
 The four columns are those of `docs/verification.md` (Performance sets): convx `build()`; convx construction alone (`SimplicialHull::build`, or for Delaunay the insertion order and `insert::Mesh::build`), from a timer in a scratch copy that is not committed; Qhull's "CPU seconds to compute hull (after input)"; and the wall time of the whole Qhull process, which reads the file and writes the facet list. CGAL is its construction call only, as in #215. Qhull's work counters are from the same `s` summary: hyperplanes created / distance tests.
 
@@ -169,3 +171,63 @@ Not timed: `sphere` D6 10^5, as in the section above.
 - Hull `sphere` D2: construction takes 1.4 ms to 0.58 s of a 8.2 ms to 2.26 s `build()`. The pass after construction is most of the time, and `build()` is 7 to 13 times CGAL's `convex_hull_2`, which returns only the hull points. That is P6-6.
 - Delaunay: construction alone is 0.35 to 0.60 times Qhull's compute time on `cube` D2 and D3, and 0.82 to 1.01 on `cube` D4 and D5 (the `sphere` cells are not the same output). `build()` stays 5.8 to 12.9 times CGAL at D = 2, 2.5 to 8.9 at D = 3, and 1.9 to 2.6 at D = 4 and 5. The pass after insertion (groups and publication) is 22 to 72% of `build()`, highest on `cube` at 10^6 (P6-7).
 - This machine ran convx and CGAL somewhat slower than in the section above on the largest sets (hull `sphere` D3 10^6: CGAL 18.4 s here, 14.3 s there); read ratios within one section, not across them.
+
+## Parallel round protocol against the sequential hull, convx `38cd816` (#256)
+
+The measurement behind ADR 0004. The parallel build timed here is the round protocol that ADR removes: the first K = 64 candidates, the T and H reservation, plans on rayon's pool, and a commit in ascending input index.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `dca2e56`, the head of #265 when this was measured; #265 is on `main` as `38cd816`, which adds one debug assertion and no release code. rustc 1.97.0, `--release` |
+| Machine | Linux VM, 4 cores, one thread per core |
+| Cores | One thread: core 2. Two threads: cores 2–3. Four threads: cores 0–3. `RAYON_NUM_THREADS` matches |
+| Points | `benches/sets.txt`, seed 1 |
+| Timed | `ConvexHullBuilder::new(dim, &pts).build()`, with `parallel(true)` for the parallel columns |
+| Reported | Median with min–max, in seconds |
+
+### Keep criterion
+
+Every hull set whose output has at least 10^4 facets. The `cube` sets below D = 5 have 24 to 4,376 facets and are left out. Five rounds for sets under 2 s, otherwise three. The four configurations alternate in each round, reversed on odd rounds. The last column says whether four threads differ from the sequential build beyond the spread.
+
+| Set | Facets | Sequential | Parallel, 1 thread | Parallel, 2 threads | Parallel, 4 threads | 4 threads / sequential | Beyond the spread |
+| --- | ---: | --- | --- | --- | --- | ---: | --- |
+| `sphere` D2 10^4 | 10,000 | 0.0046 (0.0044–0.0053) | 0.0047 (0.0046–0.0051) | 0.0054 (0.0052–0.0069) | 0.0047 (0.0046–0.0049) | 1.02 | inside |
+| `sphere` D2 10^5 | 100,000 | 0.0640 (0.0632–0.0686) | 0.0675 (0.0630–0.0819) | 0.0653 (0.0618–0.0827) | 0.0665 (0.0635–0.0693) | 1.04 | inside |
+| `sphere` D2 10^6 | 999,973 | 1.126 (0.9846–1.209) | 1.064 (0.9503–1.282) | 1.097 (0.9746–1.203) | 1.151 (1.040–1.249) | 1.02 | inside |
+| `sphere` D3 10^4 | 19,996 | 0.0604 (0.0557–0.0670) | 0.0722 (0.0674–0.0988) | 0.0732 (0.0702–0.0785) | 0.0889 (0.0807–0.0980) | 1.47 | slower |
+| `sphere` D3 10^5 | 199,996 | 0.9513 (0.8442–1.022) | 1.097 (1.046–1.225) | 0.9992 (0.9770–1.113) | 1.147 (1.109–1.223) | 1.21 | slower |
+| `sphere` D3 10^6 | 1,999,996 | 16.322 (16.056–17.539) | 17.664 (17.286–18.369) | 17.107 (16.216–17.561) | 17.951 (17.819–18.036) | 1.10 | slower |
+| `sphere` D4 10^4 | 67,192 | 0.2971 (0.2663–0.3189) | 0.3390 (0.3151–0.3910) | 0.3047 (0.2814–0.3769) | 0.3623 (0.3208–0.4204) | 1.22 | slower |
+| `sphere` D4 10^5 | 675,154 | 4.056 (3.964–4.272) | 4.816 (4.700–4.932) | 4.198 (4.192–4.303) | 4.459 (4.372–4.467) | 1.10 | slower |
+| `sphere` D5 10^4 | 299,994 | 1.814 (1.734–1.933) | 2.315 (2.214–2.343) | 1.917 (1.813–2.222) | 1.827 (1.767–1.839) | 1.01 | inside |
+| `sphere` D5 10^5 | 3,112,922 | 27.320 (25.511–27.509) | 32.175 (31.158–33.666) | 27.002 (26.935–27.568) | 25.165 (25.104–26.727) | 0.92 | inside |
+| `sphere` D6 10^4 | 1,570,453 | 15.888 (15.717–16.069) | 18.882 (18.860–19.872) | 16.319 (15.418–17.621) | 13.816 (13.442–14.081) | 0.87 | faster |
+| `cube` D5 10^4 | 20,232 | 0.1329 (0.1100–0.1446) | 0.1421 (0.1277–0.1712) | 0.1405 (0.1267–0.1623) | 0.1712 (0.1264–0.2125) | 1.29 | inside |
+| `cube` D5 10^5 | 48,818 | 0.4464 (0.3684–0.5213) | 0.5089 (0.4829–0.5600) | 0.4632 (0.4079–0.4865) | 0.4534 (0.4306–0.5004) | 1.02 | inside |
+| `cube` D6 10^4 | 174,102 | 1.187 (1.161–1.279) | 1.528 (1.422–1.679) | 1.375 (1.256–1.481) | 1.382 (1.214–1.432) | 1.16 | inside |
+| `cube` D6 10^5 | 518,754 | 5.568 (5.534–5.721) | 6.578 (6.366–6.826) | 5.390 (5.376–6.189) | 5.048 (4.945–5.182) | 0.91 | faster |
+
+### Phases
+
+Phase timers in a scratch copy that is not committed; medians of 5 runs, in seconds. `select` is the batch extraction with the T and H reservation, `plan` is the round's plans on rayon's pool, `commit` is the ordered commit and the candidate push. `absorb` is the sequential build's whole in-place insertion.
+
+| Set | Build | Total | Accept and initial simplex | `absorb` | `select` | `plan` | `commit` | Classify | Publish |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `sphere` D3 10^5 | sequential | 0.910 (0.873–1.005) | 0.008 | 0.600 | | | | 0.129 | 0.150 |
+| `sphere` D3 10^5 | parallel, 1 thread | 1.082 (1.076–1.203) | 0.009 | | 0.242 | 0.425 | 0.112 | 0.136 | 0.162 |
+| `sphere` D3 10^5 | parallel, 2 threads | 1.004 (0.956–1.099) | 0.009 | | 0.235 | 0.373 | 0.122 | 0.119 | 0.142 |
+| `sphere` D3 10^5 | parallel, 4 threads | 1.138 (1.118–1.185) | 0.009 | | 0.267 | 0.433 | 0.146 | 0.129 | 0.148 |
+| `cube` D6 10^4 | sequential | 1.256 (1.187–1.296) | 0.001 | 0.855 | | | | 0.181 | 0.206 |
+| `cube` D6 10^4 | parallel, 1 thread | 1.584 (1.506–1.766) | 0.001 | | 0.283 | 0.768 | 0.138 | 0.167 | 0.195 |
+| `cube` D6 10^4 | parallel, 2 threads | 1.284 (1.223–1.495) | 0.001 | | 0.255 | 0.498 | 0.137 | 0.164 | 0.206 |
+| `cube` D6 10^4 | parallel, 4 threads | 1.233 (1.151–1.439) | 0.001 | | 0.260 | 0.424 | 0.153 | 0.167 | 0.203 |
+
+### Reading
+
+- Four threads are faster than the sequential build beyond the spread on 2 of the 15 sets (`sphere` D6 10^4 at 0.87, `cube` D6 10^5 at 0.91), slower on 5 (`sphere` D3 and D4, up to 1.47), and inside the spread on 8.
+- `select` and `commit` together are 59% (`sphere` D3 10^5) and 49% (`cube` D6 10^4) of the sequential build's `absorb`. Both are serial in the protocol.
+- Everything outside `plan` is serial: 61% and 52% of the one-thread parallel build. With `plan` scaling perfectly, four threads reach 0.76 s and 1.01 s, which is 0.84 and 0.80 of the sequential build.
+- `plan` itself barely scales. On `sphere` D3 10^5, 1594 rounds of mostly 33 to 64 points take 0.41 s of `plan` at one thread and 0.36 s at four. A round's plans total about 0.25 ms, and the pool sleeps during each round's `select` and `commit`. On this machine a flat loop of independent work scales 3.9 times at four threads.
+- D = 2 has no parallel construction: the polygon build is the same code either way.

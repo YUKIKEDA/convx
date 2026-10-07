@@ -7,7 +7,10 @@
 mod common;
 
 use common::oracle::{check_delaunay, check_voronoi};
-use convx::{ConvexHullError, DelaunayBuilder, VoronoiBuilder, VoronoiDiagram};
+use convx::{
+    ConvexHullError, DelaunayBuilder, VoronoiBuilder, VoronoiCells, VoronoiDiagram,
+    VoronoiInterfaces, VoronoiRays, VoronoiVertices,
+};
 
 fn build(dim: usize, points: &[f64]) -> VoronoiDiagram {
     let v = VoronoiBuilder::new(dim, points).build().unwrap();
@@ -129,4 +132,24 @@ fn overflowing_lift_does_not_fail() {
             assert!((x / 2f64.powi(600) - y).abs() <= 1e-12 * y.abs().max(1.0));
         }
     }
+}
+
+/// The four collection views are public names: a caller can write them in
+/// a signature.
+#[test]
+fn collection_views_can_be_named() {
+    fn counts(
+        vertices: VoronoiVertices<'_>,
+        rays: VoronoiRays<'_>,
+        cells: VoronoiCells<'_>,
+        interfaces: VoronoiInterfaces<'_>,
+    ) -> [usize; 4] {
+        [vertices.len(), rays.len(), cells.len(), interfaces.len()]
+    }
+    // A unit square: one vertex, four rays, four cells, four interfaces.
+    let v = build(2, &[0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0]);
+    assert_eq!(
+        counts(v.vertices(), v.rays(), v.cells(), v.interfaces()),
+        [1, 4, 4, 4]
+    );
 }

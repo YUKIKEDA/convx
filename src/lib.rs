@@ -24,7 +24,8 @@ pub use hull::{
 pub use predicates::Sign;
 pub use static_api::{StaticConvexHull, StaticDelaunay, StaticVoronoi};
 pub use voronoi::{
-    VoronoiBuilder, VoronoiCell, VoronoiDiagram, VoronoiInterface, VoronoiRay, VoronoiVertex,
+    VoronoiBuilder, VoronoiCell, VoronoiCells, VoronoiDiagram, VoronoiInterface, VoronoiInterfaces,
+    VoronoiRay, VoronoiRays, VoronoiVertex, VoronoiVertices,
 };
 
 #[cfg(test)]
