@@ -22,11 +22,10 @@ use std::collections::BTreeMap;
 use faer::linalg::solvers::Solve;
 use faer::Mat;
 
-use crate::delaunay::complex;
+use crate::delaunay::{complex, NO_NEIGHBOR};
 use crate::hull::classify::classify;
 use crate::hull::input::accept;
 use crate::hull::publish::{for_each_facet_normal, inner_reference};
-use crate::hull::ridge::{fingerprint, pair_equal_keys_with_border};
 use crate::hull::simplicial::Execution;
 use crate::hull::ConvexHullError;
 use crate::lists::Lists;
@@ -454,23 +453,21 @@ fn build(
         Ok(())
     })?;
 
-    let mut groups = complex.groups;
-    groups.sort_unstable_by(|a, b| a.sites.cmp(&b.sites));
-
-    // Every face of D sites of every cell, as sorted keys in cell order. A
-    // face that no other cell shares is on the boundary of the site hull.
-    let mut face_keys: Vec<u32> = Vec::new();
-    for group in &groups {
-        for cell in &group.cells {
-            push_faces(&mut face_keys, cell);
-        }
-    }
-    let faces = face_keys.len() / d;
-    let mut on_hull = vec![true; faces];
-    for (a, b) in pair_equal_keys_with_border(&face_keys, faces, fingerprint) {
-        on_hull[a] = false;
-        on_hull[b] = false;
-    }
+    // Groups in the order of their site lists, and each group's cells in
+    // their public order, which is the lexicographic order of their rows.
+    let k = d + 1;
+    let group_sites = &complex.sites;
+    let mut groups: Vec<u32> = (0..group_sites.len() as u32).collect();
+    groups.sort_unstable_by(|&a, &b| group_sites.get(a as usize).cmp(group_sites.get(b as usize)));
+    let mut members_of: Vec<(u32, u32)> = complex
+        .group
+        .iter()
+        .enumerate()
+        .map(|(c, &g)| (g, c as u32))
+        .collect();
+    let members = lists_of(group_sites.len(), &mut members_of);
+    drop(members_of);
+    let row = |c: u32| &complex.cells[c as usize * k..(c as usize + 1) * k];
 
     // The site-hull facets incident to each hull vertex, as offsets into one
     // list.
@@ -516,38 +513,48 @@ fn build(
     let mut ray_hull_facets = Lists::default();
     let mut rays_of: Vec<Vec<GroupRay>> = Vec::with_capacity(groups.len());
     let mut interfaces: BTreeMap<[u32; 2], (Vec<u32>, Vec<u32>)> = BTreeMap::new();
-    let mut first_face = 0;
     let mut tile_keys: Vec<u32> = Vec::new();
-    for (index, group) in groups.iter().enumerate() {
-        let apex = index as u32;
-        vertex_coords.extend(vertex_coords_of(d, &point, &group.cells)?);
-        vertex_sites.push(&group.sites);
+    let mut tile_hull: Vec<bool> = Vec::new();
+    for (apex, &g) in groups.iter().enumerate() {
+        let apex = apex as u32;
+        let sites = group_sites.get(g as usize);
+        let cells = members.get(g as usize);
+        vertex_coords.extend(vertex_coords_of(d, &point, cells.iter().map(|&c| row(c)))?);
+        vertex_sites.push(sites);
 
-        // Facets of the group's polytope: each face of a cell that no other
-        // cell of the group shares tiles one; the facet is every site of the
-        // group on that face's hyperplane.
+        // Facets of the group's polytope: each face of a cell whose cell
+        // across is in another group, or on the site hull, tiles one; the
+        // facet is every site of the group on that face's hyperplane.
         tile_keys.clear();
-        for cell in &group.cells {
-            push_faces(&mut tile_keys, cell);
-        }
-        let group_faces = tile_keys.len() / d;
-        let mut tiled = vec![true; group_faces];
-        for (a, b) in pair_equal_keys_with_border(&tile_keys, group_faces, fingerprint) {
-            tiled[a] = false;
-            tiled[b] = false;
+        tile_hull.clear();
+        for &c in cells {
+            for skip in 0..k {
+                let across = complex.neighbors[c as usize * k + skip];
+                if across != NO_NEIGHBOR && complex.group[across as usize] == g {
+                    continue;
+                }
+                tile_keys.extend(
+                    row(c)
+                        .iter()
+                        .enumerate()
+                        .filter(|&(i, _)| i != skip)
+                        .map(|(_, &v)| v),
+                );
+                tile_hull.push(across == NO_NEIGHBOR);
+            }
         }
         let key = |i: usize| &tile_keys[i * d..(i + 1) * d];
-        let mut tile_list: Vec<usize> = (0..group_faces).filter(|&i| tiled[i]).collect();
+        let mut tile_list: Vec<usize> = (0..tile_hull.len()).collect();
         tile_list.sort_unstable_by(|&a, &b| key(a).cmp(key(b)));
         let mut facets: Vec<(Vec<u32>, bool)> = Vec::new();
         for i in tile_list {
             let tile = key(i);
             // A simplex has no site on the hyperplane of a face but the face's.
-            let facet = if group.cells.len() == 1 {
+            let facet = if cells.len() == 1 {
                 tile.to_vec()
             } else {
                 let mut facet = Vec::new();
-                for &s in &group.sites {
+                for &s in sites {
                     let set: Small<u32, 11> = tile.iter().copied().chain([s]).collect();
                     if tile.contains(&s) || on_hyperplane(&orient_of, &set)? {
                         facet.push(s);
@@ -558,9 +565,8 @@ fn build(
             if facets.iter().any(|(f, _)| *f == facet) {
                 continue;
             }
-            facets.push((facet, on_hull[first_face + i]));
+            facets.push((facet, tile_hull[i]));
         }
-        first_face += group_faces;
 
         // One ray per boundary facet, along the site-hull facet it lies in.
         // The face spans D - 1 dimensions, so one logical facet holds it; a
@@ -612,9 +618,9 @@ fn build(
         }
 
         // Interfaces: the edges of the group's polytope.
-        for (i, &a) in group.sites.iter().enumerate() {
-            for &b in &group.sites[i + 1..] {
-                if !is_edge(d, group.sites.len(), &facets, a, b) {
+        for (i, &a) in sites.iter().enumerate() {
+            for &b in &sites[i + 1..] {
+                if !is_edge(d, sites.len(), &facets, a, b) {
                     continue;
                 }
                 let entry = interfaces.entry([a, b]).or_default();
@@ -640,8 +646,8 @@ fn build(
         cell_of[site as usize] = c as u32;
     }
     let mut pairs: Vec<(u32, u32)> = Vec::new();
-    for (v, group) in groups.iter().enumerate() {
-        for &site in &group.sites {
+    for (v, &g) in groups.iter().enumerate() {
+        for &site in group_sites.get(g as usize) {
             if let Some(cell) = cell_index(&cell_of, site) {
                 pairs.push((cell as u32, v as u32));
             }
@@ -699,20 +705,6 @@ fn lists_of(count: usize, pairs: &mut [(u32, u32)]) -> Lists<u32> {
     lists
 }
 
-/// Appends the faces of D sites of a cell of D + 1 ascending sites to
-/// `keys`, each ascending, the face without site `i` at position `i`.
-fn push_faces(keys: &mut Vec<u32>, cell: &[u32]) {
-    debug_assert!(cell.windows(2).all(|w| w[0] < w[1]), "a cell is ascending");
-    for skip in 0..cell.len() {
-        keys.extend(
-            cell.iter()
-                .enumerate()
-                .filter(|&(i, _)| i != skip)
-                .map(|(_, &v)| v),
-        );
-    }
-}
-
 /// Whether the last site of `set` lies on the hyperplane through the first
 /// D sites (D + 1 sites of dimension D).
 fn on_hyperplane(
@@ -756,15 +748,13 @@ fn cell_index(cell_of: &[u32], site: u32) -> Option<usize> {
 }
 
 /// The circumcenter of the lexicographically minimum cell with a finite
-/// one, trying the cells in that order (design §8).
+/// one, trying `cells`, which come in that order (design §8).
 fn vertex_coords_of<'p>(
     d: usize,
     point: &impl Fn(u32) -> &'p [f64],
-    cells: &[Vec<u32>],
+    cells: impl Iterator<Item = &'p [u32]>,
 ) -> Result<Vec<f64>, ConvexHullError> {
-    let mut order: Vec<&Vec<u32>> = cells.iter().collect();
-    order.sort_unstable();
-    for cell in order {
+    for cell in cells {
         if let Some(center) = circumcenter(d, point, cell) {
             return Ok(center);
         }
