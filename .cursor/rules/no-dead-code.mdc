@@ -9,6 +9,8 @@ When a path is removed, remove in the same change everything that only served it
 
 Do not keep a public API that has no effect "for compatibility". The crate is unpublished (`version = "0.0.0"`, `publish = false`), so there is no caller to keep compatible. When it is published, compatibility is decided by a design Issue, not assumed.
 
+Before a test goes with a removed path, name the claims it was the only test of. A claim the design still states keeps a test: keep that test or replace it. In #271, removing the comparison of the two builds removed the only test of "the published hull does not depend on the order of insertion"; a test that builds one input in two insertion orders replaced it.
+
 A function under `#[cfg(test)]` stays only while a test calls it. An independent reference that a numeric test compares against (`.cursor/rules/numeric-tests.mdc`) is such a caller.
 
 ```text

@@ -29,6 +29,14 @@ A speedup that keeps new state per object (per facet, per point) first times a b
 
 Time the sets the Issue names. Before adding a larger set, estimate its time from a smaller one; a single run longer than a few minutes needs a reason in the PR. In #116, `main` took 32 minutes for one D = 7 run that no Issue asked for.
 
+A section of `docs/bench.md` measured on an open pull request names that pull request, not only its head: a squash merge removes the head's hash from `main`. Put the merge commit in the heading once it is known, keep the measured head in the method table, and say what changed in that pull request after the measurement. #260 keyed a section by `029eb3f`, the head of #259, which then gained a commit and merged as `430af36`.
+
+A speed PR also times an input that takes the path it does not change, and reports it. In #265 the `cube` and `sphere` sets were 0.60 to 0.84 of the base, and two full grids, where every simplex is in a merged cospherical group, were inside the spread and 0.92.
+
+A measurement that an ADR cites is recorded in `docs/bench.md`, and the ADR points to that section. A comment on an Issue is not the repository's record (ADR 0004, #270).
+
+A change after review that touches the timed path makes a new head. Time the base and that head again, both on one machine. A table of the base against the earlier head from one machine, next to the earlier head against the new head from another, is not the base against the shipped head (#259).
+
 When instruction counts drop but wall time stays inside the spread, the PR reports both and claims no speedup. Whether to merge is the owner's call on those numbers (#92).
 
 A timing names what its timed section contains. Reuse buffers across repetitions. Keep work common to every variant outside the section. Name the inputs: set, seed, repetitions, toolchain, and cores. Timers or profiling hooks added to measure are not committed; the PR records the method instead.

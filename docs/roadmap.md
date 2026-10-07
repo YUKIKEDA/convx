@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P6-13 (#276): a ParGeo-style fully parallel hull, at 4 and 16 threads.
+P6-14 (#276): a ParGeo-style fully parallel hull, at 4 and 16 threads.
 
 ## Dependencies
 
@@ -119,7 +119,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-40 | Docs  | Let the filter rescale tiny inputs by an exact power of two                                               | #179  | Set after Grill on #179  |
 | P5-41 | Spike | How many NonFiniteCircumcenter failures have a circumcenter that fits in f64?                             | #180  | Not started              |
 | P5-42 | Spike | Why does hull sphere D2 wall time grow faster than its instruction count?                                 | #182  | Done                     |
-| P5-43 | Spike | Coplanar points are scanned again for every new facet: can construction stop rescanning them?             | #183  | Not started              |
+| P5-43 | Spike | Coplanar points are scanned again for every new facet: can construction stop rescanning them?             | #183  | Done                     |
 | P5-44 | Feat  | Reuse the work space of the heap exact stage across predicate calls                                       | #185  | Not started              |
 | P5-45 | Spike | Near-cospherical sites send almost every lifted predicate to the exact stage                              | #187  | Not started              |
 | P5-46 | Feat  | Build Delaunay and Voronoi by incremental insertion in every dimension (design #188)                      | #189  | Done                     |
@@ -137,6 +137,8 @@ After a correct sequential hull. These rows do not block P4.
 | P5-58 | Spike | How much of the pass after construction can a hull of single-simplex facets skip?                         | #228  | Done                     |
 | P5-59 | Docs  | One filtered strict chain for the D = 2 hull                                                               | #230  | Done                     |
 | P5-60 | Feat  | Build every D = 2 hull by the filtered strict chain                                                        | #232  | Done                     |
+| P5-61 | Spike | Extremes of a coplanar face come from recursive sub-hulls: where does that time go?                       | #237  | Done                     |
+| P5-62 | Spike | What does hull construction in general position pay per simplex, at 10^4 and at 10^6 points?              | #247  | Done                     |
 
 ## P6
 
@@ -155,12 +157,13 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-9 | Docs | The hull is built sequentially only; the parallel round protocol and flag leave      | #266  | Done        |
 | P6-10 | Refactor | Remove the parallel round protocol and the `parallel` flag                       | #267  | Done        |
 | P6-11 | Spike | Which coarse-grained parallel hull strategies can beat the sequential build?     | #269  | Done        |
-| P6-12 | Task | Measure convx after P6 against Qhull and CGAL; rank the remaining gaps             | #275  | Done        |
-| P6-13 | Spike | Can a ParGeo-style fully parallel hull beat the sequential build at 4 and 16 threads? | #276  | Not started |
+| P6-12 | Docs | Let construction record the planes a point lies on                                   | #236  | Set after Grill on #236 |
+| P6-13 | Task | Measure convx after P6 against Qhull and CGAL; rank the remaining gaps             | #275  | Done        |
+| P6-14 | Spike | Can a ParGeo-style fully parallel hull beat the sequential build at 4 and 16 threads? | #276  | Not started |
 
 ## Intentionally out of scope
 
 Items land here only through Grill → Issue.
 
-- A parallel hull build (#256, #269; Grill of 2026-10-07 on #269, option A). The round protocol lost to the sequential build, and of the coarse-grained strategies only parallel publication was never slower, with a ceiling of about 0.78 of the sequential build on four cores. The single-thread construction decides the comparison with Qhull, so no parallel path or `parallel` switch is added now. It returns through a Grill with a measurement that meets a stated criterion (`docs/adr/0004-sequential-hull-only.md`). A spike is such a measurement and adds no path to the crate: P6-13 (#276) asks whether a ParGeo-style fully parallel hull beats the sequential build, and its answer goes to a Grill.
+- A parallel hull build (#256, #269; Grill of 2026-10-07 on #269, option A). The round protocol lost to the sequential build, and of the coarse-grained strategies only parallel publication was never slower, with a ceiling of about 0.78 of the sequential build on four cores. The single-thread construction decides the comparison with Qhull, so no parallel path or `parallel` switch is added now. It returns through a Grill with a measurement that meets a stated criterion (`docs/adr/0004-sequential-hull-only.md`). A spike is such a measurement and adds no path to the crate: P6-14 (#276) asks whether a ParGeo-style fully parallel hull beats the sequential build, and its answer goes to a Grill.
 - Lock-free allocation (was P5-2, #26). Construction inserts one point at a time on one thread (§6), so no insert or remove in the facet store is concurrent. On the P2-7 `cube` sets measured in #26, inserts and removes in the arena of that time took under 1% of the build. It returns through Grill with a parallel construction.
