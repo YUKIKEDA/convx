@@ -225,7 +225,8 @@ impl<'a> Mesh<'a> {
         (0..self.k).find(|&s| self.neighbor(c, s) == n)
     }
 
-    /// The slot of vertex `v` in simplex `c`.
+    /// The slot of vertex `v` in simplex `c`. Every caller read `v` from the
+    /// vertices of `c`, so the slot exists; debug builds assert it.
     fn slot_of(&self, c: u32, v: u32) -> usize {
         let slot = self.vertices_of(c).iter().position(|&x| x == v);
         debug_assert!(slot.is_some(), "the vertex is in the simplex");
@@ -593,7 +594,12 @@ impl<'a> Mesh<'a> {
                 // next.
                 let (mut cur, mut behind, mut ahead) =
                     (c, self.vertices_of(c)[slot], self.vertices_of(c)[i]);
+                // The turn passes each cavity simplex around the ridge at
+                // most once, so it ends within the size of the cavity.
+                let mut turned = 0_usize;
                 loop {
+                    turned += 1;
+                    debug_assert!(turned <= cavity.len(), "the turn leaves the cavity");
                     let next = self.neighbor(cur, self.slot_of(cur, ahead));
                     if self.mark[next as usize] != epoch {
                         // `next` is the new simplex of the boundary face
