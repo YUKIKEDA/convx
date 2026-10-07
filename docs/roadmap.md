@@ -155,6 +155,7 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-9 | Docs | The hull is built sequentially only; the parallel round protocol and flag leave      | #266  | Done        |
 | P6-10 | Refactor | Remove the parallel round protocol and the `parallel` flag                       | #267  | Done        |
 | P6-11 | Spike | Which coarse-grained parallel hull strategies can beat the sequential build?     | #269  | Done        |
+| P6-12 | Docs | Let construction record the planes a point lies on                                   | #236  | Set after Grill on #236 |
 
 ## Intentionally out of scope
 
