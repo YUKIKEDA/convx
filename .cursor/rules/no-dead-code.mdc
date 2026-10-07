@@ -1,0 +1,20 @@
+---
+description: Remove what a removed path leaves behind; no switch that switches nothing
+alwaysApply: true
+---
+
+# No dead code
+
+When a path is removed, remove in the same change everything that only served it: functions, methods, parameters threaded through callers, fields, flags, constants, tests, rustdoc, and the design and README text.
+
+Do not keep a public API that has no effect "for compatibility". The crate is unpublished (`version = "0.0.0"`, `publish = false`), so there is no caller to keep compatible. When it is published, compatibility is decided by a design Issue, not assumed.
+
+A function under `#[cfg(test)]` stays only while a test calls it. An independent reference that a numeric test compares against (`.cursor/rules/numeric-tests.mdc`) is such a caller.
+
+```text
+# BAD: the parallel build is gone, the flag stays
+pub fn parallel(self, enable: bool) -> Self { let _ = enable; self }
+
+# GOOD: the flag goes with the build it selected, with its tests and docs
+(no parallel() on any builder; it returns with a parallel build, through a Grill)
+```
