@@ -67,7 +67,6 @@ pub(crate) struct Faces {
 #[derive(Clone, Copy)]
 pub(crate) struct Face<'a> {
     pub(crate) vertices: &'a [u32],
-    pub(crate) neighbors: &'a [u32],
 }
 
 impl Faces {
@@ -78,7 +77,6 @@ impl Faces {
     pub(crate) fn get(&self, i: usize) -> Face<'_> {
         Face {
             vertices: self.vertices.get(i),
-            neighbors: self.neighbors.get(i),
         }
     }
 
@@ -712,11 +710,11 @@ fn link_neighbors(d: usize, simplices: &mut [ComplexSimplex], faces: &Faces) {
                     .filter(|&n| n != simplex.face),
             );
         }
-        for (f, (face, mut neighbors)) in faces.iter().zip(across).enumerate() {
+        for (f, (face, mut neighbors)) in faces.neighbors.iter().zip(across).enumerate() {
             neighbors.sort_unstable();
             neighbors.dedup();
             debug_assert_eq!(
-                face.neighbors,
+                face,
                 &neighbors[..],
                 "face {f}: the group neighbors differ from the triangulation's"
             );
@@ -797,9 +795,9 @@ pub(crate) mod tests {
                 assert!(c.faces.get(simplex.face as usize).vertices.contains(v));
             }
         }
-        for (f, face) in c.faces.iter().enumerate() {
-            for &n in face.neighbors {
-                assert!(c.faces.get(n as usize).neighbors.contains(&(f as u32)));
+        for (f, neighbors) in c.faces.neighbors.iter().enumerate() {
+            for &n in neighbors {
+                assert!(c.faces.neighbors.get(n as usize).contains(&(f as u32)));
             }
         }
     }
@@ -826,10 +824,8 @@ pub(crate) mod tests {
         assert_eq!(c.coplanar_points, vec![8, 9]);
         assert_eq!(c.interior_points, vec![10]);
         assert_eq!(c.faces.len(), 6);
-        assert!(c
-            .faces
-            .iter()
-            .all(|f| f.vertices.len() == 4 && f.neighbors.len() == 4));
+        assert!(c.faces.iter().all(|f| f.vertices.len() == 4));
+        assert!(c.faces.neighbors.iter().all(|n| n.len() == 4));
     }
 
     #[test]
