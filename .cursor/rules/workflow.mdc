@@ -64,7 +64,7 @@ When a PR is opened on top of another, its base is the earlier branch. After any
 
 1. Fetch first. If GitHub already rebased the next branch onto the squash commit (its head is a new commit from GitHub), sync the local branch to it and compare trees instead of merging. Otherwise merge main into the next branch at once. Do not wait for a review on the old head.
 2. A conflicted file the branch did not change takes main's version. A file the branch changed keeps the branch's edits on top of main. Resolve every conflict before running a formatter: a formatter rewrites the conflict markers.
-3. Check that `git diff main` lists only the branch's own files.
+3. Check that `git diff main` lists only the branch's own files. When the pull requests below were squash-merged after gaining review commits, the branch still holds their old commits and conflicts with `main` in files it never changed. Build the merge result as `main` plus the branch's own diff (from the old head below it to its own head), and commit that tree as the merge of `main` (#271: 14 conflicted files became one).
 4. Before pushing, fetch and confirm the PR is still open. Pushing a branch whose PR already merged and was deleted recreates it.
 5. Push, and post the new head on its PR so review runs on it.
 
