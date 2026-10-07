@@ -117,73 +117,73 @@ impl DelaunayRecord {
             .build()
             .map_err(|e| e.to_string())?;
         let mut sites: Vec<u32> = v
-            .vertices
+            .vertices()
             .iter()
-            .flat_map(|x| x.sites.iter().copied())
+            .flat_map(|x| x.sites().iter().copied())
             .collect();
         sites.sort_unstable();
         sites.dedup();
         let mut simplices: Vec<Vec<u32>> = v
-            .vertices
+            .vertices()
             .iter()
-            .map(|x| x.sites.clone())
+            .map(|x| x.sites().to_vec())
             .filter(|x| x.len() == dim + 1)
             .collect();
         simplices.sort();
-        let ray = |r: &VoronoiRay| -> Vec<u32> {
-            core::iter::once(r.apex)
-                .chain(r.hull_facet.iter().copied())
+        let ray = |r: VoronoiRay<'_>| -> Vec<u32> {
+            core::iter::once(r.apex())
+                .chain(r.hull_facet().iter().copied())
                 .collect()
         };
         let mut rays: Vec<Vec<u32>> = v
-            .cells
+            .cells()
             .iter()
-            .flat_map(|c| &c.rays)
-            .chain(v.interfaces.iter().flat_map(|f| &f.rays))
+            .flat_map(|c| c.rays())
+            .chain(v.interfaces().iter().flat_map(|f| f.rays()))
             .map(ray)
             .collect();
         rays.sort();
         rays.dedup();
         // Every ray is in `rays`, which is collected from the same lists.
         let number =
-            |r: &VoronoiRay| -> u32 { rays.binary_search(&ray(r)).unwrap_or_default() as u32 };
+            |r: VoronoiRay<'_>| -> u32 { rays.binary_search(&ray(r)).unwrap_or_default() as u32 };
         Ok(Self {
             sites,
             simplices,
-            vertices: v.vertices.iter().map(|x| x.sites.clone()).collect(),
+            vertices: v.vertices().iter().map(|x| x.sites().to_vec()).collect(),
             cells: v
-                .cells
+                .cells()
                 .iter()
                 .map(|c| {
-                    core::iter::once(c.site)
-                        .chain(c.vertices.iter().copied())
+                    core::iter::once(c.site())
+                        .chain(c.vertices().iter().copied())
                         .collect()
                 })
                 .collect(),
             cell_rays: v
-                .cells
+                .cells()
                 .iter()
-                .filter(|c| !c.rays.is_empty())
+                .filter(|c| c.rays().len() > 0)
                 .map(|c| {
-                    core::iter::once(c.site)
-                        .chain(c.rays.iter().map(&number))
+                    core::iter::once(c.site())
+                        .chain(c.rays().map(&number))
                         .collect()
                 })
                 .collect(),
             interfaces: v
-                .interfaces
+                .interfaces()
                 .iter()
-                .map(|f| f.sites.iter().chain(&f.vertices).copied().collect())
+                .map(|f| f.sites().iter().chain(f.vertices()).copied().collect())
                 .collect(),
             interface_rays: v
-                .interfaces
+                .interfaces()
                 .iter()
-                .filter(|f| !f.rays.is_empty())
+                .filter(|f| f.rays().len() > 0)
                 .map(|f| {
-                    f.sites
+                    f.sites()
                         .iter()
                         .copied()
-                        .chain(f.rays.iter().map(&number))
+                        .chain(f.rays().map(&number))
                         .collect()
                 })
                 .collect(),
@@ -268,7 +268,11 @@ impl Record {
         points: &[f64],
         hull: &ConvexHull,
     ) -> Self {
-        let mut facets: Vec<Vec<u32>> = hull.facets.iter().map(|f| f.vertices.clone()).collect();
+        let mut facets: Vec<Vec<u32>> = hull
+            .facets()
+            .iter()
+            .map(|f| f.vertices().to_vec())
+            .collect();
         facets.sort();
         let volume = hull.volume();
         let near_zero = volume < NEAR_ZERO_VOLUME * extent(dim, points).powi(dim as i32);
@@ -279,9 +283,9 @@ impl Record {
             count,
             seed,
             volume: (!near_zero).then_some((volume, VOLUME_TOLERANCE)),
-            vertices: hull.vertices.clone(),
-            coplanar_points: hull.coplanar_points.clone(),
-            interior_points: hull.interior_points.clone(),
+            vertices: hull.vertices().to_vec(),
+            coplanar_points: hull.coplanar_points().to_vec(),
+            interior_points: hull.interior_points().to_vec(),
             facets,
             delaunay: None,
         }
@@ -428,16 +432,20 @@ impl Record {
     /// Compares a rebuilt hull with this record; returns every mismatch.
     pub fn compare(&self, hull: &ConvexHull) -> Vec<String> {
         let mut errors = Vec::new();
-        if hull.vertices != self.vertices {
+        if hull.vertices() != self.vertices {
             errors.push("vertices differ".to_string());
         }
-        if hull.coplanar_points != self.coplanar_points {
+        if hull.coplanar_points() != self.coplanar_points {
             errors.push("coplanar_points differ".to_string());
         }
-        if hull.interior_points != self.interior_points {
+        if hull.interior_points() != self.interior_points {
             errors.push("interior_points differ".to_string());
         }
-        let mut facets: Vec<Vec<u32>> = hull.facets.iter().map(|f| f.vertices.clone()).collect();
+        let mut facets: Vec<Vec<u32>> = hull
+            .facets()
+            .iter()
+            .map(|f| f.vertices().to_vec())
+            .collect();
         facets.sort();
         if facets != self.facets {
             errors.push("facets differ".to_string());

@@ -58,7 +58,7 @@ use crate::{
 ///
 /// let square = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [0.5, 0.5]];
 /// let hull = StaticConvexHull::<2>::build(&square)?;
-/// assert_eq!(hull.vertices, vec![0, 1, 2, 3]);
+/// assert_eq!(hull.vertices(), [0, 1, 2, 3]);
 /// # Ok::<(), convx::ConvexHullError>(())
 /// ```
 #[derive(Clone, Copy, Debug)]
@@ -71,7 +71,7 @@ pub struct StaticConvexHull<const D: usize>;
 ///
 /// let triangle = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
 /// let delaunay = StaticDelaunay::<2>::build(&triangle)?;
-/// assert_eq!(delaunay.simplices.len(), 1);
+/// assert_eq!(delaunay.simplices().len(), 1);
 /// # Ok::<(), convx::ConvexHullError>(())
 /// ```
 #[derive(Clone, Copy, Debug)]
@@ -84,7 +84,7 @@ pub struct StaticDelaunay<const D: usize>;
 ///
 /// let segment = [[0.0], [2.0]];
 /// let voronoi = StaticVoronoi::<1>::build(&segment)?;
-/// assert_eq!(voronoi.vertices.len(), 1);
+/// assert_eq!(voronoi.vertices().len(), 1);
 /// # Ok::<(), convx::ConvexHullError>(())
 /// ```
 #[derive(Clone, Copy, Debug)]

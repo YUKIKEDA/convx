@@ -45,13 +45,10 @@ pub(crate) const NO_NEIGHBOR: u32 = u32::MAX;
 /// // by pulling from the smallest index into two triangles.
 /// let points = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
 /// let delaunay = DelaunayBuilder::new(2, &points).build()?;
-/// let cells: Vec<&[u32]> = delaunay
-///     .simplices
-///     .iter()
-///     .map(|s| s.vertices.as_slice())
-///     .collect();
+/// let cells: Vec<&[u32]> = delaunay.simplices().iter().map(|s| s.vertices()).collect();
 /// assert_eq!(cells, [&[0, 1, 2][..], &[0, 2, 3][..]]);
-/// assert_eq!(delaunay.simplices[0].neighbors, [u32::MAX, 1, u32::MAX]);
+/// let first = delaunay.simplices().get(0).unwrap();
+/// assert_eq!(first.neighbors(), [u32::MAX, 1, u32::MAX]);
 /// # Ok::<(), convx::ConvexHullError>(())
 /// ```
 #[derive(Clone, Copy, Debug)]
@@ -100,36 +97,131 @@ impl<'a> DelaunayBuilder<'a> {
     pub fn build(self) -> Result<DelaunayTriangulation, ConvexHullError> {
         let complex = complex(self.dim, self.points, self.execution)?;
         let cells = complex.groups.into_iter().flat_map(|g| g.cells).collect();
+        let (vertices, neighbors) = publish(complex.dim, self.points, cells)?;
         Ok(DelaunayTriangulation {
             dim: complex.dim,
-            simplices: publish(complex.dim, self.points, cells)?,
             representative: complex.representative,
+            vertices,
+            neighbors,
         })
     }
 }
 
 /// A Delaunay triangulation of points in dimension D.
+///
+/// The simplices are kept as flat rows of D + 1 entries and published
+/// through borrowed views (design §7, §9).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DelaunayTriangulation {
-    /// Dimension D of the sites.
-    pub dim: usize,
-    /// For each input index, the smallest index of a point equal to it.
-    pub representative: Vec<u32>,
-    /// The simplices, in the lexicographic order of their ascending vertex
-    /// lists before orientation is fixed.
-    pub simplices: Vec<DelaunaySimplex>,
+    dim: usize,
+    representative: Vec<u32>,
+    /// D + 1 sites per simplex, in public order.
+    vertices: Vec<u32>,
+    /// D + 1 neighbor numbers per simplex.
+    neighbors: Vec<u32>,
 }
 
-/// A D-simplex of a [`DelaunayTriangulation`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DelaunaySimplex {
+impl DelaunayTriangulation {
+    /// Dimension D of the sites.
+    #[must_use]
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+
+    /// For each input index, the smallest index of a point equal to it.
+    #[must_use]
+    pub fn representative(&self) -> &[u32] {
+        &self.representative
+    }
+
+    /// The simplices, in the lexicographic order of their ascending vertex
+    /// lists before orientation is fixed.
+    #[must_use]
+    pub fn simplices(&self) -> Simplices<'_> {
+        Simplices { delaunay: self }
+    }
+}
+
+/// The simplices of a [`DelaunayTriangulation`]; a simplex's position is
+/// its number.
+#[derive(Clone, Copy)]
+pub struct Simplices<'a> {
+    delaunay: &'a DelaunayTriangulation,
+}
+
+impl<'a> Simplices<'a> {
+    /// Number of simplices.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.delaunay.vertices.len() / (self.delaunay.dim + 1)
+    }
+
+    /// Whether there are no simplices. Never true for a built triangulation.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.delaunay.vertices.is_empty()
+    }
+
+    /// The simplex numbered `simplex`, or `None` when no simplex has that
+    /// number.
+    #[must_use]
+    pub fn get(&self, simplex: u32) -> Option<DelaunaySimplex<'a>> {
+        ((simplex as usize) < self.len()).then_some(DelaunaySimplex {
+            delaunay: self.delaunay,
+            index: simplex,
+        })
+    }
+
+    /// Every simplex, in order.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = DelaunaySimplex<'a>> + 'a {
+        let delaunay = self.delaunay;
+        (0..self.len() as u32).map(move |index| DelaunaySimplex { delaunay, index })
+    }
+}
+
+impl core::fmt::Debug for Simplices<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
+    }
+}
+
+/// A D-simplex of a [`DelaunayTriangulation`]: a view into it.
+#[derive(Clone, Copy)]
+pub struct DelaunaySimplex<'a> {
+    delaunay: &'a DelaunayTriangulation,
+    index: u32,
+}
+
+impl<'a> DelaunaySimplex<'a> {
+    fn row(&self, list: &'a [u32]) -> &'a [u32] {
+        let k = self.delaunay.dim + 1;
+        let i = self.index as usize;
+        &list[i * k..(i + 1) * k]
+    }
+
     /// D + 1 sites, ascending except that the last two are swapped when that
     /// makes the orientation positive. When the exact orientation is zero
     /// the ascending order is kept.
-    pub vertices: Vec<u32>,
-    /// `neighbors[i]` is the simplex across the face opposite
-    /// `vertices[i]`, or `u32::MAX` on the boundary of the site hull.
-    pub neighbors: Vec<u32>,
+    #[must_use]
+    pub fn vertices(&self) -> &'a [u32] {
+        self.row(&self.delaunay.vertices)
+    }
+
+    /// `neighbors()[i]` is the simplex across the face opposite
+    /// `vertices()[i]`, or `u32::MAX` on the boundary of the site hull.
+    #[must_use]
+    pub fn neighbors(&self) -> &'a [u32] {
+        self.row(&self.delaunay.neighbors)
+    }
+}
+
+impl core::fmt::Debug for DelaunaySimplex<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DelaunaySimplex")
+            .field("vertices", &self.vertices())
+            .field("neighbors", &self.neighbors())
+            .finish()
+    }
 }
 
 /// The Delaunay complex before diagonals are inserted (design §8): one
@@ -291,22 +383,26 @@ fn inserted(input: &Input<'_>, sites: &insert::Sites) -> Result<Complex, ConvexH
 }
 
 /// Orders, orients, and links the cells (ascending vertex lists) of sites
-/// of dimension `d` stored row-major in `points`.
+/// of dimension `d` stored row-major in `points`, into flat rows of
+/// D + 1 vertices and D + 1 neighbors per simplex.
 fn publish(
     d: usize,
     points: &[f64],
     mut cells: Vec<Vec<u32>>,
-) -> Result<Vec<DelaunaySimplex>, ConvexHullError> {
+) -> Result<(Vec<u32>, Vec<u32>), ConvexHullError> {
     cells.sort_unstable();
     let point = |i: u32| &points[i as usize * d..(i as usize + 1) * d];
-    let mut oriented = Vec::with_capacity(cells.len());
-    for mut vertices in cells {
-        let points: Small<&[f64], 11> = vertices.iter().map(|&v| point(v)).collect();
+    let k = d + 1;
+    let mut vertices = Vec::with_capacity(cells.len() * k);
+    for cell in cells {
+        let start = vertices.len();
+        vertices.extend_from_slice(&cell);
+        let points: Small<&[f64], 11> = cell.iter().map(|&v| point(v)).collect();
         if orient(&points)? == Sign::Negative {
-            vertices.swap(d - 1, d);
+            vertices.swap(start + d - 1, start + d);
         }
-        oriented.push(vertices);
     }
+    let oriented: Vec<&[u32]> = vertices.chunks_exact(k).collect();
     // Each face as its sorted vertex list, packed in one buffer, with its
     // owner; a face lies in at most two simplices.
     let mut keys: Vec<u32> = Vec::with_capacity(oriented.len() * (d + 1) * d);
@@ -325,20 +421,14 @@ fn publish(
             owners.push((s, slot));
         }
     }
-    let mut simplices: Vec<DelaunaySimplex> = oriented
-        .into_iter()
-        .map(|vertices| DelaunaySimplex {
-            neighbors: vec![NO_NEIGHBOR; vertices.len()],
-            vertices,
-        })
-        .collect();
+    let mut neighbors = vec![NO_NEIGHBOR; vertices.len()];
     for (first, second) in pair_equal_keys_with_border(&keys, owners.len(), fingerprint) {
         let (a, slot_a) = owners[first];
         let (b, slot_b) = owners[second];
-        simplices[a].neighbors[slot_a] = b as u32;
-        simplices[b].neighbors[slot_b] = a as u32;
+        neighbors[a * k + slot_a] = b as u32;
+        neighbors[b * k + slot_b] = a as u32;
     }
-    Ok(simplices)
+    Ok((vertices, neighbors))
 }
 
 /// The pulling triangulation of the site hull when every site lies on one
@@ -355,11 +445,7 @@ fn publish(
 fn pull(sites: Input<'_>, execution: Execution) -> Result<Complex, ConvexHullError> {
     let d = sites.dim();
     let hull = SimplicialHull::build(sites, execution)?;
-    let facets: Vec<Vec<u32>> = merge(&hull)?
-        .groups
-        .into_iter()
-        .map(|g| g.vertices)
-        .collect();
+    let facets: Vec<Vec<u32>> = merge(&hull)?.vertices.iter().map(<[u32]>::to_vec).collect();
     let input = &hull.input;
     let point = |i: u32| input.point(i);
     let affine_dim = |set: &[u32]| -> Result<usize, ConvexHullError> {
