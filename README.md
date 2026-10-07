@@ -4,13 +4,13 @@ English | [日本語](README.ja.md)
 
 convx is a pure Rust library for n-dimensional convex hulls, Delaunay triangulations, and Voronoi diagrams. Correctness is ordered as the sign of a geometric predicate, the topological decision from that sign, and the mutation that follows the decision. Public results are compared as normalized logical facets: vertex sets and neighbor sets.
 
-The crate is not in the tree yet. The API below is the shape fixed by the specification. Implementation order is P1 through P4 in [docs/roadmap.md](docs/roadmap.md): predicates, sequential Quickhull, parallel commit, then the static API, Delaunay, Voronoi, and oracles.
+The crate is not in the tree yet. The API below is the shape fixed by the specification. Implementation order is P1 through P4 in [docs/roadmap.md](docs/roadmap.md): predicates, sequential Quickhull, then the static API, Delaunay, Voronoi, and oracles.
 
 ## Predicates return `Sign`
 
 An input `f64` is the coordinate its bit pattern names. Predicates do not translate or scale first. A rounded transform moves the exact zero. Each predicate returns `Sign` (`Negative`, `Zero`, `Positive`).
 
-Coplanar means the orientation is `Zero`. Cospherical means the lifted orientation is `Zero`. Which side of a facet a point is on is the orientation of an affinely independent set of that face and the query point. `FacetPlane`'s $x \cdot n + \mathrm{offset}$ is not used for that decision.
+Coplanar means the orientation is `Zero`. Cospherical means the lifted orientation is `Zero`. Which side of a facet a point is on is the orientation of an affinely independent set of that face and the query point. The $x \cdot n + \mathrm{offset}$ of a published facet's `normal()` and `offset()` is not used for that decision.
 
 Error is only the rounding of evaluating that predicate. The filter carries an absolute bound for the additions, subtractions, and multiplications actually performed. If that bound does not include FMA rounding, the evaluation does not contract to an FMA. When the absolute value of the computed value exceeds the bound, that sign is kept. Otherwise the predicate falls back to the exact sign of the same polynomial. The same fallback applies when the computed value and the bound are both 0 and the expression is not identically 0. A value that underflowed to 0 is not decided to be zero. The exact algorithm is not fixed. The returned sign must match the sign of this polynomial. The only failure is `ExactEvaluationExhausted`, when the exact-evaluation work space cannot be allocated. An ordinary `Vec` allocation failure aborts, as Rust does by default. Ill-conditioning itself is not a failure.
 

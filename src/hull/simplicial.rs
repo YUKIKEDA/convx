@@ -433,7 +433,9 @@ impl<'a> SimplicialHull<'a> {
         // opposite vertex v lies the facet omitting v.
         for (i, vertices) in ordered.iter().enumerate() {
             for (slot, v) in vertices.iter().enumerate() {
-                let across = slots[simplex.iter().position(|s| s == v).unwrap_or(0)];
+                let omitted = simplex.iter().position(|s| s == v);
+                debug_assert!(omitted.is_some(), "a facet's vertex is in the simplex");
+                let across = slots[omitted.unwrap_or(0)];
                 self.facets.neighbors_mut(slots[i])[slot] = across;
             }
         }
@@ -503,7 +505,7 @@ impl<'a> SimplicialHull<'a> {
         let mut visited = Marks::default();
         let mut cone = Cone::default();
         let mut slots = Vec::new();
-        while let Some(candidate) = pending.pop() {
+        while let Some(candidate) = next_candidate(&mut pending) {
             let Some(start) = self.facets.slot_of(candidate.facet) else {
                 continue;
             };
@@ -568,8 +570,9 @@ impl<'a> SimplicialHull<'a> {
                         .facet(neighbor)
                         .neighbor_slots()
                         .iter()
-                        .position(|&b| b == slot)
-                        .unwrap_or(0);
+                        .position(|&b| b == slot);
+                    debug_assert!(back.is_some(), "the facet across points back");
+                    let back = back.unwrap_or(0);
                     horizon.push(Horizon {
                         visible: slot,
                         slot: m as u32,
@@ -1074,7 +1077,7 @@ struct Region {
     horizon: Vec<Horizon>,
 }
 
-/// A flag per slot for one search or one round at a time, cleared without
+/// A flag per slot for one search at a time, cleared without
 /// touching the entries: an entry counts only when it carries the current
 /// epoch.
 #[derive(Default)]
@@ -1169,6 +1172,20 @@ impl VertexSet {
             }
         }
     }
+}
+
+/// The next candidate to insert: the one that packs first, or under a
+/// test's override on this thread the one that packs last.
+fn next_candidate(pending: &mut BinaryHeap<Pending>) -> Option<Pending> {
+    #[cfg(test)]
+    if tests::PACKS_LAST_FIRST.with(core::cell::Cell::get) {
+        let mut all = core::mem::take(pending).into_vec();
+        let at = (0..all.len()).min_by_key(|&i| all[i])?;
+        let last = all.swap_remove(at);
+        *pending = all.into();
+        return Some(last);
+    }
+    pending.pop()
 }
 
 /// The candidate of a facet with outside points, ordered so that the
@@ -1405,6 +1422,84 @@ pub(crate) mod tests {
             const { core::cell::Cell::new(None) };
         /// Plans on this thread that scanned copied rows.
         pub(super) static COPIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+        /// Makes [`next_candidate`] take the candidate that packs last, so
+        /// that a build on this thread inserts in another order.
+        pub(super) static PACKS_LAST_FIRST: core::cell::Cell<bool> =
+            const { core::cell::Cell::new(false) };
+    }
+
+    /// The published hull of `points`, taking the candidate that packs last
+    /// when `last_first`.
+    fn published(dim: usize, points: &[f64], last_first: bool) -> crate::ConvexHull {
+        PACKS_LAST_FIRST.with(|c| c.set(last_first));
+        let hull = crate::ConvexHullBuilder::new(dim, points).build();
+        PACKS_LAST_FIRST.with(|c| c.set(false));
+        hull.unwrap()
+    }
+
+    /// The published hull does not depend on the order of insertion (design
+    /// §6, ADR 0003): taking the candidate that packs last instead of first
+    /// publishes the same hull, in general position and on inputs with
+    /// coplanar points and faces that are not simplices.
+    #[test]
+    fn the_published_hull_does_not_depend_on_the_insertion_order() {
+        let mut rng = Rng(271);
+        for (dim, count, family) in [
+            (3, 200, "sphere"),
+            (4, 80, "sphere"),
+            (5, 40, "sphere"),
+            (3, 300, "cube"),
+            (4, 150, "cube"),
+            (3, 300, "grid"),
+            (4, 300, "grid"),
+            (5, 200, "grid"),
+            (3, 300, "surface"),
+            (4, 200, "surface"),
+        ] {
+            let mut points = Vec::new();
+            for _ in 0..count {
+                let mut v: Vec<f64> = (0..dim).map(|_| rng.unit()).collect();
+                match family {
+                    "sphere" => {
+                        let norm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
+                        v.iter_mut().for_each(|x| *x /= norm);
+                    }
+                    // Integer points of [0, 3]^D: coplanar points, faces
+                    // that are not simplices, and duplicates.
+                    "grid" => v.iter_mut().for_each(|x| *x = (rng.next() % 4) as f64),
+                    // Integer points on the surface of [0, 4]^D.
+                    "surface" => {
+                        v.iter_mut().for_each(|x| *x = (rng.next() % 5) as f64);
+                        let axis = (rng.next() % dim as u64) as usize;
+                        v[axis] = (rng.next() % 2 * 4) as f64;
+                    }
+                    _ => {}
+                }
+                points.extend(v);
+            }
+            let first = published(dim, &points, false);
+            let last = published(dim, &points, true);
+            assert_eq!(first, last, "D = {dim}, {family}");
+        }
+    }
+
+    #[test]
+    fn taking_the_last_candidate_changes_the_insertion_order() {
+        // The override bites: on a sphere the two orders build different
+        // simplicial hulls slot by slot, so the test above compares two
+        // constructions and not one.
+        let mut rng = Rng(272);
+        let mut points = Vec::new();
+        for _ in 0..200 {
+            let v: Vec<f64> = (0..3).map(|_| rng.unit()).collect();
+            let norm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
+            points.extend(v.iter().map(|x| x / norm));
+        }
+        let first = build(3, &points);
+        PACKS_LAST_FIRST.with(|c| c.set(true));
+        let last = build(3, &points);
+        PACKS_LAST_FIRST.with(|c| c.set(false));
+        assert_ne!(snapshot(&first), snapshot(&last));
     }
 
     /// The sequential build of `points` with orphans copied from plans of

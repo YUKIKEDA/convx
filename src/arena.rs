@@ -4,10 +4,8 @@
 //! the slot had when the facet was added. Removing a facet bumps the
 //! generation, so a stale id never reaches a reused slot.
 //!
-//! The store is single-threaded. Parallel workers plan with local numbers,
-//! and the commit adds facets on one thread in ascending input index (§6),
-//! so no insert or remove is ever concurrent. Lock-free allocation was left
-//! out after measurement (#26).
+//! The store is single-threaded: construction inserts one point at a time
+//! (§6), so no insert or remove is ever concurrent.
 
 /// A value per facet id, for one search or one pass at a time, without
 /// hashing (#120).

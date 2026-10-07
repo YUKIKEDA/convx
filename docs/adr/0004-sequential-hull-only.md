@@ -23,7 +23,7 @@ The parallel build was the round protocol of design §6:
 - plans on rayon's pool;
 - a commit in ascending input index.
 
-#256 measured it on the facet store of #253, on a 4-core machine.
+#256 measured it on the facet store of #253, on a 4-core machine. The tables are in `docs/bench.md` (Parallel round protocol against the sequential hull).
 
 - Four threads beat the sequential build beyond the spread on 2 of the 15 sets, lost on 5 (up to 1.47 times slower on sphere D3 10^4), and were inside the spread on 8.
 - Selection and the ordered commit alone took 59% (sphere D3 10^5) and 49% (cube D6 10^4) of the sequential build's whole in-place insertion. Both are serial by the protocol's design.
