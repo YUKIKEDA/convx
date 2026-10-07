@@ -227,7 +227,7 @@ fn classify_built(
             .simplices
             .iter()
             .filter_map(|id| hull.facets.get(*id))
-            .map(|s| &s.vertices[..])
+            .map(|s| s.vertices())
     };
 
     // Simplicial vertices.
@@ -269,7 +269,7 @@ fn classify_built(
             sides.fill(None);
             if let Some(cull) = simplex.cull() {
                 let (rows, stride) = hull.input.rows();
-                let origin = hull.input.point(simplex.vertices[0]);
+                let origin = hull.input.point(simplex.vertices()[0]);
                 cull.mark_sides(origin, rows, stride, &others, &mut sides);
             }
             for (k, &p) in others.iter().enumerate() {
@@ -403,7 +403,7 @@ fn classify_built(
                 if let Some(&id) = group.simplices.first() {
                     if let Some(s) = hull.facets.get(id) {
                         kept.push((first, id));
-                        push(s.vertices.clone());
+                        push(s.vertices().into());
                     }
                 }
                 core::mem::take(&mut group.vertices)
@@ -423,7 +423,7 @@ fn classify_built(
     }
     for &(s, id) in &kept {
         if let Some(facet) = hull.facets.get(id) {
-            for (slot, &neighbor) in facet.neighbors.iter().enumerate() {
+            for (slot, neighbor) in facet.neighbors().enumerate() {
                 if let Some(other) = index_of.get(neighbor) {
                     simplices[s as usize].neighbors[slot] = other;
                 }
@@ -1076,23 +1076,24 @@ pub(crate) mod tests {
         let sequential = built(Execution::Sequential);
         let chain = sequential.strict_edges;
         let mut proved = sequential.proved_interior.clone();
-        let mut parallel = built(Execution::Parallel).proved_interior;
         proved.sort_unstable();
-        parallel.sort_unstable();
-        assert_eq!(
-            proved, parallel,
-            "sequential and parallel prove the same points"
-        );
+        // The parallel build inserts in another order and may prove other
+        // points; its partition is the same (design §6).
+        let parallel = built(Execution::Parallel);
+        let parallel_proved = parallel.proved_interior.clone();
 
         let reused = classify_built(sequential, Execution::Sequential).unwrap();
+        let parallel = classify_built(parallel, Execution::Parallel).unwrap();
         let mut reference = built(Execution::Sequential);
         reference.proved_interior.clear();
         let reference = classify_built(reference, Execution::Sequential).unwrap();
         check(&reused);
-        assert_eq!(reused.vertices, reference.vertices);
-        assert_eq!(reused.coplanar_points, reference.coplanar_points);
-        assert_eq!(reused.interior_points, reference.interior_points);
-        for p in &proved {
+        for c in [&reused, &parallel] {
+            assert_eq!(c.vertices, reference.vertices);
+            assert_eq!(c.coplanar_points, reference.coplanar_points);
+            assert_eq!(c.interior_points, reference.interior_points);
+        }
+        for p in proved.iter().chain(&parallel_proved) {
             assert!(
                 reference.interior_points.binary_search(p).is_ok(),
                 "{p} is interior"
