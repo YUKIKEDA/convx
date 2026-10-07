@@ -60,44 +60,81 @@ const fn relative(n: u32) -> f64 {
     (n + 1) as f64 * U
 }
 
-/// The sign of `det` when `|det|` exceeds `relative * permanent + 4 η x`.
-#[inline(always)]
-fn certify(det: f64, relative: f64, permanent: f64, x: f64) -> Option<Sign> {
-    let bound = relative * permanent + FOUR_ETA * x;
-    if det > bound {
-        Some(Sign::Positive)
-    } else if -det > bound {
-        Some(Sign::Negative)
-    } else {
-        None
+/// A determinant evaluated in `f64` and the bound on its error.
+#[derive(Clone, Copy)]
+struct Estimate {
+    det: f64,
+    bound: f64,
+}
+
+impl Estimate {
+    /// `det` with the bound `relative * permanent + 4 η x`.
+    #[inline(always)]
+    fn new(det: f64, relative: f64, permanent: f64, x: f64) -> Self {
+        Self {
+            det,
+            bound: relative * permanent + FOUR_ETA * x,
+        }
+    }
+
+    /// The sign of the determinant when its absolute value exceeds the
+    /// bound.
+    #[inline(always)]
+    fn sign(self) -> Option<Sign> {
+        if self.det > self.bound {
+            Some(Sign::Positive)
+        } else if -self.det > self.bound {
+            Some(Sign::Negative)
+        } else {
+            None
+        }
     }
 }
 
 /// The sign of the orientation of `origin` followed by `points`, or of the
 /// lifted orientation when `lifted`, for k ≤ 4. `None` when the bound does
 /// not certify it, or when no formula here covers the size.
+///
+/// `points` holds k rows of the dimension of `origin`: one per coordinate,
+/// and one more when `lifted`.
 #[inline]
 pub(super) fn sign(origin: &[f64], points: &[&[f64]], lifted: bool) -> Option<Sign> {
+    estimate(origin, points, lifted)?.sign()
+}
+
+/// The determinant [`sign`] decides and its bound, or `None` when no formula
+/// here covers the size.
+#[inline(always)]
+fn estimate(origin: &[f64], points: &[&[f64]], lifted: bool) -> Option<Estimate> {
     let dim = origin.len();
+    debug_assert_eq!(
+        points.len(),
+        dim + usize::from(lifted),
+        "a determinant of size k needs k rows"
+    );
+    debug_assert!(
+        points.iter().all(|p| p.len() == dim),
+        "every row needs the dimension of the origin"
+    );
     let diff = |i: usize, j: usize| points[i][j] - origin[j];
     match (dim, lifted) {
-        (2, false) => orient2([diff(0, 0), diff(0, 1)], [diff(1, 0), diff(1, 1)]),
+        (2, false) => Some(orient2([diff(0, 0), diff(0, 1)], [diff(1, 0), diff(1, 1)])),
         (3, false) => {
             let row = |i: usize| [diff(i, 0), diff(i, 1), diff(i, 2)];
-            orient3(row(0), row(1), row(2))
+            Some(orient3(row(0), row(1), row(2)))
         }
         (4, false) => {
             let row = |i: usize| [diff(i, 0), diff(i, 1), diff(i, 2), diff(i, 3)];
-            orient4(row(0), row(1), row(2), row(3))
+            Some(orient4(row(0), row(1), row(2), row(3)))
         }
-        (1, true) => lifted1(diff(0, 0), diff(1, 0)),
+        (1, true) => Some(lifted1(diff(0, 0), diff(1, 0))),
         (2, true) => {
             let row = |i: usize| [diff(i, 0), diff(i, 1)];
-            lifted2(row(0), row(1), row(2))
+            Some(lifted2(row(0), row(1), row(2)))
         }
         (3, true) => {
             let row = |i: usize| [diff(i, 0), diff(i, 1), diff(i, 2)];
-            lifted3(row(0), row(1), row(2), row(3))
+            Some(lifted3(row(0), row(1), row(2), row(3)))
         }
         _ => None,
     }
@@ -134,20 +171,20 @@ fn first3(row: [f64; 4]) -> [f64; 3] {
 
 /// Orientation, k = 2: `n = 4`. Each of the two products underflows by at
 /// most `η / 2`, so `X = 1`.
-fn orient2(a: [f64; 2], b: [f64; 2]) -> Option<Sign> {
+fn orient2(a: [f64; 2], b: [f64; 2]) -> Estimate {
     let (det, permanent) = minor2(a, b);
-    certify(det, relative(4), permanent, 1.0)
+    Estimate::new(det, relative(4), permanent, 1.0)
 }
 
 /// Orientation, k = 3: [`minor3`], `n = 8`. Each of the six products of the
 /// minors underflows by at most `η / 2`, scaled by the column-2 entry it is
 /// multiplied with; each of the three outer products by `η / 2`. So
 /// `X = |a2| + |b2| + |c2| + 2`.
-fn orient3(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Option<Sign> {
+fn orient3(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Estimate {
     let (a2, b2, c2) = (first2(a), first2(b), first2(c));
     let (det, permanent) = minor3((a, b, c), (minor2(b2, c2), minor2(a2, c2), minor2(a2, b2)));
     let x = (a[2].abs() + b[2].abs()) + c[2].abs() + 2.0;
-    certify(det, relative(8), permanent, x)
+    Estimate::new(det, relative(8), permanent, x)
 }
 
 /// The six minors of columns 0 and 1 of four rows, in the order
@@ -191,23 +228,23 @@ fn expand4(rows: [[f64; 3]; 4], column: [f64; 4]) -> (f64, f64, [f64; 4]) {
 /// of its column-2 entries, at most `Z = |a2| + |b2| + |c2| + |d2|`, and
 /// is scaled by the column-3 entry; each of the four outer products adds
 /// `η / 2`. So `X = (|a3| + |b3| + |c3| + |d3|) (Z + 2) + 2`.
-fn orient4(a: [f64; 4], b: [f64; 4], c: [f64; 4], d: [f64; 4]) -> Option<Sign> {
+fn orient4(a: [f64; 4], b: [f64; 4], c: [f64; 4], d: [f64; 4]) -> Estimate {
     let rows = [a, b, c, d];
     let (det, permanent, _) = expand4(rows.map(first3), rows.map(|r| r[3]));
     let z = (a[2].abs() + b[2].abs()) + (c[2].abs() + d[2].abs());
     let s = (a[3].abs() + b[3].abs()) + (c[3].abs() + d[3].abs());
-    certify(det, relative(12), permanent, s * (z + 2.0) + 2.0)
+    Estimate::new(det, relative(12), permanent, s * (z + 2.0) + 2.0)
 }
 
 /// Lifted orientation, D = 1: rows `(a, a^2)` and `(b, b^2)`,
 /// `det = a b^2 - a^2 b`. A square carries 3 roundings, a product 5, the
 /// difference 6. Each square underflows by at most `η / 2`, scaled by the
 /// other coordinate; each product by `η / 2`. So `X = |a| + |b| + 1`.
-fn lifted1(a: f64, b: f64) -> Option<Sign> {
+fn lifted1(a: f64, b: f64) -> Estimate {
     let (la, lb) = (a * a, b * b);
     let (p, q) = (a * lb, la * b);
     let x = a.abs() + b.abs() + 1.0;
-    certify(p - q, relative(6), p.abs() + q.abs(), x)
+    Estimate::new(p - q, relative(6), p.abs() + q.abs(), x)
 }
 
 /// Lifted orientation, D = 2: rows `(x, y, x^2 + y^2)`, expanded along the
@@ -217,14 +254,14 @@ fn lifted1(a: f64, b: f64) -> Option<Sign> {
 /// minor; a minor by `η`, scaled by its lifted entry; each outer product
 /// by `η / 2`. So `X` is the sum of the minors' permanents, of the lifted
 /// entries, and 2.
-fn lifted2(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> Option<Sign> {
+fn lifted2(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> Estimate {
     let lift = |p: [f64; 2]| p[0] * p[0] + p[1] * p[1];
     let (la, lb, lc) = (lift(a), lift(b), lift(c));
     let (bc, ac, ab) = (minor2(b, c), minor2(a, c), minor2(a, b));
     let det = (la * bc.0 - lb * ac.0) + lc * ab.0;
     let permanent = (la * bc.1 + lb * ac.1) + lc * ab.1;
     let x = ((bc.1 + ac.1) + ab.1) + ((la + lb) + lc) + 2.0;
-    certify(det, relative(11), permanent, x)
+    Estimate::new(det, relative(11), permanent, x)
 }
 
 /// Lifted orientation, D = 3: [`expand4`] with column 3 the lifted entries
@@ -234,18 +271,19 @@ fn lifted2(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> Option<Sign> {
 /// as in [`orient4`], scaled by its lifted entry; each outer product by
 /// `η / 2`. So `X = 2 (sum of the minors' permanents) + (sum of the lifted
 /// entries) (Z + 2) + 2`.
-fn lifted3(a: [f64; 3], b: [f64; 3], c: [f64; 3], d: [f64; 3]) -> Option<Sign> {
+fn lifted3(a: [f64; 3], b: [f64; 3], c: [f64; 3], d: [f64; 3]) -> Estimate {
     let rows = [a, b, c, d];
     let lifts = rows.map(|p| (p[0] * p[0] + p[1] * p[1]) + p[2] * p[2]);
     let (det, permanent, minors) = expand4(rows, lifts);
     let z = (a[2].abs() + b[2].abs()) + (c[2].abs() + d[2].abs());
     let l = (lifts[0] + lifts[1]) + (lifts[2] + lifts[3]);
     let m = (minors[0] + minors[1]) + (minors[2] + minors[3]);
-    certify(det, relative(16), permanent, 2.0 * m + l * (z + 2.0) + 2.0)
+    Estimate::new(det, relative(16), permanent, 2.0 * m + l * (z + 2.0) + 2.0)
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::exact::{exponent_shift, BigInt};
     use super::super::{exact, LiftedHeight, Rows};
     use super::*;
 
@@ -566,5 +604,147 @@ mod tests {
             "the fourth axis keeps the sign"
         );
         assert_eq!(semi_of(&embedded, false), None);
+    }
+
+    /// `x 2^1074`, an integer for every finite `x`.
+    fn int(x: f64) -> BigInt {
+        BigInt::from_f64_scaled(x, 0).unwrap()
+    }
+
+    /// `2^k`.
+    fn pow2(k: u64) -> BigInt {
+        let mut power = int(2f64.powi((k % 1074) as i32 - 1074));
+        for _ in 0..k / 1074 {
+            power = power.mul(&int(1.0)).unwrap();
+        }
+        power
+    }
+
+    /// The determinant of the square matrix `rows` over `columns`, by
+    /// cofactor expansion along the first row.
+    fn cofactor_expansion(rows: &[Vec<BigInt>], columns: &[usize]) -> BigInt {
+        let Some((first, below)) = rows.split_first() else {
+            return pow2(0);
+        };
+        let mut sum = int(0.0);
+        for (i, &column) in columns.iter().enumerate() {
+            let rest: Vec<usize> = columns.iter().copied().filter(|&c| c != column).collect();
+            let term = first[column]
+                .mul(&cofactor_expansion(below, &rest))
+                .unwrap();
+            sum = if i % 2 == 0 {
+                sum.add(&term)
+            } else {
+                sum.sub(&term)
+            }
+            .unwrap();
+        }
+        sum
+    }
+
+    /// The error `fl(E) - E` of the determinant the stage computes and its
+    /// bound, both times one positive power of two. `E` is the determinant
+    /// of the exact differences, with the exact `|d_i|^2` as the lifted
+    /// column, expanded over integers here.
+    fn error_and_bound(points: &[Vec<f64>], lifted: bool) -> (BigInt, BigInt) {
+        let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+        let Estimate { det, bound } = estimate(refs[0], &refs[1..], lifted).unwrap();
+        assert!(det.is_finite() && bound.is_finite(), "{points:?}");
+        // Every coordinate is a multiple of 2^-shift.
+        let base = points
+            .iter()
+            .flatten()
+            .filter_map(|&x| exponent_shift(x))
+            .min()
+            .unwrap_or(0)
+            .min(1074);
+        let shift = 1074 - base;
+        let rows: Vec<Vec<BigInt>> = points[1..]
+            .iter()
+            .map(|p| {
+                let mut row: Vec<BigInt> = p
+                    .iter()
+                    .zip(&points[0])
+                    .map(|(&x, &o)| {
+                        let scaled = |x| BigInt::from_f64_scaled(x, base).unwrap();
+                        scaled(x).sub(&scaled(o)).unwrap()
+                    })
+                    .collect();
+                if lifted {
+                    let norm = row
+                        .iter()
+                        .fold(int(0.0), |sum, d| sum.add(&d.mul(d).unwrap()).unwrap());
+                    row.push(norm);
+                }
+                row
+            })
+            .collect();
+        let columns: Vec<usize> = (0..rows.len()).collect();
+        let exact = cofactor_expansion(&rows, &columns);
+        assert_eq!(exact.sign(), exact_of(points, lifted), "{points:?}");
+        // `exact` is E 2^(shift degree) and `int(v)` is v 2^1074, so both
+        // sides are brought to 2^(shift degree + 1074).
+        let degree = (points[0].len() + 2 * usize::from(lifted)) as u64;
+        let lift = pow2(shift * degree);
+        let error = int(det)
+            .mul(&lift)
+            .unwrap()
+            .sub(&exact.mul(&pow2(1074)).unwrap())
+            .unwrap();
+        (error, int(bound).mul(&lift).unwrap())
+    }
+
+    /// Whether `bound >= factor |error|`.
+    fn covers(bound: &BigInt, error: &BigInt, factor: u32) -> bool {
+        let scaled = (0..factor).fold(int(0.0), |sum, _| sum.add(error).unwrap());
+        bound.sub(&scaled).unwrap().sign() != Sign::Negative
+            && bound.add(&scaled).unwrap().sign() != Sign::Negative
+    }
+
+    /// Every coordinate near `2^(-1074 / degree)`, where the products of a
+    /// monomial underflow.
+    fn underflowing(rng: &mut Rng, dim: usize, lifted: bool, trial: usize) -> Vec<Vec<f64>> {
+        let degree = (dim + 2 * usize::from(lifted)) as i32;
+        let scale = 2f64.powi(-1074 / degree - 60 + (trial % 80) as i32);
+        (0..count(dim, lifted))
+            .map(|_| (0..dim).map(|_| rng.unit() * scale).collect())
+            .collect()
+    }
+
+    /// The bound is derived as a worst case, which no input here reaches,
+    /// so a smaller constant can pass every test of a sign. This test pins
+    /// the distance instead. Over each family, the bound stays a fixed
+    /// factor above the exact error of the computed determinant, and some
+    /// input comes within twice that factor, so a constant cut in half
+    /// fails the first assertion.
+    #[test]
+    fn the_bound_keeps_its_measured_margin() {
+        /// Per formula, in the order of `FORMULAS`: the bound is at least
+        /// this many times the error over the cancelling inputs, and over
+        /// the underflowing ones.
+        const MARGIN: [[u32; 2]; 6] = [[3, 3], [3, 3], [5, 4], [3, 3], [4, 3], [4, 3]];
+        let mut rng = Rng(21);
+        for ((dim, lifted), margin) in FORMULAS.into_iter().zip(MARGIN) {
+            let mut near = [0_usize; 2];
+            for trial in 0..3000 {
+                let family = trial % 2;
+                let points = if family == 0 {
+                    let offset = [0.0, 1.0, 1e3, 1e6][trial / 2 % 4];
+                    near_degenerate(&mut rng, dim, lifted, offset)
+                } else {
+                    underflowing(&mut rng, dim, lifted, trial / 2)
+                };
+                let (error, bound) = error_and_bound(&points, lifted);
+                assert!(
+                    covers(&bound, &error, margin[family]),
+                    "dim {dim}, lifted {lifted}, family {family}: {points:?}"
+                );
+                near[family] += usize::from(!covers(&bound, &error, 2 * margin[family]));
+            }
+            assert!(
+                near.iter().all(|&n| n > 0),
+                "dim {dim}, lifted {lifted}: {near:?}"
+            );
+        }
     }
 }
