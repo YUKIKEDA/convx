@@ -467,20 +467,25 @@ fn inserted(input: &Input<'_>, sites: &insert::Sites) -> Result<Complex, ConvexH
             if n < c || !mesh.is_finite(n) {
                 continue;
             }
+            let mut test = || -> Result<bool, ConvexHullError> {
+                let Some(back) = mesh.back(n, c) else {
+                    debug_assert!(false, "neighbors are symmetric");
+                    return Ok(false);
+                };
+                ids.clear();
+                ids.extend_from_slice(mesh.vertices_of(c));
+                ids.push(mesh.vertices_of(n)[back]);
+                Ok(mesh.lifted_ids(&ids)? == Sign::Zero)
+            };
             let cospherical = match mesh.across(c, slot) {
                 insert::Across::Cospherical => true,
                 insert::Across::Distinct => false,
-                insert::Across::Unknown => {
-                    let Some(back) = mesh.back(n, c) else {
-                        debug_assert!(false, "neighbors are symmetric");
-                        continue;
-                    };
-                    ids.clear();
-                    ids.extend_from_slice(mesh.vertices_of(c));
-                    ids.push(mesh.vertices_of(n)[back]);
-                    mesh.lifted_ids(&ids)? == Sign::Zero
-                }
+                insert::Across::Unknown => test()?,
             };
+            debug_assert!(
+                mesh.across(c, slot) == insert::Across::Unknown || test()? == cospherical,
+                "the insertion's record matches the lifted orientation"
+            );
             if cospherical {
                 let (x, y) = (root(&mut parent, c), root(&mut parent, n));
                 parent[x as usize] = y;

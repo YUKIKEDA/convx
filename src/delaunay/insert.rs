@@ -39,8 +39,11 @@
 //!
 //! The insertion also records, for each face it links to a finite simplex
 //! outside the cavity, whether the two simplices are cospherical: the
-//! conflict test already evaluated that lifted orientation. Only a face
-//! between two new simplices has no recorded answer.
+//! conflict test already evaluated that lifted orientation. Two new
+//! simplices whose boundary faces lie in one finite cavity simplex are not
+//! cospherical, since together they hold its sites and `q`, which is
+//! strictly inside its circumsphere. Only the other faces between new
+//! simplices have no recorded answer.
 
 use crate::hull::input::Input;
 use crate::hull::ConvexHullError;
@@ -60,8 +63,9 @@ const INLINE: usize = 18;
 /// insertion left it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Across {
-    /// Not evaluated: a face between two simplices created together, or one
-    /// with a simplex at infinity.
+    /// Not decided: a face between two simplices created together from
+    /// boundary faces of different cavity simplices, or one with a simplex
+    /// at infinity.
     Unknown,
     /// The far vertex of either is not on the circumsphere of the other.
     Distinct,
@@ -598,6 +602,14 @@ impl<'a> Mesh<'a> {
                         debug_assert_eq!(self.neighbor(next, slot), NONE, "linked once");
                         self.set_neighbor(new, i, next);
                         self.set_neighbor(next, slot, new);
+                        // Both boundary faces in `c`: the two new simplices
+                        // hold the sites of `c` and `q`, and `q` is strictly
+                        // inside the circumsphere of a finite simplex of the
+                        // cavity, so the two are not cospherical.
+                        if cur == c && self.is_finite(c) {
+                            self.across[new as usize * k + i] = Across::Distinct;
+                            self.across[next as usize * k + slot] = Across::Distinct;
+                        }
                         break;
                     }
                     let entry = self.back(next, cur);
