@@ -6,9 +6,11 @@
 //! as the exact values their bit patterns name; nothing is translated or
 //! scaled first.
 //!
-//! Each predicate first evaluates in `f64` with a running absolute error
-//! bound (see [`filter`]). When the bound certifies the sign, that sign is
-//! returned. Otherwise the sign of the same polynomial is computed exactly:
+//! An orientation or lifted orientation with k ≤ 4 first evaluates in `f64`
+//! with a bound derived once for its formula (see [`semi_static`]). Every
+//! predicate the first stage leaves open evaluates in `f64` with a running
+//! absolute error bound (see [`filter`]). When a bound certifies the sign,
+//! that sign is returned. Otherwise the sign of the same polynomial is computed exactly:
 //! over integers on the stack when they hold it (see [`fixed`]), and over
 //! heap integers otherwise (see [`exact`]). Degree 1 compares the two coordinates directly; degrees 2
 //! to 4 use dedicated expansions; larger degrees use a filtered determinant.
@@ -16,6 +18,7 @@
 mod exact;
 mod filter;
 mod fixed;
+mod semi_static;
 
 pub(crate) use filter::two_point_cofactors;
 
@@ -304,6 +307,16 @@ fn filtered(rows: Rows<'_>) -> Option<Sign> {
             Row::Difference(p) => p[0].partial_cmp(&rows.origin[0]).map(from_ordering),
             Row::Direction(d) => d[0].partial_cmp(&0.0).map(from_ordering),
         };
+    }
+    if rows.direction.is_none() {
+        if let Some(sign) = semi_static::sign(rows.origin, rows.points, rows.lifted.is_some()) {
+            debug_assert_eq!(
+                Ok(sign),
+                exact::sign_exact(rows),
+                "the semi-static bound certified the wrong sign"
+            );
+            return Some(sign);
+        }
     }
     filtered_value(rows)?.certified_sign()
 }
