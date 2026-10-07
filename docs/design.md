@@ -415,6 +415,8 @@ impl<'a> VoronoiInterface<'a> {
 
 Vertex coordinates and sites, ray directions and `hull_facet`, and the vertices and rays of cells and boundary faces are each kept in flat arrays. The rays form one table for the whole diagram, and cells and boundary faces hold numbers into it. A cell and a boundary face that share a ray hold the same number.
 
+`VoronoiInterface::sites()` returns the array `[u32; 2]` by value, because its length is 2 at compile time. Every other list of numbers or coordinates has a length known only at run time and is returned as a slice.
+
 Vertex numbers on cells and on boundary faces are numbers in `vertices` after the merge. The same number is stored once. Order is fixed as follows.
 
 - Finite vertices are in lexicographic order of `sites`
@@ -462,7 +464,7 @@ impl ConvexHull {
 }
 ```
 
-Every field of the three results, `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram`, is private. They hold no `Vec` per item: each list is kept flat (an array of values and an array of start positions, or a fixed stride when the length is fixed) and published through borrowed views. So none can be built by a struct literal outside the crate. The results implement `Clone`, `Debug`, and `PartialEq`, and the views implement `Clone` and `Copy`. `ConvexHull` also keeps the boundary simplicial complex in a private field. `triangulation()` returns a view that borrows that complex.
+Every field of the three results, `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram`, is private. They hold no `Vec` per item: each list is kept flat (an array of values and an array of start positions, or a fixed stride when the length is fixed) and published through borrowed views. So none can be built by a struct literal outside the crate. The results implement `Clone`, `Debug`, and `PartialEq`, and the views implement `Clone`, `Copy`, and `Debug`. A view's `Debug` prints what its accessors return. `ConvexHull` also keeps the boundary simplicial complex in a private field. `triangulation()` returns a view that borrows that complex.
 
 ```rust
 pub struct TriangulationView<'a> { /* borrows the ConvexHull */ }

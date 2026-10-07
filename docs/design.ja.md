@@ -413,6 +413,8 @@ impl<'a> VoronoiInterface<'a> {
 
 頂点の座標とサイト、レイの方向と `hull_facet`、セルと境界面の頂点とレイは、それぞれ平坦な配列に持つ。レイは図全体で一つの表にまとめ、セルと境界面はその番号を持つ。同じレイを共有するセルと境界面は、同じ番号を指す。
 
+`VoronoiInterface::sites()` は、長さがコンパイル時に 2 と決まっているので、配列 `[u32; 2]` を値で返す。番号や座標のほかのリストは長さが実行時に決まるので、スライスで返す。
+
 セルと境界面の頂点番号は、まとめ後の `vertices` の番号である。同じ番号は一度だけ入れる。並べ方は次で固定する。
 
 - 有限頂点は、`sites` の辞書順
@@ -460,7 +462,7 @@ impl ConvexHull {
 }
 ```
 
-三つの結果型 `ConvexHull`、`DelaunayTriangulation`、`VoronoiDiagram` のフィールドはすべて非公開である。要素ごとの `Vec` は持たず、各リストを平坦な配列（値の配列と開始位置の配列、長さが決まっているときは固定の幅）に持ち、借用ビューで公開する。そのため、クレートの外では構造体リテラルで作れない。結果型は `Clone`、`Debug`、`PartialEq` を実装し、ビューは `Clone` と `Copy` を実装する。`ConvexHull` は境界の単体複体も非公開のフィールドに持つ。`triangulation()` は、この複体を借用するビューを返す。
+三つの結果型 `ConvexHull`、`DelaunayTriangulation`、`VoronoiDiagram` のフィールドはすべて非公開である。要素ごとの `Vec` は持たず、各リストを平坦な配列（値の配列と開始位置の配列、長さが決まっているときは固定の幅）に持ち、借用ビューで公開する。そのため、クレートの外では構造体リテラルで作れない。結果型は `Clone`、`Debug`、`PartialEq` を実装し、ビューは `Clone`、`Copy`、`Debug` を実装する。ビューの `Debug` は、そのアクセサが返す値を出力する。`ConvexHull` は境界の単体複体も非公開のフィールドに持つ。`triangulation()` は、この複体を借用するビューを返す。
 
 ```rust
 pub struct TriangulationView<'a> { /* ConvexHull を借用する */ }
