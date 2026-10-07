@@ -45,10 +45,10 @@ Dimension is decided by predicate signs. The basis grows one point at a time. If
 ```mermaid
 flowchart TD
     api["Public API: ConvexHull / DelaunayTriangulation / VoronoiDiagram"]
-    topo["Topology: Quickhull / logical facets / merge / commit of a non-interfering batch"]
+    topo["Topology: Quickhull / logical facets / merge"]
     pred["Predicates: orientation / distance sign / coplanar / error bound / exact sign"]
     num["Numeric kernel: dedicated formulas for k <= 4 / filtered determinant / cofactor direction for the unit normal / SIMD distance"]
-    mem["Memory: generational arena during construction / worker-local mutation"]
+    mem["Memory: generational arena during construction"]
     api --> topo --> pred --> num --> mem
 ```
 
@@ -120,7 +120,7 @@ Classification runs after outside points have been absorbed and adjacent coplana
 
 - If the distance to some logical facet is strictly positive, the point is outside. A successful result contains no outside point.
 - If the distance to every facet is strictly negative, the point is interior.
-- Construction may prove this first. A point that construction drops while every sign it tested was strictly negative is interior, and needs no sign against the logical facets. The facets tested are every facet of the initial simplex, or, when the point was in the outside set of a visible facet or was a vertex of only visible facets, every new simplex of that insertion. A point the cull proves inside counts as strictly negative (§6). In the first case the point is strictly inside the initial simplex, and the interior stays interior as the hull grows. In the second case, let $P$ be the hull the insertion is planned against, $a$ its apex, and $Q = \mathrm{conv}(P \cup \{a\})$. Every new simplex contains $a$. Their supporting planes are the planes through $a$ and the horizon ridges, and the intersection of their closed inner sides is the cone from $a$ over $P$. The point $p$ is strictly inside all of them, so the ray from $a$ through $p$ meets $P$ at some point $y$. The point $p$ was strictly outside a visible facet $f$. The apex is strictly outside $f$ too, and $y$, being in $P$, is on or inside the plane of $f$. A ray crosses one plane once, so $p$ lies on the open segment from $a$ to $y$, and $p \in Q$. Against a kept facet $g$, both $a$ (which does not see $g$) and $y$ are on or inside the plane of $g$, so $p$ is too, and $p$ is on that plane only when $a$ and $y$ both are. If $a$ is on the plane of $g$, the face of $Q$ in that plane contains the vertex $a$, so a new simplex lies in that plane with the same outer side, and $p$ would have sign zero against it. So $p$ is strictly inside every facet plane of $Q$: it is in the interior of $Q$. The sequential build plans each insertion against the hull as it is at that point, and the parallel build against the hull at the start of its round. Either way the final hull contains $Q$, so $p$ is in the interior of the final hull. Third, a vertex $v$ of $P$ whose every incident simplex is visible stops being a vertex of the complex after the insertion. It is interior too when its sign against every new simplex of that insertion is strictly negative. Since $v \in P$, it is on or inside the plane of every kept facet $g$. Suppose it is on that plane. The face of $P$ in that plane contains $v$ and is covered by boundary simplices in that plane. The boundary is a simplicial complex, so a simplex that contains $v$ has $v$ as a vertex. That simplex has the plane and outer side of $g$, so its sign against $a$ is that of $g$, and it is kept. Then $v$ is a vertex of a kept simplex, against the assumption. So $v$ is strictly inside every facet plane of $Q$, and it is in the interior of $Q$. As in the second case, the final hull contains $Q$, so $v$ is in the interior of the final hull. A point with any zero sign is classified by the rules here.
+- Construction may prove this first. A point that construction drops while every sign it tested was strictly negative is interior, and needs no sign against the logical facets. The facets tested are every facet of the initial simplex, or, when the point was in the outside set of a visible facet or was a vertex of only visible facets, every new simplex of that insertion. A point the cull proves inside counts as strictly negative (§6). In the first case the point is strictly inside the initial simplex, and the interior stays interior as the hull grows. In the second case, let $P$ be the hull the insertion is planned against, $a$ its apex, and $Q = \mathrm{conv}(P \cup \{a\})$. Every new simplex contains $a$. Their supporting planes are the planes through $a$ and the horizon ridges, and the intersection of their closed inner sides is the cone from $a$ over $P$. The point $p$ is strictly inside all of them, so the ray from $a$ through $p$ meets $P$ at some point $y$. The point $p$ was strictly outside a visible facet $f$. The apex is strictly outside $f$ too, and $y$, being in $P$, is on or inside the plane of $f$. A ray crosses one plane once, so $p$ lies on the open segment from $a$ to $y$, and $p \in Q$. Against a kept facet $g$, both $a$ (which does not see $g$) and $y$ are on or inside the plane of $g$, so $p$ is too, and $p$ is on that plane only when $a$ and $y$ both are. If $a$ is on the plane of $g$, the face of $Q$ in that plane contains the vertex $a$, so a new simplex lies in that plane with the same outer side, and $p$ would have sign zero against it. So $p$ is strictly inside every facet plane of $Q$: it is in the interior of $Q$. Each insertion is planned against the hull as it is at that point, and the final hull contains $Q$, so $p$ is in the interior of the final hull. Third, a vertex $v$ of $P$ whose every incident simplex is visible stops being a vertex of the complex after the insertion. It is interior too when its sign against every new simplex of that insertion is strictly negative. Since $v \in P$, it is on or inside the plane of every kept facet $g$. Suppose it is on that plane. The face of $P$ in that plane contains $v$ and is covered by boundary simplices in that plane. The boundary is a simplicial complex, so a simplex that contains $v$ has $v$ as a vertex. That simplex has the plane and outer side of $g$, so its sign against $a$ is that of $g$, and it is kept. Then $v$ is a vertex of a kept simplex, against the assumption. So $v$ is strictly inside every facet plane of $Q$, and it is in the interior of $Q$. As in the second case, the final hull contains $Q$, so $v$ is in the interior of the final hull. A point with any zero sign is classified by the rules here.
 - If some facet has distance exactly zero and the rest are negative or zero, the point is on the boundary. When several faces have distance zero, the test is per face.
 - On a face of distance zero, let the vertex set be $V$. Whether the point is outside $\mathrm{conv}(V)$ is decided by orientation on the input coordinates as they are. The ridges used are those that, in the face's current triangulation, belong to exactly one simplex of this face. Let $a$ be the vertex of that simplex that is not on the ridge. $q$ is the extreme point of smallest index that is not in $V$. Point $p$ is outside that ridge when the signs of $\mathrm{orient}(R, p, q)$ and $\mathrm{orient}(R, a, q)$ are both nonzero and opposite each other. For $D = 1$ there is no such ridge, and no boundary point other than the endpoints appears. If the point is outside on one or more faces, it goes into `vertices` and is added to the vertex set of every face where it was outside. If it is outside on no face, it goes into `coplanar_points`.
 - Vertices of the simplicial complex are classified by the same rule. A vertex that was extreme when it was inserted can later fall in the relative interior of an edge or a face, because strict visibility leaves a coplanar neighboring simplex in place. A face's vertex set is the set of extreme points of its simplicial vertices together with its distance-zero points. A simplicial vertex that is no longer extreme goes into `coplanar_points`.
@@ -151,7 +151,7 @@ struct Simplex {
 
 Numbers after publication are `u32` values packed after deletions. The generation on `FacetId` is used only to prevent dangling references during construction. Public API numbers are packed indices. A logical facet's plane is owned by the group and stored apart from each simplex's working normal.
 
-The arena is a generational index in chunks. Sequential construction has one thread inserting one point at a time and changing the hull in place. Parallel construction has workers building mutations locally and, after a barrier, committing them to the global arena in ascending input-index order. At commit, a worker-local `FacetId` is renumbered to a global number. Linking logical groups may be Union-Find, or a rebuild at commit.
+The arena is a generational index in chunks. Construction has one thread inserting one point at a time and changing the hull in place (§6). Linking logical groups may be Union-Find, or a rebuild after construction.
 
 For $D = 1$, a facet is a single endpoint. The neighbor list is empty. The two endpoints are the logical facets, and the volume is the absolute difference of the endpoint coordinates $|x_{\max} - x_{\min}|$.
 
@@ -221,46 +221,21 @@ Which points form the initial simplex is not fixed by the specification in gener
 
 ---
 
-## 6. Construction and the parallel commit
+## 6. Construction
 
 The hull in $D = 1$ is the two endpoints. In $D = 2$, the hull is the chain of strict turns. Before the chain is built, the points that can be proved inside are set aside. In each of eight directions ($\pm x$, $\pm y$, $\pm x \pm y$) the farthest representative is taken, and the smaller input index on a tie. The chain of strict turns of those points is the polygon used to discard. A point that the filtered orientation proves strictly left of every edge of that polygon is an interior point of the hull: the polygon's vertices are input points, so its strict interior lies in the strict interior of the hull. A point that is not proved stays, and the chain of the points that stay is the hull. When the polygon has fewer than three vertices, no point is discarded. No point is discarded either when discarding would not pay: up to 1024 representatives are taken at an even stride in input order, and fewer than one in 32 of them is proved inside. A point that is not discarded is handled by the chain and by classification, so this choice changes neither the hull nor the partition. The eight directions are compared as `f64` sums and differences. Their rounding changes only which input points the polygon takes, not the hull or the partition. Every $D \ge 3$ input absorbs points by Quickhull. If a point is strictly outside a facet, that facet is visible. Outsideness is the strict sign of the orientation. The certified working distance may prove that sign first (§1); otherwise the orientation is evaluated. The boundary ridges of the visible region are the horizon. The face across the horizon whose neighbor slot is rewritten is called $N$.
 
 The sequential build inserts outside points one at a time and changes the hull in place. Each inserted point is strictly outside some facet of the hull at that point. Which point is inserted, and in what order, is a deterministic order the implementation chooses, decided by the values and the order of the input alone. The visible region is removed, a new simplex joins the point to each horizon ridge, the outside sets of the removed facets are assigned again to the new simplices, and then the next point is taken. Each point is planned against the hull as it is at that point and applied at once. There is no reservation and no round.
 
-The published hull does not depend on the order of insertion. A logical facet is unique as a face of the polytope, and its plane is decided by its vertex set alone through the procedure of §5. A face that is not a simplex is split by the placing triangulation of §3, and a face that is a simplex is itself. The index partition is decided by whether a point is extreme, a non-extreme boundary point, or interior. `volume()` adds its terms in the order that triangulation fixes. So the sequential and the parallel build return the same published result on the same binary. That agreement follows from the uniqueness of the published result, not from the two builds sharing an extraction or a commit.
+The published hull does not depend on the order of insertion. A logical facet is unique as a face of the polytope, and its plane is decided by its vertex set alone through the procedure of §5. A face that is not a simplex is split by the placing triangulation of §3, and a face that is a simplex is itself. The index partition is decided by whether a point is extreme, a non-extreme boundary point, or interior. `volume()` adds its terms in the order that triangulation fixes. So any construction that reaches the same hull returns the same published result. A parallel construction may rely on this uniqueness.
 
-The parallel build (`parallel(true)`) absorbs points by the following batch extraction and the commit in input-index order. The sequential build does not use it.
+The hull is built sequentially only. The builders have no parallel switch.
 
-```mermaid
-flowchart TD
-    scan["Cull points proved inside"]
-    pick["Take the farthest point of each facet as a candidate"]
-    reserve["Examine the first K by largest distance, then smaller index, missing distance last; reserve unreserved T and H"]
-    conflict["Debug build: check that no prospective simplices conflict"]
-    commit["Commit in ascending input-index order"]
-    scan --> pick --> reserve --> conflict --> commit
-```
+The parallel build of earlier versions absorbed points by a batch extraction per round and a commit in input-index order. The extraction took the first $K = 64$ candidates by outside distance and reserved their visible facets and horizons. Measured, it did not beat the sequential build beyond the spread even on four threads. The extraction and the commit were serial, and a round's planning did not pay for waking the threads (`docs/adr/0004-sequential-hull-only.md`). It is no longer part of the specification, and neither is the `parallel` flag that selected it. A parallel hull construction returns to this section, with its public API, when a scheme that beats the sequential build by measurement is decided through a Grill.
 
-For a point $P$ the following names are used.
+Delaunay and Voronoi also run the one incremental insertion of §7, and the hull core they call for a flat lift is the same sequential construction.
 
-- $V(P)$: the visible facets to delete
-- $H(P)$: the horizon ridges
-- $N(P)$: the faces across the horizon
-- $T(P) = V(P) \cup N(P)$
-
-Two points $P, Q$ that share a batch satisfy
-
-$$
-T(P) \cap T(Q) = \emptyset, \quad H(P) \cap H(Q) = \emptyset
-$$
-
-Disjoint $T$ and $H$ are the condition for two points to share a batch. A horizon ridge lies in exactly two facets, one visible and one in $N$, so if $H(P)$ and $H(Q)$ meet, $T(P)$ and $T(Q)$ meet too. The $H$ condition therefore follows from the $T$ condition, and the implementation may decide by $T$ alone. Debug builds check that $H$ is disjoint. A prospective simplex is the vertices of a horizon ridge with that point added, known before commit. Two points conflict if $Q$ is strictly outside a prospective simplex of $P$ by orientation, or the reverse. Once $T$ and $H$ are disjoint, no conflict can occur. A prospective simplex of $P$ sits on a horizon ridge, and that ridge lies on exactly two facets: a visible one and one of $N(P)$, both supporting hyperplanes of the convex hull. The strict outer side of the prospective simplex is covered by the strict outer sides of those two facets, and a point strictly outside a facet's hyperplane sees that facet. So a $Q$ strictly outside a prospective simplex of $P$ sees a facet of $T(P)$, and the reverse holds the same way. The connectivity of the visible region is what puts every facet across the horizon into $N(P)$. Disjoint $H$ remains the condition that two commits do not write the same ridge. A debug build checks the conflict test on every batch. A release build does not evaluate it, because its cost grows with the square of the batch size and it never changes a batch.
-
-The order of packing into a batch is largest outside distance first. An equal distance takes the smaller input index, and a candidate with no distance packs after every candidate that has one. A round examines only the first $K = 64$ candidates in this order. The other candidates stay in their outside sets and become candidates in a later round. $K$ is a constant of the specification, not a public setting. The candidates late in the order are points near the hull, and most of their simplices are removed again when farther points are inserted. Examining only the first ones inserts the far points first and builds fewer simplices that are later removed. No point is taken before the first candidate, so every round inserts at least one point. A candidate whose walk of its visible region meets a facet already in the $T$ of a taken candidate is rejected there, and the rest of its region is not built; a candidate whose starting facet is already taken is rejected without a walk. Its region would meet that $T$ anyway, so the batch is the same. The order of applying the batch is ascending input index. `parallel` defaults to off. When it is on, the input point slice is immutable, workers build mutations locally, and a barrier commits them in the order above. A debug build checks that the published result of the parallel build equals that of the sequential build on the same input.
-
-Delaunay and Voronoi do not use this extraction. They run the one incremental insertion of §7 whatever `parallel` is set to, so the sequential and parallel settings agree even on diagonals that are not unique.
-
-After commit, no remaining facet has any input point strictly outside it.
+After construction, no remaining facet has any input point strictly outside it.
 
 What the public result promises across versions, after normalization, is that logical-facet vertex sets and neighbor sets agree. Identical output bytes across versions are not promised.
 
@@ -291,7 +266,7 @@ Delaunay returns `DegenerateDimension` only when the affine dimension of the ori
 
 Published simplices are only the projection of the lower hull. Vertices are stored in ascending order, and a swap of the last two points makes the orientation positive in the original space. When the exact orientation is zero, the ascending order is kept.
 
-When the orientation of the lifted points is exactly zero and several diagonals exist, the build returns the split chosen by that version's insertion order. Which of the sites are extreme is unique, so the extreme set is promised. Agreement of diagonals is limited to the sequential and parallel paths of the same binary.
+When the orientation of the lifted points is exactly zero and several diagonals exist, the build returns the split chosen by that version's insertion order. Which of the sites are extreme is unique, so the extreme set is promised. The same binary returns the same diagonals for the same input. Agreement of diagonals across versions is not promised.
 
 Dimension degeneracy is reported from the affine dimension of the input sites. The indices used in the report are those of the original sites. The report does not use the dimension count of the lift.
 
@@ -430,14 +405,13 @@ An interior site's cell has no ray. A cell of a site on the boundary of the conv
 
 ## 9. Public API
 
-The core input is row-major `&[f64]`. A builder takes a dimension and a point slice, switches `parallel`, and returns the result from `build`. The default is sequential.
+The core input is row-major `&[f64]`. A builder takes a dimension and a point slice and returns the result from `build`. Construction is sequential (§6).
 
 ```rust
-pub struct ConvexHullBuilder<'a> { /* dim, points, parallel */ }
+pub struct ConvexHullBuilder<'a> { /* dim, points */ }
 
 impl<'a> ConvexHullBuilder<'a> {
     pub fn new(dim: usize, points: &'a [f64]) -> Self;
-    pub fn parallel(self, enable: bool) -> Self;
     pub fn build(self) -> Result<ConvexHull, ConvexHullError>;
 }
 ```
@@ -496,11 +470,11 @@ impl StaticConvexHull<D> {
 }
 ```
 
-`StaticConvexHull` covers $1 \le D \le 8$. `StaticDelaunay` and `StaticVoronoi` also cover $1 \le D \le 8$, and `build` has the same shape. The return types are `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram` respectively. The three static types share one range. Delaunay is built by the incremental insertion of §7 and uses no internal hull of dimension $D+1$, so there is no reason for Delaunay and Voronoi to cover less than the hull. `build` takes `&[[f64; D]]` and passes `as_flattened()` to the core. Parallelism is the dynamic builder's responsibility.
+`StaticConvexHull` covers $1 \le D \le 8$. `StaticDelaunay` and `StaticVoronoi` also cover $1 \le D \le 8$, and `build` has the same shape. The return types are `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram` respectively. The three static types share one range. Delaunay is built by the incremental insertion of §7 and uses no internal hull of dimension $D+1$, so there is no reason for Delaunay and Voronoi to cover less than the hull. `build` takes `&[[f64; D]]` and passes `as_flattened()` to the core.
 
 The only conversion from `[[f64; D]]` to `&[f64]` is `as_flattened()`. There is no `unsafe`. The MSRV is 1.89. The AVX-512 level of `pulp` (its `x86-v4` feature) uses the AVX-512 intrinsics, which are stable from 1.89. `faer`, which provides the Voronoi linear solve, declares `rust-version` 1.84 from 0.21 on, and the last release usable on 1.80 is the unmaintained 0.19 series. The range of $D$ is emitted by a macro or by separate implementations, matching the stable-Rust constraint that a single `impl` cannot carry a constant bound.
 
-Dependencies are `faer`, `rayon`, `pulp`, and `thiserror`. The implementation language is Rust. Parallelism is switched by the runtime `parallel` flag. The build assumes `std`.
+Dependencies are `faer`, `pulp`, and `thiserror`. The implementation language is Rust. The build assumes `std`.
 
 The distance kernel is runtime CPU detection through `pulp`, up to AVX-512 (`x86-v4`). Every instruction-set level returns the same cull set. The cofactor elimination of facets with 5 to 9 points runs four facets at once, one per lane of a `pulp` AVX2 (`x86-v3`) vector, when the CPU has it, and one facet at a time otherwise. Each lane performs the operations of the single elimination in the same order, so the cofactors and their bounds are bitwise identical on every CPU.
 
@@ -533,7 +507,7 @@ $$
 
 - Containment is decided by a predicate.
 
-Sequential and `parallel(true)` agree, on the same binary, on the published hull and on Delaunay simplices. The hull's agreement follows from the uniqueness of the published result (§6), and a debug build compares every parallel build with the published result of the sequential build. Delaunay and Voronoi run the same sequential insertion whatever `parallel` is set to (§6).
+Construction is sequential only (§6), so on the same binary and the same input the published hull and the Delaunay simplices agree on every run.
 
 The inputs that are completion criteria are as follows.
 
@@ -551,9 +525,8 @@ Targets are measured in the following columns. Placing the columns is the specif
 | Correctness | The invariants above, and the oracles                                  |
 | Robustness  | Random, adversarial, near-degenerate, huge coordinates, high dimension |
 | Memory      | Bytes per input point                                                  |
-| Parallel    | Time at 1, 2, 4, 8, and 16 threads                                     |
 
-The Parallel column measures the hull. Delaunay and Voronoi are built by sequential insertion, so their time does not change with the thread count. A deterministic parallel insertion is a roadmap row.
+There is no Parallel column. When a parallel construction returns to §6, a column of the time at 1, 2, 4, 8, and 16 threads returns with it. A deterministic parallel insertion (Delaunay) is a roadmap row.
 
 ---
 
@@ -563,7 +536,7 @@ Phase 1 is the predicate kernel. Orientation, the distance sign, coplanar, the e
 
 Phase 2 is sequential Quickhull. A $D = 2$ input is built by the chain in §6. Insertion proceeds with simplices. After completion, coplanar simplices are merged, and then the distance-zero points are classified. This phase includes the index partition, `volume()`, the invariants, and the convex-hull inputs above.
 
-Phase 3 is parallel. It includes the batch extraction of §6, the reservation with its debug check of prospective-simplex conflicts, worker-local mutation, commit in index order, and the check of agreement with the published result of the sequential build. The sequential build does not use this extraction; it inserts one point at a time in place (`docs/adr/0003-sequential-hull-in-place.md`).
+Phase 3 was parallel. It included the batch extraction, the reservation with its debug check of prospective-simplex conflicts, worker-local mutation, commit in index order, and the check of agreement with the published result of the sequential build. The sequential build does not use this extraction; it inserts one point at a time in place (`docs/adr/0003-sequential-hull-in-place.md`). Measured, the parallel build did not beat the sequential build, so the extraction and the `parallel` flag are no longer part of the specification (`docs/adr/0004-sequential-hull-only.md`).
 
 Phase 4 is the static API, Delaunay, Voronoi, and the oracles. Phase 4 is not complete until the Delaunay inputs above pass. The pulling triangulation for a flat lift, and the procedure that merges cospherical simplices into one Voronoi vertex, are internal procedures of this phase.
 
