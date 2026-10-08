@@ -14,15 +14,14 @@
 //! insertion.
 //!
 //! The sequential build inserts one point at a time and changes the hull in
-//! place (design §6): it takes the candidate of the facets with outside
-//! points that packs first (the largest working distance, ties by the
-//! smaller index), plans its insertion against the hull as it is into
-//! reusable flat lists, and applies it at once. There is no round and no
-//! reservation.
+//! place (design §6): it takes a candidate of the facets with outside
+//! points from the farthest bucket of working distances ([`Candidates`]),
+//! plans its insertion against the hull as it is into reusable flat lists,
+//! and applies it at once. There is no round and no reservation.
 //!
 //! It is the only build (design §6, ADR 0004).
 
-use std::collections::BinaryHeap;
+use std::collections::VecDeque;
 
 use super::input::Input;
 use super::ridge::{fingerprint, pair_equal_keys_into};
@@ -477,28 +476,29 @@ impl<'a> SimplicialHull<'a> {
         Ok(())
     }
 
-    /// The candidate of every facet with outside points, for the heap of
+    /// The candidate of every facet with outside points, for the queue of
     /// [`Self::absorb_in_place`].
-    fn all_candidates(&self) -> BinaryHeap<Pending> {
-        self.facets
-            .iter()
-            .filter_map(|(id, facet)| {
-                facet.farthest().map(|(point, distance)| Pending {
+    fn all_candidates(&self) -> Candidates {
+        let mut pending = Candidates::default();
+        for (id, facet) in self.facets.iter() {
+            if let Some((point, distance)) = facet.farthest() {
+                pending.push(Pending {
                     point,
                     facet: id,
                     distance,
-                })
-            })
-            .collect()
+                });
+            }
+        }
+        pending
     }
 
     /// The sequential build (design §6): while a facet has outside points,
-    /// inserts the candidate that packs first, against the hull as it is,
+    /// inserts the next candidate of the queue, against the hull as it is,
     /// and applies the insertion at once.
     ///
     /// `pending` holds the candidate of every facet with outside points,
     /// possibly with entries of removed facets, which are dropped when they
-    /// reach the top. A live facet's candidate never changes, because its
+    /// are taken. A live facet's candidate never changes, because its
     /// outside set is final (see [`take_outside`]).
     fn absorb_in_place(&mut self) -> Result<(), ConvexHullError> {
         let mut pending = self.all_candidates();
@@ -518,7 +518,7 @@ impl<'a> SimplicialHull<'a> {
     }
 
     /// Adds the candidates of the facets in `slots` to `pending`.
-    fn push_candidates(&self, slots: &[u32], pending: &mut BinaryHeap<Pending>) {
+    fn push_candidates(&self, slots: &[u32], pending: &mut Candidates) {
         for &slot in slots {
             let facet = self.facets.facet(slot);
             if let Some((point, distance)) = facet.farthest() {
@@ -917,7 +917,7 @@ fn working_distance(input: &Input<'_>, facet: &Geometry<'_>, point: u32) -> Opti
 /// The point of `outside` farthest from a simplex by working distance, ties
 /// by the smaller index, with its distance. Without a working normal (or
 /// with a NaN distance) the smallest index is taken, and its distance is
-/// `None`, which packs after every finite distance.
+/// `None`, which comes after every finite distance.
 fn farthest(
     input: &Input<'_>,
     facet: &Geometry<'_>,
@@ -927,7 +927,7 @@ fn farthest(
     for &p in outside {
         let d = working_distance(input, facet, p).filter(|d| !d.is_nan());
         best = match best {
-            Some((b, bd)) if !packs_before((p, d), (b, bd)) => Some((b, bd)),
+            Some((b, bd)) if !candidate_before((p, d), (b, bd)) => Some((b, bd)),
             _ => Some((p, d)),
         };
     }
@@ -1174,22 +1174,18 @@ impl VertexSet {
     }
 }
 
-/// The next candidate to insert: the one that packs first, or under a
-/// test's override on this thread the one that packs last.
-fn next_candidate(pending: &mut BinaryHeap<Pending>) -> Option<Pending> {
+/// The next candidate to insert: the queue's next, or under a test's
+/// override on this thread the one from its other end.
+fn next_candidate(pending: &mut Candidates) -> Option<Pending> {
     #[cfg(test)]
-    if tests::PACKS_LAST_FIRST.with(core::cell::Cell::get) {
-        let mut all = core::mem::take(pending).into_vec();
-        let at = (0..all.len()).min_by_key(|&i| all[i])?;
-        let last = all.swap_remove(at);
-        *pending = all.into();
-        return Some(last);
+    if tests::NEAREST_FIRST.with(core::cell::Cell::get) {
+        return pending.pop_nearest();
     }
     pending.pop()
 }
 
-/// The candidate of a facet with outside points, ordered so that the
-/// greatest packs first ([`packs_before`]).
+/// The candidate of a facet with outside points: its farthest outside point
+/// and that point's working distance, when one was computed.
 #[derive(Clone, Copy, Debug)]
 struct Pending {
     point: u32,
@@ -1197,36 +1193,105 @@ struct Pending {
     distance: Option<f64>,
 }
 
-impl Ord for Pending {
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        let (a, b) = ((self.point, self.distance), (other.point, other.distance));
-        if packs_before(a, b) {
-            core::cmp::Ordering::Greater
-        } else if packs_before(b, a) {
-            core::cmp::Ordering::Less
-        } else {
-            core::cmp::Ordering::Equal
+/// Mantissa bits of a distance that select its bucket, beside the exponent:
+/// a bucket holds distances within a factor of `2^(1/4)` of each other.
+/// Timed against 0, 4, and 8 bits in `docs/bench.md` (#286).
+const BUCKET_MANTISSA_BITS: u32 = 2;
+
+/// The candidates waiting for insertion, in buckets by working distance.
+///
+/// [`Self::pop`] takes from the bucket of the largest distances, and inside
+/// a bucket the candidate pushed last. That is farthest first up to the
+/// width of a bucket, which keeps the number of created facets near that of
+/// an exact order, without the comparisons and the scattered memory of a
+/// heap over every candidate. In `docs/bench.md` (the order of candidates,
+/// #286) an exact heap was 1.06 to 1.14 times slower on the large `sphere`
+/// sets, and last in first out over all candidates up to 9 times slower on
+/// `cube`; the queue costs about 3% on `cube` D = 6 with 10^4 points.
+///
+/// The order depends only on the distances and on the order of the pushes,
+/// so it is decided by the values and the order of the input (design §6).
+/// The buckets cover only the range of keys pushed so far.
+#[derive(Default)]
+struct Candidates {
+    /// Key of `buckets[0]`.
+    low: u64,
+    /// Key of the highest bucket that may hold a candidate.
+    top: u64,
+    buckets: VecDeque<Vec<Pending>>,
+    /// Candidates without a positive finite distance, taken last.
+    rest: Vec<Pending>,
+}
+
+impl Candidates {
+    /// The bucket key of a positive finite distance: its exponent and its
+    /// top mantissa bits, which order as the distances do.
+    fn key(distance: Option<f64>) -> Option<u64> {
+        distance
+            .filter(|d| *d > 0.0 && d.is_finite())
+            .map(|d| d.to_bits() >> (52 - BUCKET_MANTISSA_BITS))
+    }
+
+    fn push(&mut self, candidate: Pending) {
+        let Some(key) = Self::key(candidate.distance) else {
+            self.rest.push(candidate);
+            return;
+        };
+        if self.buckets.is_empty() {
+            self.low = key;
+            self.top = key;
         }
+        for _ in key..self.low {
+            self.buckets.push_front(Vec::new());
+        }
+        self.low = self.low.min(key);
+        let at = (key - self.low) as usize;
+        while self.buckets.len() <= at {
+            self.buckets.push_back(Vec::new());
+        }
+        self.buckets[at].push(candidate);
+        self.top = self.top.max(key);
+    }
+
+    fn pop(&mut self) -> Option<Pending> {
+        while !self.buckets.is_empty() {
+            if let Some(candidate) = self.buckets[(self.top - self.low) as usize].pop() {
+                return Some(candidate);
+            }
+            if self.top == self.low {
+                break;
+            }
+            self.top -= 1;
+        }
+        self.rest.pop()
+    }
+
+    /// The other end of the queue: a candidate without a distance first,
+    /// then the one pushed first into the bucket of the smallest distances.
+    #[cfg(test)]
+    fn pop_nearest(&mut self) -> Option<Pending> {
+        if !self.rest.is_empty() {
+            return Some(self.rest.remove(0));
+        }
+        let bucket = self.buckets.iter_mut().find(|b| !b.is_empty())?;
+        Some(bucket.remove(0))
+    }
+
+    /// Every candidate, in no promised order.
+    #[cfg(test)]
+    fn into_vec(self) -> Vec<Pending> {
+        self.buckets
+            .into_iter()
+            .flatten()
+            .chain(self.rest)
+            .collect()
     }
 }
 
-impl PartialOrd for Pending {
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for Pending {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == core::cmp::Ordering::Equal
-    }
-}
-
-impl Eq for Pending {}
-
-/// Packing order of design §6: a larger working distance first, ties by the
-/// smaller index; a missing distance packs after every present one.
-fn packs_before(a: (u32, Option<f64>), b: (u32, Option<f64>)) -> bool {
+/// Which of two outside points of one facet is its candidate: the larger
+/// working distance, ties by the smaller index; a missing distance comes
+/// after every present one.
+fn candidate_before(a: (u32, Option<f64>), b: (u32, Option<f64>)) -> bool {
     match (a.1, b.1) {
         (Some(x), Some(y)) if x != y => x > y,
         (Some(_), None) => true,
@@ -1363,15 +1428,67 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn packing_order_is_distance_then_index() {
-        assert!(packs_before((7, Some(2.0)), (3, Some(1.0))));
-        assert!(!packs_before((3, Some(1.0)), (7, Some(2.0))));
+    fn candidates_come_farthest_bucket_first() {
+        // A bucket is an exponent and two mantissa bits: 8.0 and 9.0 share
+        // one, 10.0 is in the next, and 1.0 and 3.0e-5 are far below.
+        let candidate = |point: u32, distance: Option<f64>| Pending {
+            point,
+            facet: FacetId::new(point, 0),
+            distance,
+        };
+        let pushed = [
+            (0, Some(1.0)),
+            (1, Some(8.0)),
+            (2, None),
+            (3, Some(9.0)),
+            (4, Some(10.0)),
+            (5, Some(3.0e-5)),
+            (6, Some(0.0)),
+            (7, Some(f64::INFINITY)),
+        ];
+        let fill = || {
+            let mut queue = Candidates::default();
+            for (point, distance) in pushed {
+                queue.push(candidate(point, distance));
+            }
+            queue
+        };
+        // Farthest bucket first; inside a bucket and among the candidates
+        // without a positive finite distance, the last pushed first.
+        let mut queue = fill();
+        let order: Vec<u32> = core::iter::from_fn(|| queue.pop())
+            .map(|c| c.point)
+            .collect();
+        assert_eq!(order, [4, 3, 1, 0, 5, 7, 6, 2]);
+        // The test override takes from the other end.
+        let mut queue = fill();
+        let order: Vec<u32> = core::iter::from_fn(|| queue.pop_nearest())
+            .map(|c| c.point)
+            .collect();
+        assert_eq!(order, [2, 6, 7, 5, 0, 1, 3, 4]);
+        // Keys follow the distances, so a larger distance is never in a
+        // lower bucket.
+        let keys: Vec<u64> = [3.0e-5, 1.0, 8.0, 9.0, 10.0]
+            .iter()
+            .map(|&d| Candidates::key(Some(d)).unwrap())
+            .collect();
+        assert!(keys.windows(2).all(|w| w[0] <= w[1]));
+        assert_eq!(keys[2], keys[3]);
+        assert!(keys[3] < keys[4]);
+        assert_eq!(Candidates::key(Some(-1.0)), None);
+        assert_eq!(Candidates::key(Some(f64::NAN)), None);
+    }
+
+    #[test]
+    fn a_facets_candidate_is_by_distance_then_index() {
+        assert!(candidate_before((7, Some(2.0)), (3, Some(1.0))));
+        assert!(!candidate_before((3, Some(1.0)), (7, Some(2.0))));
         // Ties by the smaller index.
-        assert!(packs_before((3, Some(1.0)), (7, Some(1.0))));
-        assert!(!packs_before((7, Some(1.0)), (3, Some(1.0))));
-        // A missing distance packs after any present one, then by index.
-        assert!(packs_before((9, Some(-1.0)), (2, None)));
-        assert!(packs_before((2, None), (9, None)));
+        assert!(candidate_before((3, Some(1.0)), (7, Some(1.0))));
+        assert!(!candidate_before((7, Some(1.0)), (3, Some(1.0))));
+        // A missing distance comes after any present one, then by index.
+        assert!(candidate_before((9, Some(-1.0)), (2, None)));
+        assert!(candidate_before((2, None), (9, None)));
     }
 
     #[test]
@@ -1422,23 +1539,24 @@ pub(crate) mod tests {
             const { core::cell::Cell::new(None) };
         /// Plans on this thread that scanned copied rows.
         pub(super) static COPIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
-        /// Makes [`next_candidate`] take the candidate that packs last, so
-        /// that a build on this thread inserts in another order.
-        pub(super) static PACKS_LAST_FIRST: core::cell::Cell<bool> =
+        /// Makes [`next_candidate`] take from the other end of the queue
+        /// ([`Candidates::pop_nearest`]), so that a build on this thread
+        /// inserts in another order.
+        pub(super) static NEAREST_FIRST: core::cell::Cell<bool> =
             const { core::cell::Cell::new(false) };
     }
 
-    /// The published hull of `points`, taking the candidate that packs last
-    /// when `last_first`.
-    fn published(dim: usize, points: &[f64], last_first: bool) -> crate::ConvexHull {
-        PACKS_LAST_FIRST.with(|c| c.set(last_first));
+    /// The published hull of `points`, taking candidates from the other
+    /// end of the queue when `nearest_first`.
+    fn published(dim: usize, points: &[f64], nearest_first: bool) -> crate::ConvexHull {
+        NEAREST_FIRST.with(|c| c.set(nearest_first));
         let hull = crate::ConvexHullBuilder::new(dim, points).build();
-        PACKS_LAST_FIRST.with(|c| c.set(false));
+        NEAREST_FIRST.with(|c| c.set(false));
         hull.unwrap()
     }
 
     /// The published hull does not depend on the order of insertion (design
-    /// §6, ADR 0003): taking the candidate that packs last instead of first
+    /// §6, ADR 0003): taking candidates from the other end of the queue
     /// publishes the same hull, in general position and on inputs with
     /// coplanar points and faces that are not simplices.
     #[test]
@@ -1477,14 +1595,14 @@ pub(crate) mod tests {
                 }
                 points.extend(v);
             }
-            let first = published(dim, &points, false);
-            let last = published(dim, &points, true);
-            assert_eq!(first, last, "D = {dim}, {family}");
+            let farthest = published(dim, &points, false);
+            let nearest = published(dim, &points, true);
+            assert_eq!(farthest, nearest, "D = {dim}, {family}");
         }
     }
 
     #[test]
-    fn taking_the_last_candidate_changes_the_insertion_order() {
+    fn taking_the_nearest_candidate_changes_the_insertion_order() {
         // The override bites: on a sphere the two orders build different
         // simplicial hulls slot by slot, so the test above compares two
         // constructions and not one.
@@ -1495,11 +1613,11 @@ pub(crate) mod tests {
             let norm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
             points.extend(v.iter().map(|x| x / norm));
         }
-        let first = build(3, &points);
-        PACKS_LAST_FIRST.with(|c| c.set(true));
-        let last = build(3, &points);
-        PACKS_LAST_FIRST.with(|c| c.set(false));
-        assert_ne!(snapshot(&first), snapshot(&last));
+        let farthest = build(3, &points);
+        NEAREST_FIRST.with(|c| c.set(true));
+        let nearest = build(3, &points);
+        NEAREST_FIRST.with(|c| c.set(false));
+        assert_ne!(snapshot(&farthest), snapshot(&nearest));
     }
 
     /// The sequential build of `points` with orphans copied from plans of
