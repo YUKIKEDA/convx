@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-None. The Grill of 2026-10-07 on the P6-11 spike (#269) chose to add no parallel hull now. The next row is named with the measurement of convx after P6.
+P6-14 (#276): a ParGeo-style fully parallel hull, at 4 and 16 threads.
 
 ## Dependencies
 
@@ -158,10 +158,12 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-10 | Refactor | Remove the parallel round protocol and the `parallel` flag                       | #267  | Done        |
 | P6-11 | Spike | Which coarse-grained parallel hull strategies can beat the sequential build?     | #269  | Done        |
 | P6-12 | Docs | Let construction record the planes a point lies on                                   | #236  | Set after Grill on #236 |
+| P6-13 | Task | Measure convx after P6 against Qhull and CGAL; rank the remaining gaps             | #275  | Done        |
+| P6-14 | Spike | Can a ParGeo-style fully parallel hull beat the sequential build at 4 and 16 threads? | #276  | Not started |
 
 ## Intentionally out of scope
 
 Items land here only through Grill → Issue.
 
-- A parallel hull build (#256, #269; Grill of 2026-10-07 on #269, option A). The round protocol lost to the sequential build, and of the coarse-grained strategies only parallel publication was never slower, with a ceiling of about 0.78 of the sequential build on four cores. The single-thread construction decides the comparison with Qhull, so no parallel path or `parallel` switch is added now. It returns through a Grill with a measurement that meets a stated criterion (`docs/adr/0004-sequential-hull-only.md`). A spike is such a measurement and adds no path to the crate: #276 asks whether a ParGeo-style fully parallel hull beats the sequential build, and its answer goes to a Grill.
+- A parallel hull build (#256, #269; Grill of 2026-10-07 on #269, option A). The round protocol lost to the sequential build, and of the coarse-grained strategies only parallel publication was never slower, with a ceiling of about 0.78 of the sequential build on four cores. The single-thread construction decides the comparison with Qhull, so no parallel path or `parallel` switch is added now. It returns through a Grill with a measurement that meets a stated criterion (`docs/adr/0004-sequential-hull-only.md`). A spike is such a measurement and adds no path to the crate: P6-14 (#276) asks whether a ParGeo-style fully parallel hull beats the sequential build, and its answer goes to a Grill.
 - Lock-free allocation (was P5-2, #26). Construction inserts one point at a time on one thread (§6), so no insert or remove in the facet store is concurrent. On the P2-7 `cube` sets measured in #26, inserts and removes in the arena of that time took under 1% of the build. It returns through Grill with a parallel construction.
