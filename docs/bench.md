@@ -371,12 +371,14 @@ The four rows under construction that follow `plan_region` are parts of it or be
 | --- | ---: |
 | Publication (`publish`) | 55.5% |
 | Edge unit normals (`edge_unit_normal`) | 15.7% |
-| A stable sort | 14.6% |
-| The lexicographic order (`lexicographic_order`) | 7.3% |
+| The lexicographic order of facets and of boundary simplices (`lexicographic_order`) | 7.3% |
 | Writing the lists (`Lists::push`, `push_iter`) | about 5% each |
 | Construction (`build_polygon`, the strict chain) | 26.6% |
+| The stable sort of the points before the chain (`strict_cycle`) | 14.6% |
 | Classification (`classify_chain`) | 11.6% |
 | Acceptance and duplicate detection (`accept`) | 5.2% |
+
+A second run of this set, 20 builds and 9.50 s of CPU time, was read with the callers of each function. It is the run that places the stable sort under `strict_cycle`. Its shares differ from the table by the noise of two runs: publication 57.2%, construction 27.0%, `strict_cycle` 24.6% with its sort 14.3%, and `edge_unit_normal` 17.3%. The table above is the first run.
 
 ### Delaunay `cube` at 10^5
 
@@ -397,5 +399,76 @@ At D = 2 the in-sphere test takes 2.4 s of the 7.47 s; the formula itself (`semi
 
 - **A share is not a saving.** It says where the time is, not how much a change would remove.
 - **Hull `sphere` D3**: the largest single part is the plane of each new facet, a working normal with its error bound and the cull plane. Taking the next candidate from the heap is 7.7%, and `memmove` 7.6%, most of it called from the control flow of `?` and from array construction, that is, large values returned by value. Publication and the pass after construction are 29% together. P6-16 (#286) prices the heap and the moves.
-- **Hull `sphere` D2**: publication is more than half. Sorting and ordering the edges are about 22% of `build()`, and the edge normals 15.7%. P6-17 (#287) is the design row for it.
+- **Hull `sphere` D2**: publication is more than half: the edge normals are 15.7% of `build()`, the lexicographic order 7.3%, and writing the lists about 10%. The stable sort is in construction, where the chain needs its points in order. P6-17 (#287) is the design row for publication.
 - **Delaunay D2 and D3**: insertion is three quarters, and predicates about half of `build()`. At D = 2 more than a third of the in-sphere time is in the dimension-generic entry around the formula. P6-18 (#288) is the design row for a dedicated insertion at D = 2 and D = 3.
+
+## The order of candidates in hull construction, convx `0630c0e` (#286)
+
+The spike P6-16: what the candidate heap of the sequential hull costs, and what values moved by value cost. It is the measurement behind the bucket queue of P6-19 (#291).
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `0630c0e`, and scratch copies of it, one per variant. rustc 1.97.1, `--release`, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11 |
+| Cores | One, every process pinned (processor affinity) |
+| Timed | `ConvexHullBuilder::new(dim, &pts).build()` on sets generated with `tests/common/generator.rs`, seed 1 |
+| Rounds | The variants alternated per round: 5 rounds × 3 builds, or 3 rounds × 1 for the long sets |
+| Reported | Median with min–max, in ms. A ratio is the variant's median over the heap's; "inside the spread" when the two ranges overlap |
+
+Every variant published the same vertex and facet counts as `main` and counted the facets it created. The patches of the variants are on #286; the scratch copies are not kept.
+
+### Orders that need no heap
+
+Last in, first out, and first in, first out, over all candidates.
+
+| Set | Heap (`main`) | Last in, first out | Ratio | First in, first out | Ratio | Facets created: heap / LIFO / FIFO |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `sphere` D3 10^4 | 37.8 (36.6–44.2) | 35.2 (33.7–43.5) | 0.93, inside the spread | 40.2 (37.9–43.9) | 1.06, inside the spread | 51,757 / 59,603 / 55,777 |
+| `sphere` D3 10^5 | 475 (458–518) | 392 (366–435) | 0.83 | 438 (421–491) | 0.92, inside the spread | 518,789 / 610,568 / 560,158 |
+| `sphere` D3 10^6 | 7194 (6970–7209) | 4327 (4259–4472) | 0.60 | 5550 (5506–5556) | 0.77 | 5,191,620 / 6,187,862 / 5,607,429 |
+| `sphere` D4 10^4 | 161 (154–169) | 178 (172–192) | 1.10 | 173 (161–188) | 1.07, inside the spread | 225,744 / 313,042 / 254,128 |
+| `sphere` D4 10^5 | 1967 (1937–1976) | 2017 (1951–2053) | 1.03, inside the spread | 1990 (1930–2037) | 1.01, inside the spread | 2,299,988 / 3,414,742 / 2,610,810 |
+| `sphere` D5 10^4 | 1021 (1014–1038) | 1235 (1221–1281) | 1.21 | 1118 (1084–1137) | 1.10 | 1,243,311 / 1,801,255 / 1,397,066 |
+| `sphere` D6 10^4 | 8552 (8406–8671) | 10776 (10748–10914) | 1.26 | 9206 (8946–9244) | 1.08 | 7,648,576 / 11,071,464 / 8,486,464 |
+| `cube` D3 10^6 | 153 (145–164) | 234 (222–243) | 1.53 | 180 (172–215) | 1.18 | 1,420 / 10,881 / 1,608 |
+| `cube` D4 10^5 | 42.8 (40.0–46.9) | 162 (154–174) | 3.77 | 47.3 (44.7–50.7) | 1.10, inside the spread | 14,048 / 170,308 / 19,700 |
+| `cube` D5 10^5 | 266 (254–293) | 2095 (2054–2165) | 7.87 | 363 (352–368) | 1.36 | 180,494 / 2,414,895 / 290,034 |
+| `cube` D6 10^4 | 701 (687–765) | 3130 (3054–3427) | 4.46 | 1042 (1019–1127) | 1.49 | 676,344 / 4,134,420 / 1,138,176 |
+| `cube` D6 10^5 | 3229 (3212–3266) | 28933 (28831–29658) | 8.96 | 5859 (5765–6019) | 1.81 | 2,161,784 / 29,498,054 / 4,358,876 |
+
+### A bucket queue, and smaller inline lists
+
+Candidates in buckets by the exponent and the top two mantissa bits of their distance, the highest bucket first, last in first out inside a bucket. The last two columns shrink to 4 the inline capacity of the plane-related short lists (`Small<(f64, f64), 10>`, `Small<&[f64], 10>`, `Small<f64, 8>`), which prices the copies of those values at D = 3 and D = 4; above D = 4 such a list falls back to the heap, so it is not timed there.
+
+| Set | Heap (`main`) | Bucket queue | Ratio | Facets created: heap / buckets | Inline capacity 4 | Ratio |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `sphere` D3 10^5 | 467 (452–500) | 429 (408–491) | 0.92, inside the spread | 518,789 / 517,417 | 458 (434–482) | 0.98, inside the spread |
+| `sphere` D3 10^6 | 7006 (6981–7248) | 6153 (6122–6526) | 0.88 | 5,191,620 / 5,179,549 | 6809 (6696–7408) | 0.97, inside the spread |
+| `sphere` D4 10^5 | 2221 (2192–2231) | 2081 (2065–2097) | 0.94 | 2,299,988 / 2,299,930 | 2153 (2113–2174) | 0.97 |
+| `sphere` D5 10^4 | 1119 (1110–1144) | 1110 (1098–1115) | 0.99, inside the spread | 1,243,311 / 1,248,597 | not applicable above D = 4 |  |
+| `cube` D3 10^6 | 164 (160–177) | 154 (147–163) | 0.94, inside the spread | 1,420 / 1,430 | 164 (157–183) | 1.00, inside the spread |
+| `cube` D5 10^5 | 283 (276–306) | 275 (267–291) | 0.97, inside the spread | 180,494 / 177,548 | not applicable above D = 4 |  |
+| `cube` D6 10^4 | 753 (741–800) | 774 (762–842) | 1.03, inside the spread | 676,344 / 706,020 | not applicable above D = 4 |  |
+| `cube` D6 10^5 | 3254 (3215–3283) | 3283 (3221–3304) | 1.01, inside the spread | 2,161,784 / 2,203,644 | not applicable above D = 4 |  |
+
+The width of a bucket, in single runs (ms), before the alternated run above:
+
+| Mantissa bits | `sphere` D3 10^5 | `cube` D5 10^5 | `cube` D6 10^4 |
+| ---: | ---: | ---: | ---: |
+| Heap (`main`) | 461 to 481 | 250 to 262 | 683 to 689 |
+| 0 | 397 to 424 | 254 to 270 | 761 to 774 |
+| 2 | 422 to 438 | 248 to 250 | 702 to 717 |
+| 4 | 425 to 431 | 255 to 264 | 706 to 718 |
+| 8 | 432 to 444 | 257 to 257 | 707 to 708 |
+
+A fourth order was tried and gave nothing: the farthest candidate of the facets the last insertion created, when its distance is at least τ times the heap's top (τ = 0, 0.25, 0.5, 0.75). On `sphere` D3 10^5 it timed 455 to 487 ms in single runs, against 446 to 481 ms for `main`.
+
+### Reading
+
+- **The heap's order is not waste.** Last in, first out is 0.60 to 0.83 of `main` on `sphere` D3 from 10^5 points while creating 18 to 19% more facets, 1.10 to 1.26 on `sphere` D4 10^4, D5, and D6, and 1.5 to 9.0 times slower on `cube`, where it creates 6 to 14 times the facets. First in, first out is 0.77 on `sphere` D3 10^6 and up to 1.81 on `cube`.
+- **The bucket queue** keeps the order up to the width of a bucket. It is 0.88 on `sphere` D3 10^6 and 0.94 on `sphere` D4 10^5, beyond the spread, and inside the spread on the other six sets (0.92 to 1.03), creating within 5% of the heap's facets.
+- **`cube` D6 10^4 is slower with the bucket queue by about 3%.** The alternated run is inside the spread there (1.03), but the single runs do not overlap (702 to 717 against 683 to 689), and the queue creates 4% more facets on that set. Two bits lose the least there among the widths tried.
+- **Values moved by value** cost 0.97 to 1.00, beyond the spread only on `sphere` D4 10^5.
+- The profile's 7.7% for `BinaryHeap::pop` at 10^5 understates the order's cost at 10^6: `main` takes 15 times as long for 10 times the points, and the last-in-first-out variant 11 times. What that order gains beyond the heap's own cost was not separated from the locality of working on new facets.
