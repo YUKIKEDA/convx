@@ -164,6 +164,7 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-16 | Spike | Hull construction: what do the candidate heap and by-value moves cost on sphere D3? | #286  | Done        |
 | P6-17 | Docs | Publish without redundant work, and compute facet planes on first use               | #287  | Set after Grill on #287 |
 | P6-18 | Docs | A dedicated Delaunay insertion for D = 2 and D = 3                                  | #288  | Set after Grill on #288 |
+| P6-19 | Feat | Hull: take candidates from a bucket queue by distance                               | #291  | Done        |
 
 ## Intentionally out of scope
 
