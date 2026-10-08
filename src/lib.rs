@@ -18,7 +18,7 @@ mod voronoi;
 
 pub use delaunay::{DelaunayBuilder, DelaunaySimplex, DelaunayTriangulation, Simplices};
 pub use hull::{
-    BoundarySimplex, ConvexHull, ConvexHullBuilder, ConvexHullError, Facet, Facets,
+    BoundarySimplex, ConvexHull, ConvexHullBuilder, ConvexHullError, Facet, Facets, Plane, Planes,
     TriangulationView,
 };
 pub use predicates::Sign;

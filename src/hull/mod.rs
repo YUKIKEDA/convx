@@ -14,5 +14,5 @@ pub(crate) mod store;
 
 pub use error::ConvexHullError;
 pub use publish::{
-    BoundarySimplex, ConvexHull, ConvexHullBuilder, Facet, Facets, TriangulationView,
+    BoundarySimplex, ConvexHull, ConvexHullBuilder, Facet, Facets, Plane, Planes, TriangulationView,
 };

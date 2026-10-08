@@ -36,7 +36,10 @@ fn one_dimension_two_points() {
     // Facets are ordered by vertex list: [0] (x = 3), then [1] (x = -2).
     assert_eq!(hull.boundary_cycle(0), Some(vec![0]));
     assert_eq!(hull.boundary_cycle(1), Some(vec![1]));
-    assert_eq!(hull.facets().get(0_u32).unwrap().normal(), vec![1.0]);
+    assert_eq!(
+        hull.planes().unwrap().get(0_u32).unwrap().normal(),
+        vec![1.0]
+    );
 }
 
 #[test]
