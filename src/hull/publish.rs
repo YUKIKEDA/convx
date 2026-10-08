@@ -72,9 +72,10 @@ impl<'a> ConvexHullBuilder<'a> {
 ///
 /// The planes of the facets are computed by the first call of
 /// [`ConvexHull::planes`] and kept, and so is the order of the boundary
-/// complex, by the first call that reads it. Two hulls are equal when what
-/// `build` computed is equal; whether either has computed those does not
-/// enter, and `Debug` computes neither.
+/// complex, by the first call that reads it. Two hulls are equal when
+/// every published value but the planes is equal; whether either had
+/// computed its planes or ordered its complex does not enter. `Debug`
+/// computes neither.
 #[derive(Clone)]
 pub struct ConvexHull {
     dim: usize,
@@ -97,9 +98,10 @@ pub struct ConvexHull {
     simplex_order: OnceLock<Vec<u32>>,
     /// Input coordinates of the extreme points, for `volume` and the planes.
     vertex_coordinates: Vec<f64>,
-    /// The planes of the facets, or why they could not be published, once
-    /// [`ConvexHull::planes`] has been called.
-    planes: OnceLock<Result<PlaneSet, ConvexHullError>>,
+    /// The planes of the facets once [`ConvexHull::planes`] has computed
+    /// them, or `None` when a plane is not finite, which the input decides.
+    /// A failure the input does not decide is not kept.
+    planes: OnceLock<Option<PlaneSet>>,
 }
 
 /// The planes of every facet, in public facet order.
@@ -112,8 +114,11 @@ struct PlaneSet {
 }
 
 impl PartialEq for ConvexHull {
-    /// Compares what `build` computed. The planes and the boundary complex
-    /// are functions of it, so they do not enter.
+    /// Compares every published value but the planes (design §9): the
+    /// boundary complex is compared simplex by simplex in its public order,
+    /// which orders it when it was not. The planes are a function of the
+    /// facets and the vertex coordinates, and computing them can fail, so
+    /// they do not enter.
     fn eq(&self, other: &Self) -> bool {
         self.dim == other.dim
             && self.representative == other.representative
@@ -123,6 +128,7 @@ impl PartialEq for ConvexHull {
             && self.facet_vertices == other.facet_vertices
             && self.facet_neighbors == other.facet_neighbors
             && self.vertex_coordinates == other.vertex_coordinates
+            && self.triangulation().iter().eq(other.triangulation().iter())
     }
 }
 
@@ -407,19 +413,41 @@ impl ConvexHull {
     /// The planes of the facets (design §5), by public facet number.
     ///
     /// The first call computes the plane of every facet and keeps them;
-    /// later calls return what was kept. A hull shared between threads
-    /// computes them once.
+    /// later calls, from any thread, return what was kept.
     ///
     /// # Errors
     ///
     /// [`ConvexHullError::NonFiniteFacetPlane`] when a normal or an offset
-    /// is not finite, and [`ConvexHullError::ExactEvaluationExhausted`].
-    /// The error is kept as well: every later call returns it, and no plane
-    /// is published. The hull itself is built either way.
+    /// is not finite. The input decides that, so it is kept as well: every
+    /// later call returns it, and no plane is published.
+    ///
+    /// [`ConvexHullError::ExactEvaluationExhausted`] when the work space of
+    /// an exact evaluation could not be allocated. That is not kept: the
+    /// next call computes the planes again.
+    ///
+    /// The hull itself is built either way.
     pub fn planes(&self) -> Result<Planes<'_>, ConvexHullError> {
-        match self.planes.get_or_init(|| self.plane_set()) {
-            Ok(set) => Ok(Planes { dim: self.dim, set }),
-            Err(error) => Err(error.clone()),
+        self.kept_planes(|| self.plane_set())
+    }
+
+    /// [`Self::planes`] with the computation as an argument: what is kept
+    /// is a set of planes or the fact that a plane is not finite. Several
+    /// threads may compute at once; one result is kept, and all return it.
+    fn kept_planes(
+        &self,
+        compute: impl FnOnce() -> Result<PlaneSet, ConvexHullError>,
+    ) -> Result<Planes<'_>, ConvexHullError> {
+        let kept = match self.planes.get() {
+            Some(kept) => kept,
+            None => match compute() {
+                Ok(set) => self.planes.get_or_init(|| Some(set)),
+                Err(ConvexHullError::NonFiniteFacetPlane) => self.planes.get_or_init(|| None),
+                Err(other) => return Err(other),
+            },
+        };
+        match kept {
+            Some(set) => Ok(Planes { dim: self.dim, set }),
+            None => Err(ConvexHullError::NonFiniteFacetPlane),
         }
     }
 
@@ -1047,6 +1075,59 @@ mod tests {
                 .collect();
             assert_eq!(cycles, read);
         }
+    }
+
+    #[test]
+    fn a_failure_the_input_does_not_decide_is_not_kept() {
+        let points = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+        let hull = ConvexHullBuilder::new(2, &points).build().unwrap();
+        // Exhausted work space: returned, and nothing is kept.
+        let exhausted = ConvexHullError::ExactEvaluationExhausted;
+        assert_eq!(
+            hull.kept_planes(|| Err(exhausted.clone())).err(),
+            Some(exhausted)
+        );
+        assert!(hull.planes.get().is_none());
+        // The next call computes the planes.
+        assert_eq!(hull.planes().unwrap().len(), 4);
+        // A plane that is not finite is kept: the computation does not run
+        // again, and neither does one that would now succeed.
+        let other = ConvexHullBuilder::new(2, &points).build().unwrap();
+        let not_finite = ConvexHullError::NonFiniteFacetPlane;
+        assert_eq!(
+            other.kept_planes(|| Err(not_finite.clone())).err(),
+            Some(not_finite.clone())
+        );
+        assert!(matches!(other.planes.get(), Some(None)));
+        assert_eq!(other.planes().err(), Some(not_finite));
+    }
+
+    #[test]
+    fn equality_compares_the_boundary_complex() {
+        // Two hulls of one input are equal, whether or not the complex of
+        // either has been ordered.
+        let points = [
+            0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0,
+            1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+        ];
+        let hull = ConvexHullBuilder::new(3, &points).build().unwrap();
+        let ordered = ConvexHullBuilder::new(3, &points).build().unwrap();
+        assert_eq!(ordered.triangulation().len(), 12);
+        assert_eq!(hull, ordered);
+        // A complex with two simplices of different facets exchanged is
+        // another hull, although the facets and the partition are the same.
+        let mut moved = ConvexHullBuilder::new(3, &points).build().unwrap();
+        let other = (0..moved.simplex_facets.len())
+            .find(|&i| moved.simplex_facets[i] != moved.simplex_facets[0])
+            .unwrap();
+        moved.simplex_facets.swap(0, other);
+        moved.simplex_order = OnceLock::new();
+        assert_ne!(hull, moved);
+        // So is one with a simplex in the other orientation.
+        let mut turned = ConvexHullBuilder::new(3, &points).build().unwrap();
+        turned.simplex_vertices.swap(1, 2);
+        turned.simplex_order = OnceLock::new();
+        assert_ne!(hull, turned);
     }
 
     #[test]

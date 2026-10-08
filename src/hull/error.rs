@@ -53,8 +53,9 @@ pub enum ConvexHullError {
         /// strictly raise the affine dimension. Length `actual_dim + 1`.
         spanning_points: Vec<u32>,
     },
-    /// The hull topology was decided, and the public plane could not be made
-    /// a finite `f64`. This plane is not used for topology.
+    /// The hull topology was decided, and a public plane could not be made
+    /// a finite `f64`. Returned by `ConvexHull::planes`, not by `build`:
+    /// the hull is built, and the plane is not used for topology.
     #[error("a facet plane is not representable as finite f64")]
     NonFiniteFacetPlane,
     /// The Delaunay topology was decided, and a circumcenter could not be made

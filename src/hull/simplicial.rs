@@ -1598,6 +1598,29 @@ pub(crate) mod tests {
             let farthest = published(dim, &points, false);
             let nearest = published(dim, &points, true);
             assert_eq!(farthest, nearest, "D = {dim}, {family}");
+            // Equality does not look at the planes, and the claim covers
+            // them, the split of faces that are not simplices, and the
+            // order in which `volume()` adds: each is compared by itself.
+            let planes = |hull: &crate::ConvexHull| -> Vec<(Vec<f64>, f64)> {
+                let planes = hull.planes().unwrap();
+                planes
+                    .iter()
+                    .map(|p| (p.normal().to_vec(), p.offset()))
+                    .collect()
+            };
+            assert_eq!(planes(&farthest), planes(&nearest), "D = {dim}, {family}");
+            assert!(
+                farthest
+                    .triangulation()
+                    .iter()
+                    .eq(nearest.triangulation().iter()),
+                "D = {dim}, {family}"
+            );
+            assert_eq!(
+                farthest.volume().to_bits(),
+                nearest.volume().to_bits(),
+                "D = {dim}, {family}"
+            );
         }
     }
 
