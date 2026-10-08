@@ -21,8 +21,11 @@ fn square_facets_planes_and_cycles() {
         .collect();
     assert_eq!(lists, vec![vec![0, 1], vec![0, 3], vec![1, 2], vec![2, 3]]);
     // Facet [0, 1] is y = 0 with outward normal (0, -1).
-    assert_eq!(hull.facets().get(0_u32).unwrap().normal(), vec![0.0, -1.0]);
-    assert_eq!(hull.facets().get(0_u32).unwrap().offset(), 0.0);
+    assert_eq!(
+        hull.planes().unwrap().get(0_u32).unwrap().normal(),
+        vec![0.0, -1.0]
+    );
+    assert_eq!(hull.planes().unwrap().get(0_u32).unwrap().offset(), 0.0);
     assert_eq!(hull.facets().get(0_u32).unwrap().neighbors(), vec![1, 2]);
     assert_eq!(hull.boundary_cycle(0), Some(vec![0, 1]));
     assert_eq!(hull.boundary_cycle(4), None);
@@ -52,7 +55,7 @@ fn cube_volume_cycles_and_outward_triangles() {
     expected.sort();
     assert_eq!(sorted, expected);
     for simplex in triangulation.iter() {
-        let facet = &hull.facets().get((simplex.facet as usize) as u32).unwrap();
+        let plane = hull.planes().unwrap().get(simplex.facet).unwrap();
         // The triangle's right-hand normal points along the facet normal.
         let p = |v: u32| -> [f64; 3] {
             let i = v as usize * 3;
@@ -71,7 +74,7 @@ fn cube_volume_cycles_and_outward_triangles() {
             u[2] * w[0] - u[0] * w[2],
             u[0] * w[1] - u[1] * w[0],
         ];
-        let dot: f64 = cross.iter().zip(facet.normal()).map(|(x, n)| x * n).sum();
+        let dot: f64 = cross.iter().zip(plane.normal()).map(|(x, n)| x * n).sum();
         assert!(dot > 0.0);
     }
     // Face z = 0 is [0, 1, 2, 3]; seen from below (outside) it runs 0, 2, 3, 1.
@@ -82,7 +85,7 @@ fn cube_volume_cycles_and_outward_triangles() {
         .unwrap();
     assert_eq!(hull.boundary_cycle(bottom as u32), Some(vec![0, 2, 3, 1]));
     assert_eq!(
-        hull.facets().get((bottom) as u32).unwrap().normal(),
+        hull.planes().unwrap().get(bottom as u32).unwrap().normal(),
         vec![0.0, 0.0, -1.0]
     );
 }
@@ -96,8 +99,14 @@ fn segment_in_one_dimension() {
     assert_eq!(hull.interior_points(), vec![0, 2]);
     assert_eq!(hull.facets().len(), 2);
     assert!(hull.facets().iter().all(|f| f.neighbors().is_empty()));
-    assert_eq!(hull.facets().get(0_u32).unwrap().normal(), vec![-1.0]);
-    assert_eq!(hull.facets().get(1_u32).unwrap().normal(), vec![1.0]);
+    assert_eq!(
+        hull.planes().unwrap().get(0_u32).unwrap().normal(),
+        vec![-1.0]
+    );
+    assert_eq!(
+        hull.planes().unwrap().get(1_u32).unwrap().normal(),
+        vec![1.0]
+    );
     assert_eq!(hull.boundary_cycle(1), Some(vec![4]));
     assert_eq!(hull.volume(), 6.0);
     assert_eq!(hull.triangulation().len(), 2);
@@ -137,36 +146,37 @@ fn planes_contain_their_vertices() {
                 / hull.vertices().len() as f64
         })
         .collect();
-    for facet in hull.facets().iter() {
+    let planes = hull.planes().unwrap();
+    for (facet, plane) in hull.facets().iter().zip(planes.iter()) {
         // A residual check alone passes a wrong normal (review of #39); the
         // centroid of the vertices must be strictly inside every plane.
         let inside: f64 = centroid
             .iter()
-            .zip(facet.normal())
+            .zip(plane.normal())
             .map(|(a, n)| a * n)
             .sum::<f64>()
-            + facet.offset();
+            + plane.offset();
         assert!(inside < 0.0);
-        let length: f64 = facet.normal().iter().map(|x| x * x).sum::<f64>().sqrt();
+        let length: f64 = plane.normal().iter().map(|x| x * x).sum::<f64>().sqrt();
         assert!((length - 1.0).abs() < 1e-14);
         for &v in facet.vertices().iter() {
             let x = &points[v as usize * 3..v as usize * 3 + 3];
             let value: f64 = x
                 .iter()
-                .zip(facet.normal())
+                .zip(plane.normal())
                 .map(|(a, n)| a * n)
                 .sum::<f64>()
-                + facet.offset();
+                + plane.offset();
             assert!(value.abs() < 1e-14);
         }
         for &v in hull.vertices().iter() {
             let x = &points[v as usize * 3..v as usize * 3 + 3];
             let value: f64 = x
                 .iter()
-                .zip(facet.normal())
+                .zip(plane.normal())
                 .map(|(a, n)| a * n)
                 .sum::<f64>()
-                + facet.offset();
+                + plane.offset();
             assert!(value < 1e-14);
         }
     }
@@ -193,10 +203,91 @@ fn input_errors_through_the_builder() {
 fn offset_overflow_is_a_non_finite_plane() {
     let m = f64::MAX;
     let points = [m, m / 2.0, m / 2.0, m, 0.0, 0.0];
+    // The hull builds: its topology and its partition do not need a plane.
+    let hull = ConvexHullBuilder::new(2, &points).build().unwrap();
+    assert_eq!(hull.vertices(), vec![0, 1, 2]);
+    assert_eq!(hull.facets().len(), 3);
+    assert_eq!(hull.triangulation().len(), 3);
+    // The planes are what cannot be published, on the first call and on
+    // every later one.
+    for _ in 0..2 {
+        assert_eq!(
+            hull.planes().err(),
+            Some(ConvexHullError::NonFiniteFacetPlane)
+        );
+    }
+}
+
+#[test]
+fn planes_are_computed_once_and_shared() {
+    use convx::{Plane, Planes};
+    // The two view types are public names: a caller can write them.
+    fn first<'a>(planes: Planes<'a>) -> Plane<'a> {
+        planes.get(0).unwrap()
+    }
+    let points = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+    let hull = ConvexHullBuilder::new(2, &points).build().unwrap();
+    let planes = hull.planes().unwrap();
+    assert_eq!(planes.len(), hull.facets().len());
+    assert!(!planes.is_empty());
+    assert!(planes.get(4).is_none());
+    assert_eq!(first(planes).normal(), [0.0, -1.0]);
+    assert_eq!(first(planes).offset(), 0.0);
+    // Facets [0, 1], [0, 3], [1, 2], [2, 3]: y = 0, x = 0, x = 1, y = 1.
+    let all: Vec<(Vec<f64>, f64)> = planes
+        .iter()
+        .map(|p| (p.normal().to_vec(), p.offset()))
+        .collect();
     assert_eq!(
-        ConvexHullBuilder::new(2, &points).build().err(),
-        Some(ConvexHullError::NonFiniteFacetPlane)
+        all,
+        [
+            (vec![0.0, -1.0], 0.0),
+            (vec![-1.0, 0.0], 0.0),
+            (vec![1.0, 0.0], -1.0),
+            (vec![0.0, 1.0], -1.0),
+        ]
     );
+    // Every call, from any thread, returns the planes kept by the first.
+    let kept = first(planes).normal().as_ptr() as usize;
+    std::thread::scope(|scope| {
+        for _ in 0..4 {
+            scope.spawn(|| {
+                assert_eq!(
+                    first(hull.planes().unwrap()).normal().as_ptr() as usize,
+                    kept
+                );
+            });
+        }
+    });
+    // A second hull computes its planes from several threads at once.
+    let other = ConvexHullBuilder::new(2, &points).build().unwrap();
+    let pointers: Vec<usize> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..4)
+            .map(|_| scope.spawn(|| first(other.planes().unwrap()).normal().as_ptr() as usize))
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    assert!(pointers.windows(2).all(|w| w[0] == w[1]));
+}
+
+#[test]
+fn equality_and_clone_do_not_depend_on_computed_planes() {
+    let points = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
+    let with = ConvexHullBuilder::new(2, &points).build().unwrap();
+    let without = ConvexHullBuilder::new(2, &points).build().unwrap();
+    with.planes().unwrap();
+    assert_eq!(with, without);
+    assert_eq!(without, with);
+    // A clone carries what has been computed and is equal either way.
+    let clone = with.clone();
+    assert_eq!(clone, without);
+    assert_eq!(
+        clone.planes().unwrap().get(0).unwrap().normal(),
+        with.planes().unwrap().get(0).unwrap().normal()
+    );
+    // Another input is another hull.
+    let moved = [0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0, 0.5, 0.5];
+    assert_ne!(with, ConvexHullBuilder::new(2, &moved).build().unwrap());
 }
 
 #[test]
@@ -221,11 +312,12 @@ fn nearly_parallel_edges_keep_the_true_public_plane() {
         3.5,
     ];
     let hull = ConvexHullBuilder::new(3, &points).build().unwrap();
-    let facet = hull
+    let number = hull
         .facets()
         .iter()
-        .find(|f| f.vertices() == vec![0, 1, 2])
+        .position(|f| f.vertices() == vec![0, 1, 2])
         .unwrap();
+    let facet = hull.planes().unwrap().get(number as u32).unwrap();
     let expected = [0.5_f64.sqrt(), -(0.5_f64.sqrt()), 0.0];
     for (n, e) in facet.normal().iter().zip(expected) {
         assert!((n - e).abs() < 1e-12, "{:?}", facet.normal());
@@ -317,7 +409,8 @@ fn check_tilt(dim: usize, points: &[f64], shift: i32) -> f64 {
             .collect()
     };
     let mut worst = 0.0_f64;
-    for facet in hull.facets().iter() {
+    let planes = hull.planes().unwrap();
+    for (facet, plane) in hull.facets().iter().zip(planes.iter()) {
         // Any D affinely independent facet vertices span the same
         // hyperplane; take the first D-subset with a nonzero cofactor vector.
         let vertices = &facet.vertices();
@@ -372,7 +465,7 @@ fn check_tilt(dim: usize, points: &[f64], shift: i32) -> f64 {
             .map(|&x| (x as f64) * (x as f64))
             .sum::<f64>()
             .sqrt();
-        let distance = facet
+        let distance = plane
             .normal()
             .iter()
             .zip(&c)
@@ -382,7 +475,7 @@ fn check_tilt(dim: usize, points: &[f64], shift: i32) -> f64 {
         assert!(
             distance <= TILT_BOUND,
             "facet {vertices:?}: normal {:?} is {distance:e} from the exact direction",
-            facet.normal()
+            plane.normal()
         );
         worst = worst.max(distance);
     }
