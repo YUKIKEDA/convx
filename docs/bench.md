@@ -533,3 +533,58 @@ Shares of the process on three sets at 10^5 sites: 50 builds of `cube` D2 (6.77 
 - **D = 4 and D = 5**: 0.99 to 1.01. `sphere` D4 reads 0.99 beyond the spread, which is 1.5% on three builds.
 - Per build of `cube` D2 at 10^5, point location went from 23.0% of 187 ms to 12.8% of 135 ms, and the in-sphere test from 32.5% of 187 ms to 36.1% of 135 ms (the first figures are those of the profile after P6 above).
 - The keep criterion of ADR 0005 first asked for every Delaunay set of D = 2 and D = 3 from 10^5 sites to be faster beyond the spread, which `sphere` D3 at 10^5 and 10^6 is not. The owner amended it on 2026-10-08 to the sets where the first stage of the predicates decides, with nothing slower on any set; this measurement meets that.
+
+## ParGeo-style parallel hull prototypes at 1 to 16 threads, convx `f57627f` (#276)
+
+The spike P6-14: parallel reservation rounds and a pseudohull filter, timed on the owner's 16-thread machine. The 4-core run is on #276.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | branch `spike/276-pargeo` at `f57627f` (not for `main`): `examples/spike_276`, `SPIKE_MODE` = `seq`, `rounds`, `filter`, or `both`. rustc 1.97.1, `--release` |
+| Machine | Intel Core i5-13400F, Windows 11: 10 cores and 16 logical processors, 6 performance cores with two threads each (logical 0 to 11) and 4 efficiency cores (logical 12 to 15) |
+| Cores | `start /affinity` on the first T logical processors, `RAYON_NUM_THREADS` = T. So 2 threads are the two threads of one performance core, 4 are two cores, 8 are four cores, and 16 are all ten |
+| Timed | The whole build of a point file of `benches/sets.txt`, seed 1, one build per process |
+| Rounds | 3, the configurations in order and then reversed |
+| Reported | Median, in seconds; the sequential column with min–max |
+
+Every mode published the sequential hull on every set (`spike_276 check`, 27 of 27). The script is `scripts/spike-276.ps1` on that branch.
+
+### Wall time
+
+| Set | Facets | Sequential | Rounds, 1 | Rounds, 2 | Rounds, 4 | Rounds, 8 | Rounds, 16 | Filter, 1 | Filter, 16 | Both, 16 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `sphere` D2 10^6 | 999,973 | 0.506 (0.506–0.563) | 0.548 | 0.561 | 0.580 | 0.535 | 0.551 | 0.570 | 0.526 | 0.503 |
+| `sphere` D3 10^5 | 199,996 | 0.495 (0.450–0.559) | 1.165 | 1.097 | 0.771 | 0.633 | 0.602 | 0.528 | 0.465 | 0.633 |
+| `sphere` D3 10^6 | 1,999,996 | 7.595 (7.510–7.693) | 14.52 | 12.99 | 8.789 | 7.205 | 6.580 | 7.621 | 6.950 | 6.647 |
+| `sphere` D4 10^5 | 675,154 | 2.146 (2.129–2.166) | 4.343 | 4.203 | 2.834 | 2.288 | 2.076 | 2.224 | 2.050 | 2.092 |
+| `sphere` D5 10^4 | 299,994 | 1.105 (1.084–1.109) | 1.948 | 1.931 | 1.285 | 1.008 | 1.285 | 1.107 | 1.050 | 1.347 |
+| `sphere` D5 10^5 | 3,112,922 | 14.33 (14.257–14.379) | 24.82 | 22.51 | 15.18 | 11.72 | 10.89 | 14.13 | 13.18 | 11.10 |
+| `sphere` D6 10^4 | 1,570,453 | 8.446 (8.394–8.547) | 14.05 | 12.73 | 8.696 | 6.734 | 6.859 | 8.382 | 7.870 | 6.886 |
+| `cube` D6 10^5 | 518,754 | 3.164 (3.163–3.195) | 12.75 | 12.54 | 8.517 | 7.396 | 8.431 | 3.768 | 2.914 | 7.834 |
+| `cube` D3 10^6 | 566 | 0.163 (0.160–0.165) | 0.504 | 0.488 | 0.420 | 0.419 | 0.458 | 0.419 | 0.109 | 0.141 |
+
+Ratios to the sequential build ("inside" when the ranges of the three runs overlap), the points the filter dropped, the phases of the rounds at 16 threads in seconds (walk / reserve / plan / commit), the work of the rounds at one thread against the sequential build, and their scaling from 1 to 16 threads:
+
+| Set | Rounds, 4 | Rounds, 8 | Rounds, 16 | Both, 16 | Filter, 1 | Filter, 16 | Filtered points | Phases at 16 | Rounds 1 / sequential | Rounds 1 / rounds 16 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `sphere` D2 10^6 | 1.15, inside | 1.06, inside | 1.09, inside | 0.99, inside | 1.13, inside | 1.04, inside | 0 | no rounds (D = 2) | 1.08 | 0.99 |
+| `sphere` D3 10^5 | 1.56 | 1.28 | 1.22 | 1.28 | 1.07, inside | 0.94, inside | 0 | 0.06 / 0.03 / 0.15 / 0.16 | 2.35 | 1.93 |
+| `sphere` D3 10^6 | 1.16 | 0.95 | 0.87 | 0.88 | 1.00, inside | 0.92 | 0 | 0.65 / 0.15 / 1.34 / 1.69 | 1.91 | 2.21 |
+| `sphere` D4 10^5 | 1.32 | 1.07 | 0.97 | 0.97 | 1.04 | 0.96 | 0 | 0.25 / 0.10 / 0.41 / 0.46 | 2.02 | 2.09 |
+| `sphere` D5 10^4 | 1.16 | 0.91 | 1.16 | 1.22 | 1.00, inside | 0.95 | 0 | 0.15 / 0.08 / 0.52 / 0.19 | 1.76 | 1.52 |
+| `sphere` D5 10^5 | 1.06 | 0.82 | 0.76 | 0.77 | 0.99 | 0.92 | 0 | 1.38 / 0.32 / 1.96 / 2.09 | 1.73 | 2.28 |
+| `sphere` D6 10^4 | 1.03, inside | 0.80 | 0.81 | 0.82 | 0.99, inside | 0.93 | 0 | 1.03 / 0.27 / 2.09 / 0.93 | 1.66 | 2.05 |
+| `cube` D6 10^5 | 2.69 | 2.34 | 2.66 | 2.48 | 1.19 | 0.92 | 29,880 | 1.39 / 0.40 / 5.07 / 0.66 | 4.03 | 1.51 |
+| `cube` D3 10^6 | 2.57 | 2.57 | 2.81 | 0.86 | 2.56 | 0.66 | 981,963 | 0.01 / 0.01 / 0.34 / 0.03 | 3.08 | 1.10 |
+
+### Reading
+
+- **The rounds scale 1.5 to 2.3 times from 1 to 16 threads** on the `sphere` sets from D = 3, while one thread of them does 1.7 to 2.4 times the work of the sequential build. At 16 threads they are 0.76 to 0.87 of the sequential build on `sphere` D3 10^6, D5 10^5, and D6 10^4, and slower on `sphere` D3 10^5 (1.22) and D5 10^4 (1.16).
+- **On `cube` the rounds are 2.7 to 2.8 times slower** at 16 threads. Inserting in point order builds facets that farthest-first never creates.
+- **The commit and the plans do not shrink**: at 16 threads on `sphere` D3 10^6 the serial commit is 1.69 s and the plans 1.34 s of 6.58 s.
+- **The filter** drops 98% of the points of `cube` D3 10^6 and is 0.66 there at 16 threads, and 2.56 times slower at one thread. On `cube` D6 10^5 it drops 30% and reads 0.92.
+- **A run at 16 threads reads 4 to 8% faster than the pinned sequential run without doing less work.** The filter drops no point on the `sphere` sets and still reads 0.92 to 0.96 at 16 threads on those from D = 3. The sequential run is pinned to logical processor 0; a 16-thread run may use any processor. Ratios within that margin are not gains: the 0.97 of the rounds on `sphere` D4 10^5 is one of them.
+- **Against the keep criterion of #256** (faster beyond the spread on every hull set with at least 10^4 facets): not met at 4, 8, or 16 threads by any mode.
+- **The sequential build has moved since this branch.** The spike branch is from before the bucket queue (#292), which made `build()` 0.86 to 0.95 on the large `sphere` sets, and before the planes on first use (#297), another 0.87 to 0.90: about 0.75 to 0.85 together. Against today's `main`, the 0.76 to 0.87 of the rounds would be about level.

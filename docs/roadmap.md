@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P6-14 (#276): a ParGeo-style fully parallel hull, at 4 and 16 threads.
+None. P6-12 (#236) waits for its Grill.
 
 ## Dependencies
 
@@ -159,7 +159,7 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-11 | Spike | Which coarse-grained parallel hull strategies can beat the sequential build?     | #269  | Done        |
 | P6-12 | Docs | Let construction record the planes a point lies on                                   | #236  | Set after Grill on #236 |
 | P6-13 | Task | Measure convx after P6 against Qhull and CGAL; rank the remaining gaps             | #275  | Done        |
-| P6-14 | Spike | Can a ParGeo-style fully parallel hull beat the sequential build at 4 and 16 threads? | #276  | Not started |
+| P6-14 | Spike | Can a ParGeo-style fully parallel hull beat the sequential build at 4 and 16 threads? | #276  | Done        |
 | P6-15 | Task | Profile the three gaps that remain after P6                                         | #285  | Done        |
 | P6-16 | Spike | Hull construction: what do the candidate heap and by-value moves cost on sphere D3? | #286  | Done        |
 | P6-17 | Docs | Publish without redundant work, and compute facet planes on first use               | #287  | Done        |
