@@ -371,10 +371,10 @@ The four rows under construction that follow `plan_region` are parts of it or be
 | --- | ---: |
 | Publication (`publish`) | 55.5% |
 | Edge unit normals (`edge_unit_normal`) | 15.7% |
-| A stable sort | 14.6% |
-| The lexicographic order (`lexicographic_order`) | 7.3% |
+| The lexicographic order of facets and of boundary simplices (`lexicographic_order`) | 7.3% |
 | Writing the lists (`Lists::push`, `push_iter`) | about 5% each |
 | Construction (`build_polygon`, the strict chain) | 26.6% |
+| The stable sort of the points before the chain (`strict_cycle`) | 14.6% |
 | Classification (`classify_chain`) | 11.6% |
 | Acceptance and duplicate detection (`accept`) | 5.2% |
 
@@ -397,5 +397,5 @@ At D = 2 the in-sphere test takes 2.4 s of the 7.47 s; the formula itself (`semi
 
 - **A share is not a saving.** It says where the time is, not how much a change would remove.
 - **Hull `sphere` D3**: the largest single part is the plane of each new facet, a working normal with its error bound and the cull plane. Taking the next candidate from the heap is 7.7%, and `memmove` 7.6%, most of it called from the control flow of `?` and from array construction, that is, large values returned by value. Publication and the pass after construction are 29% together. P6-16 (#286) prices the heap and the moves.
-- **Hull `sphere` D2**: publication is more than half. Sorting and ordering the edges are about 22% of `build()`, and the edge normals 15.7%. P6-17 (#287) is the design row for it.
+- **Hull `sphere` D2**: publication is more than half: the edge normals are 15.7% of `build()`, the lexicographic order 7.3%, and writing the lists about 10%. The stable sort is in construction, where the chain needs its points in order. P6-17 (#287) is the design row for publication.
 - **Delaunay D2 and D3**: insertion is three quarters, and predicates about half of `build()`. At D = 2 more than a third of the in-sphere time is in the dimension-generic entry around the formula. P6-18 (#288) is the design row for a dedicated insertion at D = 2 and D = 3.
