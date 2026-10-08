@@ -327,3 +327,75 @@ Not timed: `sphere` D6 10^5, as in the sections above.
   - Construction is 72 to 90% of `build()`, and the pass after it 10 to 27%.
   - Publication is at most 1%.
 - **Compared with the sections above**: this section is from another machine and another CGAL and compiler version. Read ratios within one section.
+
+## Profile after P6, convx `0630c0e` (#285)
+
+Where `build()` spends its time on one set from each gap the section above left: hull `sphere` D3 against Qhull, hull `sphere` D2 against CGAL, and Delaunay D2 and D3 against CGAL.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `0630c0e`, rustc 1.97.1, `--release` with debug info, baseline target |
+| Tool | Intel VTune Profiler 2026.4.0, `-collect hotspots -knob sampling-mode=sw` (user-mode sampling, 10 ms interval) |
+| Machine | Intel Core i5-13400F, Windows 11 |
+| Cores | The target pinned to one core (`start /affinity 10`) |
+| Target | A scratch binary that generates the set (`tests/common/generator.rs`, seed 1) and calls `build()` in a loop: 20 builds of hull `sphere` D3 10^5, 12 of hull `sphere` D2 10^6, 40 of Delaunay `cube` D2 10^5, 9 of Delaunay `cube` D3 10^5 |
+| Samples | CPU time 8.82 s, 5.48 s, 7.47 s, and 9.30 s, so 550 to 930 samples per set |
+| Reported | Inclusive share of the process's CPU time, from the call tree (`-report gprof-cc`). The loop's `build()` is 98.9 to 99.7% of it; generating the points is the rest |
+
+The scratch binary and the result directories are not kept. Inlining folds a callee into its caller, so a row below can hold the time of functions it inlined; rows of 5% and less are a few dozen samples.
+
+### Hull `sphere` D3 10^5
+
+| Part | Share of the process |
+| --- | ---: |
+| Construction (`SimplicialHull::build`) | 70.6% |
+| Planning an insertion (`plan_region`) | 45.1% |
+| The planes of the new facets (`plan_planes`) | 20.7% |
+| Assigning the outside points again (`take_outside`) | 10.8% |
+| Walking the visible region (`walk_region`) | 9.1% |
+| Taking the next candidate (`BinaryHeap::pop`) | 7.7% |
+| Applying the insertion (`commit`) | 6.0% |
+| Publication (`publish`) | 17.2% |
+| The pass after construction (`classify_built`) | 11.7% |
+| Merge, inside that pass | 7.4% |
+| `memmove` (`VCRUNTIME140.dll`), in every part | 7.6% |
+| The heap (`ntdll.dll`), in every part | 4.1% |
+
+The four rows under construction that follow `plan_region` are parts of it or beside it: `plan_planes` and `take_outside` are inside `plan_region`; the walk, the heap, and the commit are beside it.
+
+### Hull `sphere` D2 10^6
+
+| Part | Share of the process |
+| --- | ---: |
+| Publication (`publish`) | 55.5% |
+| Edge unit normals (`edge_unit_normal`) | 15.7% |
+| A stable sort | 14.6% |
+| The lexicographic order (`lexicographic_order`) | 7.3% |
+| Writing the lists (`Lists::push`, `push_iter`) | about 5% each |
+| Construction (`build_polygon`, the strict chain) | 26.6% |
+| Classification (`classify_chain`) | 11.6% |
+| Acceptance and duplicate detection (`accept`) | 5.2% |
+
+### Delaunay `cube` at 10^5
+
+| Part | D = 2 | D = 3 |
+| --- | ---: | ---: |
+| Insertion (`insert::Mesh::build`) | 73.5% | 76.8% |
+| The in-sphere test (`Mesh::conflict`) | 32.5% | 37.1% |
+| Point location (`Mesh::locate`) | 23.0% | 13.7% |
+| The orientation predicate (`Sites::orient`) | 18.5% | 11.3% |
+| The lifted predicate (`Sites::lifted`) | 32.8% | 38.4% |
+| The semi-static stage (`semi_static::sign`) | 30.6% | 34.2% |
+| The draft of the result (`Draft::finish`) | 7.6% | 7.5% |
+| The insertion order (`brio`), D = 2 | 4.2% | not in the top rows |
+
+At D = 2 the in-sphere test takes 2.4 s of the 7.47 s; the formula itself (`semi_static::lifted2`) is 1.5 s of that with what it calls, and the rest, more than a third, is the entry above it: `Sites::lifted`, `orient_lifted_with`, `sign_of`, `filtered`, and `estimate`.
+
+### Reading
+
+- **A share is not a saving.** It says where the time is, not how much a change would remove.
+- **Hull `sphere` D3**: the largest single part is the plane of each new facet, a working normal with its error bound and the cull plane. Taking the next candidate from the heap is 7.7%, and `memmove` 7.6%, most of it called from the control flow of `?` and from array construction, that is, large values returned by value. Publication and the pass after construction are 29% together. P6-16 (#286) prices the heap and the moves.
+- **Hull `sphere` D2**: publication is more than half. Sorting and ordering the edges are about 22% of `build()`, and the edge normals 15.7%. P6-17 (#287) is the design row for it.
+- **Delaunay D2 and D3**: insertion is three quarters, and predicates about half of `build()`. At D = 2 more than a third of the in-sphere time is in the dimension-generic entry around the formula. P6-18 (#288) is the design row for a dedicated insertion at D = 2 and D = 3.
