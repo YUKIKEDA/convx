@@ -44,10 +44,17 @@
 //! cospherical, since together they hold its sites and `q`, which is
 //! strictly inside its circumsphere. Only the other faces between new
 //! simplices have no recorded answer.
+//!
+//! The insertion is one procedure over a [`Shape`], compiled once for
+//! D = 2 ([`Plane`]), once for D = 3 ([`Space`]), and once for every other
+//! dimension ([`Any`]) (design §7, ADR 0005). A shape gives the number of
+//! vertices of a simplex, a constant for the first two, and the two
+//! predicates. Every shape runs the same steps on the same exact signs, so
+//! all publish the same triangulation.
 
 use crate::hull::input::Input;
 use crate::hull::ConvexHullError;
-use crate::predicates::{orient, orient_lifted_with, LiftedHeight, Sign};
+use crate::predicates::{first_stage, orient, orient_lifted_with, LiftedHeight, Sign};
 use crate::small::Small;
 
 /// The vertex at infinity of an outside simplex. Site numbers are below
@@ -74,12 +81,123 @@ pub(super) enum Across {
     Cospherical,
 }
 
+/// What the insertion needs to know of the dimension: the number of
+/// vertices of a simplex, and the two predicates on sites.
+///
+/// [`Plane`] and [`Space`] make `k` a constant, so the loops over the
+/// vertices of a simplex have a fixed length, and call the first stage of a
+/// predicate on rows gathered into an array of that size. [`Any`] reads `k`
+/// from a field and uses the predicates of [`Sites`]. A predicate returns
+/// the same exact sign under every shape.
+pub(super) trait Shape: Copy {
+    /// `k = D + 1`: the vertices, and the neighbors, of a simplex.
+    fn k(self) -> usize;
+
+    /// Orientation of the sites `ids` (D + 1 of them).
+    fn orient(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError>;
+
+    /// Lifted orientation of the sites `ids` (D + 2 of them).
+    fn lifted(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError>;
+}
+
+/// Any dimension: `k` is a value.
+#[derive(Clone, Copy)]
+pub(super) struct Any {
+    k: usize,
+}
+
+impl Any {
+    /// The shape of dimension `dim`.
+    pub(super) fn of(dim: usize) -> Self {
+        Self { k: dim + 1 }
+    }
+}
+
+impl Shape for Any {
+    #[inline(always)]
+    fn k(self) -> usize {
+        self.k
+    }
+
+    #[inline(always)]
+    fn orient(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError> {
+        sites.orient(ids)
+    }
+
+    #[inline(always)]
+    fn lifted(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError> {
+        sites.lifted(ids)
+    }
+}
+
+/// A shape of one dimension: `k` is the constant `$k`, and a predicate first
+/// tries the semi-static stage on `$k` (or `$k + 1`) rows in an array, with
+/// no cached height and no dispatch on the size. What that stage does not
+/// certify goes to the predicate of [`Sites`], which starts with the same
+/// stage, so the sign is the one [`Any`] returns; debug builds assert it,
+/// and that predicate checks its own certified signs against the exact one.
+macro_rules! fixed_shape {
+    ($(#[$doc:meta])* $name:ident, $k:literal, $lifted:literal) => {
+        $(#[$doc])*
+        #[derive(Clone, Copy)]
+        pub(super) struct $name;
+
+        impl Shape for $name {
+            #[inline(always)]
+            fn k(self) -> usize {
+                $k
+            }
+
+            #[inline(always)]
+            fn orient(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError> {
+                debug_assert_eq!(ids.len(), $k);
+                debug_assert_eq!(sites.dim() + 1, $k);
+                let rows: [&[f64]; $k] = core::array::from_fn(|i| sites.point(ids[i]));
+                match first_stage(rows[0], &rows[1..], false) {
+                    Some(sign) => {
+                        debug_assert_eq!(Ok(sign), sites.orient(ids));
+                        Ok(sign)
+                    }
+                    None => sites.orient(ids),
+                }
+            }
+
+            #[inline(always)]
+            fn lifted(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError> {
+                debug_assert_eq!(ids.len(), $lifted);
+                debug_assert_eq!(sites.dim() + 2, $lifted);
+                let rows: [&[f64]; $lifted] = core::array::from_fn(|i| sites.point(ids[i]));
+                match first_stage(rows[0], &rows[1..], true) {
+                    Some(sign) => {
+                        debug_assert_eq!(Ok(sign), sites.lifted(ids));
+                        Ok(sign)
+                    }
+                    None => sites.lifted(ids),
+                }
+            }
+        }
+    };
+}
+
+fixed_shape!(
+    /// D = 2: triangles.
+    Plane,
+    3,
+    4
+);
+fixed_shape!(
+    /// D = 3: tetrahedra.
+    Space,
+    4,
+    5
+);
+
 /// The triangulation being built: `k = D + 1` vertices and neighbors per
 /// simplex, in flat arrays with stride `k`. `neighbors[c * k + i]` is the
 /// simplex across the face opposite vertex `i` of simplex `c`.
-pub(super) struct Mesh<'a> {
+pub(super) struct Mesh<'a, S: Shape> {
+    shape: S,
     sites: &'a Sites,
-    k: usize,
     vertices: Vec<u32>,
     neighbors: Vec<u32>,
     /// Per face, as `neighbors`: what the insertion knows of the two
@@ -199,30 +317,30 @@ fn inside_sign(d: usize) -> Result<Sign, ConvexHullError> {
     Ok(sign)
 }
 
-impl<'a> Mesh<'a> {
+impl<'a, S: Shape> Mesh<'a, S> {
     pub(super) fn vertices_of(&self, c: u32) -> &[u32] {
-        let k = self.k;
+        let k = self.shape.k();
         &self.vertices[c as usize * k..(c as usize + 1) * k]
     }
 
     pub(super) fn neighbor(&self, c: u32, slot: usize) -> u32 {
-        self.neighbors[c as usize * self.k + slot]
+        self.neighbors[c as usize * self.shape.k() + slot]
     }
 
     fn set_neighbor(&mut self, c: u32, slot: usize, n: u32) {
-        let k = self.k;
+        let k = self.shape.k();
         self.neighbors[c as usize * k + slot] = n;
     }
 
     /// What the insertion knows of simplex `c` and its neighbor across the
     /// face opposite vertex `slot`.
     pub(super) fn across(&self, c: u32, slot: usize) -> Across {
-        self.across[c as usize * self.k + slot]
+        self.across[c as usize * self.shape.k() + slot]
     }
 
     /// The slot of simplex `c` whose neighbor is `n`.
     pub(super) fn back(&self, c: u32, n: u32) -> Option<usize> {
-        (0..self.k).find(|&s| self.neighbor(c, s) == n)
+        (0..self.shape.k()).find(|&s| self.neighbor(c, s) == n)
     }
 
     /// The slot of vertex `v` in simplex `c`. Every caller read `v` from the
@@ -244,12 +362,12 @@ impl<'a> Mesh<'a> {
 
     /// Orientation of the sites `ids` (D + 1 of them).
     fn orient_ids(&self, ids: &[u32]) -> Result<Sign, ConvexHullError> {
-        self.sites.orient(ids)
+        self.shape.orient(self.sites, ids)
     }
 
     /// Lifted orientation of the sites `ids` (D + 2 of them).
     pub(super) fn lifted_ids(&self, ids: &[u32]) -> Result<Sign, ConvexHullError> {
-        self.sites.lifted(ids)
+        self.shape.lifted(self.sites, ids)
     }
 
     /// One past the largest simplex number.
@@ -270,7 +388,7 @@ impl<'a> Mesh<'a> {
 
     /// The lifted orientation of finite simplex `c` followed by `q`.
     fn sphere_sign(&self, c: u32, q: u32) -> Result<Sign, ConvexHullError> {
-        let k = self.k;
+        let k = self.shape.k();
         let sign = if k < INLINE {
             let mut ids = [0_u32; INLINE];
             ids[..k].copy_from_slice(self.vertices_of(c));
@@ -286,7 +404,7 @@ impl<'a> Mesh<'a> {
 
     /// The orientation of simplex `c` with vertex `slot` replaced by `q`.
     fn replaced(&self, c: u32, slot: usize, q: u32) -> Result<Sign, ConvexHullError> {
-        let k = self.k;
+        let k = self.shape.k();
         if k <= INLINE {
             let mut ids = [0_u32; INLINE];
             ids[..k].copy_from_slice(self.vertices_of(c));
@@ -329,7 +447,7 @@ impl<'a> Mesh<'a> {
     }
 
     fn alloc(&mut self, vertices: &[u32]) -> u32 {
-        let k = self.k;
+        let k = self.shape.k();
         if let Some(c) = self.free.pop() {
             let at = c as usize * k;
             self.vertices[at..at + k].copy_from_slice(vertices);
@@ -352,7 +470,7 @@ impl<'a> Mesh<'a> {
     /// them are neighbors across the face they share. There are D + 2, so
     /// comparing every pair of faces costs nothing that grows with the input.
     fn link_initial(&mut self, cells: &[u32]) {
-        let k = self.k;
+        let k = self.shape.k();
         let face = |mesh: &Self, c: u32, slot: usize| -> Vec<u32> {
             let mut face: Vec<u32> = mesh
                 .vertices_of(c)
@@ -387,16 +505,18 @@ impl<'a> Mesh<'a> {
     /// The triangulation of the sites `order` after the initial simplex
     /// `first` (D + 1 affinely independent sites).
     pub(super) fn build(
+        shape: S,
         sites: &'a Sites,
         first: &[u32],
         order: &[u32],
     ) -> Result<Self, ConvexHullError> {
         let d = sites.dim();
-        let k = d + 1;
+        let k = shape.k();
+        debug_assert_eq!(k, d + 1, "the shape is that of the sites' dimension");
         debug_assert_eq!(first.len(), k, "the initial simplex has D + 1 sites");
         let mut mesh = Self {
+            shape,
             sites,
-            k,
             vertices: Vec::with_capacity(order.len() * k * (2 * d)),
             neighbors: Vec::with_capacity(order.len() * k * (2 * d)),
             across: Vec::with_capacity(order.len() * k * (2 * d)),
@@ -441,7 +561,7 @@ impl<'a> Mesh<'a> {
     /// Whether every live simplex's neighbor across each face is live,
     /// points back, and holds that face. A debug check of the linking.
     fn linked(&self) -> bool {
-        let k = self.k;
+        let k = self.shape.k();
         (0..self.alive.len() as u32)
             .filter(|&c| self.alive[c as usize])
             .all(|c| {
@@ -469,7 +589,7 @@ impl<'a> Mesh<'a> {
     /// tried from a position that depends on `q`, which keeps the walk from
     /// cycling.
     fn locate(&self, q: u32) -> Result<u32, ConvexHullError> {
-        let k = self.k;
+        let k = self.shape.k();
         let mut state = u64::from(q).wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
         let mut c = self.last;
         loop {
@@ -503,7 +623,7 @@ impl<'a> Mesh<'a> {
 
     /// Inserts site `q`.
     fn insert(&mut self, q: u32) -> Result<(), ConvexHullError> {
-        let k = self.k;
+        let k = self.shape.k();
         let start = self.locate(q)?;
         debug_assert!(self.conflicts(start, q)?, "the located simplex conflicts");
         self.epoch = self.epoch.wrapping_add(1);

@@ -72,6 +72,17 @@ pub(crate) fn orient(points: &[&[f64]]) -> Result<Sign, ExactEvaluationExhausted
     })
 }
 
+/// The first stage alone of [`orient`] (`lifted` false) or of the lifted
+/// orientation (`lifted` true) of `origin` followed by `points`: the sign
+/// when the semi-static bound certifies it, for the sizes that stage covers.
+/// `None` means the caller must use the full predicate, which returns the
+/// same sign whenever this does. For a caller that holds its rows in arrays
+/// of a fixed size and wants no gathering of rows on the way (#294).
+#[inline(always)]
+pub(crate) fn first_stage(origin: &[f64], points: &[&[f64]], lifted: bool) -> Option<Sign> {
+    semi_static::sign(origin, points, lifted)
+}
+
 /// The sign of the planar orientation of `a`, `b`, `c`, when Shewchuk's
 /// stage-A bound certifies it. `None` means the caller must use [`orient`].
 ///

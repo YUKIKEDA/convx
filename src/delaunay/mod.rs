@@ -355,6 +355,19 @@ fn ascending(row: &[u32]) -> (Small<(u32, usize), 11>, bool) {
     (sorted, inversions % 2 == 1)
 }
 
+/// Whether D = 2 and D = 3 take the shape of any dimension: a test's
+/// override on this thread, to compare the shapes. Always false otherwise.
+fn generic_insertion() -> bool {
+    #[cfg(test)]
+    {
+        tests::GENERIC_INSERTION.with(core::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
+
 /// The Delaunay complex of `points` (dimension `dim`): the lower hull of the
 /// lift built by insertion, or the pulling triangulation as one group when
 /// the lift is flat. Input checks and `DegenerateDimension` concern the
@@ -365,7 +378,12 @@ pub(crate) fn complex(dim: usize, points: &[f64]) -> Result<Complex, ConvexHullE
     let complex = if flat(&input, &sites)? {
         pull(input)?
     } else {
-        inserted(&input, &sites)?
+        // One insertion, compiled per shape (design §7, ADR 0005).
+        match input.dim() {
+            2 if !generic_insertion() => inserted(insert::Plane, &input, &sites)?,
+            3 if !generic_insertion() => inserted(insert::Space, &input, &sites)?,
+            d => inserted(insert::Any::of(d), &input, &sites)?,
+        }
     };
     debug_assert!(
         {
@@ -408,7 +426,11 @@ fn flat(input: &Input<'_>, sites: &insert::Sites) -> Result<bool, ConvexHullErro
 /// its vertices, since the mesh stores it positive, and its neighbors are
 /// the mesh's. Only merged groups are split again by placing, and only their
 /// faces are paired by vertex set.
-fn inserted(input: &Input<'_>, sites: &insert::Sites) -> Result<Complex, ConvexHullError> {
+fn inserted<S: insert::Shape>(
+    shape: S,
+    input: &Input<'_>,
+    sites: &insert::Sites,
+) -> Result<Complex, ConvexHullError> {
     let d = input.dim();
     let k = d + 1;
     let first = &input.spanning_points;
@@ -419,7 +441,7 @@ fn inserted(input: &Input<'_>, sites: &insert::Sites) -> Result<Complex, ConvexH
         .filter(|p| !first.contains(p))
         .collect();
     let order = insert::brio(sites, &rest);
-    let mesh = insert::Mesh::build(sites, first, &order)?;
+    let mesh = insert::Mesh::build(shape, sites, first, &order)?;
 
     // Union of the finite simplices that share a face and are cospherical
     // across it: the far vertex of the neighbor has lifted orientation zero
