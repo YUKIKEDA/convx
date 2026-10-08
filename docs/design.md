@@ -30,7 +30,7 @@ The orientation of the sign is fixed as follows.
 
 - If $x \cdot n + \mathrm{offset} > 0$, the point is outside the plane.
 - The plane is $x \cdot n + \mathrm{offset} = 0$. $n$ is the outward unit normal.
-- Orientation is the exact sign of a determinant. The $x \cdot n + \mathrm{offset}$ of a published facet's `normal()` and `offset()` is not used for this decision.
+- Orientation is the exact sign of a determinant. The $x \cdot n + \mathrm{offset}$ of a published plane (§5) is not used for this decision.
 - Geometric degree $k$ is one less than the number of argument points. It is independent of the hull dimension $D$. $k \le 4$, that is up to five points, is computed with a dedicated formula. How the formula is expanded is left to the implementation. When $k$ exceeds 4, the predicate evaluates a filtered floating-point determinant and falls back to the exact sign only when the value lies inside the bound.
 - The public unit normal of a facet, for any number of points, is the unit direction of the facet's cofactor vector, whose entry $c_j$ is the determinant of the edges followed by the unit row $e_j$, oriented outward. The working normal used by distance scans is the same direction. That direction is certified with an error bound by the predicate filter. When the bound exceeds $10^{-10}$, it is computed exactly and rounded once when it is made unit. Householder QR is not used. The certified direction is more accurate than the QR normal was, and its error bound is guaranteed (ADR 0002). When a facet has $n \ge 5$ points, the filter evaluates every cofactor from one elimination of the $(n-1) \times n$ edge matrix $E$. Gaussian elimination with partial pivoting over its first $n - 1$ columns gives $[T \mid u]$ with $T$ upper triangular, after $s$ row swaps. Adding a multiple of one row to another leaves every maximal minor of $E$ unchanged, and a swap flips its sign. If $T x = u$, then $E$ maps $(-x, 1)$ to zero, and Cramer's rule gives $c = (-1)^s \det T \cdot (-x, 1)$. The filter carries a running bound through the elimination, the back substitution for $x$, and the products with $\det T$, so each $c_j$ has its own bound, as when it was a separate determinant. A divisor whose sign the bound does not certify leaves the cofactors uncertified, and the direction is computed exactly. The normal points to the side where the orientation of the ordered facet vertices has the outward sign. That side is proved from the error bound, and no determinant is evaluated. Let $u = c/|c|$ be the exact unit cofactor direction and let $|v - u| = e < 1$. Then $|v| \ge 1 - e$ and $v \cdot u = (|v|^2 + 1 - e^2)/2 \ge 1 - e > 0$. The orientation sign is the sign of $v \cdot c$, so $v$ lies on the positive side. The certified error is at most $10^{-10}$, or $D \cdot 2^{-49}$ when computed exactly, so the proof holds for the working normal and for the public normal.
 
@@ -86,8 +86,8 @@ pub enum ConvexHullError {
         actual_dim: usize,
         spanning_points: Vec<u32>,
     },
-    /// The hull topology was decided, and the public plane could not be made a finite f64.
-    /// This plane is not used for topology.
+    /// The hull topology was decided, and a public plane could not be made a finite f64.
+    /// Returned by ConvexHull::planes(), not by build(). The plane is not used for topology.
     NonFiniteFacetPlane,
     /// The Delaunay topology was decided, and a circumcenter could not be made a finite f64.
     /// This is not a geometric degeneracy. The hull and the Delaunay triangulation do not return this error.
@@ -163,7 +163,7 @@ While points are being inserted, the complex stays simplicial. After every point
 
 A connected boundary on one supporting plane is one logical facet, because one supporting plane of a convex polyhedron cuts one face. Whether a point becomes a vertex, a non-vertex on the boundary, or an interior point is decided by the classification in §3.
 
-The public shape is the same in every dimension. A logical facet holds no `Vec` of its own. `ConvexHull` keeps the vertex lists, normals, offsets, and neighbors of every facet in flat arrays and publishes each facet as a borrowed view (§9).
+The public shape is the same in every dimension. A logical facet holds no `Vec` of its own. `ConvexHull` keeps the vertex lists and neighbors of every facet in flat arrays and publishes each facet as a borrowed view (§9). The planes of the facets are a second view, `planes()`, numbered like the facets and computed on first use.
 
 ```rust
 pub struct Facets<'a> { /* borrows the ConvexHull */ }
@@ -183,12 +183,29 @@ pub struct Facet<'a> { /* borrows the ConvexHull */ }
 impl<'a> Facet<'a> {
     /// Extreme points, ascending.
     pub fn vertices(&self) -> &'a [u32];
+    /// Set of neighbor facet numbers, ascending.
+    pub fn neighbors(&self) -> &'a [u32];
+}
+
+pub struct Planes<'a> { /* borrows the ConvexHull */ }
+
+impl<'a> Planes<'a> {
+    pub fn len(&self) -> usize;
+    pub fn is_empty(&self) -> bool;
+    /// By public facet number. An out-of-range number returns None.
+    pub fn get(&self, facet: u32) -> Option<Plane<'a>>;
+    /// In public facet number order.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = Plane<'a>> + 'a;
+}
+
+#[derive(Clone, Copy)]
+pub struct Plane<'a> { /* borrows the ConvexHull */ }
+
+impl<'a> Plane<'a> {
     /// Length D. Outward unit vector.
     pub fn normal(&self) -> &'a [f64];
     /// Offset of the plane x·n + offset = 0.
     pub fn offset(&self) -> f64;
-    /// Set of neighbor facet numbers, ascending.
-    pub fn neighbors(&self) -> &'a [u32];
 }
 ```
 
@@ -209,11 +226,11 @@ $$
 
 The bound follows from §1. The published normal is the certified direction itself, within its error bound $\varepsilon$ of the true $\hat c$. $\varepsilon$ is at most $10^{-10}$ for a direction certified by the filter, and $D \cdot 2^{-49}$ when it is computed exactly. Both are at most $10^{-10}$ when $D \le 56294$. The normal depends only on the $D$ points the plane is built from, not on the vertex order of a simplex during construction. The bound does not affect topology, and values across versions are still not promised to agree.
 
-If the normal or the offset is then non-finite, the build fails with `NonFiniteFacetPlane`. That failure means the hull topology was already decided and the public plane could not be made a finite `f64`. This plane is not used for the topology decision. The same binary decides the plane by this procedure. Bit-identical floats across versions are not promised.
+`build()` does not compute a plane. The first call of `planes()` computes the plane of every facet and keeps them in the hull, and every later call returns what was kept. Calls from several threads return the same kept planes. If a normal or an offset is non-finite, `planes()` returns `NonFiniteFacetPlane`, on that call and on every later one, and publishes no plane: the input decides that failure, so it is kept like the planes. `planes()` can also return `ExactEvaluationExhausted` (§3), when the work space of an exact evaluation cannot be allocated. That failure is not kept, and the next call computes the planes again. `NonFiniteFacetPlane` means the hull topology was already decided and a public plane could not be made a finite `f64`; `build()` has succeeded, and the facets, the partition, and the boundary complex are available. The plane is not used for the topology decision. The same binary decides the plane by this procedure. Bit-identical floats across versions are not promised.
 
-For $D \le 3$, the boundary cycle is derived from the stored vertex set and the outward normal. The start vertex is the minimum index. The direction agrees with the outward normal. The cycle is not the stored form itself. For $D = 1$, `boundary_cycle` is `Some` and contains that single endpoint. For $D = 2$ it is the two endpoints. For $D = 3$ its length is at least 3. A logical facet for $D \ge 4$ is a $(D-1)$-dimensional polyhedron, so a cycle is not defined. `boundary_cycle` returns `None` for $D \ge 4$.
+For $D \le 3$, the boundary cycle is derived from the stored vertex set and the outward order of the boundary simplices. The start vertex is the minimum index. The direction agrees with the outward normal. The cycle is not the stored form itself. For $D = 1$, `boundary_cycle` is `Some` and contains that single endpoint. For $D = 2$ it is the two endpoints. For $D = 3$ its length is at least 3. A logical facet for $D \ge 4$ is a $(D-1)$-dimensional polyhedron, so a cycle is not defined. `boundary_cycle` returns `None` for $D \ge 4$.
 
-`triangulation()` returns the boundary simplicial complex. Each simplex has $D$ vertices. It is not a decomposition of the hull interior into $D$-simplices. For $D = 1$ each simplex is one endpoint, and there is no swap. For $D \ge 2$, vertices are stored in ascending order and only the last two points are swapped so that the order is outward. The split of a coplanar region need not be geometrically unique, and it may change when the version changes. Within the same binary, the split does not depend on the order of insertion (§6).
+`triangulation()` returns the boundary simplicial complex. Like the planes, the complex is computed by the first call that needs it (`triangulation()`, `volume()`, or `boundary_cycle()`) and kept in the hull; computing it cannot fail. Each simplex has $D$ vertices. It is not a decomposition of the hull interior into $D$-simplices. For $D = 1$ each simplex is one endpoint, and there is no swap. For $D \ge 2$, vertices are stored in ascending order and only the last two points are swapped so that the order is outward. The split of a coplanar region need not be geometrically unique, and it may change when the version changes. Within the same binary, the split does not depend on the order of insertion (§6).
 
 `volume()` returns the volume of the polyhedron. It is not used for topology. A successful build does not promise that the return value is finite. For $D = 1$ the volume is $|x_{\max} - x_{\min}|$. For $D \ge 2$, let $r$ be the extreme point of minimum index. Each boundary simplex, in the outward order that swaps the last two points as `triangulation()` does, contributes its signed `f64` volume with $r$. A term that includes $r$ may be 0. The addition order is the lexicographic order of the ascending vertex lists before the swap. The terms are added from the left in that order, and the absolute value is returned at the end. Agreement with other implementations is judged by the relative error of each fixture.
 
@@ -429,6 +446,10 @@ impl ConvexHull {
     pub fn interior_points(&self) -> &[u32];
     /// The logical facets of §5.
     pub fn facets(&self) -> Facets<'_>;
+    /// The planes of the facets (§5), computed on the first call and kept.
+    /// NonFiniteFacetPlane when a normal or an offset is not finite; that
+    /// failure is kept too. ExactEvaluationExhausted is not kept.
+    pub fn planes(&self) -> Result<Planes<'_>, ConvexHullError>;
     /// Not used for topology. Finiteness is not guaranteed.
     pub fn volume(&self) -> f64;
     /// The coplanar split is not part of the stability promise across versions.
@@ -438,7 +459,7 @@ impl ConvexHull {
 }
 ```
 
-Every field of the three results, `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram`, is private. They hold no `Vec` per item: each list is kept flat (an array of values and an array of start positions, or a fixed stride when the length is fixed) and published through borrowed views. So none can be built by a struct literal outside the crate. The results implement `Clone`, `Debug`, and `PartialEq`, and the views implement `Clone`, `Copy`, and `Debug`. A view's `Debug` prints what its accessors return. `ConvexHull` also keeps the boundary simplicial complex in a private field. `triangulation()` returns a view that borrows that complex.
+Every field of the three results, `ConvexHull`, `DelaunayTriangulation`, and `VoronoiDiagram`, is private. They hold no `Vec` per item: each list is kept flat (an array of values and an array of start positions, or a fixed stride when the length is fixed) and published through borrowed views. So none can be built by a struct literal outside the crate. The results implement `Clone`, `Debug`, and `PartialEq`, and the views implement `Clone`, `Copy`, and `Debug`. A view's `Debug` prints what its accessors return. `ConvexHull` computes two things on first use and keeps them in private fields: the planes behind `planes()`, and the boundary simplicial complex behind `triangulation()`, `volume()`, and `boundary_cycle()` (§5). Each is a function of what `build()` computed. Equality of two `ConvexHull` values compares every published value but the planes: the dimension, the representatives, the partition, the facets with their neighbors, the coordinates of the vertices, and the boundary complex, simplex by simplex. Comparing may compute the boundary complex of either value; it never computes a plane. Whether a value had computed its planes or its complex before the comparison does not change the result. The planes are a function of the facets and the coordinates of the vertices, so two equal hulls publish equal planes on one binary, and when one cannot publish its planes neither can the other. `Debug` computes neither. `Clone` copies what has been computed. `triangulation()` returns a view that borrows the kept complex.
 
 ```rust
 pub struct TriangulationView<'a> { /* borrows the ConvexHull */ }
