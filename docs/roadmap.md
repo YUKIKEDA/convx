@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P6-14 (#276): a ParGeo-style fully parallel hull, at 4 and 16 threads. P6-17 (#287) and P6-18 (#288) wait for their Grill.
+P6-20 (#293): planes and the boundary complex on first use, and publication without redundant work. P6-14 (#276) is not started; P6-18 (#288) waits for its design change.
 
 ## Dependencies
 
@@ -162,9 +162,10 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-14 | Spike | Can a ParGeo-style fully parallel hull beat the sequential build at 4 and 16 threads? | #276  | Not started |
 | P6-15 | Task | Profile the three gaps that remain after P6                                         | #285  | Done        |
 | P6-16 | Spike | Hull construction: what do the candidate heap and by-value moves cost on sphere D3? | #286  | Done        |
-| P6-17 | Docs | Publish without redundant work, and compute facet planes on first use               | #287  | Set after Grill on #287 |
+| P6-17 | Docs | Publish without redundant work, and compute facet planes on first use               | #287  | Done        |
 | P6-18 | Docs | A dedicated Delaunay insertion for D = 2 and D = 3                                  | #288  | Set after Grill on #288 |
 | P6-19 | Feat | Hull: take candidates from a bucket queue by distance                               | #291  | Done        |
+| P6-20 | Feat | Hull: planes and the boundary complex on first use; publish without redundant work  | #293  | Not started |
 
 ## Intentionally out of scope
 
