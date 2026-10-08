@@ -378,6 +378,8 @@ The four rows under construction that follow `plan_region` are parts of it or be
 | Classification (`classify_chain`) | 11.6% |
 | Acceptance and duplicate detection (`accept`) | 5.2% |
 
+A second run of this set, 20 builds and 9.50 s of CPU time, was read with the callers of each function. It is the run that places the stable sort under `strict_cycle`. Its shares differ from the table by the noise of two runs: publication 57.2%, construction 27.0%, `strict_cycle` 24.6% with its sort 14.3%, and `edge_unit_normal` 17.3%. The table above is the first run.
+
 ### Delaunay `cube` at 10^5
 
 | Part | D = 2 | D = 3 |
