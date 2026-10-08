@@ -37,7 +37,7 @@ Decided by the owner on 2026-10-08 (option A) and in the Grill of that day on #2
 - There is one source. P6 keeps no second core beside the one it replaces, so modules written by hand per dimension were not chosen.
 - Every instantiation runs the same insertion order and decides every conflict and every orientation by the same exact signs. It therefore publishes the same triangulation, the diagonals among cospherical sites included, and design §7 says so in one paragraph. The public API does not change.
 - The agreement of the instantiations is a test. A test-only switch runs D = 2 and D = 3 through the dimension-generic instantiation, and tests compare the published results on general, cospherical, grid, and flat-lift inputs. Debug builds do not run both: that would double every Delaunay test at D = 2 and D = 3. The exact oracles run on what the specialized instantiation publishes.
-- Voronoi reads the Delaunay result and gains with it. The flat-lift path, which calls the hull core, is not specialized.
+- Voronoi reads the Delaunay result, so it is expected to gain with it; no Voronoi timing exists yet, and #294 measures it. The flat-lift path, which calls the hull core, is not specialized.
 - The specialization is kept only if `build()` is faster beyond the spread on every Delaunay set of D = 2 and D = 3 from 10^5 sites, with nothing slower beyond the spread. Otherwise it is not merged, and #294 records the measurement. There is no speedup target; the ratio to CGAL is reported.
 
 Not chosen: specializing only the entry of the predicates, which leaves the generic cost of point location and of the cavity; and dedicated paths for the hull at D = 3, whose cost is elsewhere (the planes of new facets and the pass after construction).
