@@ -523,37 +523,43 @@ impl ConvexHull {
     fn ordered_simplices(&self) -> Vec<u32> {
         let d = self.dim;
         let row = |i: usize| &self.simplex_vertices[i * d..(i + 1) * d];
-        let odd = |i: usize| d >= 2 && row(i)[d - 2] > row(i)[d - 1];
-        // Item `k` of the ascending list of simplex `i`.
-        let item = |i: usize, k: usize| {
+        // The ascending list of simplex `i` as its first D - 2 vertices and
+        // its last two in order, and whether the stored two are swapped.
+        let split = |i: usize| -> (&[u32], (u32, u32), bool) {
             let row = row(i);
-            if d >= 2 && k + 2 >= d {
-                let (a, b) = (row[d - 2], row[d - 1]);
-                if k + 2 == d {
-                    a.min(b)
-                } else {
-                    a.max(b)
-                }
-            } else {
-                row[k]
+            if d < 2 {
+                return (row, (0, 0), false);
             }
+            let (a, b) = (row[d - 2], row[d - 1]);
+            (&row[..d - 2], (a.min(b), a.max(b)), a > b)
         };
         // The first two items order two lists whenever they differ, so the
         // lists are read only on equal keys (as `lexicographic_order`).
         let key = |i: usize| {
-            let second = if d >= 2 { item(i, 1) } else { 0 };
-            u64::from(item(i, 0)) << 32 | u64::from(second)
+            let (head, (low, high), _) = split(i);
+            let (first, second) = match (head.first(), head.get(1)) {
+                (Some(&x), Some(&y)) => (x, y),
+                (Some(&x), None) => (x, low),
+                _ if d >= 2 => (low, high),
+                _ => (head.first().copied().unwrap_or(0), 0),
+            };
+            u64::from(first) << 32 | u64::from(second)
         };
         let mut keyed: Vec<(u64, u32)> = (0..self.simplex_facets.len())
             .map(|i| (key(i), i as u32))
             .collect();
         keyed.sort_unstable_by(|&(ka, a), &(kb, b)| {
             let (a, b) = (a as usize, b as usize);
-            ka.cmp(&kb)
-                .then_with(|| (0..d).map(|k| item(a, k)).cmp((0..d).map(|k| item(b, k))))
-                .then_with(|| {
-                    (self.simplex_facets[a], odd(a)).cmp(&(self.simplex_facets[b], odd(b)))
-                })
+            ka.cmp(&kb).then_with(|| {
+                let (head_a, tail_a, odd_a) = split(a);
+                let (head_b, tail_b, odd_b) = split(b);
+                (head_a, tail_a, self.simplex_facets[a], odd_a).cmp(&(
+                    head_b,
+                    tail_b,
+                    self.simplex_facets[b],
+                    odd_b,
+                ))
+            })
         });
         keyed.into_iter().map(|(_, i)| i).collect()
     }
