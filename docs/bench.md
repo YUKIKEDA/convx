@@ -472,3 +472,64 @@ A fourth order was tried and gave nothing: the farthest candidate of the facets 
 - **`cube` D6 10^4 is slower with the bucket queue by about 3%.** The alternated run is inside the spread there (1.03), but the single runs do not overlap (702 to 717 against 683 to 689), and the queue creates 4% more facets on that set. Two bits lose the least there among the widths tried.
 - **Values moved by value** cost 0.97 to 1.00, beyond the spread only on `sphere` D4 10^5.
 - The profile's 7.7% for `BinaryHeap::pop` at 10^5 understates the order's cost at 10^6: `main` takes 15 times as long for 10 times the points, and the last-in-first-out variant 11 times. What that order gains beyond the heap's own cost was not separated from the locality of working on new facets.
+
+## Delaunay insertion specialized for D = 2 and D = 3, convx `b640ed5` (#294)
+
+P6-21: the insertion compiled once for D = 2, once for D = 3, and once for every other dimension, against `main` at `f04212b`. `b640ed5` is the commit of the pull request of #294 that was measured.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `f04212b` and the head `b640ed5`. rustc 1.97.1, `--release`, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11 |
+| Cores | One, every process pinned (processor affinity) |
+| Timed | `DelaunayBuilder::new(dim, &pts).build()` on sets generated with `tests/common/generator.rs`, seed 1 |
+| Rounds | Base and head alternated per round: 5 rounds × 3 builds, or 3 rounds × 1 for the long sets |
+| Reported | Median with min–max, in ms. "inside the spread" when the two ranges overlap |
+| Profile | Intel VTune Profiler 2026.4.0, user-mode sampling at 10 ms, the target pinned; inclusive shares of the process from the call tree |
+
+Both sides published the same number of simplices on every set. The timing binary and the profile results are not kept.
+
+### Wall time
+
+| Set | `main` | Head | Head / `main` |
+| --- | ---: | ---: | ---: |
+| `cube` D2 10^4 | 19.6 (18.5–21.1) | 13.8 (13.2–14.7) | 0.71 |
+| `cube` D2 10^5 | 214 (209–226) | 155 (147–178) | 0.73 |
+| `cube` D2 10^6 | 2552 (2455–2600) | 1872 (1843–1874) | 0.73 |
+| `sphere` D2 10^4 | 20.1 (18.7–21.7) | 15.9 (15.2–17.4) | 0.79 |
+| `sphere` D2 10^5 | 166 (159–179) | 119 (116–126) | 0.72 |
+| `sphere` D2 10^6 | 1705 (1686–1748) | 1212 (1207–1230) | 0.71 |
+| `cube` D3 10^4 | 105 (103–110) | 85.4 (82.6–89.7) | 0.82 |
+| `cube` D3 10^5 | 1166 (1114–1199) | 965 (940–1011) | 0.83 |
+| `cube` D3 10^6 | 12586 (12554–12714) | 10626 (10562–10793) | 0.84 |
+| `sphere` D3 10^4 | 289 (281–300) | 295 (285–310) | 1.02, inside the spread |
+| `sphere` D3 10^5 | 2652 (2651–2671) | 2664 (2627–2693) | 1.00, inside the spread |
+| `sphere` D3 10^6 | 22781 (22317–22883) | 22491 (22385–22901) | 0.99, inside the spread |
+| `cube` D4 10^4 | 1002 (984–1042) | 1010 (990–1025) | 1.01, inside the spread |
+| `sphere` D4 10^4 | 4406 (4386–4466) | 4340 (4331–4358) | 0.99 |
+| `cube` D5 10^4 | 9100 (9042–9300) | 9154 (8963–9190) | 1.01, inside the spread |
+| `sphere` D5 10^4 | 51652 (51176–52674) | 51543 (49568–52104) | 1.00, inside the spread |
+
+### Profile of the head
+
+Shares of the process on three sets at 10^5 sites: 50 builds of `cube` D2 (6.77 s of CPU time), 8 of `cube` D3 (6.98 s), and 3 of `sphere` D3 (7.56 s).
+
+| Part | `cube` D2 | `cube` D3 | `sphere` D3 |
+| --- | ---: | ---: | ---: |
+| Insertion (`insert::Mesh::build`) | 66.3% | 75.2% | 89.8% |
+| The in-sphere test (`Mesh::conflict`) | 36.1% | 36.7% | 77.0% |
+| Point location (`Mesh::locate`) | 12.8% | 11.9% | 5.8% |
+| The semi-static stage (`semi_static::sign`) | 37.5% | 42.5% | 15.1% |
+| The exact stage (`exact::sign_exact`) | no sample | no sample | 62.6% |
+| The draft of the result (`Draft::finish`) | 10.8% | 9.0% | 1.0% |
+
+### Reading
+
+- **D = 2**: `build()` is 0.71 to 0.79 of `main` on all six sets, beyond the spread.
+- **D = 3, `cube`**: 0.82 to 0.84 on all three sets, beyond the spread.
+- **D = 3, `sphere`**: no change, 0.99 to 1.02 inside the spread. On these sets the sites are near one sphere, the semi-static bound certifies few in-sphere tests, and the exact stage is 62.6% of `build()`. The specialization shortens the way to the first stage of a predicate; it does not touch the exact stage.
+- **D = 4 and D = 5**: 0.99 to 1.01. `sphere` D4 reads 0.99 beyond the spread, which is 1.5% on three builds.
+- Per build of `cube` D2 at 10^5, point location went from 23.0% of 187 ms to 12.8% of 135 ms, and the in-sphere test from 32.5% of 187 ms to 36.1% of 135 ms (the first figures are those of the profile after P6 above).
+- The keep criterion of ADR 0005 asks for every Delaunay set of D = 2 and D = 3 from 10^5 sites to be faster beyond the spread. `sphere` D3 at 10^5 and 10^6 is not.

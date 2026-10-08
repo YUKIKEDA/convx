@@ -166,7 +166,7 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-18 | Docs | A dedicated Delaunay insertion for D = 2 and D = 3                                  | #288  | Done        |
 | P6-19 | Feat | Hull: take candidates from a bucket queue by distance                               | #291  | Done        |
 | P6-20 | Feat | Hull: planes and the boundary complex on first use; publish without redundant work  | #293  | Done        |
-| P6-21 | Feat | Delaunay: specialize the insertion for D = 2 and D = 3                              | #294  | Not started |
+| P6-21 | Feat | Delaunay: specialize the insertion for D = 2 and D = 3                              | #294  | In progress |
 
 ## Intentionally out of scope
 
