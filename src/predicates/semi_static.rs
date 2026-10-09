@@ -5,8 +5,9 @@
 //! The running bound of [`super::filter`] updates a bound on every
 //! operation. Here the bound is derived once per formula, so a call costs
 //! about two evaluations of the expression instead of five or more. When it
-//! does not certify the sign, the running bound is tried next, then the
-//! exact stage, so the sign returned is unchanged.
+//! does not certify the sign, the double-double stage is tried next
+//! ([`super::double_double`]), then the exact stage, so the sign returned is
+//! unchanged.
 //!
 //! # The bound
 //!
@@ -186,7 +187,7 @@ impl Estimate {
 }
 
 /// The sign of the orientation of `origin` followed by `points`, or of the
-/// lifted orientation when `lifted`, for k ≤ 4. `None` when the bound does
+/// lifted orientation when `lifted`, for k ≤ 5. `None` when the bound does
 /// not certify it, or when no formula here covers the size.
 ///
 /// `points` holds k rows of the dimension of `origin`: one per coordinate,
