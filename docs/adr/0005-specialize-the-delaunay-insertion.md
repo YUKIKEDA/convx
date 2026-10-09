@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. Amended for D = 2 by ADR 0007 (2026-10-10): D = 2 inserts by edge flips, a second core.
 
 ## Date
 
