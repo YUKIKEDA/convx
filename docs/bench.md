@@ -958,3 +958,74 @@ Met: 9 of 41, as in the baseline. Ratios of `build()`; "(ref.)" marks a referenc
 - Delaunay `sphere` D2 reads 0.85 to 0.87 and `sphere` D3 0.89 to 0.92, beyond the spread except at 10^4. Delaunay D4 and D5, whose predicates do not use the first stage, read 0.99 to 1.04, inside the spread.
 - The hull sets read 0.98 to 1.06, inside the spread, except `cubesurf` D3 10^5 at 0.94, beyond it. The hull decides most side tests by the cull plane's scan, which makes no such product per point.
 - **Against CGAL, Delaunay D2 and D3 now read 1.84 to 3.19**, from 1.97 to 3.81 in the baseline. No set changes its P7 judgement. P7-5 (#317) profiles what remains.
+
+## Profile of Delaunay D2 and D3 after P7-4, PR #NNN (#317)
+
+P7-5. Where Delaunay `build()` spends its time once the first-stage bound makes no subnormal product (#319), and which rows follow.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `980e394`, which holds P7-4. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2) |
+| Profile | Intel VTune hotspots, software sampling, on `DelaunayBuilder::new(dim, &pts).build()` repeated (30 builds at D2, 5 at D3), sets generated with `tests/common/generator.rs`, seed 1. Inclusive shares of `build()`; each row assigned from its callers in the call tree |
+| Phase timers | A scratch copy of the same commit with `Instant` marks around each phase and counters per site, not committed. Each insertion takes six marks. On Windows they make the build about 20% slower (`cube` D2 10^5: 136 ms against about 114 ms), so the times below read as shares, not as costs |
+
+### Shares of `build()` (profile)
+
+| Phase | `cube` D2 10^5 | `sphere` D2 10^5 | `cube` D3 10^5 |
+| --- | ---: | ---: | ---: |
+| Insertion (`Mesh::build`) | 58.3% | 69.4% | 66.4% |
+| — conflict tests (in-sphere) | 19.1% | 29.1% | 21.4% |
+| — of which the exact stage (`Sites::lifted`) | below 2% | 17.9% | below 2% |
+| — point location (`locate`) | 16.4% | 20.9% | 5.2% |
+| — allocation of simplices | 2.8% | 3.7% | 4.7% |
+| — the rest of `insert` (cavity search, new simplices, linking) | about 20% | about 15% | about 35% |
+| Public order of the simplices (`Draft::finish`, its sort) | 14.3% (9.5%) | 8.7% (6.0%) | 12.7% (8.0%) |
+| Ascending vertex lists of the draft (`ascending`) | 3.4% | below 2% | 4.3% |
+| Insertion order (`brio`) | 5.0% | 7.9% | below 2% |
+| Acceptance | 2.9% | below 2% | below 2% |
+
+### Phase timers and counts per site
+
+Times in ms per build, from the instrumented copy:
+
+| Phase | `cube` D2 10^5 | `sphere` D2 10^5 | `cube` D3 10^5 | `cube` D2 10^6 |
+| --- | ---: | ---: | ---: | ---: |
+| Acceptance, sites, flat test | 2.3 | 2.3 | 3.1 | 32.2 |
+| Insertion order | 8.4 | 8.5 | 9.0 | 83.6 |
+| Point location | 26.6 | 27.3 | 54.4 | 335 |
+| Cavity search | 27.9 | 41.0 | 238 | 319 |
+| New simplices and their links | 23.6 | 17.1 | 196 | 236 |
+| Cospherical groups | 6.4 | 3.8 | 58.2 | 108 |
+| Draft of the single simplices | 11.8 | 8.8 | 63.5 | 139 |
+| Merged groups | 0.2 | 0.3 | 0.9 | 2.2 |
+| Face pairing of the draft | 0.9 | 0.5 | 2.6 | 6.0 |
+| Public order and numbering | 15.3 | 7.2 | 85.6 | 288 |
+| Publication | 1.0 | 0.6 | 3.8 | 9.6 |
+
+| Per site | `cube` D2 | `sphere` D2 | `cube` D3 |
+| --- | ---: | ---: | ---: |
+| In-sphere tests | 9.03 | 3.96 | 45.9 |
+| Of which reach the exact stage | 0.0000 | 0.355 | 0.0000 |
+| Orientations (walk and outside simplices) | 11.3 | 12.8 | 20.2 |
+| Walk steps | 5.46 | 4.41 | 8.76 |
+| Simplices in the cavity | 4.02 | 2.98 | 20.1 |
+
+### Reading
+
+- **Insertion is 58 to 69% of `build()`; the predicates are about half of it.** The rest of `insert` is the cavity search, the new simplices, and their links. At D3 that rest is about 35% of `build()`: the instrumented copy spends 196 ms on new simplices and links against 238 ms on the cavity search.
+- **The public order of the simplices costs 9 to 14%.** It is a lexicographic sort of every simplex, which CGAL does not do. The draft's ascending vertex lists add 3 to 4%. Together with the cospherical groups and the draft, the pass after insertion is 25% (`cube` D2) and 29% (`cube` D3) of the instrumented time.
+- **On `sphere` D2 the exact stage is 17.9% of `build()`.** Its sites are near one circle, and 9% of the in-sphere tests reach the exact stage, against none on `cube`.
+- **Point location is 16 to 21% at D2,** at 4.4 to 5.5 steps a site with about two orientations a step. It is 5% at D3.
+- What the shares do not show: how much each row would remove. The instrumented times include the marks, and a share is not a saving.
+
+### Rows that follow, in the order of the profile
+
+| Row | Kind | What |
+| --- | --- | --- |
+| P7-10 | Feat | Delaunay: the new simplices of a cavity linked without turning around ridges, and the cavity search (the rest of `insert`, about 20 to 35%) |
+| P7-11 | Docs | Delaunay: the public order of the simplices on first use (9 to 14%, with the draft's ascending lists 3 to 4%), set after a Grill |
+| P7-12 | Spike | Delaunay `sphere` D2: why 9% of the in-sphere tests reach the exact stage, and what a stage between would decide (17.9%) |
+| P7-13 | Spike | Delaunay D2: insertion order and point location against CGAL's (16 to 21%, with the order 5 to 8%) |
