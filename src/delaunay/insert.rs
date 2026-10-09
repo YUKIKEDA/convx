@@ -217,6 +217,8 @@ pub(super) struct Mesh<'a, S: Shape> {
     cavity: Vec<u32>,
     boundary: Vec<(u32, usize, Across)>,
     created: Vec<u32>,
+    /// Work space of [`Self::link_by_keys`].
+    faces: Vec<(u64, u32, u32)>,
 }
 
 /// Every input site with its filtered lifted height, by index: one row
@@ -530,6 +532,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
             cavity: Vec::new(),
             boundary: Vec::new(),
             created: Vec::new(),
+            faces: Vec::new(),
         };
         let mut simplex = first.to_vec();
         match mesh.orient_ids(&simplex)? {
@@ -621,6 +624,78 @@ impl<'a, S: Shape> Mesh<'a, S> {
         }
     }
 
+    /// Links the faces through the new site of the new simplices, for
+    /// D = 2 and D = 3 (k = 3 and k = 4), without turning around ridges.
+    ///
+    /// The new simplex of boundary face `(c, slot)` has the new site at
+    /// `slot`. Its face opposite vertex `i` (`i != slot`) holds the new site
+    /// and the k - 2 vertices other than `slot` and `i`. That face is shared
+    /// with exactly one other new simplex, the one whose boundary face meets
+    /// this one in those k - 2 vertices, so the k - 2 vertices (one at
+    /// D = 2, two at D = 3, ascending) name it. The faces are paired by that
+    /// key in an open-addressing table sized to twice their number. As in
+    /// the turn of [`Self::insert`], two new simplices whose boundary faces
+    /// lie in one finite cavity simplex are not cospherical.
+    fn link_by_keys(&mut self, boundary: &[(u32, usize, Across)], created: &[u32]) {
+        const EMPTY: u64 = u64::MAX;
+        let k = self.shape.k();
+        debug_assert!(k == 3 || k == 4, "keys hold one or two vertices");
+        let size = (2 * created.len() * (k - 1)).next_power_of_two().max(4);
+        let mask = size - 1;
+        let mut faces = core::mem::take(&mut self.faces);
+        faces.clear();
+        faces.resize(size, (EMPTY, 0, 0));
+        for (entry, (&(c, slot, _), &new)) in boundary.iter().zip(created).enumerate() {
+            for i in (0..k).filter(|&i| i != slot) {
+                let v = self.vertices_of(new);
+                // The k - 2 vertices other than `slot` and `i`, ascending;
+                // a key of two `u32` never equals `EMPTY`, because two
+                // vertices of a simplex differ.
+                let key = if k == 3 {
+                    u64::from(v[3 - slot - i])
+                } else {
+                    let mut rest = (0..4).filter(|&m| m != slot && m != i).map(|m| v[m]);
+                    let (a, b) = (rest.next().unwrap_or(0), rest.next().unwrap_or(0));
+                    u64::from(a.min(b)) << 32 | u64::from(a.max(b))
+                };
+                let mut at = (key.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 32) as usize & mask;
+                // At most half the table is used, so a probe ends.
+                let mut probes = 0_usize;
+                loop {
+                    probes += 1;
+                    debug_assert!(probes <= size, "the table has room");
+                    let (stored, other, other_slot) = faces[at];
+                    if stored == EMPTY {
+                        faces[at] = (key, entry as u32, i as u32);
+                        break;
+                    }
+                    if stored == key {
+                        let (other_c, _, _) = boundary[other as usize];
+                        let other_new = created[other as usize];
+                        let other_slot = other_slot as usize;
+                        debug_assert_eq!(self.neighbor(new, i), NONE, "linked once");
+                        debug_assert_eq!(self.neighbor(other_new, other_slot), NONE, "linked once");
+                        self.set_neighbor(new, i, other_new);
+                        self.set_neighbor(other_new, other_slot, new);
+                        if other_c == c && self.is_finite(c) {
+                            self.across[new as usize * k + i] = Across::Distinct;
+                            self.across[other_new as usize * k + other_slot] = Across::Distinct;
+                        }
+                        break;
+                    }
+                    at = (at + 1) & mask;
+                }
+            }
+        }
+        debug_assert!(
+            created
+                .iter()
+                .all(|&new| (0..k).all(|s| self.neighbor(new, s) != NONE)),
+            "every face of a new simplex is linked"
+        );
+        self.faces = faces;
+    }
+
     /// Inserts site `q`.
     fn insert(&mut self, q: u32) -> Result<(), ConvexHullError> {
         let k = self.shape.k();
@@ -700,49 +775,53 @@ impl<'a, S: Shape> Mesh<'a, S> {
             created.push(new);
         }
 
-        // The face of a new simplex opposite vertex `i` holds `q` and the
-        // ridge of its boundary face without that vertex. Turning around
-        // that ridge through the cavity, from the boundary face, ends at the
-        // next boundary face around it, whose new simplex shares the face.
-        for (&(c, slot, _), &new) in boundary.iter().zip(&created) {
-            for i in 0..k {
-                if i == slot || self.neighbor(new, i) != NONE {
-                    continue;
-                }
-                // `cur` holds the ridge and `behind` and `ahead`; the face
-                // opposite `behind` was crossed, the one opposite `ahead` is
-                // next.
-                let (mut cur, mut behind, mut ahead) =
-                    (c, self.vertices_of(c)[slot], self.vertices_of(c)[i]);
-                // The turn passes each cavity simplex around the ridge at
-                // most once, so it ends within the size of the cavity.
-                let mut turned = 0_usize;
-                loop {
-                    turned += 1;
-                    debug_assert!(turned <= cavity.len(), "the turn leaves the cavity");
-                    let next = self.neighbor(cur, self.slot_of(cur, ahead));
-                    if self.mark[next as usize] != epoch {
-                        // `next` is the new simplex of the boundary face
-                        // opposite `ahead` in `cur`; it has `cur`'s layout,
-                        // so the shared face is opposite `behind`'s slot.
-                        let slot = self.slot_of(cur, behind);
-                        debug_assert_eq!(self.neighbor(next, slot), NONE, "linked once");
-                        self.set_neighbor(new, i, next);
-                        self.set_neighbor(next, slot, new);
-                        // Both boundary faces in `c`: the two new simplices
-                        // hold the sites of `c` and `q`, and `q` is strictly
-                        // inside the circumsphere of a finite simplex of the
-                        // cavity, so the two are not cospherical.
-                        if cur == c && self.is_finite(c) {
-                            self.across[new as usize * k + i] = Across::Distinct;
-                            self.across[next as usize * k + slot] = Across::Distinct;
-                        }
-                        break;
+        if k == 3 || k == 4 {
+            self.link_by_keys(&boundary, &created);
+        } else {
+            // The face of a new simplex opposite vertex `i` holds `q` and the
+            // ridge of its boundary face without that vertex. Turning around
+            // that ridge through the cavity, from the boundary face, ends at the
+            // next boundary face around it, whose new simplex shares the face.
+            for (&(c, slot, _), &new) in boundary.iter().zip(&created) {
+                for i in 0..k {
+                    if i == slot || self.neighbor(new, i) != NONE {
+                        continue;
                     }
-                    let entry = self.back(next, cur);
-                    debug_assert!(entry.is_some(), "neighbors are symmetric");
-                    let far = self.vertices_of(next)[entry.unwrap_or(0)];
-                    (cur, behind, ahead) = (next, far, behind);
+                    // `cur` holds the ridge and `behind` and `ahead`; the face
+                    // opposite `behind` was crossed, the one opposite `ahead` is
+                    // next.
+                    let (mut cur, mut behind, mut ahead) =
+                        (c, self.vertices_of(c)[slot], self.vertices_of(c)[i]);
+                    // The turn passes each cavity simplex around the ridge at
+                    // most once, so it ends within the size of the cavity.
+                    let mut turned = 0_usize;
+                    loop {
+                        turned += 1;
+                        debug_assert!(turned <= cavity.len(), "the turn leaves the cavity");
+                        let next = self.neighbor(cur, self.slot_of(cur, ahead));
+                        if self.mark[next as usize] != epoch {
+                            // `next` is the new simplex of the boundary face
+                            // opposite `ahead` in `cur`; it has `cur`'s layout,
+                            // so the shared face is opposite `behind`'s slot.
+                            let slot = self.slot_of(cur, behind);
+                            debug_assert_eq!(self.neighbor(next, slot), NONE, "linked once");
+                            self.set_neighbor(new, i, next);
+                            self.set_neighbor(next, slot, new);
+                            // Both boundary faces in `c`: the two new simplices
+                            // hold the sites of `c` and `q`, and `q` is strictly
+                            // inside the circumsphere of a finite simplex of the
+                            // cavity, so the two are not cospherical.
+                            if cur == c && self.is_finite(c) {
+                                self.across[new as usize * k + i] = Across::Distinct;
+                                self.across[next as usize * k + slot] = Across::Distinct;
+                            }
+                            break;
+                        }
+                        let entry = self.back(next, cur);
+                        debug_assert!(entry.is_some(), "neighbors are symmetric");
+                        let far = self.vertices_of(next)[entry.unwrap_or(0)];
+                        (cur, behind, ahead) = (next, far, behind);
+                    }
                 }
             }
         }
