@@ -959,7 +959,7 @@ Met: 9 of 41, as in the baseline. Ratios of `build()`; "(ref.)" marks a referenc
 - The hull sets read 0.98 to 1.06, inside the spread, except `cubesurf` D3 10^5 at 0.94, beyond it. The hull decides most side tests by the cull plane's scan, which makes no such product per point.
 - **Against CGAL, Delaunay D2 and D3 now read 1.84 to 3.19**, from 1.97 to 3.81 in the baseline. No set changes its P7 judgement. P7-5 (#317) profiles what remains.
 
-## Profile of Delaunay D2 and D3 after P7-4, PR #NNN (#317)
+## Profile of Delaunay D2 and D3 after P7-4, PR #333 (#317)
 
 P7-5. Where Delaunay `build()` spends its time once the first-stage bound makes no subnormal product (#319), and which rows follow.
 
