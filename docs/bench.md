@@ -1622,3 +1622,53 @@ Met: 13 of 41 (hull 9, Delaunay 4), against 11 in the run of #342.
 | Delaunay D2 | `cube` and `sphere`, 10^4 to 10^6 (1.96 to 2.62) | CGAL; P7-13 (#332) |
 | Delaunay D3 | `cube` 10^4 to 10^6 (1.60 to 1.86), `sphere` 10^6 (1.10) | CGAL |
 | Delaunay D4, D5 | `cube` D4 10^4 (1.15), `cube` D5 10^4 (1.12) | CGAL |
+
+## Delaunay D2: insertion order and point location against CGAL's, PR #364 (#332)
+
+The spike P7-13. It asks whether a Hilbert order, a cheaper sort of the order's keys, or a walk from the last insertion would close the gap of Delaunay D2 to CGAL (1.96 to 2.62 in the run of #361).
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | A copy of `main` at `208bfd9` outside the crate, with atomic counters and phase timers, and two variants chosen by environment variables: a Hilbert key in place of the Morton key under the same rounds of BRIO, and a stable LSD radix sort of `(round, key)` in place of `sort_unstable_by_key`. rustc 1.97.1, `--release` with debug info |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2) |
+| Timed | `build()` alone, on the sets of `tests/common/generator.rs`, seed 1. The four variants alternated per round: 10 rounds × 3 builds at 10^5, 5 × 1 at 10^6 |
+| Location | Timed in separate runs, with a timer around every call; that adds about 2 ns a call to the location's own time |
+| Published | The sorted vertex lists of the published simplices, hashed |
+
+### Per site and per phase
+
+| Set | Variant | `build()` | Ratio | Walk steps | Orientations | Order | Mesh | Location | Union | Draft |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `cube` D2 10^5 | base | 99.5 ms | 1.00 | 5.46 | 11.27 | 8.0 ms | 68.1 ms | 24.5 ms | 6.6 ms | 11.6 ms |
+| | Hilbert | 93.5 ms | 0.94, inside the spread | 4.13 | 8.93 | 8.0 ms | 62.3 ms | 19.4 ms | 6.2 ms | 11.5 ms |
+| | radix | 98.3 ms | 0.99, inside the spread | 5.46 | 11.27 | 6.8 ms | 67.8 ms | 24.5 ms | 6.4 ms | 11.6 ms |
+| | both | 93.1 ms | 0.94, inside the spread | 4.13 | 8.93 | 7.1 ms | 62.2 ms | 19.8 ms | 6.4 ms | 11.5 ms |
+| `sphere` D2 10^5 | base | 79.1 ms | 1.00 | 4.41 | 8.82 | 7.4 ms | 55.5 ms | 23.0 ms | 3.6 ms | 8.2 ms |
+| | Hilbert | 81.3 ms | 1.03, inside the spread | 4.96 | 9.92 | 8.0 ms | 57.5 ms | 25.3 ms | 3.6 ms | 8.2 ms |
+| | radix | 78.5 ms | 0.99, inside the spread | 4.41 | 8.82 | 6.8 ms | 55.5 ms | 23.0 ms | 3.8 ms | 8.1 ms |
+| | both | 80.9 ms | 1.02, inside the spread | 4.96 | 9.92 | 6.9 ms | 57.5 ms | 25.2 ms | 3.5 ms | 8.0 ms |
+| `cube` D2 10^6 | base | 1.17 s | 1.00 | 5.41 | 11.20 | 82.6 ms | 796 ms | 325 ms | 108 ms | 134 ms |
+| | Hilbert | 1.12 s | 0.96, faster beyond the spread | 4.09 | 8.85 | 84.2 ms | 745 ms | 272 ms | 106 ms | 134 ms |
+| | radix | 1.16 s | 0.99, inside the spread | 5.41 | 11.20 | 70.5 ms | 792 ms | 332 ms | 105 ms | 134 ms |
+| | both | 1.11 s | 0.94, faster beyond the spread | 4.09 | 8.85 | 72.6 ms | 741 ms | 273 ms | 106 ms | 132 ms |
+| `sphere` D2 10^6 | base | 894 ms | 1.00 | 4.42 | 8.84 | 81.8 ms | 627 ms | 318 ms | 48.3 ms | 87.5 ms |
+| | Hilbert | 933 ms | 1.04, slower beyond the spread | 4.99 | 9.98 | 85.1 ms | 658 ms | 338 ms | 48.5 ms | 85.0 ms |
+| | radix | 882 ms | 0.99, inside the spread | 4.42 | 8.84 | 67.3 ms | 634 ms | 311 ms | 48.4 ms | 86.1 ms |
+| | both | 904 ms | 1.01, inside the spread | 4.99 | 9.98 | 68.8 ms | 650 ms | 336 ms | 48.5 ms | 87.9 ms |
+
+Medians. "Mesh" is `Mesh::build`, the location inside it; "Union" is the pass that merges cospherical simplices, with 810,031 lifted tests on `cube` D2 10^6 and 279,321 on `sphere`; "Draft" builds the published rows. Every variant published the same simplices as the base on every set.
+
+### Reading
+
+- **The order is not the gap.** A Hilbert key cuts the walk on `cube` (5.41 to 4.09 steps a site) and saves 4 to 6% there, but lengthens it on `sphere`, whose sites lie on a circle (4.42 to 4.99), and costs 4% at 10^6. The radix sort saves 12 to 15 ms of the order at 10^6, about 1% of `build()`, inside the spread. Neither is a row.
+- **The walk already starts where CGAL's does**: from a simplex the last insertion created (`Mesh::locate`). The location is 36 to 51% of the mesh build, timed with its own timers, at 4.4 to 5.5 steps and 8.8 to 11.3 orientations a site.
+- **The gap is the insertion and the pass after it.** On `cube` D2 10^6 the mesh takes 796 ms, about 470 ms of it outside the location, and the pass after it 242 ms. CGAL's whole build takes 471 ms. The pass (union and draft) is 21% of `build()` on `cube` and 15% on `sphere`.
+
+### Rows that follow
+
+| Row | Kind | What |
+| --- | --- | --- |
+| P7-19 (#362) | Feat | Delaunay: the pass after the insertion at the cost of its tests |
+| P7-20 (#363) | Spike | Delaunay D2: the insertion's own work against CGAL's |
