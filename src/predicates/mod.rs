@@ -839,7 +839,12 @@ mod tests {
             }
             // The rows as the edges of a facet from the origin, unscaled;
             // the 1e120 rows overflow, so some lanes are not finite.
-            for (group, lanes) in cases.chunks_exact(filter::FACET_LANES).enumerate() {
+            for (group, lanes) in cases
+                .as_chunks::<{ filter::FACET_LANES }>()
+                .0
+                .iter()
+                .enumerate()
+            {
                 let facets: Vec<Vec<Vec<f64>>> = lanes
                     .iter()
                     .map(|m| {
