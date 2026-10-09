@@ -1354,3 +1354,60 @@ Met: 11 of 41. Hull `cube` D4 10^5 (0.93 against Qhull) and hull `sphere` D5 10^
 - **The keep criterion of #335 is not met on `sphere` D2 10^5 and `sphere` D3 10^5.** They read 0.90 and 0.94, and 0.98 twice, inside the spread both times. At 10^6 they read 0.89 and 0.97, beyond the spread. On `sphere` the cells are fewer per site and the in-sphere tests reach the exact stage more often (section of #333), so the sort is a smaller share. By the rule written after #337, a keep criterion names only the sets where the profile predicts a saving beyond the spread; this criterion was written before that rule.
 - No set is slower beyond the spread. Delaunay D4 and D5 read 0.96 to 1.02, inside the spread, and every hull set is inside it.
 - Against CGAL, Delaunay `cube` D2 now reads 2.05 to 2.33 and `cube` D3 1.82 to 1.97, against 2.24 to 2.92 and 1.96 to 2.34 in the run of #337.
+
+## Which stage decides the in-sphere tests of Delaunay, PR #NNN (#331)
+
+The spike P7-12. It asks which stage of the predicates decides each lifted orientation (the in-sphere test), what the tests that reach the exact stage cost, and what a stage between would decide.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `145ce0a`, and a scratch copy of it with counters and `Instant` marks in the predicates and in the D = 2, D = 3 shapes of `delaunay::insert`, not committed. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2) |
+| Sets | Delaunay `sphere` and `cube` at D2 to D5, generated with `tests/common/generator.rs`, seed 1 |
+| Inputs that reach the exact stage | Written to a file by the scratch copy: all 35,506 of `sphere` D2 10^5, and the first 250,000 of `sphere` D3 10^5, each with the sign convx returned |
+| Stages compared on those inputs, outside the crate | Shewchuk's adaptive `incircle` and `insphere` (the `robust` crate 1.1.0, a port of his predicates); and a double-double evaluation of the lifted determinant on fixed-size rows. The double-double differences `p_i - p_0` are exact (TwoSum), and the lifted column and the expansion are in double-double, with the products split by FMA or by Dekker's method. It certifies when `|det| > 10^-28 · permanent`, a rough bound that is not proved |
+| Timed | Per call, over the whole file, the best of several passes |
+
+### Where the in-sphere tests are decided
+
+Per build:
+
+| Set | Lifted orientations | Not decided by the first stage | Decided by the running filter | Exact stage | Exact stage, time / `build()` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `sphere` D2 10^5 | 424,524 | 8.4% | 1 | 35,507, 495 ns each | 17.6 ms / 107 ms |
+| `sphere` D2 10^6 | 4,262,662 | 2.1% | 1 | 87,604, 516 ns each | 45.2 ms / 991 ms |
+| `cube` D2 10^5 | 984,398 | 0% | — | 0 | — |
+| `sphere` D3 10^5 | 2,102,110 | 82.7% | 1 | 1,738,898, 1,039 ns each | 1.81 s / 2.86 s |
+| `sphere` D3 10^4 | 206,308 | 93.2% | 1 | 192,225, 1,044 ns each | 201 ms / 307 ms |
+| `cube` D3 10^5 | 5,097,001 | 0% | — | 0 | — |
+| `sphere` D4 10^4 | 1,177,480 | no first stage at k = 5 | 1 | 1,177,479, 3,231 ns each | 3.80 s / 4.50 s |
+| `cube` D4 10^4 | 2,834,200 | no first stage at k = 5 | all, 231 ns each (655 ms) | 0 | — |
+| `sphere` D5 10^4 | 7,454,137 | no first stage at k = 6 | 1 | 7,454,136, 6,155 ns each | 45.9 s / 52.3 s |
+| `cube` D5 10^4 | 17,583,753 | no first stage at k = 6 | all (5.08 s of 10.0 s) | 0 | — |
+
+On `sphere` D2 and D3, a test the first stage of the D = 2 and D = 3 shapes does not certify goes to `Sites::lifted`. That repeats the first stage, then runs the running filter, which decides nothing on these sets: 304 ms on `sphere` D3 10^5. Only then does it reach the exact stage.
+
+### Stages between, on the inputs that reach the exact stage
+
+| Inputs | convx now, per test reaching it | Shewchuk adaptive (`robust`) | Double-double, FMA | Double-double, Dekker split | Signs |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `sphere` D2 10^5 (35,506) | about 700 ns | 220 ns | 43 ns | 52 ns | all agree; the double-double bound leaves none open |
+| `sphere` D3 10^5 (250,000) | about 1,340 ns | 2,240 ns | 87 ns | 108 ns | all agree; the double-double bound leaves none open |
+
+### Reading
+
+- **Near-cospherical sites send most in-sphere tests to the exact stage**: 83 to 93% on `sphere` D3 and all on `sphere` D4 and D5. The exact stage is 63% of `build()` on `sphere` D3 10^5, 84% on `sphere` D4 10^4, and 88% on `sphere` D5 10^4. These sets read 1.84 to 2.73 against CGAL (#342).
+- **A double-double stage would decide every one of them on these inputs**, at 43 to 108 ns against about 700 to 1,340 ns now. Its bound here is rough. A real stage needs a proved bound, as the first stage has (`semi_static`), and the Dekker split keeps it on the baseline target.
+- **Shewchuk's adaptive predicates do not help at D3**: 2,240 ns against convx's 1,340 ns, since near-cospherical inputs go through most of their stages. At D2 they take 220 ns.
+- **At D4 and D5 there is no first stage**, so every in-sphere test runs the running filter: about half of `build()` on `cube` D4 and D5, at 231 ns a test at D4. The first stage covers determinants of size k ≤ 4 (`semi_static`); the in-sphere tests of D4 and D5 have k = 5 and k = 6, since the lifted orientation of dimension D has size D + 1.
+- **The repeated first stage and the running filter** cost 304 ms on `sphere` D3 10^5 without deciding anything.
+- What this does not show: the saving of each stage in `build()`. The counters and marks slow the build, and a stage's bound may leave more open than the rough one did.
+
+### Rows that follow
+
+| Row | Kind | What |
+| --- | --- | --- |
+| P7-15 | Docs | Predicates: a double-double stage, with its proved bound, between the first stage and the exact stage; for which sizes; FMA or a split. Set after a Grill |
+| P7-16 | Feat | Predicates: a first stage for determinants of size k = 5 and 6: the lifted orientations of D4 and D5, and the orientations of D5 and D6 |
