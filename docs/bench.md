@@ -1815,3 +1815,33 @@ Two different runs; each ratio is against `main` in its own run. Each run's `mai
 | Row | Kind | What |
 | --- | --- | --- |
 | P7-21 (#366) | Feat | Delaunay: the sites in the order of their insertion |
+
+## Delaunay D2: an insertion by edge flips, PR #371 (#370)
+
+The spike P7-22. Does an insertion by edge flips, CGAL's method for D = 2, build the mesh in at most 0.6 of the time of convx's cavity insertion? The rule was set in the Grill of 2026-10-10 (on #370): at most 0.6 on each of Delaunay `cube` and `sphere` D2 at 10^5 and 10^6 leads to a dedicated D = 2 insertion and ADR 0007; otherwise the current insertion keeps being improved.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | A copy of the head of #369 (`06dbcad`, the sites in insertion order) outside the crate. It has one entry that builds the D = 2 mesh of the same input, order, and stored sites, either with `Mesh::build` (the cavity) or with the prototype. rustc 1.97.1, `--release` with debug info |
+| Prototype | CGAL's method: a walk from the last insertion that does not test the face it came through; the point inserted into its triangle (three triangles, or four on an edge); the edges whose far vertex conflicts flipped. The vertex at infinity is a vertex like the others, and a triangle at infinity conflicts by the orientation of its hull edge. Each triangle is a record of three vertices and three neighbors. The same predicates as the cavity (the first stage, double-double, exact), through the D = 2 shape |
+| Timed | The mesh build alone, location included, after the order and the copy. Pinned (logical processor 2), the two variants alternated per round: 10 rounds × 3 builds at 10^5, 6 × 1 at 10^6 |
+| Compared | The finite triangles of both, as sorted input indices, hashed |
+
+### Results
+
+| Set | Cavity | Flips | Ratio | Walk steps | Orientations | In-circle tests | Flips |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `cube` D2 10^5 | 59.6 ms (57.0–69.3) | 41.0 ms (37.5–52.0) | 0.69, faster beyond the spread | 5.55 | 11.88 | 9.03 | 3.02 |
+| `sphere` D2 10^5 | 49.9 ms (47.5–57.1) | 33.4 ms (32.4–36.1) | 0.67, faster beyond the spread | 3.88 | 11.53 | 3.96 | 1.98 |
+| `cube` D2 10^6 | 614 ms (609–630) | 414 ms (408–437) | 0.67, faster beyond the spread | 5.52 | 11.84 | 9.04 | 3.02 |
+| `sphere` D2 10^6 | 471 ms (459–488) | 306 ms (300–325) | 0.65, faster beyond the spread | 3.90 | 11.57 | 3.98 | 1.99 |
+
+Per site, for the flips. The prototype's triangles matched the cavity's on every set. CGAL, counted in #363: 9.11 and 4.00 in-circle tests, 3.06 and 1.99 flips a site.
+
+### Reading
+
+- **The rule is not met.** The flips build the mesh in 0.65 to 0.69 of the cavity's time on all four sets, beyond the spread, against a rule of at most 0.6. By the Grill, the current insertion keeps being improved. Whether to change the rule is the owner's decision.
+- **The flips do CGAL's work.** Their in-circle tests and flips per site match CGAL's to within 2%. The cavity does the same in-circle tests (#363), so the saving is in what the cavity writes and links: four freed and six new triangles a site, and the turns around the ridges, against three new triangles and three flips.
+- **What a dedicated path would leave.** On `cube` D2 10^6, the flips' mesh takes 414 ms. CGAL's whole build takes 471 ms on Linux. The order and the copy (about 90 ms) and the pass after the insertion (about 160 ms after #365) come on top.
