@@ -92,6 +92,39 @@ fn the_shapes_publish_the_same_triangulation() {
 /// The override bites: with it, D = 2 runs the code of any dimension. The
 /// two shapes are told apart by which predicate entry they call, which a
 /// result cannot show, so this test checks the dispatch itself.
+/// The published order is the construction's (design §7): deterministic,
+/// so two builds of one input are equal under `==`, order included, on
+/// general, grid, and cospherical inputs, and on a flat lift.
+#[test]
+fn one_input_publishes_one_order() {
+    let mut state = 335_u64;
+    let mut next = || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    for dim in 1..=4 {
+        let general: Vec<f64> = (0..dim * 60)
+            .map(|_| (next() % 1_000_003) as f64 / 7.0)
+            .collect();
+        let grid: Vec<f64> = (0..dim * 60).map(|_| (next() % 4) as f64).collect();
+        let corners: Vec<f64> = (0..1_u32 << dim)
+            .flat_map(|i| (0..dim).map(move |a| f64::from((i >> a) & 1)))
+            .collect();
+        for points in [&general, &grid, &corners] {
+            let a = DelaunayBuilder::new(dim, points).build().unwrap();
+            let b = DelaunayBuilder::new(dim, points).build().unwrap();
+            assert!(a == b, "D = {dim}");
+            assert!(a
+                .simplices()
+                .iter()
+                .zip(b.simplices().iter())
+                .all(|(x, y)| x.vertices() == y.vertices() && x.neighbors() == y.neighbors()));
+        }
+    }
+}
+
 #[test]
 fn the_override_selects_the_shape_of_any_dimension() {
     assert!(!generic_insertion());
@@ -103,11 +136,39 @@ fn the_override_selects_the_shape_of_any_dimension() {
 }
 
 /// Every simplex as its (vertices, neighbors), in order.
-fn rows(t: &DelaunayTriangulation) -> Vec<(Vec<u32>, Vec<u32>)> {
-    t.simplices()
+/// Simplices with their neighbors named by vertex lists ([`named`]).
+type Named = Vec<(Vec<u32>, Vec<Option<Vec<u32>>>)>;
+
+fn rows(t: &DelaunayTriangulation) -> Named {
+    named(
+        t.simplices()
+            .iter()
+            .map(|s| (s.vertices().to_vec(), s.neighbors().to_vec()))
+            .collect(),
+    )
+}
+
+/// `rows`, each neighbor named by its ascending vertex list instead of its
+/// number, sorted by the vertices: the published order of the simplices is
+/// the construction's (design §7), which these tests do not fix.
+fn named(rows: Vec<(Vec<u32>, Vec<u32>)>) -> Named {
+    let ascending = |v: &[u32]| {
+        let mut v = v.to_vec();
+        v.sort_unstable();
+        v
+    };
+    let mut named: Named = rows
         .iter()
-        .map(|s| (s.vertices().to_vec(), s.neighbors().to_vec()))
-        .collect()
+        .map(|(vertices, neighbors)| {
+            let across = neighbors
+                .iter()
+                .map(|&n| (n != NO_NEIGHBOR).then(|| ascending(&rows[n as usize].0)))
+                .collect();
+            (vertices.clone(), across)
+        })
+        .collect();
+    named.sort_by_key(|a| ascending(&a.0));
+    named
 }
 
 /// Whether the lift of `points` is flat (every site on one sphere).
@@ -138,12 +199,13 @@ fn cells(t: &DelaunayTriangulation) -> Vec<Vec<u32>> {
     cells
 }
 
-/// Structural checks from §7: order, orientation, and neighbor symmetry
-/// across the shared face.
+/// Structural checks from §7: distinct simplices, orientation, and
+/// neighbor symmetry across the shared face. The order is the
+/// construction's and is not checked.
 fn check(t: &DelaunayTriangulation, points: &[f64]) {
     let d = t.dim();
     let point = |i: u32| &points[i as usize * d..(i as usize + 1) * d];
-    let sorted: Vec<Vec<u32>> = t
+    let mut sorted: Vec<Vec<u32>> = t
         .simplices()
         .iter()
         .map(|s| {
@@ -152,9 +214,10 @@ fn check(t: &DelaunayTriangulation, points: &[f64]) {
             v
         })
         .collect();
+    sorted.sort();
     assert!(
         sorted.windows(2).all(|w| w[0] < w[1]),
-        "lexicographic order"
+        "every simplex is published once"
     );
     for (i, s) in t.simplices().iter().enumerate() {
         assert_eq!(s.vertices().len(), d + 1);
@@ -204,14 +267,16 @@ fn partly_cocircular_square() {
     let points = [0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0, 1.0, -3.0];
     let t = triangulate(2, &points);
     let m = NO_NEIGHBOR;
+    // Numbered here in the lexicographic order of the vertex lists; `named`
+    // compares them by vertices.
     assert_eq!(
         rows(&t),
-        vec![
+        named(vec![
             (vec![0, 1, 2], vec![m, 2, 1]),
             // (0,0), (2,0), (1,-3) is clockwise, so the last two swap.
             (vec![0, 4, 1], vec![m, 0, m]),
             (vec![0, 2, 3], vec![m, m, 0]),
-        ]
+        ])
     );
     check(&t, &points);
 }
@@ -573,10 +638,10 @@ fn square_is_pulled_from_its_smallest_site() {
     let m = NO_NEIGHBOR;
     assert_eq!(
         rows(&t),
-        vec![
+        named(vec![
             (vec![0, 1, 2], vec![m, 1, m]),
             (vec![0, 2, 3], vec![m, m, 0]),
-        ]
+        ])
     );
 }
 

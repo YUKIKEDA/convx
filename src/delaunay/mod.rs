@@ -51,10 +51,15 @@ pub(crate) const NO_NEIGHBOR: u32 = u32::MAX;
 /// // by pulling from the smallest index into two triangles.
 /// let points = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
 /// let delaunay = DelaunayBuilder::new(2, &points).build()?;
-/// let cells: Vec<&[u32]> = delaunay.simplices().iter().map(|s| s.vertices()).collect();
+/// let mut cells: Vec<&[u32]> = delaunay.simplices().iter().map(|s| s.vertices()).collect();
+/// // The simplices come in the order the construction leaves.
+/// cells.sort();
 /// assert_eq!(cells, [&[0, 1, 2][..], &[0, 2, 3][..]]);
+/// // Each names the other across the shared edge {0, 2}; the other faces
+/// // are on the boundary.
 /// let first = delaunay.simplices().get(0).unwrap();
-/// assert_eq!(first.neighbors(), [u32::MAX, 1, u32::MAX]);
+/// let across: Vec<u32> = first.neighbors().iter().copied().filter(|&n| n != u32::MAX).collect();
+/// assert_eq!(across, [1]);
 /// # Ok::<(), convx::ConvexHullError>(())
 /// ```
 #[derive(Clone, Copy, Debug)]
@@ -112,8 +117,9 @@ impl DelaunayTriangulation {
         &self.representative
     }
 
-    /// The simplices, in the lexicographic order of their ascending vertex
-    /// lists before orientation is fixed.
+    /// The simplices, in the order the construction leaves: the same for
+    /// the same input on one binary, and not promised across versions or for
+    /// a permutation of the input (design §7).
     #[must_use]
     pub fn simplices(&self) -> Simplices<'_> {
         Simplices { delaunay: self }
@@ -203,15 +209,16 @@ impl core::fmt::Debug for DelaunaySimplex<'_> {
 }
 
 /// The Delaunay complex before diagonals are inserted (design §8), and the
-/// simplices it is cut into, numbered and linked in public order.
+/// simplices it is cut into, numbered and linked in public order: the order
+/// the construction leaves (design §7).
 pub(crate) struct Complex {
     pub(crate) dim: usize,
     pub(crate) representative: Vec<u32>,
     /// Per lower logical facet of the lift (a group of cospherical sites),
     /// its sites, ascending; at least D + 1. Groups are in no fixed order.
     pub(crate) sites: Lists<u32>,
-    /// D + 1 sites per cell, ascending; cells in the lexicographic order of
-    /// these rows, which is the order of [`DelaunayTriangulation`].
+    /// D + 1 sites per cell, ascending; cells in the order of the draft,
+    /// which is the order of [`DelaunayTriangulation`].
     pub(crate) cells: Vec<u32>,
     /// D + 1 per cell: the cell across the face opposite `cells[c * k + i]`,
     /// or [`NO_NEIGHBOR`] on the boundary of the site hull.
@@ -273,8 +280,9 @@ impl Draft {
         }
     }
 
-    /// Numbers the cells in the lexicographic order of their rows, pairs the
-    /// faces left [`UNKNOWN`] by their vertex sets, and renumbers every link.
+    /// Pairs the faces left [`UNKNOWN`] by their vertex sets. The cells keep
+    /// their draft order and numbers, which are the public ones: nothing is
+    /// sorted for publication (design §7).
     fn finish(mut self, dim: usize, representative: Vec<u32>) -> Complex {
         let k = self.k;
         let n = self.len();
@@ -306,38 +314,14 @@ impl Draft {
             self.links[cb as usize * k + sb] = ca;
         }
         drop((keys, owners));
-
-        let mut order: Vec<u32> = (0..n as u32).collect();
-        order.sort_unstable_by(|&a, &b| self.row(a as usize).cmp(self.row(b as usize)));
-        let mut number = vec![0_u32; n];
-        for (public, &c) in order.iter().enumerate() {
-            number[c as usize] = public as u32;
-        }
-        let mut cells = Vec::with_capacity(n * k);
-        let mut neighbors = Vec::with_capacity(n * k);
-        let mut negative = Vec::with_capacity(n);
-        let mut group = Vec::with_capacity(n);
-        for &c in &order {
-            let c = c as usize;
-            cells.extend_from_slice(self.row(c));
-            neighbors.extend(self.links[c * k..(c + 1) * k].iter().map(|&l| {
-                if l == NO_NEIGHBOR {
-                    l
-                } else {
-                    number[l as usize]
-                }
-            }));
-            negative.push(self.negative[c]);
-            group.push(self.group[c]);
-        }
         Complex {
             dim,
             representative,
             sites: self.sites,
-            cells,
-            neighbors,
-            negative,
-            group,
+            cells: self.rows,
+            neighbors: self.links,
+            negative: self.negative,
+            group: self.group,
         }
     }
 }

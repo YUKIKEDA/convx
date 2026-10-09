@@ -15,15 +15,20 @@ fn build(dim: usize, points: &[f64]) -> DelaunayTriangulation {
     t
 }
 
+/// The ascending vertex lists of the simplices, sorted: the published
+/// order is the construction's (design §7), which these tests do not fix.
 fn cells(t: &DelaunayTriangulation) -> Vec<Vec<u32>> {
-    t.simplices()
+    let mut cells: Vec<Vec<u32>> = t
+        .simplices()
         .iter()
         .map(|s| {
             let mut v = s.vertices().to_vec();
             v.sort_unstable();
             v
         })
-        .collect()
+        .collect();
+    cells.sort();
+    cells
 }
 
 #[test]
@@ -158,11 +163,20 @@ fn renormalized(t: &DelaunayTriangulation, moved: &[f64]) -> Vec<Vec<u32>> {
     out
 }
 
+/// The oriented vertex lists, sorted by their ascending lists, as
+/// [`renormalized`] returns them.
 fn oriented(t: &DelaunayTriangulation) -> Vec<Vec<u32>> {
-    t.simplices()
+    let mut out: Vec<Vec<u32>> = t
+        .simplices()
         .iter()
         .map(|s| s.vertices().to_vec())
-        .collect()
+        .collect();
+    out.sort_by_key(|v| {
+        let mut x = v.clone();
+        x.sort_unstable();
+        x
+    });
+    out
 }
 
 #[test]

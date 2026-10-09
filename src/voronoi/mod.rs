@@ -430,7 +430,10 @@ fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> 
     })?;
 
     // Groups in the order of their site lists, and each group's cells in
-    // their public order, which is the lexicographic order of their rows.
+    // the lexicographic order of their rows, from which a vertex takes its
+    // coordinates (design §8). The Delaunay order is the construction's
+    // (design §7), so the cells of each group are sorted here; a group of a
+    // set in general position has one cell.
     let k = d + 1;
     let group_sites = &complex.sites;
     let mut groups: Vec<u32> = (0..group_sites.len() as u32).collect();
@@ -441,9 +444,14 @@ fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> 
         .enumerate()
         .map(|(c, &g)| (g, c as u32))
         .collect();
-    let members = lists_of(group_sites.len(), &mut members_of);
+    let mut members = lists_of(group_sites.len(), &mut members_of);
     drop(members_of);
     let row = |c: u32| &complex.cells[c as usize * k..(c as usize + 1) * k];
+    for g in 0..members.len() {
+        members
+            .get_mut(g)
+            .sort_unstable_by(|&a, &b| row(a).cmp(row(b)));
+    }
 
     // The site-hull facets incident to each hull vertex, as offsets into one
     // list.
