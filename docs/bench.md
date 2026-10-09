@@ -1029,3 +1029,127 @@ Times in ms per build, from the instrumented copy:
 | P7-11 | Docs | Delaunay: the public order of the simplices on first use (9 to 14%, with the draft's ascending lists 3 to 4%), set after a Grill |
 | P7-12 | Spike | Delaunay `sphere` D2: why 9% of the in-sphere tests reach the exact stage, and what a stage between would decide (17.9%) |
 | P7-13 | Spike | Delaunay D2: insertion order and point location against CGAL's (16 to 21%, with the order 5 to 8%) |
+
+## D2 facets in cycle order and the facet numbering on first use, PR #NNN (#321)
+
+P7-6. For D = 2 classification writes the facets, the neighbors, and the boundary simplices in one pass over the boundary cycle, and publication sorts nothing. For D = 1 and D >= 3 the hull keeps the facets as classification leaves them, and the first call that reads a facet number orders them (design §5, #312).
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `00e4423` against the head `05c030a`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2) |
+| Timed | `build()` alone, on every set of ADR 0006, generated with `tests/common/generator.rs`, seed 1. The counts are read after the timer stops, so the head's numbering on first use is not in the timed section, as ADR 0006 judges `build()` |
+| Rounds | `main` and the head alternated per round: 5 rounds × 3 builds, or 3 × 1 for the sets over about 1.5 s; a second run of 10 rounds × 3 on hull `sphere` D3 |
+| P7 judgement | The parity run of `docs/verification.md` on the head, under WSL2 on the same machine. Its `planes()` column now includes the numbering for D >= 3 |
+
+Every set published the same counts on both sides.
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.71 ms (0.65 ms–1.15 ms) | 0.68 ms (0.61 ms–0.80 ms) | 0.95, inside the spread |
+| Hull `cube` D2 10^5 | 6.63 ms (5.91 ms–7.23 ms) | 6.42 ms (5.67 ms–8.01 ms) | 0.97, inside the spread |
+| Hull `cube` D2 10^6 | 72.9 ms (69.2 ms–90.1 ms) | 75.6 ms (70.4 ms–79.5 ms) | 1.04, inside the spread |
+| Hull `cube` D3 10^4 | 1.51 ms (1.39 ms–1.91 ms) | 1.57 ms (1.37 ms–2.03 ms) | 1.03, inside the spread |
+| Hull `cube` D3 10^5 | 12.7 ms (11.9 ms–13.5 ms) | 12.3 ms (11.6 ms–13.7 ms) | 0.97, inside the spread |
+| Hull `cube` D3 10^6 | 149 ms (143 ms–163 ms) | 144 ms (142 ms–150 ms) | 0.97, inside the spread |
+| Hull `cube` D4 10^4 | 7.11 ms (6.56 ms–8.43 ms) | 7.15 ms (6.36 ms–9.26 ms) | 1.01, inside the spread |
+| Hull `cube` D4 10^5 | 37.9 ms (36.6 ms–41.9 ms) | 38.6 ms (36.9 ms–40.9 ms) | 1.02, inside the spread |
+| Hull `cube` D5 10^4 | 62.7 ms (61.0 ms–65.9 ms) | 60.5 ms (58.1 ms–69.9 ms) | 0.97, inside the spread |
+| Hull `cube` D5 10^5 | 242 ms (235 ms–300 ms) | 235 ms (228 ms–243 ms) | 0.97, inside the spread |
+| Hull `cube` D6 10^4 | 663 ms (644 ms–686 ms) | 618 ms (611 ms–635 ms) | 0.93 |
+| Hull `cube` D6 10^5 | 2.94 s (2.92 s–2.95 s) | 2.82 s (2.81 s–2.85 s) | 0.96 |
+| Hull `sphere` D2 10^4 | 2.09 ms (1.91 ms–2.95 ms) | 1.59 ms (1.49 ms–2.62 ms) | 0.76, inside the spread |
+| Hull `sphere` D2 10^5 | 21.8 ms (20.4 ms–25.1 ms) | 18.3 ms (17.1 ms–19.3 ms) | 0.84 |
+| Hull `sphere` D2 10^6 | 295 ms (288 ms–328 ms) | 237 ms (231 ms–246 ms) | 0.80 |
+| Hull `sphere` D3 10^4 | 32.1 ms (31.1 ms–34.3 ms) | 30.7 ms (28.6 ms–32.4 ms) | 0.96, inside the spread |
+| Hull `sphere` D3 10^5 | 383 ms (376 ms–397 ms) | 366 ms (355 ms–377 ms) | 0.95, inside the spread |
+| Hull `sphere` D3 10^6 | 5.62 s (5.59 s–5.62 s) | 5.25 s (5.23 s–5.31 s) | 0.93 |
+| Hull `sphere` D4 10^4 | 145 ms (140 ms–155 ms) | 136 ms (133 ms–161 ms) | 0.94, inside the spread |
+| Hull `sphere` D4 10^5 | 1.78 s (1.78 s–1.81 s) | 1.66 s (1.64 s–1.67 s) | 0.93 |
+| Hull `sphere` D5 10^4 | 949 ms (936 ms–966 ms) | 900 ms (886 ms–912 ms) | 0.95 |
+| Hull `sphere` D5 10^5 | 12.29 s (12.19 s–12.29 s) | 11.30 s (11.13 s–11.60 s) | 0.92 |
+| Hull `sphere` D6 10^4 | 7.55 s (7.50 s–7.57 s) | 7.07 s (7.03 s–7.10 s) | 0.94 |
+| Hull `cubesurf` D3 10^5 | 173 ms (169 ms–178 ms) | 173 ms (171 ms–178 ms) | 1.00, inside the spread |
+| Hull `grid` D6 10^4 | 3.82 s (3.80 s–3.87 s) | 3.81 s (3.80 s–3.82 s) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^4 | 10.1 ms (9.40 ms–10.8 ms) | 10.7 ms (9.21 ms–13.1 ms) | 1.05, inside the spread |
+| Delaunay `cube` D2 10^5 | 109 ms (106 ms–124 ms) | 111 ms (109 ms–114 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^6 | 1.40 s (1.37 s–1.43 s) | 1.40 s (1.38 s–1.43 s) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^4 | 55.4 ms (53.2 ms–58.5 ms) | 56.2 ms (53.3 ms–66.7 ms) | 1.01, inside the spread |
+| Delaunay `cube` D3 10^5 | 658 ms (644 ms–692 ms) | 653 ms (636 ms–698 ms) | 0.99, inside the spread |
+| Delaunay `cube` D3 10^6 | 7.97 s (7.96 s–8.02 s) | 7.92 s (7.87 s–8.00 s) | 0.99, inside the spread |
+| Delaunay `cube` D4 10^4 | 977 ms (923 ms–1.02 s) | 984 ms (915 ms–1.02 s) | 1.01, inside the spread |
+| Delaunay `cube` D5 10^4 | 9.13 s (8.93 s–9.21 s) | 9.06 s (8.96 s–9.08 s) | 0.99, inside the spread |
+| Delaunay `sphere` D2 10^4 | 13.8 ms (13.4 ms–14.5 ms) | 13.9 ms (13.0 ms–15.7 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D2 10^5 | 102 ms (94.5 ms–127 ms) | 101 ms (95.2 ms–117 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D2 10^6 | 1.02 s (988 ms–1.12 s) | 1.02 s (987 ms–1.17 s) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^4 | 266 ms (261 ms–284 ms) | 271 ms (261 ms–288 ms) | 1.02, inside the spread |
+| Delaunay `sphere` D3 10^5 | 2.46 s (2.46 s–2.52 s) | 2.48 s (2.45 s–2.50 s) | 1.01, inside the spread |
+| Delaunay `sphere` D3 10^6 | 19.74 s (18.98 s–19.90 s) | 19.88 s (19.12 s–20.62 s) | 1.01, inside the spread |
+| Delaunay `sphere` D4 10^4 | 4.38 s (4.33 s–4.42 s) | 4.35 s (4.30 s–4.48 s) | 0.99, inside the spread |
+| Delaunay `sphere` D5 10^4 | 50.81 s (50.23 s–53.42 s) | 52.08 s (50.76 s–53.03 s) | 1.02, inside the spread |
+
+The second run, 10 rounds × 3:
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `sphere` D3 10^4 | 32.6 ms (30.5 ms–38.4 ms) | 31.1 ms (28.9 ms–36.1 ms) | 0.95, inside the spread |
+| Hull `sphere` D3 10^5 | 397 ms (375 ms–441 ms) | 374 ms (357 ms–396 ms) | 0.94, inside the spread |
+
+### P7 judgement of the head
+
+Met: 9 of 41, as before. Ratios of `build()`; "(ref.)" marks a reference that is not judged (ADR 0006).
+
+| Set | convx `build()` | / CGAL | / Qhull | P7 |
+| --- | ---: | ---: | ---: | --- |
+| Hull `cube` D2 10^4 | 0.56 ms | 1.13 | 0.98 | not met |
+| Hull `cube` D2 10^5 | 5.74 ms | 1.27 | 0.97 | not met |
+| Hull `cube` D2 10^6 | 73.2 ms | 1.53 | 1.22 | not met |
+| Hull `cube` D3 10^4 | 1.43 ms | 0.61 | 0.87 | met |
+| Hull `cube` D3 10^5 | 10.7 ms | 0.40 | 0.90 | met |
+| Hull `cube` D3 10^6 | 144 ms | 0.25 | 0.96 | met |
+| Hull `cube` D4 10^4 | 6.92 ms | 0.15 | 0.95 | met |
+| Hull `cube` D4 10^5 | 35.6 ms | 0.06 | 1.03 | not met |
+| Hull `cube` D5 10^4 | 56.2 ms | 0.24 | 0.75 | met |
+| Hull `cube` D5 10^5 | 216 ms | 0.13 | 0.67 | met |
+| Hull `cube` D6 10^4 | 599 ms | 0.29 | 0.48 | met |
+| Hull `cube` D6 10^5 | 2.59 s | 0.24 | 0.39 | met |
+| Hull `sphere` D2 10^4 | 1.32 ms | 1.98 | 0.20 (ref.) | not met |
+| Hull `sphere` D2 10^5 | 15.8 ms | 2.02 | 0.14 (ref.) | not met |
+| Hull `sphere` D2 10^6 | 226 ms | 2.58 | 0.12 (ref.) | not met |
+| Hull `sphere` D3 10^4 | 27.9 ms | 1.20 | 1.50 | not met |
+| Hull `sphere` D3 10^5 | 343 ms | 0.85 | 1.38 | not met |
+| Hull `sphere` D3 10^6 | 5.04 s | 0.62 | 1.49 | not met |
+| Hull `sphere` D4 10^4 | 127 ms | 1.05 | 1.29 | not met |
+| Hull `sphere` D4 10^5 | 1.63 s | 1.27 | 1.21 | not met |
+| Hull `sphere` D5 10^4 | 849 ms | 0.87 | 1.03 | not met |
+| Hull `sphere` D5 10^5 | 10.80 s | 0.97 | 1.01 | not met |
+| Hull `sphere` D6 10^4 | 7.05 s | 0.74 | 0.84 | met |
+| Hull `cubesurf` D3 10^5 | 171 ms | 4.45 | 5.82 | not met |
+| Hull `grid` D6 10^4 | 3.67 s | 14.16 (ref.) | 10.67 | not met |
+| Delaunay `cube` D2 10^4 | 9.28 ms | 2.24 | 0.50 | not met |
+| Delaunay `cube` D2 10^5 | 104 ms | 2.43 | 0.44 | not met |
+| Delaunay `cube` D2 10^6 | 1.36 s | 2.92 | 0.41 | not met |
+| Delaunay `sphere` D2 10^4 | 13.0 ms | 3.31 | 0.56 (ref.) | not met |
+| Delaunay `sphere` D2 10^5 | 94.8 ms | 3.00 | 0.25 (ref.) | not met |
+| Delaunay `sphere` D2 10^6 | 976 ms | 3.08 | 0.08 (ref.) | not met |
+| Delaunay `cube` D3 10^4 | 57.7 ms | 1.96 | 0.62 | not met |
+| Delaunay `cube` D3 10^5 | 682 ms | 2.20 | 0.54 | not met |
+| Delaunay `cube` D3 10^6 | 8.01 s | 2.34 | 0.51 | not met |
+| Delaunay `sphere` D3 10^4 | 231 ms | 1.81 | 2.05 (ref.) | not met |
+| Delaunay `sphere` D3 10^5 | 2.23 s | 2.42 | 1.18 (ref.) | not met |
+| Delaunay `sphere` D3 10^6 | 17.66 s | 2.76 | 1.02 (ref.) | not met |
+| Delaunay `cube` D4 10^4 | 884 ms | 1.40 | 1.10 | not met |
+| Delaunay `sphere` D4 10^4 | 3.83 s | 1.51 | 3.00 (ref.) | not met |
+| Delaunay `cube` D5 10^4 | 8.01 s | 1.17 | 0.99 | not met |
+| Delaunay `sphere` D5 10^4 | 47.63 s | 1.35 | 3.25 (ref.) | not met |
+
+### Reading
+
+- **Hull `sphere` D2 reads 0.84 at 10^5 and 0.80 at 10^6, beyond the spread.** Against CGAL it now reads 1.98 to 2.58, against 2.53 to 3.25 before (section of #319).
+- **The keep criterion of #321 is not met on hull `sphere` D3 10^5.** It reads 0.95 in the first run and 0.94 in a second run of ten rounds, both inside the spread. Its numbering on first use saves the sort of about 200,000 facets, a few percent of a build that construction dominates. Hull `sphere` D3 10^6 reads 0.93, D4 10^5 0.93, D5 0.92 to 0.95, and D6 0.94, all beyond the spread, as are `cube` D6 at 0.93 and 0.96.
+- No set is slower beyond the spread. The Delaunay sets, whose path this does not change, read 0.99 to 1.05, inside the spread.
+- No set changes its P7 judgement. Hull `sphere` D5 now reads 1.01 to 1.03 against Qhull.
