@@ -570,6 +570,8 @@ impl<'a> SimplicialHull<'a> {
         horizon.clear();
         visible.push(start);
         visited.set(start, Sign::Positive);
+        // Most apexes have no record, and their walk reads no plane number.
+        let recorded = records.has_any(apex);
         let mut cursor = 0;
         while cursor < visible.len() {
             let slot = visible[cursor];
@@ -580,7 +582,7 @@ impl<'a> SimplicialHull<'a> {
                     Some(sign) => sign,
                     None => {
                         let facet = self.facets.facet(neighbor);
-                        let sign = if records.holds(apex, facet.number()) {
+                        let sign = if recorded && records.holds(apex, facet.number()) {
                             #[cfg(debug_assertions)]
                             debug_assert_eq!(
                                 self.side(facet, apex)?,
@@ -1040,6 +1042,8 @@ fn take_outside(
             }
         }
     }
+    // An input with no zero sign so far has no record to look up.
+    let recorded = !records.is_empty();
     // Kept points move down in place, in order.
     let mut kept = 0;
     for k in 0..remaining.len() {
@@ -1056,7 +1060,7 @@ fn take_outside(
                 );
                 proved
             }
-            None if records.holds(p, facet.number) => {
+            None if recorded && records.holds(p, facet.number) => {
                 #[cfg(debug_assertions)]
                 debug_assert_eq!(
                     oriented_side(input, facet, p)?,

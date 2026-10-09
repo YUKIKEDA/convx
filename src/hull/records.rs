@@ -51,6 +51,13 @@ impl Records {
         })
     }
 
+    /// Whether `point` has a record.
+    pub(crate) fn has_any(&self, point: u32) -> bool {
+        self.starts
+            .get(point as usize)
+            .is_some_and(|&start| start != NONE)
+    }
+
     /// Whether `point` was recorded on plane `number`.
     pub(crate) fn holds(&self, point: u32, number: u32) -> bool {
         self.numbers(point).any(|n| n == number)
@@ -90,5 +97,7 @@ mod tests {
         assert_eq!(records.numbers(1).count(), 0);
         assert!(records.holds(2, 7) && records.holds(2, 3) && records.holds(0, 7));
         assert!(!records.holds(0, 3) && !records.holds(3, 7));
+        assert!(records.has_any(0) && records.has_any(2));
+        assert!(!records.has_any(1) && !records.has_any(3));
     }
 }
