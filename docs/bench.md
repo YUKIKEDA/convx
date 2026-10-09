@@ -2014,6 +2014,71 @@ A second copy kept the five arrays but recorded nothing on the faces: no forgett
 - **The gap between the flip prototype and its implementation is mostly the harness.** The prototype read 0.65 to 0.69 of the cavity's mesh (#370), the implementation 0.84 to 0.87 (#373). In the prototype's harness, the cavity's mesh of `cube` D2 10^6 took 614 ms; in the pipeline of `build()`, 554 ms. The two ratios were measured against different bases, and the prototype's base was slower.
 - What follows: no row adopts a layout. The Grill planned the arrays of the pass after the insertion, and the hull's facet store, as rows after this result. They are not opened on the layout hypothesis. A row on them starts from a profile that shows memory there.
 
+## The P7 parity run after P7-19 to P7-23, PR #379 (#378)
+
+Due after three speed rows merged since the run of #361: P7-19 (#365), P7-21 (#369), and P7-23 (#373).
+
+### Method
+
+As in the run of #361: `main` at `340b7cc`, `--release` with debug info, the parity run of `docs/verification.md` under WSL2 on the Intel Core i5-13400F, against Qhull and CGAL on the same machine. "(ref.)" marks a reference that is not judged (ADR 0006).
+
+### P7 judgement
+
+Met: 13 of 41 (hull 9, Delaunay 4), as in the run of #361.
+
+| Set | convx `build()` | / CGAL | / Qhull | P7 |
+| --- | ---: | ---: | ---: | --- |
+| Hull `cube` D2 10^4 | 0.57 ms | 1.18 | 1.00 | not met |
+| Hull `cube` D2 10^5 | 5.45 ms | 1.19 | 0.95 | not met |
+| Hull `cube` D2 10^6 | 76.1 ms | 1.52 | 1.25 | not met |
+| Hull `cube` D3 10^4 | 1.35 ms | 0.62 | 0.90 | met |
+| Hull `cube` D3 10^5 | 10.5 ms | 0.41 | 0.87 | met |
+| Hull `cube` D3 10^6 | 159 ms | 0.24 | 0.94 | met |
+| Hull `cube` D4 10^4 | 6.70 ms | 0.15 | 1.01 | not met |
+| Hull `cube` D4 10^5 | 35.3 ms | 0.06 | 1.04 | not met |
+| Hull `cube` D5 10^4 | 56.8 ms | 0.25 | 0.77 | met |
+| Hull `cube` D5 10^5 | 219 ms | 0.12 | 0.66 | met |
+| Hull `cube` D6 10^4 | 637 ms | 0.30 | 0.47 | met |
+| Hull `cube` D6 10^5 | 2.78 s | 0.24 | 0.40 | met |
+| Hull `sphere` D2 10^4 | 1.42 ms | 2.17 | 0.20 (ref.) | not met |
+| Hull `sphere` D2 10^5 | 16.5 ms | 2.07 | 0.14 (ref.) | not met |
+| Hull `sphere` D2 10^6 | 254 ms | 2.87 | 0.12 (ref.) | not met |
+| Hull `sphere` D3 10^4 | 27.7 ms | 1.21 | 1.51 | not met |
+| Hull `sphere` D3 10^5 | 359 ms | 0.82 | 1.38 | not met |
+| Hull `sphere` D3 10^6 | 5.47 s | 0.61 | 1.47 | not met |
+| Hull `sphere` D4 10^4 | 130 ms | 1.07 | 1.31 | not met |
+| Hull `sphere` D4 10^5 | 1.73 s | 1.33 | 1.21 | not met |
+| Hull `sphere` D5 10^4 | 883 ms | 0.89 | 0.99 | met |
+| Hull `sphere` D5 10^5 | 11.71 s | 1.04 | 1.01 | not met |
+| Hull `sphere` D6 10^4 | 7.50 s | 0.78 | 0.85 | met |
+| Hull `cubesurf` D3 10^5 | 102 ms | 2.70 | 3.54 | not met |
+| Hull `grid` D6 10^4 | 2.23 s | 8.61 (ref.) | 6.55 | not met |
+| Delaunay `cube` D2 10^4 | 7.19 ms | 1.81 | 0.39 | not met |
+| Delaunay `cube` D2 10^5 | 75.8 ms | 1.79 | 0.31 | not met |
+| Delaunay `cube` D2 10^6 | 809 ms | 1.71 | 0.22 | not met |
+| Delaunay `sphere` D2 10^4 | 6.41 ms | 1.60 | 0.27 (ref.) | not met |
+| Delaunay `sphere` D2 10^5 | 59.0 ms | 1.81 | 0.15 (ref.) | not met |
+| Delaunay `sphere` D2 10^6 | 583 ms | 1.81 | 0.05 (ref.) | not met |
+| Delaunay `cube` D3 10^4 | 46.6 ms | 1.57 | 0.49 | not met |
+| Delaunay `cube` D3 10^5 | 518 ms | 1.65 | 0.37 | not met |
+| Delaunay `cube` D3 10^6 | 5.65 s | 1.62 | 0.33 | not met |
+| Delaunay `sphere` D3 10^4 | 79.4 ms | 0.62 | 0.66 (ref.) | met |
+| Delaunay `sphere` D3 10^5 | 752 ms | 0.84 | 0.38 (ref.) | met |
+| Delaunay `sphere` D3 10^6 | 6.48 s | 1.04 | 0.35 (ref.) | not met |
+| Delaunay `cube` D4 10^4 | 717 ms | 1.16 | 0.89 | not met |
+| Delaunay `sphere` D4 10^4 | 926 ms | 0.37 | 0.69 (ref.) | met |
+| Delaunay `cube` D5 10^4 | 7.44 s | 1.10 | 0.87 | not met |
+| Delaunay `sphere` D5 10^4 | 11.82 s | 0.35 | 0.77 (ref.) | met |
+
+### What moved
+
+- **Delaunay D2:**
+  - `cube` reads 1.71 to 1.81 against CGAL, from 2.01 to 2.29 in the run of #361.
+  - `sphere` reads 1.60 to 1.81, from 1.96 to 2.62.
+  - The three rows that changed it: the pass after the insertion (#365), the sites in insertion order (#369), and the insertion by edge flips (#373).
+- **Delaunay `sphere` D3 10^6** reads 1.04, from 1.10. `cube` D3 reads 1.57 to 1.65, from 1.60 to 1.86.
+- **Hull `sphere` D5 10^4** reads 0.99 against Qhull and is met; **hull `cube` D4 10^4** reads 1.01 and is not met. Neither path changed: these sets lie within a few percent of 1.00, where runs differ (#361).
+
 ## Hull D2: the chain's points sorted by keys read once, PR #380 (#322)
 
 P7-7. The D = 2 hull sorted the points kept for its chain with a stable sort whose comparison read two input points. On hull `sphere` D2, where no point is discarded, that sort was 24 to 31% of `build()` (the profile on #322). Each point is now read once into keys that order as `f64::total_cmp` does. The keys and the index are sorted unstably, and the index makes them unique, so the order is the same. The chains then read the sorted coordinates in order.

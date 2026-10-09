@@ -19,6 +19,12 @@ Build both sides of a comparison with the same profile and the same flags (debug
 
 That holds for timings of test binaries too. In #356 the fixture binaries, run without pinning, read 1.82 on `delaunay_cases`; pinned to one core, with one test thread, they read 1.00.
 
+A set whose code did not change and that reads slower beyond the spread is first timed with one codegen unit on each side (`CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1`). A change elsewhere in the crate moves its partition into codegen units and the inlining of untouched code. In #365 hull `cubesurf` D3 10^5 read 1.11 to 1.14 after a change in `delaunay` only, and 1.00 with one codegen unit.
+
+A prototype is compared only against a base timed in the same harness, and two ratios timed in different harnesses are not compared. A decision rule comes from a measured effect where one exists, not from an earlier rule's number. In #371 the flip prototype read 0.65 to 0.69 against a cavity base of 614 ms in its own harness; in the pipeline of `build()` the same cavity took 554 ms (#375), so the implementation's 0.87 (#373) was compared with a ratio on another base. The rule of 0.6 had been copied from P7-2.
+
+Work on a data layout starts from a profile that shows memory at that place. A general impression that memory dominates is not one. In #375 one record per cell of the Delaunay mesh read 0.99 to 1.02: its cells are allocated in insertion order, so each array is read near where it was last read.
+
 A cheaper form of a costly expression keeps the slow form out of line, `#[cold]` and `#[inline(never)]`. A whole-build timing, or the assembly, then shows that the slow form is gone from the common path. In #318 the cheaper bound of the first stage was written as an `if` in place. The compiler evaluated both forms and selected one, and no build got faster, while the formula timed alone looked four times faster.
 
 After the first speed change, profile again before opening the PR: what remains may be a different cost (#99: allocation was half of what was left). Every count and time in the PR comes from a build of the head it ships (#92 once reported a count from an earlier commit).
