@@ -1743,3 +1743,13 @@ The second run: hull `cubesurf` D3 10^5 1.11, inside the spread through one buil
 - **The keep criterion is met.** Delaunay `cube` D2 10^6 0.94, D3 10^5 0.93, and D3 10^6 0.93 are faster beyond the spread. D2 10^5 read 0.94, 0.94, and 0.96 in three runs, its ranges overlapping only through single builds, so the difference is reported (`bench.mdc`).
 - **Hull `cubesurf` D3 10^5 read 1.14 and 1.11, but no hull code changed.** VTune showed different inlining in the hull's functions between the two binaries. Built with one codegen unit each (`CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1`), `cubesurf` read 1.00 (108.7 ms against 108.7 ms, 15 rounds × 3), and Delaunay `cube` D3 10^5 still 0.94. The change in the `delaunay` module moved the partition of the crate into codegen units, and the hull's code with it.
 - **What remains of the pass** is the union's lifted tests and the random reads they need, about 93 ms on `cube` D2 10^6 for 810,031 faces, and the rows themselves. A test reads a neighbor's vertices and four sites' coordinates. A test made at the insertion, while they are in cache, would run on every face between new simplices, most of which later insertions destroy.
+
+### After review
+
+`8bd29e7` made the words of the sort a `Small` that spills to the heap, for simplices above 11 vertices (#365 review). It touches the timed path, so the head `8bd29e7` was timed again against `main` at `208bfd9`, by the same method and sets:
+
+- Delaunay `cube` D2 10^6: 0.93, faster beyond the spread.
+- Delaunay `cube` D3 10^5: 0.93, and D3 10^6: 0.91. Inside the spread, each through one build of the head (497 ms against a base minimum of 483 ms, and 6.46 s against 5.89 s); as in the run before, the medians agree.
+- Delaunay `cube` D2 10^5: 0.95, inside the spread.
+- The other Delaunay sets: 0.94 to 1.01.
+- Hull `cubesurf` D3 10^5: 1.13, slower beyond the spread, as before review. Every other hull set read 0.99 to 1.02. Every set published the same counts.
