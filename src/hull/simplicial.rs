@@ -297,19 +297,21 @@ impl<'a> SimplicialHull<'a> {
         Ok(if cycle.len() < 3 { Vec::new() } else { cycle })
     }
 
-    /// `point` is a strict left turn of every edge of the counterclockwise
-    /// convex `cycle`, by the certified filter: strictly inside it.
-    fn clearly_inside(&self, cycle: &[u32], point: u32) -> bool {
+    /// The edges of the counterclockwise convex `cycle`, each as the
+    /// coordinates of its two ends, gathered once for [`clearly_inside`]:
+    /// every point is tested against them, and read from the input they
+    /// were most of its cost on hull `cube` D2 (#324).
+    fn edges_of(&self, cycle: &[u32]) -> Vec<[[f64; 2]; 2]> {
         let n = cycle.len();
-        let c = self.input.point(point);
-        for i in 0..n {
-            let a = self.input.point(cycle[i]);
-            let b = self.input.point(cycle[(i + 1) % n]);
-            if crate::predicates::orient2_filter(a, b, c) != Some(Sign::Positive) {
-                return false;
-            }
-        }
-        true
+        (0..n)
+            .map(|i| {
+                let (a, b) = (
+                    self.input.point(cycle[i]),
+                    self.input.point(cycle[(i + 1) % n]),
+                );
+                [[a[0], a[1]], [b[0], b[1]]]
+            })
+            .collect()
     }
 
     /// Whether discarding by `polygon` pays (design §6): of a stride of at
@@ -320,13 +322,13 @@ impl<'a> SimplicialHull<'a> {
     /// classification; one that is tested and not discarded costs the tests
     /// as well. Where every point is extreme, as on a circle, the pass
     /// found nothing and cost 4 to 6% of the build (#232).
-    fn discarding_pays(&self, polygon: &[u32]) -> bool {
+    fn discarding_pays(&self, edges: &[[[f64; 2]; 2]]) -> bool {
         let reps = &self.input.representatives;
         let step = (reps.len() / DISCARD_SAMPLE).max(1);
         let (mut seen, mut inside) = (0usize, 0usize);
         for &r in reps.iter().step_by(step).take(DISCARD_SAMPLE) {
             seen += 1;
-            inside += usize::from(self.clearly_inside(polygon, r));
+            inside += usize::from(clearly_inside(edges, self.input.point(r)));
         }
         inside * DISCARD_ONE_IN >= seen
     }
@@ -345,12 +347,13 @@ impl<'a> SimplicialHull<'a> {
     fn build_polygon(&mut self) -> Result<(), ConvexHullError> {
         self.strict_edges = true;
         let discard = self.discard_polygon()?;
+        let edges = self.edges_of(&discard);
         let mut kept = Vec::new();
-        if discard.is_empty() || !self.discarding_pays(&discard) {
+        if discard.is_empty() || !self.discarding_pays(&edges) {
             kept.clone_from(&self.input.representatives);
         } else {
             for &r in &self.input.representatives {
-                if self.clearly_inside(&discard, r) {
+                if clearly_inside(&edges, self.input.point(r)) {
                     self.proved_interior.push(r);
                 } else {
                     kept.push(r);
@@ -1379,6 +1382,15 @@ fn candidate_before(a: (u32, Option<f64>), b: (u32, Option<f64>)) -> bool {
         (None, Some(_)) => false,
         _ => a.0 < b.0,
     }
+}
+
+/// `point` is a strict left turn of every edge of a counterclockwise convex
+/// polygon (`edges`, from [`SimplicialHull::edges_of`]), by the certified
+/// filter: strictly inside it.
+fn clearly_inside(edges: &[[[f64; 2]; 2]], point: &[f64]) -> bool {
+    edges
+        .iter()
+        .all(|[a, b]| crate::predicates::orient2_filter(a, b, point) == Some(Sign::Positive))
 }
 
 #[cfg(test)]
