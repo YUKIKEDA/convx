@@ -27,6 +27,8 @@ A change whose gain stays inside the spread is reverted, not shipped with others
 
 A speedup that keeps new state per object (per facet, per point) first times a build that only stores that state. In #140, storing each simplex's cofactors for its children cost 0.7–1.1 s on `cube` D6 10^4, more than the elimination the update was to save.
 
+That build stores the state; it does not read it. A value that only one path reads is passed to that path. It is not added to a view or a struct that every hot path builds. In #308 the plane number was added to the geometry that every side test reads, and the visibility walk loaded it for every facet. `sphere` D4 10^5 then read 1.02, beyond the spread, on inputs that record nothing, while the store-only build had read 1.00.
+
 Time the sets the Issue names. Before adding a larger set, estimate its time from a smaller one; a single run longer than a few minutes needs a reason in the PR. In #116, `main` took 32 minutes for one D = 7 run that no Issue asked for.
 
 A section of `docs/bench.md` measured on an open pull request names that pull request, not only its head: a squash merge removes the head's hash from `main`. Put the merge commit in the heading once it is known, keep the measured head in the method table, and say what changed in that pull request after the measurement. #260 keyed a section by `029eb3f`, the head of #259, which then gained a commit and merged as `430af36`.
