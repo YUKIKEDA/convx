@@ -65,6 +65,12 @@ The owner decided in the Grill of 2026-10-09:
 
   Delaunay D = 2 starts with a spike (#311), because the gap of about three times may need another data structure. The hull starts with the design of what `build()` computes (#312), in every dimension.
 - **Keep criteria.** A speed row of P7 keeps its own keep criterion against `main` (`.cursor/rules/bench.mdc`). It reports its sets against this goal as met or not met, by this method.
+- **What a row times** (owner, 2026-10-09, #340). Timing every set against `main` and running the parity run on every set took about 70 minutes a row. So a speed row times `main` against its head on three groups of sets:
+  - every set its keep criterion names;
+  - the sets of the path it changes (the hull or Delaunay) at 10^4 and 10^5 points;
+  - the guard sets of the other path.
+
+  The full parity run happens after every third merged speed row of P7 and at the end of P7, and its section reports every row merged since the last one. A row whose ratio to `main`, applied to a set's ratio in the latest parity run, could move that set across 1.00 runs the parity run on those sets alone and reports it. `docs/verification.md` lists the sets (Shorter runs of P7).
 
 Not chosen:
 
