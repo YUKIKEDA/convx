@@ -1974,7 +1974,7 @@ One unpinned build each, for proportions.
 - **The keep criterion is met.**
   - Delaunay `cube` and `sphere` D2 10^6 read 0.91 and 0.90, and `sphere` D2 10^5 0.89, faster beyond the spread.
   - `cube` D2 10^5 read 0.91, inside the spread through one build of the head (87.5 ms against a base minimum of 77.6 ms). The first run, before the last commit, read 0.94 and 0.91 on D2 10^5 and 0.95 and 0.91 on D2 10^6.
-  - The other sets: 0.95 to 1.03, inside the spread.
+  - Delaunay D2 10^4 read 0.90 (`cube`) and 0.91 (`sphere`), inside the spread. The other sets read 0.95 to 1.02, inside the spread.
 - **The mesh gains less than the prototype of #370.** The mesh reads 0.87 (`cube`) and 0.84 (`sphere`) of the cavity's, against 0.67 and 0.65 for the prototype. The prototype held each triangle in one record of three vertices and three neighbors. The mesh keeps five arrays (vertices, neighbors, records, liveness, marks) and the records' upkeep. The first commit forgot the records of a changed triangle's faces by searching every neighbor's slot. The second, timed here, searches once a split and twice a flip, which took D2 10^6 from 0.95 and 0.91 to 0.91 and 0.90.
 - **The union tests more faces but costs about the same.** It tests 1.75 times as many faces, since the flips record only the edges they test. The time grows by 1 to 6 ms, as most of the union is the walk over the cells.
 - One record per triangle, as the prototype had, is where the rest of the prototype's gain lies. It belongs to a review of the mesh's layout as a whole, not to this row.
