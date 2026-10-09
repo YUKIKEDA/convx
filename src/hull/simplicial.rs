@@ -373,47 +373,71 @@ impl<'a> SimplicialHull<'a> {
     /// lower chain, then the upper chain without the two endpoints the
     /// lower one already lists. Fewer than three points come back as they
     /// are, sorted.
-    fn strict_cycle(&self, mut points: Vec<u32>) -> Result<Vec<u32>, ConvexHullError> {
-        points.sort_by(|&a, &b| {
-            let pa = self.input.point(a);
-            let pb = self.input.point(b);
-            pa[0]
-                .total_cmp(&pb[0])
-                .then(pa[1].total_cmp(&pb[1]))
-                .then(a.cmp(&b))
-        });
-        let mut lower = Vec::new();
-        for &point in &points {
-            self.pop_until_left(&mut lower, point)?;
-            lower.push(point);
+    ///
+    /// The points are sorted by x, then y, then index, each coordinate by
+    /// [`f64::total_cmp`] through [`total_key`]: one key per point, read
+    /// once, instead of two reads of the input per comparison (#322). The
+    /// chains then read the sorted coordinates in order.
+    fn strict_cycle(&self, points: Vec<u32>) -> Result<Vec<u32>, ConvexHullError> {
+        let mut keyed: Vec<(u64, u64, u32)> = points
+            .iter()
+            .map(|&i| {
+                let p = self.input.point(i);
+                (total_key(p[0]), total_key(p[1]), i)
+            })
+            .collect();
+        drop(points);
+        keyed.sort_unstable();
+        let sorted: Vec<u32> = keyed.iter().map(|&(_, _, i)| i).collect();
+        drop(keyed);
+        let xy: Vec<[f64; 2]> = sorted
+            .iter()
+            .map(|&i| {
+                let p = self.input.point(i);
+                [p[0], p[1]]
+            })
+            .collect();
+        // The chains hold positions in `sorted`.
+        let mut lower: Vec<u32> = Vec::new();
+        for at in 0..sorted.len() as u32 {
+            self.pop_until_left(&sorted, &xy, &mut lower, at)?;
+            lower.push(at);
         }
-        let mut upper = Vec::new();
-        for &point in points.iter().rev() {
-            self.pop_until_left(&mut upper, point)?;
-            upper.push(point);
+        let mut upper: Vec<u32> = Vec::new();
+        for at in (0..sorted.len() as u32).rev() {
+            self.pop_until_left(&sorted, &xy, &mut upper, at)?;
+            upper.push(at);
         }
-        let mut cycle = lower;
         let upper_middle = upper.len().saturating_sub(2);
-        cycle.extend(upper.into_iter().skip(1).take(upper_middle));
-        Ok(cycle)
+        Ok(lower
+            .into_iter()
+            .chain(upper.into_iter().skip(1).take(upper_middle))
+            .map(|at| sorted[at as usize])
+            .collect())
     }
 
-    /// Drops the tail while `point` is not a strict left turn from it.
-    fn pop_until_left(&self, chain: &mut Vec<u32>, point: u32) -> Result<(), ConvexHullError> {
+    /// Drops the tail of `chain` while the point at position `at` is not a
+    /// strict left turn from it. Positions index `sorted` and its
+    /// coordinates `xy`.
+    fn pop_until_left(
+        &self,
+        sorted: &[u32],
+        xy: &[[f64; 2]],
+        chain: &mut Vec<u32>,
+        at: u32,
+    ) -> Result<(), ConvexHullError> {
         while chain.len() >= 2 {
-            let a = chain[chain.len() - 2];
-            let b = chain[chain.len() - 1];
-            let (pa, pb, pc) = (
-                self.input.point(a),
-                self.input.point(b),
-                self.input.point(point),
-            );
-            let sign = if let Some(sign) = crate::predicates::orient2_filter(pa, pb, pc) {
+            let a = chain[chain.len() - 2] as usize;
+            let b = chain[chain.len() - 1] as usize;
+            let c = at as usize;
+            let ids = [sorted[a], sorted[b], sorted[c]];
+            let sign = if let Some(sign) = crate::predicates::orient2_filter(&xy[a], &xy[b], &xy[c])
+            {
                 #[cfg(debug_assertions)]
-                debug_assert_eq!(sign, self.input.orient(&[a, b, point])?);
+                debug_assert_eq!(sign, self.input.orient(&ids)?);
                 sign
             } else {
-                self.input.orient(&[a, b, point])?
+                self.input.orient(&ids)?
             };
             if sign == Sign::Positive {
                 break;
@@ -1393,11 +1417,63 @@ fn clearly_inside(edges: &[[[f64; 2]; 2]], point: &[f64]) -> bool {
         .all(|[a, b]| crate::predicates::orient2_filter(a, b, point) == Some(Sign::Positive))
 }
 
+/// A key that orders `x` as [`f64::total_cmp`] does: for a negative sign
+/// every bit is flipped, otherwise only the sign bit. The two give the
+/// order of the signed integer `total_cmp` compares, shifted to unsigned.
+fn total_key(x: f64) -> u64 {
+    let bits = x.to_bits();
+    if bits >> 63 == 1 {
+        !bits
+    } else {
+        bits | 1 << 63
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use crate::hull::input::accept;
     use crate::predicates::orient;
+
+    /// `total_key` orders values as `f64::total_cmp` does, the order the
+    /// chain's sort keeps (#322): signed zeros, subnormals, the ends of the
+    /// finite range, and random values of both signs, pairwise.
+    #[test]
+    fn total_key_orders_as_total_cmp() {
+        let mut values = vec![
+            0.0,
+            -0.0,
+            f64::MIN_POSITIVE,
+            -f64::MIN_POSITIVE,
+            f64::from_bits(1),
+            -f64::from_bits(1),
+            f64::MAX,
+            f64::MIN,
+            1.0,
+            -1.0,
+            0.5,
+            -0.5,
+        ];
+        let mut state = 322_u64;
+        for _ in 0..200 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let x = f64::from_bits(state);
+            if x.is_finite() {
+                values.push(x);
+            }
+        }
+        for &a in &values {
+            for &b in &values {
+                assert_eq!(
+                    super::total_key(a).cmp(&super::total_key(b)),
+                    a.total_cmp(&b),
+                    "{a:e} against {b:e}"
+                );
+            }
+        }
+    }
 
     pub(crate) struct Rng(pub(crate) u64);
 

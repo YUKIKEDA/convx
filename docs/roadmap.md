@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-8 (#323): acceptance, after P7-7 (#322, in review). P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+P7-8 (#323): acceptance. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after it (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -171,7 +171,7 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 
 ## P7
 
-Parity with Qhull and CGAL: `build()` at most the time of each reference with the same output, on every benchmark set (ADR 0006, Grill of 2026-10-09). The rows after P7-3 come from the spike P7-2 and the design P7-3. P7-2 led to local improvements of the current insertion: P7-4, then the profile P7-5. P7-3 led to P7-6, and its Grill to the speed rows P7-7 to P7-9 for hull D2 and acceptance. The profile P7-5 led to P7-10 to P7-13 for Delaunay, and the Grill of P7-11 to P7-14. The spike P7-12 led to P7-15 and P7-16 for the predicates, and the Grill of P7-15 to P7-17. The review of P7-16 led to P7-18. The spike P7-13 led to P7-19 and P7-20. The spike P7-20 led to P7-21. The Grill of 2026-10-10 on #370 led to P7-22, and its outcome, with the owner's change of the rule, to ADR 0007 and P7-23. The Grill of 2026-10-10 on #374 led to P7-24.
+Parity with Qhull and CGAL: `build()` at most the time of each reference with the same output, on every benchmark set (ADR 0006, Grill of 2026-10-09), judged within 5% (amendment of 2026-10-10, #382). The rows after P7-3 come from the spike P7-2 and the design P7-3. P7-2 led to local improvements of the current insertion: P7-4, then the profile P7-5. P7-3 led to P7-6, and its Grill to the speed rows P7-7 to P7-9 for hull D2 and acceptance. The profile P7-5 led to P7-10 to P7-13 for Delaunay, and the Grill of P7-11 to P7-14. The spike P7-12 led to P7-15 and P7-16 for the predicates, and the Grill of P7-15 to P7-17. The review of P7-16 led to P7-18. The spike P7-13 led to P7-19 and P7-20. The spike P7-20 led to P7-21. The Grill of 2026-10-10 on #370 led to P7-22, and its outcome, with the owner's change of the rule, to ADR 0007 and P7-23. The Grill of 2026-10-10 on #374 led to P7-24.
 
 | ID   | Kind  | Title                                                                                   | Issue | Status      |
 | ---- | ----- | --------------------------------------------------------------------------------------- | ----- | ----------- |
@@ -181,7 +181,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-4 | Feat  | Predicates: a first-stage bound with no subnormal product                               | #316  | Done        |
 | P7-5 | Task  | Profile Delaunay D2 and D3 after P7-4 and name the next rows                            | #317  | Done        |
 | P7-6 | Feat  | Hull: D2 facets in cycle order and the facet numbering on first use                     | #321  | Done        |
-| P7-7 | Feat  | Hull D2: a faster sort of the chain's points                                            | #322  | Not started |
+| P7-7 | Feat  | Hull D2: a faster sort of the chain's points                                            | #322  | Done        |
 | P7-8 | Feat  | Acceptance: faster duplicate detection                                                  | #323  | Not started |
 | P7-9 | Feat  | Hull D2: a faster discard before the chain                                              | #324  | Done        |
 | P7-10 | Feat | Delaunay: link the cavity's new simplices without turning around ridges                  | #329  | Done        |

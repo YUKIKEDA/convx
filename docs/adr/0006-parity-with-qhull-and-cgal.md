@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. Amended on 2026-10-10: a set is met within 5% of each judged reference (Amendment below).
 
 ## Date
 
@@ -70,7 +70,7 @@ The owner decided in the Grill of 2026-10-09:
   - the sets of the path it changes (the hull or Delaunay) at 10^4 and 10^5 points;
   - the guard sets of the other path.
 
-  The full parity run happens after every third merged speed row of P7 and at the end of P7, and its section reports every row merged since the last one. A row whose ratio to `main`, applied to a set's ratio in the latest parity run, could move that set across 1.00 runs the parity run on those sets alone and reports it. `docs/verification.md` lists the sets (Shorter runs of P7).
+  The full parity run happens after every third merged speed row of P7 and at the end of P7, and its section reports every row merged since the last one. A row whose ratio to `main`, applied to a set's ratio in the latest parity run, could move that set across 1.05 runs the parity run on those sets alone and reports it. `docs/verification.md` lists the sets (Shorter runs of P7).
 
 Not chosen:
 
@@ -78,3 +78,16 @@ Not chosen:
 - Requiring each win to be beyond the spread. Small sets are noisy, and the median judges them more stably.
 - Building every tool with `-march=native`. A library is distributed for a baseline target, and earlier measurements used the baseline target.
 - Making a row per gap now. The spike and the design change what the later rows contain.
+
+## Amendment of 2026-10-10: within 5%
+
+Issue: #382. Decided by the owner on 2026-10-10.
+
+**Judgement.** A set is met when the median of convx's `build()` is at most 1.05 times the median of each reference whose output is the same, in one run of the method above. The ratio at 1.00 is reported too: each parity run counts the sets met at 1.05 and at 1.00. The goal of being at least as fast stays the aim; 1.05 is where a set counts as at parity.
+
+**Why.** Between parity runs, sets whose code did not change moved by a few percent. Against Qhull, hull `cube` D4 10^4 read 0.97, 0.97, and 1.01, `cube` D4 10^5 0.93, 1.02, and 1.04, and `sphere` D5 10^4 0.99, 1.02, and 0.99, in the runs of #342, #361, and #379. A line at 1.00 let the noise of one run decide them.
+
+**The latest run, read again.** In the run of #379, 17 of 41 sets are met at 1.05, against 13 at 1.00. The four added are hull `cube` D4 10^4 (1.01 against Qhull), `cube` D4 10^5 (1.04), `sphere` D5 10^5 (1.04 against CGAL, 1.01 against Qhull), and Delaunay `sphere` D3 10^6 (1.04 against CGAL).
+
+**What it changes.** A row runs the parity run on a set when its ratio to `main` could move that set across 1.05. Everything else above stands: the sets, the method, the references, and the order of the work.
+
