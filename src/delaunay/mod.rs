@@ -335,13 +335,15 @@ impl Draft {
 /// cost about half of building the published rows (#362).
 fn ascending(row: &[u32]) -> (Small<(u32, usize), 11>, bool) {
     // Each vertex above its slot in one word: distinct vertices order the
-    // words as they order themselves.
-    let mut words = [0_u64; 11];
-    for (slot, (word, &v)) in words.iter_mut().zip(row).enumerate() {
-        *word = u64::from(v) << 32 | slot as u64;
-    }
+    // words as they order themselves. On the stack up to 11 vertices (D = 10),
+    // on the heap above, as the sorted list is.
+    let mut words: Small<u64, 11> = row
+        .iter()
+        .enumerate()
+        .map(|(slot, &v)| u64::from(v) << 32 | slot as u64)
+        .collect();
     let mut negative = false;
-    let mut exchange = |a: &mut [u64; 11], i: usize, j: usize| {
+    let mut exchange = |a: &mut [u64], i: usize, j: usize| {
         negative ^= a[i] > a[j];
         (a[i], a[j]) = (a[i].min(a[j]), a[i].max(a[j]));
     };
@@ -367,7 +369,7 @@ fn ascending(row: &[u32]) -> (Small<(u32, usize), 11>, bool) {
             }
         }
     }
-    let sorted = words[..row.len()]
+    let sorted = words
         .iter()
         .map(|&w| ((w >> 32) as u32, (w & u64::from(u32::MAX)) as usize))
         .collect();

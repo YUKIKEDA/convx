@@ -758,18 +758,61 @@ fn ascending_sorts_and_gives_the_parity_of_every_permutation() {
         }
         out
     }
+    let check = |row: &[u32]| {
+        let k = row.len();
+        let (sorted, negative) = ascending(row);
+        assert_eq!(sorted.len(), k, "{row:?}");
+        assert!(sorted.windows(2).all(|w| w[0].0 < w[1].0), "{row:?}");
+        assert!(sorted.iter().all(|&(v, slot)| row[slot] == v), "{row:?}");
+        let inversions = (0..k)
+            .flat_map(|i| (i + 1..k).map(move |j| (i, j)))
+            .filter(|&(i, j)| row[i] > row[j])
+            .count();
+        assert_eq!(negative, inversions % 2 == 1, "{row:?}");
+    };
     for k in 2..=6 {
         let rows = permutations(k);
         assert_eq!(rows.len(), (1..=k).product::<usize>());
         for row in rows {
-            let (sorted, negative) = ascending(&row);
-            assert!(sorted.windows(2).all(|w| w[0].0 < w[1].0), "{row:?}");
-            assert!(sorted.iter().all(|&(v, slot)| row[slot] == v), "{row:?}");
-            let inversions = (0..k)
-                .flat_map(|i| (i + 1..k).map(move |j| (i, j)))
-                .filter(|&(i, j)| row[i] > row[j])
-                .count();
-            assert_eq!(negative, inversions % 2 == 1, "{row:?}");
+            check(&row);
         }
+    }
+    // Lengths at and above the inline capacity of 11 (D = 10 to 12): the
+    // reversal, rotations, and a fixed shuffle of each.
+    for k in 11..=13_u32 {
+        let ascending_row: Vec<u32> = (0..k).map(|v| 7 * v + 3).collect();
+        let mut rows = vec![ascending_row.iter().rev().copied().collect::<Vec<u32>>()];
+        for r in 0..k as usize {
+            let mut row = ascending_row.clone();
+            row.rotate_left(r);
+            rows.push(row);
+        }
+        let mut shuffled = ascending_row.clone();
+        for i in (1..shuffled.len()).rev() {
+            shuffled.swap(i, (i * 5 + 3) % (i + 1));
+        }
+        rows.push(shuffled);
+        for row in rows {
+            check(&row);
+        }
+    }
+}
+
+/// A build in D = 11 and 12, where a simplex has more vertices than the
+/// inline capacity of the published rows' sort (#365 review).
+#[test]
+fn dimensions_above_the_inline_capacity_build() {
+    for dim in [11, 12] {
+        let mut state = 0x2545_f491_4f6c_dd1d_u64 ^ dim as u64;
+        let points: Vec<f64> = (0..(dim + 4) * dim)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                (state % 1000) as f64
+            })
+            .collect();
+        let t = DelaunayBuilder::new(dim, &points).build().unwrap();
+        assert!(!t.simplices().is_empty(), "D = {dim}");
     }
 }
