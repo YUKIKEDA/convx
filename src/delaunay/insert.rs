@@ -217,9 +217,16 @@ pub(super) struct Mesh<'a, S: Shape> {
     cavity: Vec<u32>,
     boundary: Vec<(u32, usize, Across)>,
     created: Vec<u32>,
-    /// Work space of [`Self::link_by_keys`].
+    /// Work space of [`Self::link_by_keys`]: an open-addressing table of
+    /// (key, entry, slot), [`EMPTY_FACE`] where free, and the positions
+    /// used by the current insertion, which are freed after it.
     faces: Vec<(u64, u32, u32)>,
+    used: Vec<u32>,
 }
+
+/// A free position of [`Mesh::faces`]: no key, since two vertices of a
+/// simplex differ.
+const EMPTY_FACE: u64 = u64::MAX;
 
 /// Every input site with its filtered lifted height, by index: one row
 /// `(p, |p|^2, bound)` of length D + 2, so a predicate reads a site's
@@ -533,6 +540,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
             boundary: Vec::new(),
             created: Vec::new(),
             faces: Vec::new(),
+            used: Vec::new(),
         };
         let mut simplex = first.to_vec();
         match mesh.orient_ids(&simplex)? {
@@ -624,49 +632,45 @@ impl<'a, S: Shape> Mesh<'a, S> {
         }
     }
 
-    /// Links the faces through the new site of the new simplices, for
-    /// D = 2 and D = 3 (k = 3 and k = 4), without turning around ridges.
+    /// Links the faces through the new site of the new tetrahedra, for
+    /// D = 3, without turning around ridges.
     ///
-    /// The new simplex of boundary face `(c, slot)` has the new site at
+    /// The new tetrahedron of boundary face `(c, slot)` has the new site at
     /// `slot`. Its face opposite vertex `i` (`i != slot`) holds the new site
-    /// and the k - 2 vertices other than `slot` and `i`. That face is shared
-    /// with exactly one other new simplex, the one whose boundary face meets
-    /// this one in those k - 2 vertices, so the k - 2 vertices (one at
-    /// D = 2, two at D = 3, ascending) name it. The faces are paired by that
-    /// key in an open-addressing table sized to twice their number. As in
-    /// the turn of [`Self::insert`], two new simplices whose boundary faces
-    /// lie in one finite cavity simplex are not cospherical.
+    /// and the two vertices other than `slot` and `i`. That face is shared
+    /// with exactly one other new tetrahedron, the one whose boundary face
+    /// meets this one in those two vertices, so the two, ascending, name
+    /// it. The faces are paired by that key in an open-addressing table of
+    /// at least twice their number; only the positions this insertion used
+    /// are freed after it. As in the turn of [`Self::insert`], two new
+    /// tetrahedra whose boundary faces lie in one finite cavity simplex are
+    /// not cospherical.
     fn link_by_keys(&mut self, boundary: &[(u32, usize, Across)], created: &[u32]) {
-        const EMPTY: u64 = u64::MAX;
-        let k = self.shape.k();
-        debug_assert!(k == 3 || k == 4, "keys hold one or two vertices");
-        let size = (2 * created.len() * (k - 1)).next_power_of_two().max(4);
+        let size = (2 * created.len() * 3).next_power_of_two().max(4);
         let mask = size - 1;
         let mut faces = core::mem::take(&mut self.faces);
-        faces.clear();
-        faces.resize(size, (EMPTY, 0, 0));
+        let mut used = core::mem::take(&mut self.used);
+        if faces.len() < size {
+            faces.resize(size, (EMPTY_FACE, 0, 0));
+        }
+        used.clear();
         for (entry, (&(c, slot, _), &new)) in boundary.iter().zip(created).enumerate() {
-            for i in (0..k).filter(|&i| i != slot) {
+            for i in (0..4).filter(|&i| i != slot) {
                 let v = self.vertices_of(new);
-                // The k - 2 vertices other than `slot` and `i`, ascending;
-                // a key of two `u32` never equals `EMPTY`, because two
-                // vertices of a simplex differ.
-                let key = if k == 3 {
-                    u64::from(v[3 - slot - i])
-                } else {
-                    let mut rest = (0..4).filter(|&m| m != slot && m != i).map(|m| v[m]);
-                    let (a, b) = (rest.next().unwrap_or(0), rest.next().unwrap_or(0));
-                    u64::from(a.min(b)) << 32 | u64::from(a.max(b))
-                };
+                let mut rest = (0..4).filter(|&m| m != slot && m != i).map(|m| v[m]);
+                let (a, b) = (rest.next().unwrap_or(0), rest.next().unwrap_or(0));
+                let key = u64::from(a.min(b)) << 32 | u64::from(a.max(b));
                 let mut at = (key.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 32) as usize & mask;
-                // At most half the table is used, so a probe ends.
+                // At most half of the first `size` positions is used, so a
+                // probe ends.
                 let mut probes = 0_usize;
                 loop {
                     probes += 1;
                     debug_assert!(probes <= size, "the table has room");
                     let (stored, other, other_slot) = faces[at];
-                    if stored == EMPTY {
+                    if stored == EMPTY_FACE {
                         faces[at] = (key, entry as u32, i as u32);
+                        used.push(at as u32);
                         break;
                     }
                     if stored == key {
@@ -678,8 +682,8 @@ impl<'a, S: Shape> Mesh<'a, S> {
                         self.set_neighbor(new, i, other_new);
                         self.set_neighbor(other_new, other_slot, new);
                         if other_c == c && self.is_finite(c) {
-                            self.across[new as usize * k + i] = Across::Distinct;
-                            self.across[other_new as usize * k + other_slot] = Across::Distinct;
+                            self.across[new as usize * 4 + i] = Across::Distinct;
+                            self.across[other_new as usize * 4 + other_slot] = Across::Distinct;
                         }
                         break;
                     }
@@ -687,13 +691,17 @@ impl<'a, S: Shape> Mesh<'a, S> {
                 }
             }
         }
+        for &at in &used {
+            faces[at as usize].0 = EMPTY_FACE;
+        }
         debug_assert!(
             created
                 .iter()
-                .all(|&new| (0..k).all(|s| self.neighbor(new, s) != NONE)),
-            "every face of a new simplex is linked"
+                .all(|&new| (0..4).all(|s| self.neighbor(new, s) != NONE)),
+            "every face of a new tetrahedron is linked"
         );
         self.faces = faces;
+        self.used = used;
     }
 
     /// Inserts site `q`.
@@ -775,7 +783,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
             created.push(new);
         }
 
-        if k == 3 || k == 4 {
+        if k == 4 {
             self.link_by_keys(&boundary, &created);
         } else {
             // The face of a new simplex opposite vertex `i` holds `q` and the
