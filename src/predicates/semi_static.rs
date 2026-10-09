@@ -1,6 +1,6 @@
-//! The first stage of the orientations and lifted orientations with k ≤ 4
-//! (#249): the determinant in `f64`, certified by a constant times the
-//! permanent of the same expression, both evaluated in the same call.
+//! The first stage of the orientations and lifted orientations with k ≤ 6
+//! (#249, #350): the determinant in `f64`, certified by a constant times
+//! the permanent of the same expression, both evaluated in the same call.
 //!
 //! The running bound of [`super::filter`] updates a bound on every
 //! operation. Here the bound is derived once per formula, so a call costs
@@ -46,6 +46,42 @@
 //! The sign is certified when `|det| > (n + 1) u P̂ + 4 η X`, computed in
 //! `f64`. A non-finite value or bound certifies nothing: an overflow in the
 //! determinant overflows the permanent too, and a NaN fails both tests.
+//!
+//! # Sizes five and six
+//!
+//! For k = 5 and 6 (plain orientations of D = 5 and 6, lifted ones of
+//! D = 4 and 5) the determinant is expanded along its last column, over the
+//! minors of the leading columns, one subset of rows at a time: the minor of
+//! a subset `S` of `m` rows over columns `0 .. m` is
+//! `sum_i (-1)^(i + m - 1) a[r_i][m - 1] M(S - r_i)`, the rows `r_i` of `S`
+//! in increasing order, and its permanent the same sum with every term's
+//! absolute value. The `m` terms are added pairwise, in a tree of depth
+//! `ceil(log2 m)`. Every minor is computed once and shared.
+//!
+//! A monomial of a minor of `m` columns carries the roundings of its child
+//! minor, those of its last-column entry, one for the product, and one per
+//! level of the sum: `n_m = n_(m-1) + e + 1 + ceil(log2 m)`, with `n_1 = 1`
+//! (the difference that made a leaf). A coordinate entry carries `e = 1`. A
+//! lifted entry `sum_c d_c^2` of `D` coordinates, added pairwise, carries two
+//! roundings of its leaf, one for the square, and `ceil(log2 D)` for the
+//! sum: `e = 3 + ceil(log2 D)`. This recursion gives the constants of the
+//! formulas above (4 for k = 2, 8 for k = 3, 12 for k = 4, 11 for the lifted
+//! D = 2, 16 for the lifted D = 3), and for the sizes here `n = 17` (plain
+//! k = 5), `n = 21` (lifted D = 4), `n = 22` (plain k = 6), and `n = 27`
+//! (lifted D = 5).
+//!
+//! The underflow term is bounded from above by the sums of the absolute
+//! values of the columns, `s_c = sum_r |a[r][c]|`, so that no minor's
+//! underflow needs its own sum. Each product of a minor underflows by at
+//! most `η / 2`, scaled by the entries above it. With `x_1 = 0` and
+//! `x_m = s_(m-1) x_(m-1) + m / 2`, the scaled underflow of every minor of
+//! `m` coordinate columns is at most `η x_m (1 + u)^n`. A lifted last column
+//! adds, for each of its `m` products, the underflow of its entry, at most
+//! `D η / 2`, scaled by the child minor, whose absolute value is at most its
+//! permanent, which is at most `p_(m-1) = s_0 s_1 ... s_(m-2)`: so
+//! `x_m = s_l x_(m-1) + m p_(m-1) D / 2 + m / 2`, with `s_l` the sum of the
+//! lifted entries. `X = max(1, x_k)`, and the bound is that of every formula,
+//! `(n + 1) u P̂ + 4 η X`.
 //!
 //! # The bound without a subnormal product
 //!
@@ -186,6 +222,19 @@ fn estimate(origin: &[f64], points: &[&[f64]], lifted: bool) -> Option<Estimate>
         (3, true) => {
             let row = |i: usize| [diff(i, 0), diff(i, 1), diff(i, 2)];
             Some(lifted3(row(0), row(1), row(2), row(3)))
+        }
+        (5, false) | (6, false) | (4, true) | (5, true) => {
+            let k = dim + usize::from(lifted);
+            let mut rows = [[0.0; 6]; 6];
+            for (i, row) in rows.iter_mut().enumerate().take(k) {
+                for (c, entry) in row.iter_mut().enumerate().take(dim) {
+                    *entry = diff(i, c);
+                }
+                if lifted {
+                    row[dim] = pairwise_sum(&row[..dim].map_squares());
+                }
+            }
+            Some(expand_large(&rows, k, lifted.then_some(dim)))
         }
         _ => None,
     }
@@ -332,6 +381,130 @@ fn lifted3(a: [f64; 3], b: [f64; 3], c: [f64; 3], d: [f64; 3]) -> Estimate {
     Estimate::new(det, relative(16), permanent, 2.0 * m + l * (z + 2.0) + 2.0)
 }
 
+/// The sum of `terms` (at most 6), added pairwise in a tree of depth
+/// `ceil(log2 n)` (module docs, Sizes five and six).
+#[inline(always)]
+fn pairwise_sum(terms: &[f64]) -> f64 {
+    match terms.len() {
+        0 => 0.0,
+        1 => terms[0],
+        2 => terms[0] + terms[1],
+        3 => (terms[0] + terms[1]) + terms[2],
+        4 => (terms[0] + terms[1]) + (terms[2] + terms[3]),
+        5 => ((terms[0] + terms[1]) + (terms[2] + terms[3])) + terms[4],
+        _ => ((terms[0] + terms[1]) + (terms[2] + terms[3])) + (terms[4] + terms[5]),
+    }
+}
+
+/// The squares of a row's leading entries, in an array the size of a row.
+trait MapSquares {
+    fn map_squares(&self) -> Small6;
+}
+
+/// Up to six values on the stack.
+struct Small6 {
+    values: [f64; 6],
+    len: usize,
+}
+
+impl core::ops::Deref for Small6 {
+    type Target = [f64];
+    fn deref(&self) -> &[f64] {
+        &self.values[..self.len]
+    }
+}
+
+impl MapSquares for [f64] {
+    fn map_squares(&self) -> Small6 {
+        let mut values = [0.0; 6];
+        for (v, &x) in values.iter_mut().zip(self) {
+            *v = x * x;
+        }
+        Small6 {
+            values,
+            len: self.len(),
+        }
+    }
+}
+
+/// The rounding count `n` of the sizes five and six (module docs): 17 for
+/// the plain k = 5, 22 for k = 6, 21 for the lifted D = 4, and 27 for the
+/// lifted D = 5. The test `the_rounding_recursion_gives_every_constant`
+/// derives them, and the constants of k <= 4, from the recursion.
+fn large_roundings(k: usize, lifted: Option<usize>) -> u32 {
+    match (k, lifted) {
+        (5, None) => 17,
+        (6, None) => 22,
+        (5, Some(4)) => 21,
+        (6, Some(5)) => 27,
+        _ => {
+            debug_assert!(false, "no large formula of size {k}, lifted {lifted:?}");
+            u32::MAX
+        }
+    }
+}
+
+/// The determinant of the `k` rows of `rows` (k = 5 or 6, the last column
+/// lifted when `lifted` names its dimension), expanded along the last
+/// column over the shared minors of the leading columns, with its bound
+/// (module docs, Sizes five and six).
+#[inline(never)]
+fn expand_large(rows: &[[f64; 6]; 6], k: usize, lifted: Option<usize>) -> Estimate {
+    debug_assert!(k == 5 || k == 6, "the large formulas are of size 5 and 6");
+    // Minors over row subsets, as bit masks of the k rows; each level holds
+    // the minors of one size over the columns 0 .. size.
+    let mut det = [0.0_f64; 64];
+    let mut perm = [0.0_f64; 64];
+    for r in 0..k {
+        det[1 << r] = rows[r][0];
+        perm[1 << r] = rows[r][0].abs();
+    }
+    let full = (1_usize << k) - 1;
+    for m in 2..=k {
+        let column = m - 1;
+        for subset in 1..=full {
+            if (subset as u32).count_ones() as usize != m {
+                continue;
+            }
+            let mut terms = [0.0; 6];
+            let mut abs_terms = [0.0; 6];
+            let mut i = 0;
+            for (r, row) in rows.iter().enumerate().take(k) {
+                if subset & (1 << r) == 0 {
+                    continue;
+                }
+                let child = subset & !(1 << r);
+                let entry = row[column];
+                let term = entry * det[child];
+                terms[i] = if (i + column) % 2 == 0 { term } else { -term };
+                abs_terms[i] = entry.abs() * perm[child];
+                i += 1;
+            }
+            det[subset] = pairwise_sum(&terms[..m]);
+            perm[subset] = pairwise_sum(&abs_terms[..m]);
+        }
+    }
+    // The underflow bound from the column sums (module docs).
+    let column_sum = |c: usize| -> f64 { (0..k).map(|r| rows[r][c].abs()).sum() };
+    let mut x = 0.0;
+    let mut leading = 1.0;
+    for m in 2..=k {
+        let s_last = column_sum(m - 1);
+        let half = m as f64 / 2.0;
+        x = match lifted {
+            Some(d) if m == k => s_last * x + m as f64 * leading * d as f64 / 2.0 + half,
+            _ => s_last * x + half,
+        };
+        leading *= column_sum(m - 2);
+    }
+    Estimate::new(
+        det[full],
+        relative(large_roundings(k, lifted)),
+        perm[full],
+        x.max(1.0),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::exact::{exponent_shift, BigInt};
@@ -378,13 +551,17 @@ mod tests {
     }
 
     /// Every formula: (dimension of a point, lifted).
-    const FORMULAS: [(usize, bool); 6] = [
+    const FORMULAS: [(usize, bool); 10] = [
         (2, false),
         (3, false),
         (4, false),
         (1, true),
         (2, true),
         (3, true),
+        (5, false),
+        (6, false),
+        (4, true),
+        (5, true),
     ];
 
     /// The number of points of a formula: k + 1, with k = dim (+ 1 when
@@ -413,6 +590,24 @@ mod tests {
             }
             None => tally.open += 1,
         }
+    }
+
+    /// The rounding counts of every formula from the recursion of the
+    /// module docs (Sizes five and six): `n_1 = 1`,
+    /// `n_m = n_(m-1) + e + 1 + ceil(log2 m)`, with `e = 1` for a
+    /// coordinate column and `e = 3 + ceil(log2 D)` for a lifted one.
+    #[test]
+    fn the_rounding_recursion_gives_every_constant() {
+        let ceil_log2 = |m: usize| usize::BITS - (m - 1).leading_zeros();
+        let plain = |k: usize| (2..=k).fold(1, |n, m| n + 1 + 1 + ceil_log2(m));
+        let lifted = |dim: usize| plain(dim) + (3 + ceil_log2(dim)) + 1 + ceil_log2(dim + 1);
+        // The formulas of k <= 4 state these in their docs.
+        assert_eq!([plain(2), plain(3), plain(4)], [4, 8, 12]);
+        assert_eq!([lifted(2), lifted(3)], [11, 16]);
+        assert_eq!(plain(5), large_roundings(5, None));
+        assert_eq!(plain(6), large_roundings(6, None));
+        assert_eq!(lifted(4), large_roundings(5, Some(4)));
+        assert_eq!(lifted(5), large_roundings(6, Some(5)));
     }
 
     #[test]
@@ -545,7 +740,12 @@ mod tests {
     #[test]
     fn one_ulp_from_zero() {
         // An exact zero, then its last coordinate moved one ulp each way.
-        let base: [(usize, bool, Vec<Vec<f64>>); 6] = [
+        let unit = |dim: usize, axis: usize, sign: f64| -> Vec<f64> {
+            let mut v = vec![0.0; dim];
+            v[axis] = sign;
+            v
+        };
+        let base: [(usize, bool, Vec<Vec<f64>>); 10] = [
             (
                 2,
                 false,
@@ -593,6 +793,44 @@ mod tests {
                     vec![0.0, 0.0, 1.0],
                     vec![0.0, -1.0, 0.0],
                 ],
+            ),
+            // The origin, four unit vectors, and a point in their span.
+            (
+                5,
+                false,
+                [vec![0.0; 5]]
+                    .into_iter()
+                    .chain((0..4).map(|a| unit(5, a, 1.0)))
+                    .chain([vec![0.25, 0.25, 0.25, 0.25, 0.0]])
+                    .collect(),
+            ),
+            (
+                6,
+                false,
+                [vec![0.0; 6]]
+                    .into_iter()
+                    .chain((0..5).map(|a| unit(6, a, 1.0)))
+                    .chain([vec![0.25, 0.25, 0.25, 0.125, 0.125, 0.0]])
+                    .collect(),
+            ),
+            // Unit vectors of both signs: every one on the unit sphere.
+            (
+                4,
+                true,
+                [unit(4, 0, 1.0), unit(4, 0, -1.0)]
+                    .into_iter()
+                    .chain((1..4).map(|a| unit(4, a, 1.0)))
+                    .chain([unit(4, 1, -1.0)])
+                    .collect(),
+            ),
+            (
+                5,
+                true,
+                [unit(5, 0, 1.0), unit(5, 0, -1.0)]
+                    .into_iter()
+                    .chain((1..5).map(|a| unit(5, a, 1.0)))
+                    .chain([unit(5, 1, -1.0)])
+                    .collect(),
             ),
         ];
         for (dim, lifted, points) in base {
@@ -859,8 +1097,22 @@ mod tests {
     fn the_bound_keeps_its_measured_margin() {
         /// Per formula, in the order of `FORMULAS`: the bound is at least
         /// this many times the error over the cancelling inputs, and over
-        /// the underflowing ones.
-        const MARGIN: [[u32; 2]; 6] = [[3, 3], [3, 3], [5, 4], [3, 3], [4, 3], [4, 3]];
+        /// the underflowing ones. The sizes five and six bound the
+        /// underflow from column sums (module docs), so their margins over
+        /// the cancelling inputs are wider.
+        const MARGIN: [[u32; 2]; 10] = [
+            [3, 3],
+            [3, 3],
+            [5, 4],
+            [3, 3],
+            [4, 3],
+            [4, 3],
+            [19, 4],
+            [48, 6],
+            [14, 6],
+            [42, 5],
+        ];
+        assert_eq!(MARGIN.len(), FORMULAS.len(), "a margin per formula");
         let mut rng = Rng(21);
         for ((dim, lifted), margin) in FORMULAS.into_iter().zip(MARGIN) {
             let mut near = [0_usize; 2];
