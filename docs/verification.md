@@ -146,6 +146,21 @@ The construction timer is not committed (`.cursor/rules/bench.mdc`). It goes int
 
 CGAL is the second reference (#215). It decides signs exactly on the input `f64`, as convx does, with the kernel `Epick` (`Epick_d<Dimension_tag<D>>` above D = 3); it is timed on the same files, built with `g++ -O3 -DNDEBUG -g` and no `-march`, as convx is built for the baseline target. The timed section is construction only; reading the file and counting the output are outside it. The hull is `CGAL::convex_hull_2` for D = 2, `CGAL::convex_hull_3` into a `Surface_mesh` for D = 3, and for D >= 4 `CGAL::Triangulation`, built with range `insert`, whose hull facets are the full cells incident to the infinite vertex. Delaunay is `Delaunay_triangulation_2` and `Delaunay_triangulation_3` built from the range, and `CGAL::Delaunay_triangulation` with range `insert` for D >= 4. CGAL's output is simplicial, so its facet count is compared with convx's logical facets only on sets in general position, where the two are the same. Where they differ, the vertex sets decide (ADR 0006): on `cubesurf` D3 10^5 CGAL's triangulated boundary has the same vertices and is judged against, and on `grid` D6 10^4 its d-dimensional hull lists other vertices and is a reference value. Delaunay is compared by finite simplex count. Measured numbers, and any speedup target, are written only in the change that first measures them (`.cursor/rules/bench.mdc`). Reference comparisons are kept in `docs/bench.md`, one section per measured convx commit.
 
+### Shorter runs of P7
+
+What a speed row of P7 times against `main` (ADR 0006, #340), alternated on one pinned core as `.cursor/rules/bench.mdc` asks:
+
+- **Named sets**: every set its keep criterion names, whatever its size.
+- **Path sets**, at 10^4 and 10^5 points:
+  - for a change to the hull, `cube` and `sphere` from D = 2 to D = 4, and `cubesurf` D3 10^5;
+  - for a change to Delaunay, `cube` and `sphere` D = 2 and D = 3.
+  
+  A change to both paths takes both lists. A change to the predicates or to acceptance takes both too.
+- **Guard sets** of the other path: hull `sphere` D3 10^5 and `cube` D3 10^5, or Delaunay `cube` D2 10^5 and `cube` D3 10^5.
+- Sets whose build takes over 1.5 s run only when they are named.
+
+The parity run below runs on every set after every third merged speed row of P7 and at the end of P7. Between those runs, a row runs it only on a set its ratio could move across 1.00.
+
 ### Parity run of P7
 
 The run that judges a set against ADR 0006. It times convx, CGAL, and Qhull on every set of the ADR on one machine, and splits convx's `build()` into its phases.
