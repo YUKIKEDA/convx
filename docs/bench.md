@@ -841,7 +841,7 @@ Insertion with that bound, convx and prototype in the same processes as above:
   - The hull sets read 0.95 to 1.01, inside the spread. The hull's side tests are mostly decided by the cull plane's scan, which makes no such product per point.
 - **Even with the new bound, the gap to CGAL stays large.** convx's insertion of `cube` D2 10^5 comes to about 72 ms against CGAL's 42 ms for the whole construction (different operating systems). The next profile decides the rows after the bound.
 
-## A first-stage bound with no subnormal product, PR #NNN (#316)
+## A first-stage bound with no subnormal product, PR #319 (#316)
 
 P7-4. The first stage (`semi_static`, k ≤ 4) computes its bound as `s (1 + 2^-50)` when `s = (n + 1) u P̂ ≥ 2^-960` and `X ≤ 2^60`, and as before otherwise, out of line and cold. The section of #311 above found the product `4 η X` with the subnormal `4 η` to cost about 28 ns per call.
 
