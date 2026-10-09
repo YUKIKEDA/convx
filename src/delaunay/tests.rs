@@ -27,8 +27,10 @@ fn by_both_shapes(dim: usize, points: &[f64]) -> [DelaunayTriangulation; 2] {
 /// The insertion specialized for D = 2 and for D = 3 publishes what the
 /// insertion of any dimension publishes (design §7, ADR 0005): the same
 /// simplices, diagonals among cospherical sites included, with the same
-/// neighbors. General position, integer grids with many cospherical
-/// groups, sites near one sphere, and a flat lift, which does not insert.
+/// neighbors. D = 2 inserts by edge flips (ADR 0007), so its simplices are
+/// compared as sets; D = 3 also in their order. General position, integer
+/// grids with many cospherical groups, lattices with duplicates, sites near
+/// and on one sphere, and a flat lift, which does not insert.
 #[test]
 fn the_shapes_publish_the_same_triangulation() {
     let mut state = 294_u64;
@@ -86,7 +88,12 @@ fn the_shapes_publish_the_same_triangulation() {
                 assert!(!is_flat(dim, &points), "D = {dim}, {family}: inserted");
             }
             let [specialized, generic] = by_both_shapes(dim, &points);
-            assert_eq!(specialized, generic, "D = {dim}, {family}");
+            // D = 2 inserts by edge flips (ADR 0007), which create the
+            // simplices, and so publish them, in another order; D = 3 runs
+            // the same steps as the generic insertion.
+            if dim == 3 {
+                assert_eq!(specialized, generic, "D = {dim}, {family}");
+            }
             assert_eq!(rows(&specialized), rows(&generic), "D = {dim}, {family}");
             check(&specialized, &points);
         }

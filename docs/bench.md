@@ -1906,3 +1906,75 @@ Per site, for the flips. The prototype's triangles matched the cavity's on every
 - **The rule is not met.** The flips build the mesh in 0.65 to 0.69 of the cavity's time on all four sets, beyond the spread, against a rule of at most 0.6. By the Grill's rule the current insertion would keep being improved. The owner changed the rule after the measurement (#370): the flips are adopted for D = 2 (ADR 0007, P7-23, #372).
 - **The flips do CGAL's work.** Their in-circle tests and flips per site match CGAL's to within 2%. The cavity does the same in-circle tests (#363), so the saving is in what the cavity writes and links: four freed and six new triangles a site, and the turns around the ridges, against three new triangles and three flips.
 - **What a dedicated path would leave.** On `cube` D2 10^6, the flips' mesh takes 414 ms. CGAL's whole build takes 471 ms on Linux. The order and the copy (about 90 ms) and the pass after the insertion (about 160 ms after #365) come on top.
+
+## Delaunay D2 inserted by edge flips, PR #373 (#372)
+
+P7-23, ADR 0007. The D = 2 shape inserts each site into its triangle (three triangles, or four on an edge) and flips the edges whose far triangle conflicts with it, as CGAL does. It fills the same mesh as the cavity, so the pass after the insertion and publication are shared:
+- an edge not flipped records what its in-circle test said;
+- the faces of a changed triangle are forgotten, on both sides.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `dd31cbf` against the head `ee51e54`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2) |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md` (#341), the guard sets, and the keep criterion's Delaunay `cube` and `sphere` D2 at 10^5 and 10^6, with `cube` D3 10^6 |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about a second |
+| Phases | Copies of both sides outside the crate, with timers around `Mesh::build` and the union of cospherical simplices, and a count of the faces the union tests |
+
+Every set published the same counts on both sides.
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.69 ms (0.63 ms–0.98 ms) | 0.70 ms (0.61 ms–1.06 ms) | 1.02, inside the spread |
+| Hull `cube` D2 10^5 | 6.48 ms (5.72 ms–7.87 ms) | 6.18 ms (5.53 ms–7.12 ms) | 0.95, inside the spread |
+| Hull `cube` D3 10^4 | 1.54 ms (1.37 ms–1.74 ms) | 1.47 ms (1.36 ms–2.53 ms) | 0.96, inside the spread |
+| Hull `cube` D3 10^5 | 13.0 ms (11.5 ms–16.0 ms) | 12.7 ms (11.5 ms–14.4 ms) | 0.97, inside the spread |
+| Hull `cube` D4 10^4 | 6.50 ms (6.30 ms–7.33 ms) | 6.53 ms (6.29 ms–7.58 ms) | 1.01, inside the spread |
+| Hull `cube` D4 10^5 | 35.3 ms (34.1 ms–39.8 ms) | 35.4 ms (34.3 ms–37.6 ms) | 1.00, inside the spread |
+| Hull `cube` D5 10^4 | 55.5 ms (54.3 ms–60.8 ms) | 55.9 ms (54.1 ms–58.3 ms) | 1.01, inside the spread |
+| Hull `cube` D6 10^4 | 572 ms (563 ms–597 ms) | 573 ms (560 ms–602 ms) | 1.00, inside the spread |
+| Hull `cubesurf` D3 10^5 | 104 ms (102 ms–117 ms) | 104 ms (102 ms–109 ms) | 1.00, inside the spread |
+| Hull `sphere` D2 10^4 | 1.62 ms (1.53 ms–2.66 ms) | 1.63 ms (1.50 ms–2.23 ms) | 1.00, inside the spread |
+| Hull `sphere` D2 10^5 | 18.7 ms (17.0 ms–20.1 ms) | 18.5 ms (17.3 ms–19.7 ms) | 0.99, inside the spread |
+| Hull `sphere` D3 10^4 | 28.4 ms (27.3 ms–32.5 ms) | 28.3 ms (27.1 ms–91.3 ms) | 0.99, inside the spread |
+| Hull `sphere` D3 10^5 | 330 ms (321 ms–359 ms) | 328 ms (321 ms–344 ms) | 0.99, inside the spread |
+| Hull `sphere` D4 10^4 | 125 ms (122 ms–181 ms) | 125 ms (122 ms–130 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^5 | 1.49 s (1.49 s–1.62 s) | 1.53 s (1.49 s–1.70 s) | 1.02, inside the spread |
+| Hull `sphere` D5 10^4 | 813 ms (801 ms–852 ms) | 814 ms (802 ms–831 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^4 | 8.07 ms (7.69 ms–8.90 ms) | 7.29 ms (7.04 ms–8.00 ms) | 0.90, inside the spread |
+| Delaunay `cube` D2 10^5 | 82.5 ms (77.6 ms–86.0 ms) | 74.8 ms (71.5 ms–87.5 ms) | 0.91, inside the spread |
+| Delaunay `cube` D2 10^6 | 851 ms (842 ms–857 ms) | 775 ms (764 ms–780 ms) | 0.91, faster beyond the spread |
+| Delaunay `cube` D3 10^4 | 43.1 ms (42.0 ms–50.0 ms) | 43.2 ms (41.6 ms–47.4 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^5 | 447 ms (434 ms–478 ms) | 445 ms (433 ms–475 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^6 | 4.80 s (4.76 s–5.64 s) | 4.84 s (4.76 s–5.58 s) | 1.01, inside the spread |
+| Delaunay `cube` D4 10^4 | 669 ms (658 ms–693 ms) | 662 ms (653 ms–693 ms) | 0.99, inside the spread |
+| Delaunay `cube` D5 10^4 | 7.51 s (7.45 s–7.61 s) | 7.48 s (7.40 s–7.66 s) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^4 | 7.98 ms (7.45 ms–9.37 ms) | 7.29 ms (6.85 ms–7.96 ms) | 0.91, inside the spread |
+| Delaunay `sphere` D2 10^5 | 68.1 ms (66.0 ms–80.9 ms) | 60.3 ms (58.3 ms–62.9 ms) | 0.89, faster beyond the spread |
+| Delaunay `sphere` D2 10^6 | 641 ms (641 ms–647 ms) | 575 ms (570 ms–633 ms) | 0.90, faster beyond the spread |
+| Delaunay `sphere` D3 10^4 | 88.7 ms (87.1 ms–98.4 ms) | 88.7 ms (86.9 ms–92.4 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^5 | 954 ms (878 ms–1.01 s) | 945 ms (852 ms–964 ms) | 0.99, inside the spread |
+
+### The mesh and the union
+
+| Set | Mesh, `main` | Mesh, head | Union, `main` | Union, head | Faces tested, `main` | Faces tested, head |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `cube` D2 10^6 | 554 ms | 481 ms | 61.3 ms | 67.0 ms | 810,031 | 1,415,765 |
+| `sphere` D2 10^6 | 436 ms | 365 ms | 34.8 ms | 36.0 ms | 279,321 | 496,599 |
+
+One unpinned build each, for proportions.
+
+### Reading
+
+- **The keep criterion is met.**
+  - Delaunay `cube` and `sphere` D2 10^6 read 0.91 and 0.90, and `sphere` D2 10^5 0.89, faster beyond the spread.
+  - `cube` D2 10^5 read 0.91, inside the spread through one build of the head (87.5 ms against a base minimum of 77.6 ms). The first run, before the last commit, read 0.94 and 0.91 on D2 10^5 and 0.95 and 0.91 on D2 10^6.
+  - Delaunay D2 10^4 read 0.90 (`cube`) and 0.91 (`sphere`), inside the spread. The other sets read 0.95 to 1.02, inside the spread.
+- **The mesh gains less than the prototype of #370.** The mesh reads 0.87 (`cube`) and 0.84 (`sphere`) of the cavity's, against 0.67 and 0.65 for the prototype. The prototype held each triangle in one record of three vertices and three neighbors. The mesh keeps five arrays (vertices, neighbors, records, liveness, marks) and the records' upkeep. The first commit forgot the records of a changed triangle's faces by searching every neighbor's slot. The second, timed here, searches once a split and twice a flip, which took D2 10^6 from 0.95 and 0.91 to 0.91 and 0.90.
+- **The union tests more faces but costs about the same.** It tests 1.75 times as many faces, since the flips record only the edges they test. The time grows by 1 to 6 ms, as most of the union is the walk over the cells.
+- One record per triangle, as the prototype had, is where the rest of the prototype's gain lies. It belongs to a review of the mesh's layout as a whole, not to this row.
