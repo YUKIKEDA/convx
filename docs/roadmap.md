@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-None. P6-12 (#236) waits for its Grill.
+P6-22 (#306): record the planes a point lies on and use them in insertion and classification.
 
 ## Dependencies
 
@@ -157,7 +157,7 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-9 | Docs | The hull is built sequentially only; the parallel round protocol and flag leave      | #266  | Done        |
 | P6-10 | Refactor | Remove the parallel round protocol and the `parallel` flag                       | #267  | Done        |
 | P6-11 | Spike | Which coarse-grained parallel hull strategies can beat the sequential build?     | #269  | Done        |
-| P6-12 | Docs | Let construction record the planes a point lies on                                   | #236  | Set after Grill on #236 |
+| P6-12 | Docs | Let construction record the planes a point lies on                                   | #236  | Done        |
 | P6-13 | Task | Measure convx after P6 against Qhull and CGAL; rank the remaining gaps             | #275  | Done        |
 | P6-14 | Spike | Can a ParGeo-style fully parallel hull beat the sequential build at 4 and 16 threads? | #276  | Done        |
 | P6-15 | Task | Profile the three gaps that remain after P6                                         | #285  | Done        |
@@ -167,6 +167,7 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-19 | Feat | Hull: take candidates from a bucket queue by distance                               | #291  | Done        |
 | P6-20 | Feat | Hull: planes and the boundary complex on first use; publish without redundant work  | #293  | Done        |
 | P6-21 | Feat | Delaunay: specialize the insertion for D = 2 and D = 3                              | #294  | Done        |
+| P6-22 | Feat | Hull: record the planes a point lies on and use them in insertion and classification | #306  | Not started |
 
 ## Intentionally out of scope
 
