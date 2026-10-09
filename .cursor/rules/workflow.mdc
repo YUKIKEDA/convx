@@ -60,7 +60,7 @@ A second Issue that builds on an open PR gets its own branch and PR, based on th
 # GOOD — branch from the open PR's head, open a PR whose base is that branch
 ```
 
-When a PR is opened on top of another, its base is the earlier branch. Open it as soon as the branch is pushed. GitHub retargets an open PR when its base merges. A branch with no PR whose base was deleted cannot be opened against it. It is rebuilt on `main` from its own commits (#313: the P7-1 branch was stacked on #308, both bases merged first, and it was cherry-picked onto `main` under a new name).
+When a PR is opened on top of another, its base is the earlier branch. Open it as soon as the branch is pushed. A stacked PR is merged only when its base is `main`, and the first line of its body says so. When the PR below merges, delete its branch at once, which makes GitHub retarget the next PR, or retarget it with `gh pr edit --base main`. GitHub retargets only when the base branch is deleted: #325 merged into #319's branch after #319 had merged, its change missed `main`, and #326 re-landed it. GitHub retargets an open PR when its base merges. A branch with no PR whose base was deleted cannot be opened against it. It is rebuilt on `main` from its own commits (#313: the P7-1 branch was stacked on #308, both bases merged first, and it was cherry-picked onto `main` under a new name).
 
 After any squash merge into main:
 
