@@ -93,6 +93,10 @@ pub(super) enum Across {
 /// from a field and uses the predicates of [`Sites`]. A predicate returns
 /// the same exact sign under every shape.
 pub(super) trait Shape: Copy {
+    /// Whether the insertion flips edges (D = 2, ADR 0007) rather than
+    /// digging a cavity.
+    const FLIPS: bool;
+
     /// `k = D + 1`: the vertices, and the neighbors, of a simplex.
     fn k(self) -> usize;
 
@@ -117,6 +121,8 @@ impl Any {
 }
 
 impl Shape for Any {
+    const FLIPS: bool = false;
+
     #[inline(always)]
     fn k(self) -> usize {
         self.k
@@ -141,12 +147,14 @@ impl Shape for Any {
 /// is the one [`Any`] returns; debug builds assert it, and that predicate
 /// checks its own certified signs against the exact one.
 macro_rules! fixed_shape {
-    ($(#[$doc:meta])* $name:ident, $k:literal, $lifted:literal) => {
+    ($(#[$doc:meta])* $name:ident, $k:literal, $lifted:literal, $flips:literal) => {
         $(#[$doc])*
         #[derive(Clone, Copy)]
         pub(super) struct $name;
 
         impl Shape for $name {
+            const FLIPS: bool = $flips;
+
             #[inline(always)]
             fn k(self) -> usize {
                 $k
@@ -184,16 +192,18 @@ macro_rules! fixed_shape {
 }
 
 fixed_shape!(
-    /// D = 2: triangles.
+    /// D = 2: triangles, inserted by edge flips (ADR 0007).
     Plane,
     3,
-    4
+    4,
+    true
 );
 fixed_shape!(
     /// D = 3: tetrahedra.
     Space,
     4,
-    5
+    5,
+    false
 );
 
 /// The triangulation being built: `k = D + 1` vertices and neighbors per
@@ -596,10 +606,179 @@ impl<'a, S: Shape> Mesh<'a, S> {
         mesh.link_initial(&cells);
         mesh.last = s;
         for &q in order {
-            mesh.insert(q)?;
+            if S::FLIPS {
+                mesh.insert_by_flips(q)?;
+            } else {
+                mesh.insert(q)?;
+            }
         }
         debug_assert!(mesh.linked(), "neighbors are symmetric and share a face");
         Ok(mesh)
+    }
+
+    /// The three vertices of triangle `c`.
+    fn triangle(&self, c: u32) -> [u32; 3] {
+        let v = self.vertices_of(c);
+        [v[0], v[1], v[2]]
+    }
+
+    /// Sets the vertices and the neighbors of triangle `c`.
+    fn set_triangle(&mut self, c: u32, vertices: [u32; 3], neighbors: [u32; 3]) {
+        let at = c as usize * 3;
+        self.vertices[at..at + 3].copy_from_slice(&vertices);
+        self.neighbors[at..at + 3].copy_from_slice(&neighbors);
+    }
+
+    /// Points the slot of `n` that held `old` at `new`.
+    fn repoint(&mut self, n: u32, old: u32, new: u32) {
+        let back = self.back(n, old);
+        debug_assert!(back.is_some(), "neighbors are symmetric");
+        if let Some(back) = back {
+            self.set_neighbor(n, back, new);
+        }
+    }
+
+    /// Forgets what was known of every face of the triangles `cells`, on
+    /// both sides: their triangles changed.
+    fn forget(&mut self, cells: &[u32]) {
+        for &c in cells {
+            for slot in 0..3 {
+                self.across[c as usize * 3 + slot] = Across::Unknown;
+                let n = self.neighbor(c, slot);
+                if let Some(back) = self.back(n, c) {
+                    self.across[n as usize * 3 + back] = Across::Unknown;
+                }
+            }
+        }
+    }
+
+    /// Records `across` on the face of triangle `c` opposite `slot`, shared
+    /// with `n`, on both sides.
+    fn record(&mut self, c: u32, slot: usize, n: u32, across: Across) {
+        self.across[c as usize * 3 + slot] = across;
+        if let Some(back) = self.back(n, c) {
+            self.across[n as usize * 3 + back] = across;
+        }
+    }
+
+    /// Inserts site `q` by edge flips (D = 2, ADR 0007, design §7). The
+    /// located triangle contains `q`, or, at infinity, sees it beyond its
+    /// hull edge or inside it. It splits into three triangles through `q`,
+    /// or, with the triangle across, into four when `q` is on an edge. Then
+    /// every edge opposite `q` whose far triangle conflicts with `q` is
+    /// flipped, which leaves the triangles around `q` Delaunay. An edge not
+    /// flipped records what its in-circle test said.
+    fn insert_by_flips(&mut self, q: u32) -> Result<(), ConvexHullError> {
+        debug_assert_eq!(self.shape.k(), 3, "edge flips are for triangles");
+        let t = self.locate(q)?;
+        debug_assert!(self.conflicts(t, q)?, "the located triangle conflicts");
+        // The edge `q` lies on, by the slot of the vertex opposite it.
+        let on_edge = match self.vertices_of(t).iter().position(|&v| v == INFINITE) {
+            Some(slot) => (self.replaced(t, slot, q)? == Sign::Zero).then_some(slot),
+            None => {
+                let mut edge = None;
+                for slot in 0..3 {
+                    if self.replaced(t, slot, q)? == Sign::Zero {
+                        debug_assert!(edge.is_none(), "a site is no vertex of the triangle");
+                        edge = Some(slot);
+                    }
+                }
+                edge
+            }
+        };
+        let mut stack = core::mem::take(&mut self.stack);
+        stack.clear();
+        match on_edge {
+            Some(slot) => self.split_edge(t, slot, q, &mut stack),
+            None => self.split(t, q, &mut stack),
+        }
+        while let Some(c) = stack.pop() {
+            let slot = self.slot_of(c, q);
+            let n = self.neighbor(c, slot);
+            let (conflict, across) = self.conflict(n, q)?;
+            if conflict {
+                self.flip(c, n, q);
+                stack.push(c);
+                stack.push(n);
+            } else if across != Across::Unknown {
+                // `n` is finite and `q` is on its circumcircle or strictly
+                // outside it.
+                self.record(c, slot, n, across);
+            }
+        }
+        self.stack = stack;
+        self.last = t;
+        Ok(())
+    }
+
+    /// Splits triangle `t` into three through `q`. Each new triangle is `t`
+    /// with one vertex replaced by `q`, so it keeps the orientation of `t`.
+    fn split(&mut self, t: u32, q: u32, stack: &mut Vec<u32>) {
+        let [a, b, c] = self.triangle(t);
+        let [na, nb, nc] = [
+            self.neighbor(t, 0),
+            self.neighbor(t, 1),
+            self.neighbor(t, 2),
+        ];
+        let t2 = self.alloc(&[b, c, q]);
+        let t3 = self.alloc(&[c, a, q]);
+        self.set_triangle(t, [a, b, q], [t2, t3, nc]);
+        self.set_triangle(t2, [b, c, q], [t3, t, na]);
+        self.set_triangle(t3, [c, a, q], [t, t2, nb]);
+        self.repoint(na, t, t2);
+        self.repoint(nb, t, t3);
+        self.forget(&[t, t2, t3]);
+        stack.extend([t, t2, t3]);
+    }
+
+    /// Splits triangle `t` and the triangle across its edge opposite `slot`
+    /// into four through `q`, which lies inside that edge.
+    fn split_edge(&mut self, t: u32, slot: usize, q: u32, stack: &mut Vec<u32>) {
+        let v = self.triangle(t);
+        let (x, p, r) = (v[slot], v[(slot + 1) % 3], v[(slot + 2) % 3]);
+        // `t` is (x, p, r); `u` across the edge (p, r) is (y, r, p).
+        let t_np = self.neighbor(t, (slot + 1) % 3);
+        let t_nr = self.neighbor(t, (slot + 2) % 3);
+        let u = self.neighbor(t, slot);
+        let y = self
+            .triangle(u)
+            .into_iter()
+            .find(|&z| z != p && z != r)
+            .unwrap_or(INFINITE);
+        let u_np = self.neighbor(u, self.slot_of(u, p));
+        let u_nr = self.neighbor(u, self.slot_of(u, r));
+        let t2 = self.alloc(&[x, q, r]);
+        let t4 = self.alloc(&[y, q, p]);
+        self.set_triangle(t, [x, p, q], [t4, t2, t_nr]);
+        self.set_triangle(t2, [x, q, r], [u, t_np, t]);
+        self.set_triangle(u, [y, r, q], [t2, t4, u_np]);
+        self.set_triangle(t4, [y, q, p], [t, u_nr, u]);
+        self.repoint(t_np, t, t2);
+        self.repoint(u_nr, u, t4);
+        self.forget(&[t, t2, u, t4]);
+        stack.extend([t, t2, u, t4]);
+    }
+
+    /// Flips the edge opposite `q` in triangle `t`, shared with `n`:
+    /// `(q, a, b)` and `(b, a, d)` become `(q, a, d)` and `(q, d, b)`.
+    fn flip(&mut self, t: u32, n: u32, q: u32) {
+        let at_q = self.slot_of(t, q);
+        let v = self.triangle(t);
+        let (a, b) = (v[(at_q + 1) % 3], v[(at_q + 2) % 3]);
+        let t_na = self.neighbor(t, (at_q + 2) % 3);
+        let t_nb = self.neighbor(t, (at_q + 1) % 3);
+        let d = self
+            .triangle(n)
+            .into_iter()
+            .find(|&z| z != a && z != b)
+            .unwrap_or(INFINITE);
+        let n_ad = self.neighbor(n, self.slot_of(n, b));
+        let n_db = self.neighbor(n, self.slot_of(n, a));
+        self.set_triangle(t, [q, a, d], [n_ad, n, t_na]);
+        self.set_triangle(n, [q, d, b], [n_db, t_nb, t]);
+        self.repoint(n_ad, n, t);
+        self.repoint(t_nb, t, n);
+        self.forget(&[t, n]);
     }
 
     /// Whether every live simplex's neighbor across each face is live,
