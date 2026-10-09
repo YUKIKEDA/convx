@@ -738,3 +738,38 @@ fn pulled_simplices_have_empty_circumspheres() {
     }
     assert_eq!(t.simplices().len(), 4);
 }
+
+/// Every permutation of `k` distinct vertices, for k = 2 to 6: the sorted
+/// vertices ascend, each keeps its slot, and the parity is that of the
+/// permutation's inversions, counted pairwise here.
+#[test]
+fn ascending_sorts_and_gives_the_parity_of_every_permutation() {
+    fn permutations(k: usize) -> Vec<Vec<u32>> {
+        if k == 0 {
+            return vec![Vec::new()];
+        }
+        let mut out = Vec::new();
+        for rest in permutations(k - 1) {
+            for at in 0..=rest.len() {
+                let mut p = rest.clone();
+                p.insert(at, 10 * (k as u32 - 1) + 7);
+                out.push(p);
+            }
+        }
+        out
+    }
+    for k in 2..=6 {
+        let rows = permutations(k);
+        assert_eq!(rows.len(), (1..=k).product::<usize>());
+        for row in rows {
+            let (sorted, negative) = ascending(&row);
+            assert!(sorted.windows(2).all(|w| w[0].0 < w[1].0), "{row:?}");
+            assert!(sorted.iter().all(|&(v, slot)| row[slot] == v), "{row:?}");
+            let inversions = (0..k)
+                .flat_map(|i| (i + 1..k).map(move |j| (i, j)))
+                .filter(|&(i, j)| row[i] > row[j])
+                .count();
+            assert_eq!(negative, inversions % 2 == 1, "{row:?}");
+        }
+    }
+}

@@ -353,7 +353,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
     }
 
     /// The slot of simplex `c` whose neighbor is `n`.
-    pub(super) fn back(&self, c: u32, n: u32) -> Option<usize> {
+    fn back(&self, c: u32, n: u32) -> Option<usize> {
         (0..self.shape.k()).find(|&s| self.neighbor(c, s) == n)
     }
 
