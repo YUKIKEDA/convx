@@ -588,3 +588,82 @@ Ratios to the sequential build ("inside" when the ranges of the three runs overl
 - **A run at 16 threads reads 4 to 8% faster than the pinned sequential run without doing less work.** The filter drops no point on the `sphere` sets and still reads 0.92 to 0.96 at 16 threads on those from D = 3. The sequential run is pinned to logical processor 0; a 16-thread run may use any processor. Ratios within that margin are not gains: the 0.97 of the rounds on `sphere` D4 10^5 is one of them.
 - **Against the keep criterion of #256** (faster beyond the spread on every hull set with at least 10^4 facets): not met at 4, 8, or 16 threads by any mode.
 - **The sequential build has moved since this branch.** The spike branch is from before the bucket queue (#292), which made `build()` 0.86 to 0.95 on the large `sphere` sets, and before the planes on first use (#297), another 0.87 to 0.90: about 0.75 to 0.85 together. Against today's `main`, the 0.76 to 0.87 of the rounds would be about level.
+
+## Recorded planes in insertion and classification, convx `9024602` (#306)
+
+P6-22: construction records the plane numbers a point is on, insertion takes a zero sign from the record, and classification starts a recorded point at its facet (design §3).
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `c86c1bf`; the store-only build at `a040d9a` (every slot carries a plane number, nothing reads it); the head at `9024602`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11 |
+| Cores | One, every process pinned (processor affinity, logical processor 2) |
+| Timed | `ConvexHullBuilder::new(dim, &pts).build()` on sets generated with `tests/common/generator.rs`, seed 1. `cubesurf` is not a family there: the harness draws a point of the generator's `cube` and sets one coordinate, chosen by the same generator, to −1 or +1 |
+| Rounds | The variants alternated per round: 5 rounds × 3 builds, or 3 rounds × 1 for `grid` D6 10^4 and the sets of `build()` over 1.5 s |
+| Reported | Median with min–max. A ratio is the variant's median over `main`'s; "inside the spread" when the two ranges overlap |
+| Qhull | 2020.2 (Ubuntu 22.04 `qhull-bin`) under WSL2 on the same machine, `qconvex i s TI <file> TO <out>`, its "CPU seconds to compute hull (after input)". `main` and the head were timed there too, with rustc 1.99.0, alternated with Qhull per round and pinned with `taskset -c 2`, so the ratios to Qhull are within that run |
+| Profile | Intel VTune hotspots, software sampling, on the head |
+
+Every variant published the same vertex and facet counts as `main` on every set.
+
+### The two sets of the spike
+
+| Set | `main` | Store-only | Ratio | Head | Ratio | Vertices / facets |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `cubesurf` D3 10^5 | 448 ms (422 ms–482 ms) | 451 ms (427 ms–496 ms) | 1.01, inside the spread | 196 ms (189 ms–229 ms) | 0.44 | 155 / 169 |
+| `grid` D6 10^4 | 5.99 s (5.87 s–6.00 s) | 5.97 s (5.91 s–6.13 s) | 1.00, inside the spread | 4.03 s (3.96 s–4.06 s) | 0.67 | 89 / 17 |
+
+Against Qhull, under WSL2:
+
+| Set | `main` | Head | Qhull compute | `main` / Qhull | Head / Qhull |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `cubesurf` D3 10^5 | 436 ms (428 ms–443 ms) | 184 ms (180 ms–191 ms) | 31.7 ms (30.6 ms–34.6 ms) | 13.7 | 5.8 |
+| `grid` D6 10^4 | 5.48 s (5.45 s–5.52 s) | 3.74 s (3.70 s–3.78 s) | 373 ms (369 ms–378 ms) | 14.7 | 10.0 |
+
+Qhull's own counters (`qconvex s Ts`): on `cubesurf` D3 10^5, 168 points processed, 2,236,537 distance tests for the hull and 7,037 for merging, 155 vertices and 169 facets, as convx. On `grid` D6 10^4, 468 points processed, 8,004,117 distance tests for the hull and 586,608 for merging, and 17 facets, as convx; Qhull lists 193 vertices against convx's 89, because the vertices of its merged facets include points that are not extreme.
+
+Shares of `build()` on the head, inclusive:
+
+| Set | Side tests in insertion (`take_outside`) | Classification (`classify_built`) |
+| --- | ---: | ---: |
+| `cubesurf` D3 10^5 | 64.8% | 30.2% |
+| `grid` D6 10^4 | 37.9% in the top-level build | 61.4%, of which most is the sub-hulls of coplanar faces, themselves mostly `take_outside` |
+
+On `main` at `dbe136c` (#306) the same rows were 58.6% / 38.9% and 68.8% / 27.7%.
+
+### The hull sets of this file
+
+| Set | `main` | Head | Ratio | Vertices / facets |
+| --- | ---: | ---: | ---: | ---: |
+| `cube` D2 10^4 | 0.77 ms (0.62 ms–1.62 ms) | 0.68 ms (0.60 ms–0.89 ms) | 0.88, inside the spread | 24 / 24 |
+| `cube` D2 10^5 | 6.97 ms (6.58 ms–8.71 ms) | 6.68 ms (6.38 ms–8.25 ms) | 0.96, inside the spread | 25 / 25 |
+| `cube` D2 10^6 | 74.0 ms (65.6 ms–81.0 ms) | 74.5 ms (65.3 ms–86.3 ms) | 1.01, inside the spread | 39 / 39 |
+| `cube` D3 10^4 | 1.55 ms (1.38 ms–2.36 ms) | 1.56 ms (1.35 ms–2.62 ms) | 1.01, inside the spread | 121 / 238 |
+| `cube` D3 10^5 | 12.6 ms (11.1 ms–14.2 ms) | 12.2 ms (11.3 ms–13.4 ms) | 0.97, inside the spread | 175 / 346 |
+| `cube` D3 10^6 | 144 ms (130 ms–156 ms) | 150 ms (133 ms–166 ms) | 1.04, inside the spread | 285 / 566 |
+| `cube` D4 10^4 | 7.66 ms (6.61 ms–8.23 ms) | 7.28 ms (6.58 ms–8.58 ms) | 0.95, inside the spread | 404 / 2,320 |
+| `cube` D4 10^5 | 40.9 ms (38.6 ms–51.7 ms) | 41.5 ms (37.6 ms–75.9 ms) | 1.02, inside the spread | 770 / 4,376 |
+| `cube` D5 10^4 | 64.0 ms (59.7 ms–75.5 ms) | 64.2 ms (61.8 ms–68.7 ms) | 1.00, inside the spread | 961 / 20,232 |
+| `cube` D5 10^5 | 255 ms (244 ms–276 ms) | 256 ms (246 ms–264 ms) | 1.00, inside the spread | 2,339 / 48,818 |
+| `cube` D6 10^4 | 672 ms (653 ms–699 ms) | 680 ms (662 ms–719 ms) | 1.01, inside the spread | 1,882 / 174,102 |
+| `cube` D6 10^5 | 3.13 s (3.09 s–3.33 s) | 3.14 s (2.91 s–3.20 s) | 1.00, inside the spread | 5,444 / 518,754 |
+| `sphere` D2 10^4 | 2.13 ms (1.99 ms–2.78 ms) | 2.11 ms (1.89 ms–3.40 ms) | 0.99, inside the spread | 10,000 / 10,000 |
+| `sphere` D2 10^5 | 22.5 ms (20.5 ms–30.4 ms) | 22.7 ms (21.4 ms–24.7 ms) | 1.01, inside the spread | 100,000 / 100,000 |
+| `sphere` D2 10^6 | 320 ms (309 ms–342 ms) | 318 ms (300 ms–361 ms) | 0.99, inside the spread | 999,973 / 999,973 |
+| `sphere` D3 10^4 | 33.1 ms (29.8 ms–49.8 ms) | 33.8 ms (31.2 ms–36.2 ms) | 1.02, inside the spread | 10,000 / 19,996 |
+| `sphere` D3 10^5 | 408 ms (381 ms–450 ms) | 418 ms (385 ms–457 ms) | 1.02, inside the spread | 100,000 / 199,996 |
+| `sphere` D3 10^6 | 5.89 s (5.53 s–5.92 s) | 5.94 s (5.80 s–6.18 s) | 1.01, inside the spread | 1,000,000 / 1,999,996 |
+| `sphere` D4 10^4 | 147 ms (141 ms–160 ms) | 151 ms (144 ms–167 ms) | 1.03, inside the spread | 10,000 / 67,192 |
+| `sphere` D4 10^5 | 1.95 s (1.86 s–1.96 s) | 1.97 s (1.90 s–2.02 s) | 1.01, inside the spread | 100,000 / 675,154 |
+| `sphere` D5 10^4 | 1.02 s (994 ms–1.04 s) | 1.03 s (992 ms–1.10 s) | 1.01, inside the spread | 10,000 / 299,994 |
+| `sphere` D5 10^5 | 13.19 s (13.09 s–13.67 s) | 13.72 s (12.93 s–13.90 s) | 1.04, inside the spread | 100,000 / 3,112,922 |
+| `sphere` D6 10^4 | 8.34 s (8.29 s–8.51 s) | 8.56 s (8.45 s–8.56 s) | 1.03, inside the spread | 10,000 / 1,570,453 |
+
+### Reading
+
+- **The two sets of the spike are faster beyond the spread**: 0.44 on `cubesurf` D3 10^5 and 0.67 on `grid` D6 10^4. The store-only build is 1.00 to 1.01 on both, inside the spread.
+- **Qhull is still ahead on both**: the head is 5.8 times Qhull's compute time on `cubesurf` D3 10^5 (13.7 before) and 10.0 times on `grid` D6 10^4 (14.7 before). The side tests of insertion are still 65% of `cubesurf`, and on `grid` D6 the sub-hulls of the coplanar faces, which classification builds one dimension down, are most of the build.
+- **No hull set of this file is slower beyond the spread in this run, but the `sphere` sets from D = 3 are slower by about 1 to 3%.** Their medians are 1.01 to 1.04 here, and 0.97 to 1.02 in a separate run of `main`, the store-only build, and the head on `sphere` D3 10^5 and 10^6, D4 10^5, and D6 10^4, where the store-only build read 0.98 to 1.01. Their points are in general position, so nothing is recorded; what they still pay is a plane number per new simplex, the sign of the apex kept per tested facet, and a check that the record is empty.
+- **Two earlier commits of this branch were slower on `sphere`.** At `52b0401` every walk looked up the apex's record for each facet it tested, and `sphere` D3 10^6 read 1.03 beyond the spread. At `3f62832` the walk looked up only an apex with a record, but the plane number was still part of the geometry every side test reads, and `sphere` D4 10^5 read 1.02 beyond the spread. The head keeps the number out of that geometry and passes it only to the scan of outside points.

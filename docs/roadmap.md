@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P6-22 (#306): record the planes a point lies on and use them in insertion and classification.
+None. P6-22 (#306) is done.
 
 ## Dependencies
 
@@ -167,7 +167,7 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-19 | Feat | Hull: take candidates from a bucket queue by distance                               | #291  | Done        |
 | P6-20 | Feat | Hull: planes and the boundary complex on first use; publish without redundant work  | #293  | Done        |
 | P6-21 | Feat | Delaunay: specialize the insertion for D = 2 and D = 3                              | #294  | Done        |
-| P6-22 | Feat | Hull: record the planes a point lies on and use them in insertion and classification | #306  | Not started |
+| P6-22 | Feat | Hull: record the planes a point lies on and use them in insertion and classification | #306  | Done        |
 
 ## Intentionally out of scope
 
