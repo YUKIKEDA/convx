@@ -1154,7 +1154,7 @@ Met: 9 of 41, as before. Ratios of `build()`; "(ref.)" marks a reference that is
 - No set is slower beyond the spread. The Delaunay sets, whose path this does not change, read 0.99 to 1.05, inside the spread.
 - No set changes its P7 judgement. Hull `sphere` D5 now reads 1.01 to 1.03 against Qhull.
 
-## Delaunay D3: new tetrahedra linked by face keys, PR #NNN (#329)
+## Delaunay D3: new tetrahedra linked by face keys, PR #343 (#329)
 
 P7-10, first part. At D = 3 the faces through the new site of the new tetrahedra are paired by their two other vertices, in an open-addressing table, instead of by a turn around each ridge through the cavity. D = 2 keeps the turn; a fan of the new triangles was tried and is not shipped (below). Timed by the shorter method of #341.
 
