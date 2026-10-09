@@ -89,9 +89,6 @@ fn the_shapes_publish_the_same_triangulation() {
     }
 }
 
-/// The override bites: with it, D = 2 runs the code of any dimension. The
-/// two shapes are told apart by which predicate entry they call, which a
-/// result cannot show, so this test checks the dispatch itself.
 /// The published order is the construction's (design §7): deterministic,
 /// so two builds of one input are equal under `==`, order included, on
 /// general, grid, and cospherical inputs, and on a flat lift.
@@ -125,6 +122,9 @@ fn one_input_publishes_one_order() {
     }
 }
 
+/// The override bites: with it, D = 2 runs the code of any dimension. The
+/// two shapes are told apart by which predicate entry they call, which a
+/// result cannot show, so this test checks the dispatch itself.
 #[test]
 fn the_override_selects_the_shape_of_any_dimension() {
     assert!(!generic_insertion());
@@ -135,10 +135,11 @@ fn the_override_selects_the_shape_of_any_dimension() {
     assert!(!generic_insertion());
 }
 
-/// Every simplex as its (vertices, neighbors), in order.
 /// Simplices with their neighbors named by vertex lists ([`named`]).
 type Named = Vec<(Vec<u32>, Vec<Option<Vec<u32>>>)>;
 
+/// Every simplex as its (vertices, neighbors), the neighbors named by their
+/// vertex lists and the simplices sorted ([`named`]).
 fn rows(t: &DelaunayTriangulation) -> Named {
     named(
         t.simplices()
