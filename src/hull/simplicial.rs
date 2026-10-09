@@ -63,13 +63,12 @@ const DISCARD_SAMPLE: usize = 1024;
 const DISCARD_ONE_IN: usize = 32;
 
 /// What decides the side of a point against a simplex: its vertices, its
-/// outward sign, its plane number (design §3), and its certified cull
-/// plane, when it has one. A facet of the store and a simplex of a plan not
-/// yet applied are both read this way.
+/// outward sign, and its certified cull plane, when it has one. A facet of
+/// the store and a simplex of a plan not yet applied are both read this
+/// way.
 struct Geometry<'a> {
     vertices: &'a [u32],
     outward: Sign,
-    number: u32,
     cull: Option<CullPlane<&'a [f64]>>,
     normal: Option<&'a [f64]>,
 }
@@ -79,7 +78,6 @@ impl<'a> From<Facet<'a>> for Geometry<'a> {
         Self {
             vertices: facet.vertices(),
             outward: facet.outward(),
-            number: facet.number(),
             cull: facet.cull(),
             normal: facet.normal(),
         }
@@ -102,21 +100,14 @@ impl Planes {
     }
 
     /// The geometry of simplex `k`, whose vertices are `vertices`, with
-    /// the outward sign `outward` and the plane number `number`.
-    fn geometry<'a>(
-        &'a self,
-        k: usize,
-        vertices: &'a [u32],
-        outward: Sign,
-        number: u32,
-    ) -> Geometry<'a> {
+    /// the outward sign `outward`.
+    fn geometry<'a>(&'a self, k: usize, vertices: &'a [u32], outward: Sign) -> Geometry<'a> {
         let d = vertices.len();
         let normal = &self.normals[k * d..(k + 1) * d];
         let (has_normal, cull) = self.kinds[k];
         Geometry {
             vertices,
             outward,
-            number,
             cull: cull.map(|(slope, floor)| CullPlane::from_parts(normal, slope, floor)),
             normal: has_normal.then_some(normal),
         }
@@ -479,7 +470,7 @@ impl<'a> SimplicialHull<'a> {
                 &mut sides,
                 None,
                 &self.facets.facet(slot).into(),
-                &mut self.records,
+                (&mut self.records, self.facets.facet(slot).number()),
                 &mut outside,
             )?;
             self.facets.set_outside(slot, &outside, farthest);
@@ -775,12 +766,8 @@ impl<'a> SimplicialHull<'a> {
                 None
             } else {
                 let rows = if copy { Some(&mut *copied) } else { None };
-                let geometry = planes.geometry(
-                    k,
-                    &vertices[k * dim..(k + 1) * dim],
-                    Sign::Positive,
-                    numbers[k],
-                );
+                let geometry =
+                    planes.geometry(k, &vertices[k * dim..(k + 1) * dim], Sign::Positive);
                 take_outside(
                     &self.input,
                     orphans,
@@ -788,7 +775,7 @@ impl<'a> SimplicialHull<'a> {
                     sides,
                     rows,
                     &geometry,
-                    records,
+                    (&mut *records, numbers[k]),
                     outside,
                 )?
             };
@@ -1006,9 +993,10 @@ fn farthest(
 /// `copied`, the scan reads the points from those rows, which follow
 /// `remaining` as it shrinks.
 ///
-/// A point recorded on the simplex's plane number is on the plane and is
+/// A point recorded on the simplex's plane `number` is on the plane and is
 /// not evaluated; a point the orientation finds on the plane is recorded
-/// in `records` (design §3).
+/// in `records` (design §3). The number is not part of [`Geometry`], so
+/// that a side test outside this scan does not read it.
 ///
 /// A simplex's outside set is final once taken: points leave it only with
 /// the simplex.
@@ -1022,7 +1010,7 @@ fn take_outside(
     sides: &mut Vec<Option<Sign>>,
     mut copied: Option<&mut CopiedRows>,
     facet: &Geometry<'_>,
-    records: &mut Records,
+    (records, number): (&mut Records, u32),
     outside: &mut Vec<u32>,
 ) -> Result<Option<(u32, Option<f64>)>, ConvexHullError> {
     let first = outside.len();
@@ -1060,7 +1048,7 @@ fn take_outside(
                 );
                 proved
             }
-            None if recorded && records.holds(p, facet.number) => {
+            None if recorded && records.holds(p, number) => {
                 #[cfg(debug_assertions)]
                 debug_assert_eq!(
                     oriented_side(input, facet, p)?,
@@ -1074,7 +1062,7 @@ fn take_outside(
             None => {
                 let sign = side(input, facet, p)?;
                 if sign == Sign::Zero {
-                    records.record(p, facet.number);
+                    records.record(p, number);
                 }
                 sign
             }
