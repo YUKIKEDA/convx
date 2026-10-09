@@ -1906,3 +1906,38 @@ Per site, for the flips. The prototype's triangles matched the cavity's on every
 - **The rule is not met.** The flips build the mesh in 0.65 to 0.69 of the cavity's time on all four sets, beyond the spread, against a rule of at most 0.6. By the Grill's rule the current insertion would keep being improved. The owner changed the rule after the measurement (#370): the flips are adopted for D = 2 (ADR 0007, P7-23, #372).
 - **The flips do CGAL's work.** Their in-circle tests and flips per site match CGAL's to within 2%. The cavity does the same in-circle tests (#363), so the saving is in what the cavity writes and links: four freed and six new triangles a site, and the turns around the ridges, against three new triangles and three flips.
 - **What a dedicated path would leave.** On `cube` D2 10^6, the flips' mesh takes 414 ms. CGAL's whole build takes 471 ms on Linux. The order and the copy (about 90 ms) and the pass after the insertion (about 160 ms after #365) come on top.
+
+## Delaunay: one record per cell of the mesh, PR #375 (#374)
+
+The spike P7-24. Does one record per cell speed up the Delaunay mesh? Today the mesh keeps each cell in five arrays: vertices, neighbors, face records, liveness, and marks. The rule was set in the Grill of 2026-10-10 (on #374): the mesh build faster beyond the spread on Delaunay `cube` and `sphere` D2 and D3 at 10^6, and nothing Delaunay slower beyond the spread, leads to a row that adopts it.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | The head of #373 (`ead7e2b`, D = 2 by edge flips) against a copy of it outside the crate. In the copy, every cell of every shape is one record of `2k + 2` words: the vertices, the neighbors, the mark, and a word with two bits of record per face and the liveness in its top bit. rustc 1.97.1, `--release` with debug info |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2) |
+| Timed | `build()`, the two alternated per round: 10 rounds × 3 builds at D2 10^5, 8 and 6 × 1 at D3 10^5, 6 × 1 at D2 10^6, 4 and 3 × 1 at D3 10^6 |
+| Published | The simplices, their neighbors, and the representatives, in published order, hashed: identical on Delaunay `cube` and `sphere` D2 10^5, D3 2 × 10^4, D4 3000 and 2000, and `grid` D2 and D3. The copy passed the Delaunay tests in debug |
+
+### Results
+
+| Set | Five arrays | One record | Ratio |
+| --- | ---: | ---: | ---: |
+| `cube` D2 10^5 | 78.7 ms (74.6–96.5) | 80.2 ms (75.5–106) | 1.02, inside the spread |
+| `sphere` D2 10^5 | 60.7 ms (58.3–64.3) | 60.9 ms (59.2–71.1) | 1.00, inside the spread |
+| `cube` D3 10^5 | 472 ms (463–490) | 477 ms (473–493) | 1.01, inside the spread |
+| `sphere` D3 10^5 | 881 ms (868–892) | 884 ms (878–890) | 1.00, inside the spread |
+| `cube` D2 10^6 | 806 ms (794–816) | 817 ms (812–822) | 1.01, inside the spread |
+| `sphere` D2 10^6 | 594 ms (587–601) | 601 ms (595–609) | 1.01, inside the spread |
+| `cube` D3 10^6 | 5.34 s (5.10–5.43) | 5.31 s (5.07–5.34) | 0.99, inside the spread |
+| `sphere` D3 10^6 | 7.78 s (7.68–7.83) | 7.78 s (7.71–7.80) | 1.00, inside the spread |
+
+A second copy kept the five arrays but recorded nothing on the faces: no forgetting, no records, so the pass after the insertion tests every face. It read 0.97 on `cube` D2 10^6, 1.00 on `sphere` D2 10^6, and 0.96 on `cube` D2 10^5, inside the spread.
+
+### Reading
+
+- **The rule is not met.** One record per cell reads 0.99 to 1.02 on all eight sets. The mesh's layout is not where its time goes. Cells are allocated in insertion order, so the cells an insertion touches are close in each of the five arrays, and the lines it reads stay in the cache.
+- **The faces' records cost little.** Without them the build reads 0.96 to 1.00.
+- **The gap between the flip prototype and its implementation is mostly the harness.** The prototype read 0.65 to 0.69 of the cavity's mesh (#370), the implementation 0.84 to 0.87 (#373). In the prototype's harness, the cavity's mesh of `cube` D2 10^6 took 614 ms; in the pipeline of `build()`, 554 ms. The two ratios were measured against different bases, and the prototype's base was slower.
+- What follows: no row adopts a layout. The Grill planned the arrays of the pass after the insertion, and the hull's facet store, as rows after this result. They are not opened on the layout hypothesis. A row on them starts from a profile that shows memory there.
