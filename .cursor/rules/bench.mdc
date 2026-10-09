@@ -37,6 +37,10 @@ A measurement that an ADR, a code comment, or a PR cites is recorded in `docs/be
 
 Assign a row of a profile to a phase from its callers in the call tree, not from the function's name or from where the cost was expected. In #289 a stable sort was listed under publication; its caller was the chain of construction.
 
+A keep criterion names the inputs the change can reach, from a profile of those inputs taken before the criterion is written. ADR 0005 asked every Delaunay set of D = 2 and D = 3 to get faster, and `sphere` D3 spends 62.6% of its build in an exact stage the specialization does not touch (#301).
+
+A comparison across thread counts pins every configuration to the same kind of core set, or measures what the pinning alone does and reports it. On a machine with performance and efficiency cores, one pinned logical processor against all of them read 4 to 8% apart with the same work (#302). A spike timed on an older branch states how far the sequential build of `main` has moved since, so its ratios are read against today's build.
+
 "Inside the spread" is a statement about repeated runs, not about one pair of ranges. When the ranges overlap only through one outlier and other runs agree on the difference, report the difference. In #292 `cube` D6 10^4 read 1.04 "inside the spread" because one build of the base took 919 ms against a median of 740; two other runs gave about 3%.
 
 A change after review that touches the timed path makes a new head. Time the base and that head again, both on one machine. A table of the base against the earlier head from one machine, next to the earlier head against the new head from another, is not the base against the shipped head (#259).
