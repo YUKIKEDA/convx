@@ -54,7 +54,10 @@
 
 use crate::hull::input::Input;
 use crate::hull::ConvexHullError;
-use crate::predicates::{first_stage, orient, orient_lifted_with, LiftedHeight, Sign};
+use crate::predicates::{
+    first_stage, orient, orient_from, orient_lifted_from, orient_lifted_with, LiftedHeight, Sign,
+    Start,
+};
 use crate::small::Small;
 
 /// The vertex at infinity of an outside simplex. Site numbers are below
@@ -121,21 +124,22 @@ impl Shape for Any {
 
     #[inline(always)]
     fn orient(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError> {
-        sites.orient(ids)
+        sites.orient(ids, Start::FirstStage)
     }
 
     #[inline(always)]
     fn lifted(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError> {
-        sites.lifted(ids)
+        sites.lifted(ids, Start::FirstStage)
     }
 }
 
 /// A shape of one dimension: `k` is the constant `$k`, and a predicate first
 /// tries the semi-static stage on `$k` (or `$k + 1`) rows in an array, with
 /// no cached height and no dispatch on the size. What that stage does not
-/// certify goes to the predicate of [`Sites`], which starts with the same
-/// stage, so the sign is the one [`Any`] returns; debug builds assert it,
-/// and that predicate checks its own certified signs against the exact one.
+/// certify goes to the predicate of [`Sites`], which starts after that stage
+/// ([`Start::AfterFirstStage`]), so the first stage runs once and the sign
+/// is the one [`Any`] returns; debug builds assert it, and that predicate
+/// checks its own certified signs against the exact one.
 macro_rules! fixed_shape {
     ($(#[$doc:meta])* $name:ident, $k:literal, $lifted:literal) => {
         $(#[$doc])*
@@ -155,10 +159,10 @@ macro_rules! fixed_shape {
                 let rows: [&[f64]; $k] = core::array::from_fn(|i| sites.point(ids[i]));
                 match first_stage(rows[0], &rows[1..], false) {
                     Some(sign) => {
-                        debug_assert_eq!(Ok(sign), sites.orient(ids));
+                        debug_assert_eq!(Ok(sign), sites.orient(ids, Start::FirstStage));
                         Ok(sign)
                     }
-                    None => sites.orient(ids),
+                    None => sites.orient(ids, Start::AfterFirstStage),
                 }
             }
 
@@ -169,10 +173,10 @@ macro_rules! fixed_shape {
                 let rows: [&[f64]; $lifted] = core::array::from_fn(|i| sites.point(ids[i]));
                 match first_stage(rows[0], &rows[1..], true) {
                     Some(sign) => {
-                        debug_assert_eq!(Ok(sign), sites.lifted(ids));
+                        debug_assert_eq!(Ok(sign), sites.lifted(ids, Start::FirstStage));
                         Ok(sign)
                     }
-                    None => sites.lifted(ids),
+                    None => sites.lifted(ids, Start::AfterFirstStage),
                 }
             }
         }
@@ -272,23 +276,24 @@ impl Sites {
         LiftedHeight::stored(row[self.dim], row[self.dim + 1])
     }
 
-    /// Orientation of the sites `ids` (D + 1 of them).
-    fn orient(&self, ids: &[u32]) -> Result<Sign, ConvexHullError> {
+    /// Orientation of the sites `ids` (D + 1 of them), starting at `start`.
+    fn orient(&self, ids: &[u32], start: Start) -> Result<Sign, ConvexHullError> {
         let n = ids.len();
         if n <= INLINE {
             let mut points: [&[f64]; INLINE] = [&[]; INLINE];
             for (slot, &i) in points.iter_mut().zip(ids) {
                 *slot = self.point(i);
             }
-            Ok(orient(&points[..n])?)
+            Ok(orient_from(&points[..n], start)?)
         } else {
             let points: Vec<&[f64]> = ids.iter().map(|&i| self.point(i)).collect();
-            Ok(orient(&points)?)
+            Ok(orient_from(&points, start)?)
         }
     }
 
-    /// Lifted orientation of the sites `ids` (D + 2 of them).
-    pub(super) fn lifted(&self, ids: &[u32]) -> Result<Sign, ConvexHullError> {
+    /// Lifted orientation of the sites `ids` (D + 2 of them), starting at
+    /// `start`.
+    pub(super) fn lifted(&self, ids: &[u32], start: Start) -> Result<Sign, ConvexHullError> {
         let n = ids.len();
         if n <= INLINE {
             let mut points: [&[f64]; INLINE] = [&[]; INLINE];
@@ -297,11 +302,11 @@ impl Sites {
                 *slot = self.point(i);
                 *height = self.height(i);
             }
-            Ok(orient_lifted_with(&points[..n], &heights[..n])?)
+            Ok(orient_lifted_from(&points[..n], &heights[..n], start)?)
         } else {
             let points: Vec<&[f64]> = ids.iter().map(|&i| self.point(i)).collect();
             let heights: Vec<LiftedHeight> = ids.iter().map(|&i| self.height(i)).collect();
-            Ok(orient_lifted_with(&points, &heights)?)
+            Ok(orient_lifted_from(&points, &heights, start)?)
         }
     }
 }
@@ -989,7 +994,7 @@ mod tests {
                             let indices = [a, b, c, d];
                             let expected = lifted_sign_2d(&indices.map(|i| sites[i as usize]));
                             assert_eq!(
-                                rows.lifted(&indices).unwrap(),
+                                rows.lifted(&indices, Start::FirstStage).unwrap(),
                                 expected,
                                 "2^{e}, shift {shift}, {indices:?}"
                             );

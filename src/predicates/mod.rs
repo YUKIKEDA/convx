@@ -6,15 +6,23 @@
 //! as the exact values their bit patterns name; nothing is translated or
 //! scaled first.
 //!
-//! An orientation or lifted orientation with k ≤ 4 first evaluates in `f64`
-//! with a bound derived once for its formula (see [`semi_static`]). Every
-//! predicate the first stage leaves open evaluates in `f64` with a running
-//! absolute error bound (see [`filter`]). When a bound certifies the sign,
-//! that sign is returned. Otherwise the sign of the same polynomial is computed exactly:
+//! Degree 1 compares the two coordinates directly. An orientation or
+//! lifted orientation with 2 ≤ k ≤ 6 is decided in stages (design §1):
+//!
+//! 1. in `f64`: for k ≤ 5 a dedicated formula with a bound derived once for
+//!    it (see [`semi_static`]); for k = 6 the determinant with a running
+//!    absolute error bound (see [`filter`]);
+//! 2. in double-double, with a bound derived once per size (see
+//!    [`double_double`]);
+//! 3. exactly.
+//!
+//! Every other predicate, and every degree above 6, evaluates in `f64` with
+//! the running bound and then exactly. When a bound certifies the sign,
+//! that sign is returned. The exact sign is that of the same polynomial,
 //! over integers on the stack when they hold it (see [`fixed`]), and over
-//! heap integers otherwise (see [`exact`]). Degree 1 compares the two coordinates directly; degrees 2
-//! to 4 use dedicated expansions; larger degrees use a filtered determinant.
+//! heap integers otherwise (see [`exact`]).
 
+mod double_double;
 mod exact;
 mod filter;
 mod fixed;
@@ -63,13 +71,34 @@ pub(crate) struct ExactEvaluationExhausted;
 /// Every coordinate must be finite. The result is the exact sign of the
 /// determinant of `points[i] - points[0]`, `i = 1..=k`.
 pub(crate) fn orient(points: &[&[f64]]) -> Result<Sign, ExactEvaluationExhausted> {
+    orient_from(points, Start::FirstStage)
+}
+
+/// Where a predicate starts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Start {
+    /// At the first stage, for the sizes it covers.
+    FirstStage,
+    /// After it: the caller ran [`first_stage`] on the same rows, and it
+    /// left the sign open. Only for the sizes that stage covers.
+    AfterFirstStage,
+}
+
+/// [`orient`], starting at `start`.
+pub(crate) fn orient_from(
+    points: &[&[f64]],
+    start: Start,
+) -> Result<Sign, ExactEvaluationExhausted> {
     debug_assert!(points.len() >= 2, "orientation needs at least two points");
-    sign_of(Rows {
-        origin: points[0],
-        points: &points[1..],
-        direction: None,
-        lifted: None,
-    })
+    sign_of(
+        Rows {
+            origin: points[0],
+            points: &points[1..],
+            direction: None,
+            lifted: None,
+        },
+        start,
+    )
 }
 
 /// The first stage alone of [`orient`] (`lifted` false) or of the lifted
@@ -179,14 +208,26 @@ pub(crate) fn orient_lifted_with(
     points: &[&[f64]],
     heights: &[LiftedHeight],
 ) -> Result<Sign, ExactEvaluationExhausted> {
+    orient_lifted_from(points, heights, Start::FirstStage)
+}
+
+/// [`orient_lifted_with`], starting at `start`.
+pub(crate) fn orient_lifted_from(
+    points: &[&[f64]],
+    heights: &[LiftedHeight],
+    start: Start,
+) -> Result<Sign, ExactEvaluationExhausted> {
     debug_assert!(points.len() >= 3, "a lifted orientation needs k + 2 points");
     debug_assert_eq!(heights.len(), points.len(), "one height per point");
-    sign_of(Rows {
-        origin: points[0],
-        points: &points[1..],
-        direction: None,
-        lifted: Some(heights),
-    })
+    sign_of(
+        Rows {
+            origin: points[0],
+            points: &points[1..],
+            direction: None,
+            lifted: Some(heights),
+        },
+        start,
+    )
 }
 
 /// Side of `query` relative to the hyperplane through `facet` (k points of
@@ -219,12 +260,15 @@ pub(crate) fn orient_direction(
     direction: &[f64],
 ) -> Result<Sign, ExactEvaluationExhausted> {
     debug_assert!(!facet.is_empty(), "a hyperplane needs at least one point");
-    sign_of(Rows {
-        origin: facet[0],
-        points: &facet[1..],
-        direction: Some(direction),
-        lifted: None,
-    })
+    sign_of(
+        Rows {
+            origin: facet[0],
+            points: &facet[1..],
+            direction: Some(direction),
+            lifted: None,
+        },
+        Start::FirstStage,
+    )
 }
 
 /// The rows of an orientation determinant: `p - origin` for each point,
@@ -270,7 +314,7 @@ impl<'a> Rows<'a> {
     }
 }
 
-fn sign_of(rows: Rows<'_>) -> Result<Sign, ExactEvaluationExhausted> {
+fn sign_of(rows: Rows<'_>, start: Start) -> Result<Sign, ExactEvaluationExhausted> {
     let k = rows.k();
     debug_assert!(k >= 1, "orientation needs dimension at least 1");
     debug_assert_eq!(
@@ -296,7 +340,7 @@ fn sign_of(rows: Rows<'_>) -> Result<Sign, ExactEvaluationExhausted> {
                     .all(|(p, &h)| h.bits() == LiftedHeight::of(p).bits())),
         "a cached height must be the height of its point"
     );
-    if let Some(sign) = filtered(rows) {
+    if let Some(sign) = filtered(rows, start) {
         return Ok(sign);
     }
     exact::sign_exact(rows)
@@ -310,8 +354,19 @@ fn from_ordering(ordering: core::cmp::Ordering) -> Sign {
     }
 }
 
-fn filtered(rows: Rows<'_>) -> Option<Sign> {
+/// The largest size the first stage covers ([`semi_static`]).
+const FIRST_STAGE_UP_TO: usize = 5;
+
+/// The largest size the double-double stage covers ([`double_double`]).
+const DOUBLE_DOUBLE_UP_TO: usize = 6;
+
+/// The sign when a stage before the exact one certifies it.
+fn filtered(rows: Rows<'_>, start: Start) -> Option<Sign> {
     let k = rows.k();
+    debug_assert!(
+        start == Start::FirstStage || (rows.direction.is_none() && k <= FIRST_STAGE_UP_TO),
+        "only a size of the first stage starts after it"
+    );
     if k == 1 {
         // Degree 1: the sign of b - a is the order of two finite values.
         return match rows.row(0) {
@@ -319,15 +374,34 @@ fn filtered(rows: Rows<'_>) -> Option<Sign> {
             Row::Direction(d) => d[0].partial_cmp(&0.0).map(from_ordering),
         };
     }
-    if rows.direction.is_none() {
-        if let Some(sign) = semi_static::sign(rows.origin, rows.points, rows.lifted.is_some()) {
-            debug_assert_eq!(
-                Ok(sign),
-                exact::sign_exact(rows),
-                "the semi-static bound certified the wrong sign"
-            );
+    if rows.direction.is_none() && k <= DOUBLE_DOUBLE_UP_TO {
+        let lifted = rows.lifted.is_some();
+        if k <= FIRST_STAGE_UP_TO {
+            if start == Start::FirstStage {
+                if let Some(sign) = semi_static::sign(rows.origin, rows.points, lifted) {
+                    debug_assert_eq!(
+                        Ok(sign),
+                        exact::sign_exact(rows),
+                        "the semi-static bound certified the wrong sign"
+                    );
+                    return Some(sign);
+                }
+            } else {
+                debug_assert!(
+                    semi_static::sign(rows.origin, rows.points, lifted).is_none(),
+                    "the caller's first stage left the sign open"
+                );
+            }
+        } else if let Some(sign) = filtered_value(rows).and_then(|v| v.certified_sign()) {
             return Some(sign);
         }
+        let sign = double_double::sign(rows.origin, rows.points, lifted)?;
+        debug_assert_eq!(
+            Ok(sign),
+            exact::sign_exact(rows),
+            "the double-double bound certified the wrong sign"
+        );
+        return Some(sign);
     }
     filtered_value(rows)?.certified_sign()
 }
@@ -925,12 +999,15 @@ mod tests {
                         .map(|_| (0..k).map(|_| rng.unit()).collect())
                         .collect();
                     let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
-                    filtered(Rows {
-                        origin: refs[0],
-                        points: &refs[1..],
-                        direction: None,
-                        lifted: None,
-                    })
+                    filtered(
+                        Rows {
+                            origin: refs[0],
+                            points: &refs[1..],
+                            direction: None,
+                            lifted: None,
+                        },
+                        Start::FirstStage,
+                    )
                     .is_some()
                 })
                 .count();

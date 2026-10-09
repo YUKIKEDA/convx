@@ -5,8 +5,9 @@
 //! The running bound of [`super::filter`] updates a bound on every
 //! operation. Here the bound is derived once per formula, so a call costs
 //! about two evaluations of the expression instead of five or more. When it
-//! does not certify the sign, the running bound is tried next, then the
-//! exact stage, so the sign returned is unchanged.
+//! does not certify the sign, the double-double stage is tried next
+//! ([`super::double_double`]), then the exact stage, so the sign returned is
+//! unchanged.
 //!
 //! # The bound
 //!
@@ -194,7 +195,7 @@ impl Estimate {
 }
 
 /// The sign of the orientation of `origin` followed by `points`, or of the
-/// lifted orientation when `lifted`, for k ≤ 4. `None` when the bound does
+/// lifted orientation when `lifted`, for k ≤ 5. `None` when the bound does
 /// not certify it, or when no formula here covers the size.
 ///
 /// `points` holds k rows of the dimension of `origin`: one per coordinate,
@@ -417,7 +418,7 @@ fn large_roundings(k: usize, lifted: Option<usize>) -> u32 {
 
 /// The masks of the nonempty subsets of `K` rows, by size: the subsets of
 /// size `m` are `order[start[m]..start[m + 1]]`.
-const fn subsets_by_size<const K: usize>() -> ([u8; 64], [usize; 8]) {
+pub(super) const fn subsets_by_size<const K: usize>() -> ([u8; 64], [usize; 8]) {
     let mut order = [0_u8; 64];
     let mut start = [0_usize; 8];
     let mut n = 0;
@@ -501,14 +502,14 @@ fn large<const K: usize>(origin: &[f64], points: &[&[f64]], lifted: bool) -> Est
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::super::exact::{exponent_shift, BigInt};
     use super::super::{exact, LiftedHeight, Rows};
     use super::*;
 
     /// The exact sign of the orientation (or lifted orientation) of
     /// `points`, from the exact stage.
-    fn exact_of(points: &[Vec<f64>], lifted: bool) -> Sign {
+    pub(in crate::predicates) fn exact_of(points: &[Vec<f64>], lifted: bool) -> Sign {
         let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
         let heights: Vec<LiftedHeight> = refs.iter().map(|p| LiftedHeight::of(p)).collect();
         exact::sign_exact(Rows {
@@ -525,10 +526,10 @@ mod tests {
         sign(refs[0], &refs[1..], lifted)
     }
 
-    struct Rng(u64);
+    pub(in crate::predicates) struct Rng(pub(in crate::predicates) u64);
 
     impl Rng {
-        fn next(&mut self) -> u64 {
+        pub(in crate::predicates) fn next(&mut self) -> u64 {
             self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
             let mut z = self.0;
             z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
@@ -536,11 +537,11 @@ mod tests {
             z ^ (z >> 31)
         }
 
-        fn unit(&mut self) -> f64 {
+        pub(in crate::predicates) fn unit(&mut self) -> f64 {
             (self.next() >> 11) as f64 / (1_u64 << 53) as f64 * 2.0 - 1.0
         }
 
-        fn below(&mut self, n: u64) -> u64 {
+        pub(in crate::predicates) fn below(&mut self, n: u64) -> u64 {
             self.next() % n
         }
     }
@@ -559,7 +560,7 @@ mod tests {
 
     /// The number of points of a formula: k + 1, with k = dim (+ 1 when
     /// lifted).
-    fn count(dim: usize, lifted: bool) -> usize {
+    pub(in crate::predicates) fn count(dim: usize, lifted: bool) -> usize {
         dim + 1 + usize::from(lifted)
     }
 
@@ -645,7 +646,12 @@ mod tests {
     /// Points on a lower-dimensional affine hull (or, lifted, a sphere) up
     /// to rounding, moved far from the origin so that every difference
     /// rounds: the determinant cancels to near zero.
-    fn near_degenerate(rng: &mut Rng, dim: usize, lifted: bool, offset: f64) -> Vec<Vec<f64>> {
+    pub(in crate::predicates) fn near_degenerate(
+        rng: &mut Rng,
+        dim: usize,
+        lifted: bool,
+        offset: f64,
+    ) -> Vec<Vec<f64>> {
         let n = count(dim, lifted);
         let mut points: Vec<Vec<f64>> = (0..n)
             .map(|_| (0..dim).map(|_| rng.unit()).collect())
@@ -872,7 +878,7 @@ mod tests {
     /// used: on x86_64 Linux it divides one by `2^-e` for a negative `e`,
     /// and every `2^-e` above `2^1023` overflows, so each power below
     /// `2^-1023` came out as 0 there (#344).
-    fn two_to(e: i32) -> f64 {
+    pub(in crate::predicates) fn two_to(e: i32) -> f64 {
         assert!((-1074..=1023).contains(&e), "2^{e} is not a finite f64");
         if e >= -1022 {
             f64::from_bits(((e + 1023) as u64) << 52)
@@ -896,12 +902,12 @@ mod tests {
     }
 
     /// `x 2^1074`, an integer for every finite `x`.
-    fn int(x: f64) -> BigInt {
+    pub(in crate::predicates) fn int(x: f64) -> BigInt {
         BigInt::from_f64_scaled(x, 0).unwrap()
     }
 
     /// `2^k`.
-    fn pow2(k: u64) -> BigInt {
+    pub(in crate::predicates) fn pow2(k: u64) -> BigInt {
         let mut power = int(two_to((k % 1074) as i32 - 1074));
         for _ in 0..k / 1074 {
             power = power.mul(&int(1.0)).unwrap();
@@ -911,7 +917,10 @@ mod tests {
 
     /// The determinant of the square matrix `rows` over `columns`, by
     /// cofactor expansion along the first row.
-    fn cofactor_expansion(rows: &[Vec<BigInt>], columns: &[usize]) -> BigInt {
+    pub(in crate::predicates) fn cofactor_expansion(
+        rows: &[Vec<BigInt>],
+        columns: &[usize],
+    ) -> BigInt {
         let Some((first, below)) = rows.split_first() else {
             return pow2(0);
         };
@@ -984,7 +993,7 @@ mod tests {
     }
 
     /// Whether `bound >= factor |error|`.
-    fn covers(bound: &BigInt, error: &BigInt, factor: u32) -> bool {
+    pub(in crate::predicates) fn covers(bound: &BigInt, error: &BigInt, factor: u32) -> bool {
         let scaled = (0..factor).fold(int(0.0), |sum, _| sum.add(error).unwrap());
         bound.sub(&scaled).unwrap().sign() != Sign::Negative
             && bound.add(&scaled).unwrap().sign() != Sign::Negative

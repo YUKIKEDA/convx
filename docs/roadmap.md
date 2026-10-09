@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-17 (#352): a double-double stage before the exact one, then P7-18 (#355). P7-13 (#332): the Delaunay D2 order and walk. P7-7 (#322) to P7-9 (#324): hull D2 and acceptance.
+P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4. P7-13 (#332): the Delaunay D2 order and walk. P7-7 (#322) to P7-9 (#324): hull D2 and acceptance.
 
 ## Dependencies
 
@@ -191,7 +191,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-14 | Feat | Delaunay: publish the simplices in construction order                                    | #335  | Done        |
 | P7-15 | Docs | Predicates: a double-double stage between the first stage and the exact stage            | #349  | Done        |
 | P7-16 | Feat | Predicates: a first stage for determinants of size 5 and 6                               | #350  | Done        |
-| P7-17 | Feat | Predicates: a double-double stage for the dedicated formulas                             | #352  | Not started |
+| P7-17 | Feat | Predicates: a double-double stage for the dedicated formulas                             | #352  | Done        |
 | P7-18 | Fix  | Predicates: the lifted underflow terms of the first-stage formulas of k ≤ 4              | #355  | Not started |
 
 ## Intentionally out of scope
