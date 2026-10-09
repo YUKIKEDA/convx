@@ -2013,3 +2013,62 @@ A second copy kept the five arrays but recorded nothing on the faces: no forgett
 - **The faces' records cost little.** Without them the build reads 0.96 to 1.00.
 - **The gap between the flip prototype and its implementation is mostly the harness.** The prototype read 0.65 to 0.69 of the cavity's mesh (#370), the implementation 0.84 to 0.87 (#373). In the prototype's harness, the cavity's mesh of `cube` D2 10^6 took 614 ms; in the pipeline of `build()`, 554 ms. The two ratios were measured against different bases, and the prototype's base was slower.
 - What follows: no row adopts a layout. The Grill planned the arrays of the pass after the insertion, and the hull's facet store, as rows after this result. They are not opened on the layout hypothesis. A row on them starts from a profile that shows memory there.
+
+## Hull D2: the discard against edges gathered once, PR #381 (#324)
+
+P7-9. Before the D = 2 chain, every representative is tested against the polygon of the eight directional extremes, one certified orientation per edge (design §6). Each test read the edge's two ends from the input again. On hull `cube` D2 that test was 32 to 41% of `build()` (the profile on #324). The edges' coordinates are now gathered once. The same certified orientation decides, so the same points are discarded.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `340b7cc` against the head `30d8076`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2) |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md` (#341), the guard sets, and the keep criterion's hull `cube` D2 10^5 and 10^6, with `sphere` D2 10^6 |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about a second and for D2 10^6. A second run of hull `cube` D2 10^5, 20 × 3 |
+
+Every set published the same counts on both sides.
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.70 ms (0.60 ms–0.87 ms) | 0.61 ms (0.52 ms–0.80 ms) | 0.87, inside the spread |
+| Hull `cube` D2 10^5 | 6.28 ms (5.54 ms–7.36 ms) | 5.29 ms (4.74 ms–6.95 ms) | 0.84, inside the spread |
+| Hull `cube` D2 10^6 | 65.4 ms (65.0 ms–66.9 ms) | 58.5 ms (56.4 ms–59.4 ms) | 0.90, faster beyond the spread |
+| Hull `cube` D3 10^4 | 1.63 ms (1.37 ms–2.43 ms) | 1.62 ms (1.34 ms–2.10 ms) | 0.99, inside the spread |
+| Hull `cube` D3 10^5 | 12.7 ms (11.8 ms–19.3 ms) | 13.0 ms (11.5 ms–25.4 ms) | 1.02, inside the spread |
+| Hull `cube` D4 10^4 | 6.55 ms (6.32 ms–9.07 ms) | 6.52 ms (6.34 ms–8.49 ms) | 1.00, inside the spread |
+| Hull `cube` D4 10^5 | 35.8 ms (34.1 ms–39.8 ms) | 35.3 ms (34.2 ms–36.9 ms) | 0.99, inside the spread |
+| Hull `cube` D5 10^4 | 55.4 ms (54.1 ms–63.7 ms) | 55.7 ms (54.5 ms–63.2 ms) | 1.00, inside the spread |
+| Hull `cube` D6 10^4 | 578 ms (568 ms–604 ms) | 580 ms (571 ms–613 ms) | 1.00, inside the spread |
+| Hull `cubesurf` D3 10^5 | 104 ms (101 ms–114 ms) | 103 ms (100 ms–114 ms) | 0.99, inside the spread |
+| Hull `sphere` D2 10^4 | 1.65 ms (1.50 ms–2.03 ms) | 1.68 ms (1.52 ms–2.64 ms) | 1.02, inside the spread |
+| Hull `sphere` D2 10^5 | 18.3 ms (17.0 ms–20.3 ms) | 18.5 ms (17.1 ms–21.4 ms) | 1.01, inside the spread |
+| Hull `sphere` D2 10^6 | 212 ms (208 ms–235 ms) | 211 ms (208 ms–217 ms) | 0.99, inside the spread |
+| Hull `sphere` D3 10^4 | 28.9 ms (28.2 ms–31.0 ms) | 28.8 ms (27.8 ms–30.1 ms) | 1.00, inside the spread |
+| Hull `sphere` D3 10^5 | 335 ms (325 ms–381 ms) | 334 ms (324 ms–351 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^4 | 126 ms (123 ms–134 ms) | 126 ms (123 ms–145 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^5 | 1.47 s (1.45 s–1.48 s) | 1.47 s (1.46 s–1.48 s) | 1.00, inside the spread |
+| Hull `sphere` D5 10^4 | 821 ms (800 ms–893 ms) | 828 ms (815 ms–882 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^4 | 7.40 ms (7.09 ms–9.60 ms) | 7.36 ms (7.02 ms–8.54 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^5 | 74.5 ms (71.8 ms–80.3 ms) | 72.9 ms (71.1 ms–78.0 ms) | 0.98, inside the spread |
+| Delaunay `cube` D3 10^4 | 42.1 ms (40.8 ms–77.2 ms) | 41.7 ms (40.9 ms–43.0 ms) | 0.99, inside the spread |
+| Delaunay `cube` D3 10^5 | 444 ms (441 ms–491 ms) | 448 ms (439 ms–483 ms) | 1.01, inside the spread |
+| Delaunay `cube` D4 10^4 | 649 ms (638 ms–665 ms) | 658 ms (638 ms–674 ms) | 1.01, inside the spread |
+| Delaunay `cube` D5 10^4 | 7.41 s (7.28 s–7.66 s) | 7.47 s (7.34 s–7.75 s) | 1.01, inside the spread |
+| Delaunay `sphere` D2 10^4 | 6.90 ms (6.66 ms–7.64 ms) | 6.91 ms (6.68 ms–7.61 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^5 | 58.2 ms (56.5 ms–61.2 ms) | 58.2 ms (56.4 ms–61.8 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^4 | 89.1 ms (86.5 ms–94.4 ms) | 88.5 ms (86.0 ms–92.1 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D3 10^5 | 837 ms (826 ms–841 ms) | 833 ms (827 ms–838 ms) | 1.00, inside the spread |
+
+The second run of hull `cube` D2 10^5, 20 × 3: 6.18 ms (5.46–10.05) against 5.26 ms (4.71–12.85), 0.85.
+
+### Reading
+
+- **The keep criterion is met.**
+  - Hull `cube` D2 10^6 reads 0.90, faster beyond the spread.
+  - Hull `cube` D2 10^5 reads 0.84 and 0.85 in two runs, its ranges overlapping only through single slow builds, so the difference is reported (`bench.mdc`).
+  - Hull `cube` D2 10^4 reads 0.87 too.
+- **Nothing is slower beyond the spread.** Hull `sphere` D2 reads 0.99 to 1.02: there the sample finds nothing inside and no point is tested. The other sets read 0.98 to 1.02.
