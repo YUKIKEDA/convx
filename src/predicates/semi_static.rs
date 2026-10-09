@@ -762,12 +762,6 @@ mod tests {
             .collect()
     }
 
-    /// The bound is derived as a worst case, which no input here reaches,
-    /// so a smaller constant can pass every test of a sign. This test pins
-    /// the distance instead. Over each family, the bound stays a fixed
-    /// factor above the exact error of the computed determinant, and some
-    /// input comes within twice that factor, so a constant cut in half
-    /// fails the first assertion.
     /// The bound of the common path is never below `fl(s + fl(4 η x))`,
     /// the bound of the proof, on the edges of its condition and on random
     /// values. Without the margin, or without the condition, it is.
@@ -828,6 +822,12 @@ mod tests {
         assert!(tiny * MARGIN < proof(tiny, PLAIN_UP_TO));
     }
 
+    /// The bound is derived as a worst case, which no input here reaches,
+    /// so a smaller constant can pass every test of a sign. This test pins
+    /// the distance instead. Over each family, the bound stays a fixed
+    /// factor above the exact error of the computed determinant, and some
+    /// input comes within twice that factor, so a constant cut in half
+    /// fails the first assertion.
     #[test]
     fn the_bound_keeps_its_measured_margin() {
         /// Per formula, in the order of `FORMULAS`: the bound is at least
