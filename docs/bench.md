@@ -1355,7 +1355,7 @@ Met: 11 of 41. Hull `cube` D4 10^5 (0.93 against Qhull) and hull `sphere` D5 10^
 - No set is slower beyond the spread. Delaunay D4 and D5 read 0.96 to 1.02, inside the spread, and every hull set is inside it.
 - Against CGAL, Delaunay `cube` D2 now reads 2.05 to 2.33 and `cube` D3 1.82 to 1.97, against 2.24 to 2.92 and 1.96 to 2.34 in the run of #337.
 
-## Which stage decides the in-sphere tests of Delaunay, PR #NNN (#331)
+## Which stage decides the in-sphere tests of Delaunay, PR #351 (#331)
 
 The spike P7-12. It asks which stage of the predicates decides each lifted orientation (the in-sphere test), what the tests that reach the exact stage cost, and what a stage between would decide.
 
