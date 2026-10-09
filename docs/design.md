@@ -32,8 +32,8 @@ The orientation of the sign is fixed as follows.
 - The plane is $x \cdot n + \mathrm{offset} = 0$. $n$ is the outward unit normal.
 - Orientation is the exact sign of a determinant. The $x \cdot n + \mathrm{offset}$ of a published plane (§5) is not used for this decision.
 - Geometric degree $k$ is one less than the number of argument points. It is independent of the hull dimension $D$. For $k \le 6$, that is up to seven points, the sign is decided in stages.
-  - The first stage evaluates a dedicated formula in `f64`, with an error bound derived for that formula in advance.
-  - When the first stage does not certify the sign, a second stage evaluates the same formula in double-double arithmetic, with its own bound derived in advance. A double-double value is the unevaluated sum of two `f64`. A product is split exactly by Dekker's method, so no FMA is needed and the result does not depend on the target's instructions.
+  - The first stage evaluates the determinant in `f64`. For $k \le 5$ it is a dedicated formula, with an error bound derived for that formula in advance. For $k = 6$ it is the filtered floating-point determinant with its running bound, which was measured faster than a dedicated formula there (#350).
+  - When the first stage does not certify the sign, a second stage evaluates a dedicated formula in double-double arithmetic, with its own bound derived in advance. A double-double value is the unevaluated sum of two `f64`. A product is split exactly by Dekker's method, so no FMA is needed and the result does not depend on the target's instructions.
   - Only when neither stage certifies does the predicate fall back to the exact sign. No other stage runs between them.
 
   How a formula is expanded is left to the implementation. Each bound is proved where it is implemented, overflow and underflow included, and no product on the common path has a subnormal factor. When $k$ exceeds 6, the predicate evaluates a filtered floating-point determinant and falls back to the exact sign only when the value lies inside the bound.
@@ -497,7 +497,7 @@ impl<'a> TriangulationView<'a> {
 
 Simplex order is the lexicographic order of the ascending vertex lists before the swap. It is the same order in which §5 adds the terms of `volume()`. `boundary_cycle(facet)` returns `None` when `facet` is not a public facet number, in every dimension. It does not panic.
 
-The static API is a wrapper for stack arrays and monomorphization. It is a separate axis from swapping a solver. Dedicated orientation formulas, in `f64` and in double-double, are for geometric degree $k \le 6$, with $k + 1$ arguments. Orientations beyond that are filtered determinants.
+The static API is a wrapper for stack arrays and monomorphization. It is a separate axis from swapping a solver. Dedicated orientation formulas are for geometric degree $k \le 5$ in `f64` and $k \le 6$ in double-double, with $k + 1$ arguments. Orientations beyond that are filtered determinants.
 
 ```rust
 pub struct StaticConvexHull<const D: usize>;
