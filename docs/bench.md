@@ -768,7 +768,7 @@ Met: 0 of 16.
   - `grid` D6 10^4: 10.48 against Qhull, with the pass after construction at 62% of `build()`. That pass includes the sub-hulls of coplanar faces.
 - **Delaunay D4 and D5 against CGAL: 1.17 to 1.52.** Against Qhull, `cube` D4 is 1.11 and `cube` D5 0.99.
 
-## Delaunay D2: a CGAL-style structure, and the cost of a subnormal product, PR #NNN (#311)
+## Delaunay D2: a CGAL-style structure, and the cost of a subnormal product, PR #318 (#311)
 
 The spike P7-2. Does a CGAL-style structure for D = 2 halve convx's insertion? The decision rule of the Grill of 2026-10-09 applies: a prototype at most 0.5 of convx's insertion on the four sets leads to a dedicated structure; otherwise the next rows remove the costs of the current insertion one by one.
 
