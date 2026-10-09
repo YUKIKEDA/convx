@@ -1030,7 +1030,7 @@ Times in ms per build, from the instrumented copy:
 | P7-12 | Spike | Delaunay `sphere` D2: why 9% of the in-sphere tests reach the exact stage, and what a stage between would decide (17.9%) |
 | P7-13 | Spike | Delaunay D2: insertion order and point location against CGAL's (16 to 21%, with the order 5 to 8%) |
 
-## D2 facets in cycle order and the facet numbering on first use, PR #NNN (#321)
+## D2 facets in cycle order and the facet numbering on first use, PR #337 (#321)
 
 P7-6. For D = 2 classification writes the facets, the neighbors, and the boundary simplices in one pass over the boundary cycle, and publication sorts nothing. For D = 1 and D >= 3 the hull keeps the facets as classification leaves them, and the first call that reads a facet number orders them (design §5, #312).
 
