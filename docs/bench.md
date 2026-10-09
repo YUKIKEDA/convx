@@ -1476,3 +1476,7 @@ With the same expansion at k = 6, Delaunay `cube` D5 10^4 read 1.06 against `mai
 - **The hull is unchanged**: its orientations of size five and six are almost all decided by the cull scan or the cofactors (profile on #350).
 - **Size five's bound is looser**: over the cancelling inputs of the margin test it is about 500 times the exact error, against 3 to 8 times for k ≤ 4, because the column sums stand for the permanent. How many tests of `cube` D4 it leaves open was not counted.
 - What this does not show: Delaunay `sphere` D4, whose tests go to the exact stage (#331); that is P7-17 (#352).
+
+### After review
+
+`22faa87` removed the lifted underflow term from `X` in the timed path, so the head `aba5af9` was timed again against `main` at `14f506c` (docs only since `145ce0a`), by the same method and sets. Delaunay `cube` D4 10^4: 894 ms (873 ms–985 ms) against 737 ms (718 ms–794 ms), 0.82, faster beyond the spread. Delaunay `cube` D5 10^4: 8.68 s (8.64 s–8.71 s) against 8.64 s (8.55 s–8.73 s), 1.00, inside the spread. Every other set read 0.95 to 1.03, inside the spread, with the same counts.
