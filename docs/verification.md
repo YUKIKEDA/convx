@@ -159,7 +159,7 @@ What a speed row of P7 times against `main` (ADR 0006, #340), alternated on one 
 - **Guard sets** of the other path: hull `sphere` D3 10^5 and `cube` D3 10^5, or Delaunay `cube` D2 10^5 and `cube` D3 10^5.
 - Sets whose build takes over 1.5 s run only when they are named.
 
-The parity run below runs on every set after every third merged speed row of P7 and at the end of P7. Between those runs, a row runs it only on a set its ratio could move across 1.00.
+The parity run below runs on every set after every third merged speed row of P7 and at the end of P7. Between those runs, a row runs it only on a set its ratio could move across 1.05.
 
 ### Parity run of P7
 
@@ -183,4 +183,4 @@ The run that judges a set against ADR 0006. It times convx, CGAL, and Qhull on e
   - Per set, one unrecorded convx build first.
   - Then per round: convx, then CGAL, then Qhull, each pinned with `taskset -c 2`.
   - 5 rounds of 3 builds when that first build took under 1.5 s, otherwise 3 rounds of 1.
-- **Report.** Per set: the median and the min–max of each tool, the phase shares of `build()`, the ratio to each reference, whether each ratio is judged or a reference value, and whether the set is met. The counts of the three tools are compared, and a disagreement is reported next to the set.
+- **Report.** Per set: the median and the min–max of each tool, the phase shares of `build()`, the ratio to each reference, whether each ratio is judged or a reference value, and whether the set is met: within 1.05 of each judged reference, and, counted apart, at most 1.00 (ADR 0006, amendment of 2026-10-10). The counts of the three tools are compared, and a disagreement is reported next to the set.
