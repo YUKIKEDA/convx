@@ -190,7 +190,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-13 | Spike | Delaunay D2: insertion order and point location against CGAL's                          | #332  | Not started |
 | P7-14 | Feat | Delaunay: publish the simplices in construction order                                    | #335  | Done        |
 | P7-15 | Docs | Predicates: a double-double stage between the first stage and the exact stage            | #349  | Done        |
-| P7-16 | Feat | Predicates: a first stage for determinants of size 5 and 6                               | #350  | Not started |
+| P7-16 | Feat | Predicates: a first stage for determinants of size 5 and 6                               | #350  | In progress |
 | P7-17 | Feat | Predicates: a double-double stage for the dedicated formulas                             | #352  | Not started |
 
 ## Intentionally out of scope

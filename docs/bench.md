@@ -1411,3 +1411,68 @@ On `sphere` D2 and D3, a test the first stage of the D = 2 and D = 3 shapes does
 | --- | --- | --- |
 | P7-15 | Docs | Predicates: a double-double stage, with its proved bound, between the first stage and the exact stage; for which sizes; FMA or a split. Set after a Grill |
 | P7-16 | Feat | Predicates: a first stage for determinants of size k = 5 and 6: the lifted orientations of D4 and D5, and the orientations of D5 and D6 |
+
+## A first stage for determinants of size five, PR #354 (#350)
+
+P7-16. `semi_static` gains a first stage for k = 5: the lifted orientation of D4 (the in-sphere test of Delaunay D4) and the plain orientation of D5. The determinant is expanded along its last column over shared minors, and the permanent of the bound is replaced by the product of the column sums (module docs, Size five). Size six stays with the running filter.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `145ce0a` against the head `5a1d6d6`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2) |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md` (#341): the sets of the keep criterion, the path sets of both paths at 10^4 and 10^5, and the guard sets hull `cube` D5 and D6 10^4 and `sphere` D5 10^4, since the hull's orientations of size five and six change too |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds, or 5 × 1 for hull `sphere` D4 10^5, Delaunay `sphere` D3 10^5, and Delaunay `cube` D5 10^4 |
+| Per test | 1,000 random rows in [-1, 1], 500 repetitions, the first stage against the running filter (`filtered_value`), in one process |
+
+Every set published the same counts on both sides.
+
+### Per test
+
+| Size | First stage | Running filter |
+| --- | ---: | ---: |
+| k = 5 (lifted D4, plain D5) | 143 ns | 208 ns |
+| k = 6 (lifted D5, plain D6) | 296 ns | 270 ns |
+
+With the same expansion at k = 6, Delaunay `cube` D5 10^4 read 1.06 against `main` in a first run of three rounds, slower beyond the spread. Size six is therefore left to the running filter, which stays the f64 stage there (design §1).
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.72 ms (0.60 ms–1.18 ms) | 0.72 ms (0.62 ms–1.14 ms) | 1.00, inside the spread |
+| Hull `cube` D2 10^5 | 6.24 ms (5.69 ms–11.4 ms) | 6.32 ms (5.68 ms–9.60 ms) | 1.01, inside the spread |
+| Hull `cube` D3 10^4 | 1.58 ms (1.36 ms–2.44 ms) | 1.61 ms (1.38 ms–2.17 ms) | 1.02, inside the spread |
+| Hull `cube` D3 10^5 | 12.7 ms (11.4 ms–16.5 ms) | 12.8 ms (11.9 ms–14.8 ms) | 1.00, inside the spread |
+| Hull `cube` D4 10^4 | 7.25 ms (6.46 ms–12.3 ms) | 7.43 ms (6.41 ms–8.49 ms) | 1.02, inside the spread |
+| Hull `cube` D4 10^5 | 38.5 ms (37.2 ms–41.3 ms) | 39.6 ms (37.0 ms–44.1 ms) | 1.03, inside the spread |
+| Hull `cube` D5 10^4 | 61.4 ms (57.4 ms–75.8 ms) | 61.2 ms (58.1 ms–67.7 ms) | 1.00, inside the spread |
+| Hull `cube` D6 10^4 | 629 ms (613 ms–723 ms) | 629 ms (603 ms–704 ms) | 1.00, inside the spread |
+| Hull `cubesurf` D3 10^5 | 176 ms (171 ms–203 ms) | 180 ms (172 ms–210 ms) | 1.02, inside the spread |
+| Hull `sphere` D2 10^4 | 1.77 ms (1.53 ms–2.28 ms) | 1.71 ms (1.50 ms–2.58 ms) | 0.97, inside the spread |
+| Hull `sphere` D2 10^5 | 19.0 ms (17.3 ms–20.7 ms) | 18.9 ms (16.9 ms–24.1 ms) | 1.00, inside the spread |
+| Hull `sphere` D3 10^4 | 31.4 ms (28.8 ms–35.5 ms) | 31.9 ms (29.0 ms–41.1 ms) | 1.02, inside the spread |
+| Hull `sphere` D3 10^5 | 378 ms (365 ms–458 ms) | 380 ms (368 ms–426 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^4 | 142 ms (135 ms–154 ms) | 142 ms (135 ms–171 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^5 | 1.75 s (1.67 s–1.81 s) | 1.80 s (1.70 s–1.80 s) | 1.03, inside the spread |
+| Hull `sphere` D5 10^4 | 929 ms (896 ms–977 ms) | 932 ms (903 ms–989 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^4 | 8.67 ms (8.18 ms–10.6 ms) | 8.81 ms (8.10 ms–9.96 ms) | 1.02, inside the spread |
+| Delaunay `cube` D2 10^5 | 95.7 ms (89.8 ms–111 ms) | 95.1 ms (88.9 ms–112 ms) | 0.99, inside the spread |
+| Delaunay `cube` D3 10^4 | 46.6 ms (45.1 ms–49 ms) | 46.8 ms (43.4 ms–52.1 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^5 | 529 ms (507 ms–552 ms) | 529 ms (512 ms–551 ms) | 1.00, inside the spread |
+| Delaunay `cube` D4 10^4 | 920 ms (864 ms–1.04 s) | 766 ms (689 ms–845 ms) | 0.83, faster beyond the spread |
+| Delaunay `cube` D5 10^4 | 8.96 s (8.49 s–9.04 s) | 8.83 s (8.56 s–9.10 s) | 0.98, inside the spread |
+| Delaunay `sphere` D2 10^4 | 13.0 ms (12.5 ms–14.7 ms) | 13.0 ms (12.2 ms–14.3 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^5 | 91.9 ms (89.1 ms–97.1 ms) | 90.5 ms (88.1 ms–98.1 ms) | 0.98, inside the spread |
+| Delaunay `sphere` D3 10^4 | 255 ms (250 ms–326 ms) | 255 ms (250 ms–280 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^5 | 2.43 s (2.41 s–2.57 s) | 2.42 s (2.40 s–2.46 s) | 0.99, inside the spread |
+
+### Reading
+
+- **Delaunay `cube` D4 10^4 is 17% faster** (0.83), beyond the spread, as the keep criterion asks: every in-sphere test there has k = 5, and the running filter was 58% of `build()` (#350).
+- **Delaunay `cube` D5 10^4 is unchanged** (0.98, inside the spread). Its in-sphere tests have k = 6, which this row leaves to the running filter, so the keep criterion's D5 half is not met.
+- **The hull is unchanged**: its orientations of size five and six are almost all decided by the cull scan or the cofactors (profile on #350).
+- **Size five's bound is looser**: over the cancelling inputs of the margin test it is about 500 times the exact error, against 3 to 8 times for k ≤ 4, because the column sums stand for the permanent. How many tests of `cube` D4 it leaves open was not counted.
+- What this does not show: Delaunay `sphere` D4, whose tests go to the exact stage (#331); that is P7-17 (#352).
