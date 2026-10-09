@@ -239,6 +239,9 @@ const EMPTY_FACE: u64 = u64::MAX;
 pub(super) struct Sites {
     dim: usize,
     rows: Vec<f64>,
+    /// The input index of each row: `0..n` for the input's own order, and
+    /// the order of insertion for the copy the mesh is built on.
+    input: Vec<u32>,
 }
 
 impl Sites {
@@ -253,7 +256,32 @@ impl Sites {
             rows.push(height.value());
             rows.push(height.error());
         }
-        Self { dim, rows }
+        Self {
+            dim,
+            rows,
+            input: (0..n as u32).collect(),
+        }
+    }
+
+    /// The rows of `ids`, in that order: site `i` of the copy is site
+    /// `ids[i]` of `self`.
+    pub(super) fn permuted(&self, ids: &[u32]) -> Self {
+        let stride = self.dim + 2;
+        let mut rows = Vec::with_capacity(ids.len() * stride);
+        for &i in ids {
+            let at = i as usize * stride;
+            rows.extend_from_slice(&self.rows[at..at + stride]);
+        }
+        Self {
+            dim: self.dim,
+            rows,
+            input: ids.iter().map(|&i| self.input[i as usize]).collect(),
+        }
+    }
+
+    /// The input index of site `index`.
+    pub(super) fn input_index(&self, index: u32) -> u32 {
+        self.input[index as usize]
     }
 
     pub(super) fn dim(&self) -> usize {
@@ -606,7 +634,11 @@ impl<'a, S: Shape> Mesh<'a, S> {
     /// cycling.
     fn locate(&self, q: u32) -> Result<u32, ConvexHullError> {
         let k = self.shape.k();
-        let mut state = u64::from(q).wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
+        // Seeded by the input index, so that the walk, and with it the order
+        // the simplices are created and published in, does not depend on
+        // the order the sites are stored in.
+        let mut state =
+            u64::from(self.sites.input_index(q)).wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
         let mut c = self.last;
         loop {
             if let Some(slot) = self.vertices_of(c).iter().position(|&v| v == INFINITE) {
