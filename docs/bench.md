@@ -678,7 +678,7 @@ The procedure is "Parity run of P7" in `docs/verification.md`.
 
 | Item | Value |
 | --- | --- |
-| convx | The head of #308, `6e27ca2`, with the generator change of this pull request (`315009f`; no library code changed). rustc 1.99.0, `--release` with debug info, baseline target |
+| convx | The head of #308, `6e27ca2`, with the generator change of this pull request (no library code changed). #308 merged as `6612a87` with the same `src/`. rustc 1.99.0, `--release` with debug info, baseline target |
 | CGAL | 5.4 (Ubuntu 22.04 `libcgal-dev`), g++ 11.4, the program and flags of #215 |
 | Qhull | 2020.2 (Ubuntu 22.04 `qhull-bin`), `qconvex i s TI <file> TO <out>` and `qdelaunay i s TI <file> TO <out>` |
 | Machine | Intel Core i5-13400F, Ubuntu 22.04 under WSL2 (kernel 5.15.133.1) on Windows 11 |
