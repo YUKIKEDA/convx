@@ -17,6 +17,8 @@ A speed PR reports the wall time on the exact input its Issue names, next to tha
 
 Build both sides of a comparison with the same profile and the same flags (debug info included). Pin them to one core and alternate them. A difference inside the spread of repeated runs is not a result.
 
+That holds for timings of test binaries too. In #356 the fixture binaries, run without pinning, read 1.82 on `delaunay_cases`; pinned to one core, with one test thread, they read 1.00.
+
 A cheaper form of a costly expression keeps the slow form out of line, `#[cold]` and `#[inline(never)]`. A whole-build timing, or the assembly, then shows that the slow form is gone from the common path. In #318 the cheaper bound of the first stage was written as an `if` in place. The compiler evaluated both forms and selected one, and no build got faster, while the formula timed alone looked four times faster.
 
 After the first speed change, profile again before opening the PR: what remains may be a different cost (#99: allocation was half of what was left). Every count and time in the PR comes from a build of the head it ships (#92 once reported a count from an earlier commit).
@@ -34,6 +36,8 @@ That build stores the state; it does not read it. A value that only one path rea
 Time the sets the Issue names. Before adding a larger set, estimate its time from a smaller one; a single run longer than a few minutes needs a reason in the PR. In #116, `main` took 32 minutes for one D = 7 run that no Issue asked for.
 
 A section of `docs/bench.md` measured on an open pull request names that pull request, not only its head: a squash merge removes the head's hash from `main`. Put the merge commit in the heading once it is known, keep the measured head in the method table, and say what changed in that pull request after the measurement. #260 keyed a section by `029eb3f`, the head of #259, which then gained a commit and merged as `430af36`.
+
+A pull request number written into a heading before the pull request exists is checked against the number it gets when it opens. In #356 the heading named #355, and an Issue took that number in between.
 
 A speed PR also times an input that takes the path it does not change, and reports it. In #265 the `cube` and `sphere` sets were 0.60 to 0.84 of the base, and two full grids, where every simplex is in a merged cospherical group, were inside the spread and 0.92.
 
