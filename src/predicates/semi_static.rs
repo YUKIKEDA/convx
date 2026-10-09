@@ -513,7 +513,7 @@ mod tests {
         for (dim, lifted) in FORMULAS {
             let mut tally = Tally::default();
             for e in (-1074..=1023).step_by(37).chain([-1074, -1022, 1023]) {
-                let scale = 2f64.powi(e);
+                let scale = two_to(e);
                 for _ in 0..4 {
                     // One scale for every coordinate; at the ends the
                     // differences or the products overflow or underflow.
@@ -527,7 +527,7 @@ mod tests {
                             (0..dim)
                                 .map(|_| {
                                     let e = rng.below(2097) as i32 - 1074;
-                                    rng.unit() * 2f64.powi(e)
+                                    rng.unit() * two_to(e)
                                 })
                                 .collect()
                         })
@@ -657,6 +657,33 @@ mod tests {
         assert_eq!(semi_of(&embedded, false), None);
     }
 
+    /// `2^e` for `-1074 <= e <= 1023`, from its bits. `f64::powi` is not
+    /// used: on x86_64 Linux it divides one by `2^-e` for a negative `e`,
+    /// and every `2^-e` above `2^1023` overflows, so each power below
+    /// `2^-1023` came out as 0 there (#344).
+    fn two_to(e: i32) -> f64 {
+        assert!((-1074..=1023).contains(&e), "2^{e} is not a finite f64");
+        if e >= -1022 {
+            f64::from_bits(((e + 1023) as u64) << 52)
+        } else {
+            f64::from_bits(1_u64 << (e + 1074))
+        }
+    }
+
+    #[test]
+    fn two_to_is_exact_at_both_ends() {
+        assert_eq!(two_to(-1074), f64::from_bits(1));
+        assert_eq!(two_to(-1073), f64::from_bits(2));
+        assert_eq!(two_to(-1023), f64::MIN_POSITIVE / 2.0);
+        assert_eq!(two_to(-1022), f64::MIN_POSITIVE);
+        assert_eq!(two_to(0), 1.0);
+        assert_eq!(two_to(52), 4_503_599_627_370_496.0);
+        assert_eq!(two_to(1023), f64::MAX / (2.0 - f64::EPSILON));
+        for e in -1074..1023 {
+            assert_eq!(two_to(e + 1), two_to(e) * 2.0, "2^{e}");
+        }
+    }
+
     /// `x 2^1074`, an integer for every finite `x`.
     fn int(x: f64) -> BigInt {
         BigInt::from_f64_scaled(x, 0).unwrap()
@@ -664,7 +691,7 @@ mod tests {
 
     /// `2^k`.
     fn pow2(k: u64) -> BigInt {
-        let mut power = int(2f64.powi((k % 1074) as i32 - 1074));
+        let mut power = int(two_to((k % 1074) as i32 - 1074));
         for _ in 0..k / 1074 {
             power = power.mul(&int(1.0)).unwrap();
         }
@@ -818,7 +845,7 @@ mod tests {
         // The two mutations: no margin, and no condition. Each gives a
         // bound below the proof's on some input above.
         assert!(PLAIN_FROM * 1.0 < proof(PLAIN_FROM, PLAIN_UP_TO));
-        let tiny = 2f64.powi(-1060);
+        let tiny = two_to(-1060);
         assert!(tiny * MARGIN < proof(tiny, PLAIN_UP_TO));
     }
 
