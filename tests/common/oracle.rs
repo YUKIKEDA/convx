@@ -143,9 +143,11 @@ pub fn check_delaunay(t: &DelaunayTriangulation, points: &[f64]) {
         v.sort_unstable();
         sorted.push(v);
     }
+    // The order is the construction's (design §7); each simplex appears once.
+    sorted.sort();
     assert!(
         sorted.windows(2).all(|w| w[0] < w[1]),
-        "lexicographic order"
+        "every simplex is published once"
     );
 
     // Coverage: D! times the total volume equals the hull's, from the

@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-10 (#329): the Delaunay cavity's links. P7-11 (#330) waits for its Grill.
+P7-10 (#329): the Delaunay cavity's links. P7-14 (#335): its keep criterion is not met on Delaunay `sphere` D2 and D3 at 10^5 (#342).
 
 ## Dependencies
 
@@ -188,7 +188,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-11 | Docs | Delaunay: what `build()` computes; the public order of the simplices                     | #330  | Done        |
 | P7-12 | Spike | Delaunay `sphere` D2: in-sphere tests that reach the exact stage                        | #331  | Not started |
 | P7-13 | Spike | Delaunay D2: insertion order and point location against CGAL's                          | #332  | Not started |
-| P7-14 | Feat | Delaunay: publish the simplices in construction order                                    | #335  | Not started |
+| P7-14 | Feat | Delaunay: publish the simplices in construction order                                    | #335  | In progress |
 
 ## Intentionally out of scope
 

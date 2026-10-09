@@ -313,3 +313,48 @@ fn huge_and_tiny_coordinates_keep_finite_circumcenters() {
         }
     }
 }
+
+/// A vertex of a cospherical group takes the circumcenter of the group's
+/// lexicographically minimum cell (design §8), whatever order Delaunay
+/// publishes its cells in (design §7). The four sites are one square
+/// turned about a center, so they are exactly cocircular, and the two cells
+/// round their circumcenters differently, so the choice shows in the bits.
+#[test]
+fn a_cospherical_vertex_takes_the_minimum_cells_circumcenter() {
+    for (a, b, cx, cy) in [(0.7, 0.3, 0.0, 0.0), (3.0, 1.0, 1e9, 7.0)] {
+        let points = [
+            cx + a,
+            cy + b,
+            cx - b,
+            cy + a,
+            cx - a,
+            cy - b,
+            cx + b,
+            cy - a,
+        ];
+        let point = |i: u32| &points[i as usize * 2..i as usize * 2 + 2];
+        let mut cells: Vec<Vec<u32>> = DelaunayBuilder::new(2, &points)
+            .build()
+            .unwrap()
+            .simplices()
+            .iter()
+            .map(|s| {
+                let mut v = s.vertices().to_vec();
+                v.sort_unstable();
+                v
+            })
+            .collect();
+        cells.sort();
+        assert_eq!(cells.len(), 2);
+        let first = circumcenter(2, &point, &cells[0]).unwrap();
+        let second = circumcenter(2, &point, &cells[1]).unwrap();
+        assert_ne!(first, second, "the two cells round differently");
+        let v = diagram(2, &points);
+        assert_eq!(v.vertices().len(), 1, "one cocircular group");
+        let coords = v.vertices().get(0).unwrap().coords();
+        assert_eq!(
+            coords.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+            first.iter().map(|x| x.to_bits()).collect::<Vec<_>>()
+        );
+    }
+}
