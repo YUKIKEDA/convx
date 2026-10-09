@@ -101,3 +101,5 @@ Cloud CI is not the definition of done until a workflow exists. Do not treat a m
 ## Language
 
 Identifiers, rustdoc, Issue bodies, and commit subjects are English. Japanese in the repository is `docs/design.ja.md` and `README.ja.md`. `docs/design.md` is the full English specification, not a pointer. When the two design files differ, follow `docs/design.ja.md`.
+
+Before calling a PR ready, and whenever the owner asks for the next step, read the reviews and inline comments of every open PR (`gh pr view <n> --json reviews`, `gh api repos/<owner>/<repo>/pulls/<n>/comments`). The review of #337 named two open findings and was not read before #337 merged.
