@@ -44,3 +44,6 @@ set sphere 7 1000000 1
 set sphere 8 10000 1
 set sphere 8 100000 1
 set sphere 8 1000000 1
+# Degenerate sets of P7 (#310): every point on a facet plane, and an integer grid.
+set cubesurf 3 100000 1
+set grid 6 10000 1

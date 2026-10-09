@@ -73,10 +73,13 @@ pub enum Family {
     /// `OnSphere` points, each coordinate moved by -1, 0, or +1 times 2^-8:
     /// near-cospherical, decided by the exact lift.
     NearSphere,
+    /// A `Cube` point with one coordinate, drawn uniformly, set to -1 or +1:
+    /// uniform on the surface of [-1, 1]^D, every point on a facet's plane.
+    CubeSurf,
 }
 
 impl Family {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Cube,
         Self::Sphere,
         Self::Grid,
@@ -84,6 +87,7 @@ impl Family {
         Self::Lattice,
         Self::OnSphere,
         Self::NearSphere,
+        Self::CubeSurf,
     ];
 
     pub fn name(self) -> &'static str {
@@ -95,6 +99,7 @@ impl Family {
             Self::Lattice => "lattice",
             Self::OnSphere => "onsphere",
             Self::NearSphere => "nearsphere",
+            Self::CubeSurf => "cubesurf",
         }
     }
 
@@ -176,6 +181,16 @@ impl Family {
                         };
                         points.push(x as f64 + moved);
                     }
+                }
+                points
+            }
+            Self::CubeSurf => {
+                let mut points = Vec::with_capacity(dim * count);
+                for _ in 0..count {
+                    let start = points.len();
+                    points.extend((0..dim).map(|_| rng.symmetric()));
+                    let axis = rng.below(dim as u64) as usize;
+                    points[start + axis] = if rng.below(2) == 0 { -1.0 } else { 1.0 };
                 }
                 points
             }
