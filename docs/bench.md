@@ -1672,3 +1672,84 @@ Medians. "Mesh" is `Mesh::build`, the location inside it; "Union" is the pass th
 | --- | --- | --- |
 | P7-19 (#362) | Feat | Delaunay: the pass after the insertion at the cost of its tests |
 | P7-20 (#363) | Spike | Delaunay D2: the insertion's own work against CGAL's |
+
+## Delaunay: the pass after the insertion, PR #365 (#362)
+
+P7-19. The pass after the insertion merges cospherical simplices and builds the published rows (`delaunay::inserted`). It took 19 to 24% of `build()` on Delaunay `cube` D2 and D3 (#332, and the profile and its correction on #362). Three changes:
+- the union skips a face the insertion recorded as distinct without reading its neighbor, and finds the far vertex among the neighbor's vertices rather than through its links;
+- a simplex at infinity keeps `NO_NEIGHBOR` in the numbering, so a published link is one read;
+- the vertices of each simplex of D = 2 and 3 are sorted by a network of selected swaps, `min` and `max` of one word per vertex.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `208bfd9` against the head `8ff70e6`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2) |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md` (#341), the guard sets, and the keep criterion's Delaunay `cube` D2 and D3 at 10^5 and 10^6 |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about a second. A second run of 20 rounds × 3 builds (10 × 1 and 6 × 1 for D3) on hull `cubesurf` D3 10^5 and Delaunay `cube` D2 10^5 and D3 10^5 and 10^6 |
+| Phases | A copy of each side outside the crate, with timers around the union and the draft |
+
+Every set published the same counts on both sides, and the copies published the same simplices (a hash of the sorted vertex lists).
+
+### The pass
+
+| Set | Union, `main` | Union, head | Draft, `main` | Draft, head |
+| --- | ---: | ---: | ---: | ---: |
+| `cube` D2 10^5 | 6.4 ms | 5.7 ms | 12.1 ms | 8.8 ms |
+| `cube` D3 10^5 | 65.6 ms | 52.6 ms | 61.8 ms | 38.9 ms |
+| `cube` D2 10^6 | 110 ms | 93.3 ms | 143 ms | 67 ms |
+
+The head's draft of `cube` D2 10^6 is from the final form of the sort; the other head columns from the form before it, with the same union.
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.66 ms (0.62 ms–1.26 ms) | 0.67 ms (0.61 ms–0.82 ms) | 1.02, inside the spread |
+| Hull `cube` D2 10^5 | 6.06 ms (5.62 ms–6.95 ms) | 6.26 ms (5.60 ms–7.01 ms) | 1.03, inside the spread |
+| Hull `cube` D3 10^4 | 1.54 ms (1.35 ms–2.29 ms) | 1.49 ms (1.31 ms–2.68 ms) | 0.97, inside the spread |
+| Hull `cube` D3 10^5 | 11.9 ms (11.2 ms–13.0 ms) | 11.7 ms (11.1 ms–23.6 ms) | 0.99, inside the spread |
+| Hull `cube` D4 10^4 | 6.68 ms (6.31 ms–7.56 ms) | 6.52 ms (6.23 ms–8.92 ms) | 0.98, inside the spread |
+| Hull `cube` D4 10^5 | 35.3 ms (34.4 ms–46.9 ms) | 35.2 ms (34.4 ms–42.6 ms) | 1.00, inside the spread |
+| Hull `cube` D5 10^4 | 56.9 ms (55.0 ms–60.0 ms) | 56.0 ms (54.7 ms–60.2 ms) | 0.98, inside the spread |
+| Hull `cube` D6 10^4 | 580 ms (569 ms–607 ms) | 583 ms (568 ms–597 ms) | 1.01, inside the spread |
+| Hull `cubesurf` D3 10^5 | 94.2 ms (92.1 ms–101 ms) | 107 ms (104 ms–111 ms) | 1.14, slower beyond the spread |
+| Hull `sphere` D2 10^4 | 1.57 ms (1.51 ms–2.10 ms) | 1.57 ms (1.50 ms–2.72 ms) | 1.00, inside the spread |
+| Hull `sphere` D2 10^5 | 17.4 ms (16.3 ms–19.3 ms) | 17.2 ms (16.4 ms–20.3 ms) | 0.99, inside the spread |
+| Hull `sphere` D3 10^4 | 29.9 ms (28.3 ms–49.9 ms) | 29.6 ms (28.0 ms–42.5 ms) | 0.99, inside the spread |
+| Hull `sphere` D3 10^5 | 325 ms (321 ms–339 ms) | 326 ms (320 ms–352 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^4 | 127 ms (124 ms–136 ms) | 127 ms (122 ms–137 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^5 | 1.65 s (1.64 s–1.69 s) | 1.65 s (1.62 s–1.65 s) | 0.99, inside the spread |
+| Hull `sphere` D5 10^4 | 840 ms (810 ms–869 ms) | 833 ms (814 ms–861 ms) | 0.99, inside the spread |
+| Delaunay `cube` D2 10^4 | 8.34 ms (8.05 ms–9.47 ms) | 7.82 ms (7.66 ms–9.09 ms) | 0.94, inside the spread |
+| Delaunay `cube` D2 10^5 | 93.4 ms (84.3 ms–105 ms) | 87.8 ms (78.8 ms–97.7 ms) | 0.94, inside the spread |
+| Delaunay `cube` D2 10^6 | 1.10 s (1.09 s–1.13 s) | 1.03 s (1.01 s–1.06 s) | 0.94, faster beyond the spread |
+| Delaunay `cube` D3 10^4 | 48.6 ms (45.8 ms–54.2 ms) | 45.7 ms (43.5 ms–54.1 ms) | 0.94, inside the spread |
+| Delaunay `cube` D3 10^5 | 552 ms (540 ms–570 ms) | 514 ms (492 ms–552 ms) | 0.93, inside the spread |
+| Delaunay `cube` D3 10^6 | 5.55 s (5.50 s–6.01 s) | 5.21 s (5.16 s–5.86 s) | 0.94, inside the spread |
+| Delaunay `cube` D4 10^4 | 743 ms (730 ms–763 ms) | 718 ms (705 ms–791 ms) | 0.97, inside the spread |
+| Delaunay `cube` D5 10^4 | 8.46 s (8.40 s–8.62 s) | 8.24 s (8.08 s–8.39 s) | 0.97, faster beyond the spread |
+| Delaunay `sphere` D2 10^4 | 8.77 ms (7.85 ms–10.2 ms) | 8.17 ms (7.50 ms–10.4 ms) | 0.93, inside the spread |
+| Delaunay `sphere` D2 10^5 | 77.6 ms (74.3 ms–85.4 ms) | 73.3 ms (69.4 ms–84.9 ms) | 0.95, inside the spread |
+| Delaunay `sphere` D3 10^4 | 96.9 ms (93.9 ms–103 ms) | 94.8 ms (93.2 ms–105 ms) | 0.98, inside the spread |
+| Delaunay `sphere` D3 10^5 | 941 ms (939 ms–957 ms) | 926 ms (918 ms–933 ms) | 0.98, faster beyond the spread |
+
+The second run: hull `cubesurf` D3 10^5 1.11, inside the spread through one build; Delaunay `cube` D2 10^5 0.94, inside the spread through one build of the base; `cube` D3 10^5 0.93 and D3 10^6 0.93, both faster beyond the spread.
+
+### Reading
+
+- **The keep criterion is met on the Delaunay sets, not as written on hull `cubesurf` D3 10^5** (next item). Delaunay `cube` D2 10^6 0.94, D3 10^5 0.93, and D3 10^6 0.93 are faster beyond the spread. D2 10^5 read 0.94, 0.94, and 0.96 in three runs, its ranges overlapping only through single builds, so the difference is reported (`bench.mdc`).
+- **Hull `cubesurf` D3 10^5 read 1.14 and 1.11, but no hull code changed.** VTune showed different inlining in the hull's functions between the two binaries. Built with one codegen unit each (`CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1`), `cubesurf` read 1.00 (108.7 ms against 108.7 ms, 15 rounds × 3), and Delaunay `cube` D3 10^5 still 0.94. The change in the `delaunay` module moved the partition of the crate into codegen units, and the hull's code with it.
+- **What remains of the pass** is the union's lifted tests and the random reads they need, about 93 ms on `cube` D2 10^6 for 810,031 faces, and the rows themselves. A test reads a neighbor's vertices and four sites' coordinates. A test made at the insertion, while they are in cache, would run on every face between new simplices, most of which later insertions destroy.
+
+### After review
+
+`8bd29e7` made the words of the sort a `Small` that spills to the heap, for simplices above 11 vertices (#365 review). It touches the timed path, so the head `8bd29e7` was timed again against `main` at `208bfd9`, by the same method and sets:
+
+- Delaunay `cube` D2 10^6: 0.93, faster beyond the spread.
+- Delaunay `cube` D3 10^5: 0.93, and D3 10^6: 0.91. Inside the spread, each through one build of the head (497 ms against a base minimum of 483 ms, and 6.46 s against 5.89 s); as in the run before, the medians agree.
+- Delaunay `cube` D2 10^5: 0.95, inside the spread.
+- The other Delaunay sets: 0.94 to 1.01.
+- Hull `cubesurf` D3 10^5: 1.13, slower beyond the spread, as before review. Every other hull set read 0.99 to 1.02. Every set published the same counts.

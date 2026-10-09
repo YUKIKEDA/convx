@@ -326,17 +326,54 @@ impl Draft {
     }
 }
 
-/// The ascending order of the D + 1 vertices of a positive simplex `row`,
-/// each with its slot in `row`, and whether that order is negative: the
-/// parity of the sort.
+/// The ascending order of the D + 1 distinct vertices of a positive simplex
+/// `row`, each with its slot in `row`, and whether that order is negative:
+/// the parity of the sort. Every swap is a transposition, so the parity is
+/// that of their count. Three and four vertices (D = 2 and 3) go through a
+/// sorting network whose swaps are selected, not branched on: the order of
+/// the vertices is not predictable, and the branches of an insertion sort
+/// cost about half of building the published rows (#362).
 fn ascending(row: &[u32]) -> (Small<(u32, usize), 11>, bool) {
-    let mut sorted: Small<(u32, usize), 11> = row.iter().copied().zip(0..).collect();
-    sorted.sort_unstable();
-    let inversions = (0..row.len())
-        .flat_map(|i| (i + 1..row.len()).map(move |j| (i, j)))
-        .filter(|&(i, j)| row[i] > row[j])
-        .count();
-    (sorted, inversions % 2 == 1)
+    // Each vertex above its slot in one word: distinct vertices order the
+    // words as they order themselves. On the stack up to 11 vertices (D = 10),
+    // on the heap above, as the sorted list is.
+    let mut words: Small<u64, 11> = row
+        .iter()
+        .enumerate()
+        .map(|(slot, &v)| u64::from(v) << 32 | slot as u64)
+        .collect();
+    let mut negative = false;
+    let mut exchange = |a: &mut [u64], i: usize, j: usize| {
+        negative ^= a[i] > a[j];
+        (a[i], a[j]) = (a[i].min(a[j]), a[i].max(a[j]));
+    };
+    match row.len() {
+        3 => {
+            for (i, j) in [(0, 1), (1, 2), (0, 1)] {
+                exchange(&mut words, i, j);
+            }
+        }
+        4 => {
+            for (i, j) in [(0, 1), (2, 3), (0, 2), (1, 3), (1, 2)] {
+                exchange(&mut words, i, j);
+            }
+        }
+        n => {
+            for i in 1..n {
+                for j in (1..=i).rev() {
+                    if words[j - 1] < words[j] {
+                        break;
+                    }
+                    exchange(&mut words, j - 1, j);
+                }
+            }
+        }
+    }
+    let sorted = words
+        .iter()
+        .map(|&w| ((w >> 32) as u32, (w & u64::from(u32::MAX)) as usize))
+        .collect();
+    (sorted, negative)
 }
 
 /// Whether D = 2 and D = 3 take the shape of any dimension: a test's
@@ -443,29 +480,47 @@ fn inserted<S: insert::Shape>(
     }
     let mut ids: Vec<u32> = Vec::with_capacity(k + 1);
     let mut merged = false;
+    // Each finite simplex numbered as a group by itself, in the order of
+    // the walk; numbered again below when a group merged. A simplex at
+    // infinity keeps `NO_NEIGHBOR`, so a link is one read of `draft_of`.
+    let mut draft_of = vec![NO_NEIGHBOR; slots];
+    let mut singles = 0_u32;
     for c in mesh.finite_cells() {
+        draft_of[c as usize] = singles;
+        singles += 1;
         for slot in 0..k {
             let n = mesh.neighbor(c, slot);
-            if n < c || !mesh.is_finite(n) {
+            if n < c {
+                continue;
+            }
+            let across = mesh.across(c, slot);
+            // The insertion records a face as distinct or cospherical only
+            // between finite simplices; an unknown one may have a simplex at
+            // infinity. A distinct face is skipped without reading `n`.
+            if across == insert::Across::Unknown && !mesh.is_finite(n) {
                 continue;
             }
             let mut test = || -> Result<bool, ConvexHullError> {
-                let Some(back) = mesh.back(n, c) else {
-                    debug_assert!(false, "neighbors are symmetric");
+                // The far vertex of `n`: the one not in `c`. Found among the
+                // vertices of `n`, which the finiteness check read, rather
+                // than through the links of `n`.
+                let vertices = mesh.vertices_of(c);
+                let Some(&far) = mesh.vertices_of(n).iter().find(|v| !vertices.contains(v)) else {
+                    debug_assert!(false, "neighbors differ in one vertex");
                     return Ok(false);
                 };
                 ids.clear();
-                ids.extend_from_slice(mesh.vertices_of(c));
-                ids.push(mesh.vertices_of(n)[back]);
+                ids.extend_from_slice(vertices);
+                ids.push(far);
                 Ok(mesh.lifted_ids(&ids)? == Sign::Zero)
             };
-            let cospherical = match mesh.across(c, slot) {
+            let cospherical = match across {
                 insert::Across::Cospherical => true,
                 insert::Across::Distinct => false,
                 insert::Across::Unknown => test()?,
             };
             debug_assert!(
-                mesh.across(c, slot) == insert::Across::Unknown || test()? == cospherical,
+                across == insert::Across::Unknown || mesh.is_finite(n) && test()? == cospherical,
                 "the insertion's record matches the lifted orientation"
             );
             if cospherical {
@@ -476,45 +531,39 @@ fn inserted<S: insert::Shape>(
         }
     }
 
-    // A simplex alone in its group keeps its mesh links; number those first.
-    // `parent` is flattened so that it names each simplex's root.
-    let mut size = vec![0_u32; if merged { slots } else { 0 }];
+    // A simplex alone in its group keeps its mesh links. When a group
+    // merged, `parent` is flattened so that it names each simplex's root,
+    // the singles are numbered again, and the others are marked `UNKNOWN`.
     if merged {
+        let mut size = vec![0_u32; slots];
         for c in mesh.finite_cells() {
             let r = root(&mut parent, c);
             parent[c as usize] = r;
             size[r as usize] += 1;
         }
-    }
-    let single = |parent: &[u32], size: &[u32], c: u32| -> bool {
-        !merged || size[parent[c as usize] as usize] == 1
-    };
-    let mut draft_of = vec![NO_NEIGHBOR; slots];
-    let mut singles = 0_u32;
-    for c in mesh.finite_cells() {
-        if single(&parent, &size, c) {
-            draft_of[c as usize] = singles;
-            singles += 1;
+        singles = 0;
+        for c in mesh.finite_cells() {
+            draft_of[c as usize] = if size[parent[c as usize] as usize] == 1 {
+                singles += 1;
+                singles - 1
+            } else {
+                UNKNOWN
+            };
         }
     }
     let mut draft = Draft::new(k, singles as usize);
     for c in mesh.finite_cells() {
-        if draft_of[c as usize] == NO_NEIGHBOR {
+        if draft_of[c as usize] == UNKNOWN {
             continue;
         }
         let (sorted, negative) = ascending(mesh.vertices_of(c));
         let start = draft.rows.len();
         draft.rows.extend(sorted.iter().map(|&(v, _)| v));
-        draft.links.extend(sorted.iter().map(|&(_, slot)| {
-            let n = mesh.neighbor(c, slot);
-            if !mesh.is_finite(n) {
-                NO_NEIGHBOR
-            } else if draft_of[n as usize] != NO_NEIGHBOR {
-                draft_of[n as usize]
-            } else {
-                UNKNOWN
-            }
-        }));
+        draft.links.extend(
+            sorted
+                .iter()
+                .map(|&(_, slot)| draft_of[mesh.neighbor(c, slot) as usize]),
+        );
         draft.negative.push(negative);
         draft.group.push(draft.sites.len() as u32);
         draft.sites.push(&draft.rows[start..]);
@@ -523,7 +572,7 @@ fn inserted<S: insert::Shape>(
     if merged {
         let mut members: Vec<(u32, u32)> = mesh
             .finite_cells()
-            .filter(|&c| draft_of[c as usize] == NO_NEIGHBOR)
+            .filter(|&c| draft_of[c as usize] == UNKNOWN)
             .map(|c| (parent[c as usize], c))
             .collect();
         members.sort_unstable();
