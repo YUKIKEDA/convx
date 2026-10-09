@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-7 (#322) to P7-9 (#324): hull D2 and acceptance. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+P7-8 (#323) and P7-9 (#324): acceptance and the hull D2 discard. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -181,7 +181,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-4 | Feat  | Predicates: a first-stage bound with no subnormal product                               | #316  | Done        |
 | P7-5 | Task  | Profile Delaunay D2 and D3 after P7-4 and name the next rows                            | #317  | Done        |
 | P7-6 | Feat  | Hull: D2 facets in cycle order and the facet numbering on first use                     | #321  | Done        |
-| P7-7 | Feat  | Hull D2: a faster sort of the chain's points                                            | #322  | Not started |
+| P7-7 | Feat  | Hull D2: a faster sort of the chain's points                                            | #322  | Done        |
 | P7-8 | Feat  | Acceptance: faster duplicate detection                                                  | #323  | Not started |
 | P7-9 | Feat  | Hull D2: a faster discard before the chain                                              | #324  | Not started |
 | P7-10 | Feat | Delaunay: link the cavity's new simplices without turning around ridges                  | #329  | Done        |
