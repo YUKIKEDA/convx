@@ -3,7 +3,7 @@
 use core::cmp::Ordering;
 use std::sync::OnceLock;
 
-use super::classify::{classify, Classified};
+use super::classify::{classify, Classified, FaceOrder, Faces};
 use super::input::{accept, minimum_basis, Input};
 use super::ConvexHullError;
 use crate::lists::Lists;
@@ -67,15 +67,19 @@ impl<'a> ConvexHullBuilder<'a> {
 /// A convex hull.
 ///
 /// Every list is kept flat and published through borrowed views (design
-/// §9). Facets are ordered by their vertex lists, lexicographically; a
-/// facet's position is its public number.
+/// §9). For D = 2 the facets are the edges of the boundary cycle,
+/// counterclockwise from the smallest vertex; otherwise they are ordered by
+/// their vertex lists, lexicographically. A facet's position is its public
+/// number.
 ///
 /// The planes of the facets are computed by the first call of
 /// [`ConvexHull::planes`] and kept, and so is the order of the boundary
-/// complex, by the first call that reads it. Two hulls are equal when
-/// every published value but the planes is equal; whether either had
-/// computed its planes or ordered its complex does not enter. `Debug`
-/// computes neither.
+/// complex, by the first call that reads it. For D = 1 and D >= 3 the
+/// public numbering of the facets is computed by the first call that reads
+/// a facet number; for D = 2 the facets are stored in public order (design
+/// §5). Two hulls are equal when every published value but the planes is
+/// equal; whether either had computed its planes, numbered its facets, or
+/// ordered its complex does not enter. `Debug` computes none of them.
 #[derive(Clone)]
 pub struct ConvexHull {
     dim: usize,
@@ -83,15 +87,19 @@ pub struct ConvexHull {
     vertices: Vec<u32>,
     coplanar_points: Vec<u32>,
     interior_points: Vec<u32>,
-    /// Per facet, in public order, its extreme points.
+    /// Per facet, in stored order, its extreme points.
     facet_vertices: Lists<u32>,
-    /// Per facet, its neighboring facets.
+    /// Per facet, in stored order, its neighboring facets by stored
+    /// number, ascending.
     facet_neighbors: Lists<u32>,
+    /// The public numbering of the stored facets: given at `build()` for
+    /// D = 2, computed on first use otherwise.
+    numbering: OnceLock<Numbering>,
     /// Boundary simplices, D vertices each in outward order (ascending,
     /// with the last two swapped when that is outward), flattened in the
     /// order classification left them.
     simplex_vertices: Vec<u32>,
-    /// The facet of each boundary simplex.
+    /// The stored facet of each boundary simplex.
     simplex_facets: Vec<u32>,
     /// The boundary simplices in public order, once something has read the
     /// complex in order ([`ConvexHull::triangulation`]).
@@ -102,6 +110,41 @@ pub struct ConvexHull {
     /// them, or `None` when a plane is not finite, which the input decides.
     /// A failure the input does not decide is not kept.
     planes: OnceLock<Option<PlaneSet>>,
+}
+
+/// How the stored facets are numbered publicly (design §5).
+#[derive(Clone, Debug)]
+enum Numbering {
+    /// The stored order is the public order (D = 2).
+    Stored,
+    /// The lexicographic order of the vertex lists (D = 1 and D >= 3).
+    Renumbered {
+        /// The stored facet of each public number.
+        order: Vec<u32>,
+        /// The public number of each stored facet.
+        number: Vec<u32>,
+        /// Per facet, in public order, its neighbors by public number,
+        /// ascending.
+        neighbors: Lists<u32>,
+    },
+}
+
+impl Numbering {
+    /// The stored facet of public number `facet`.
+    fn stored(&self, facet: u32) -> usize {
+        match self {
+            Self::Stored => facet as usize,
+            Self::Renumbered { order, .. } => order[facet as usize] as usize,
+        }
+    }
+
+    /// The public number of stored facet `stored`.
+    fn public(&self, stored: u32) -> u32 {
+        match self {
+            Self::Stored => stored,
+            Self::Renumbered { number, .. } => number[stored as usize],
+        }
+    }
 }
 
 /// The planes of every facet, in public facet order.
@@ -115,8 +158,9 @@ struct PlaneSet {
 
 impl PartialEq for ConvexHull {
     /// Compares every published value but the planes (design §9): the
-    /// boundary complex is compared simplex by simplex in its public order,
-    /// which orders it when it was not. The planes are a function of the
+    /// facets are compared in their public numbering and the boundary
+    /// complex simplex by simplex in its public order, which numbers and
+    /// orders them when they were not. The planes are a function of the
     /// facets and the vertex coordinates, and computing them can fail, so
     /// they do not enter.
     fn eq(&self, other: &Self) -> bool {
@@ -125,16 +169,20 @@ impl PartialEq for ConvexHull {
             && self.vertices == other.vertices
             && self.coplanar_points == other.coplanar_points
             && self.interior_points == other.interior_points
-            && self.facet_vertices == other.facet_vertices
-            && self.facet_neighbors == other.facet_neighbors
+            && self
+                .facets()
+                .iter()
+                .map(|f| (f.vertices(), f.neighbors()))
+                .eq(other.facets().iter().map(|f| (f.vertices(), f.neighbors())))
             && self.vertex_coordinates == other.vertex_coordinates
             && self.triangulation().iter().eq(other.triangulation().iter())
     }
 }
 
 impl core::fmt::Debug for ConvexHull {
-    /// Prints what `build` computed, and the planes only when they have
-    /// been computed: formatting computes nothing.
+    /// Prints what `build` computed, and the numbering, the order, and the
+    /// planes only when they have been computed: formatting computes
+    /// nothing.
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("ConvexHull")
             .field("dim", &self.dim)
@@ -144,6 +192,7 @@ impl core::fmt::Debug for ConvexHull {
             .field("interior_points", &self.interior_points)
             .field("facet_vertices", &self.facet_vertices)
             .field("facet_neighbors", &self.facet_neighbors)
+            .field("numbering", &self.numbering.get())
             .field("simplex_vertices", &self.simplex_vertices)
             .field("simplex_facets", &self.simplex_facets)
             .field("simplex_order", &self.simplex_order.get())
@@ -157,6 +206,7 @@ impl core::fmt::Debug for ConvexHull {
 #[derive(Clone, Copy)]
 pub struct Facets<'a> {
     hull: &'a ConvexHull,
+    numbering: &'a Numbering,
 }
 
 impl<'a> Facets<'a> {
@@ -178,14 +228,19 @@ impl<'a> Facets<'a> {
     pub fn get(&self, facet: u32) -> Option<Facet<'a>> {
         ((facet as usize) < self.len()).then_some(Facet {
             hull: self.hull,
+            numbering: self.numbering,
             index: facet,
         })
     }
 
     /// Every facet, in public number order.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = Facet<'a>> + 'a {
-        let hull = self.hull;
-        (0..self.len() as u32).map(move |index| Facet { hull, index })
+        let (hull, numbering) = (self.hull, self.numbering);
+        (0..self.len() as u32).map(move |index| Facet {
+            hull,
+            numbering,
+            index,
+        })
     }
 }
 
@@ -199,6 +254,8 @@ impl core::fmt::Debug for Facets<'_> {
 #[derive(Clone, Copy)]
 pub struct Facet<'a> {
     hull: &'a ConvexHull,
+    numbering: &'a Numbering,
+    /// The public number.
     index: u32,
 }
 
@@ -206,13 +263,18 @@ impl<'a> Facet<'a> {
     /// Extreme points of this face, ascending.
     #[must_use]
     pub fn vertices(&self) -> &'a [u32] {
-        self.hull.facet_vertices.get(self.index as usize)
+        self.hull
+            .facet_vertices
+            .get(self.numbering.stored(self.index))
     }
 
     /// Numbers of the neighboring facets, ascending.
     #[must_use]
     pub fn neighbors(&self) -> &'a [u32] {
-        self.hull.facet_neighbors.get(self.index as usize)
+        match self.numbering {
+            Numbering::Stored => self.hull.facet_neighbors.get(self.index as usize),
+            Numbering::Renumbered { neighbors, .. } => neighbors.get(self.index as usize),
+        }
     }
 }
 
@@ -394,20 +456,64 @@ impl ConvexHull {
     /// owned copies, for the tests that break an invariant on purpose.
     #[cfg(test)]
     pub(crate) fn edit_lists(&mut self, edit: impl FnOnce(&mut Vec<u32>, &mut Vec<Vec<u32>>)) {
-        let mut neighbors: Vec<Vec<u32>> =
-            self.facet_neighbors.iter().map(<[u32]>::to_vec).collect();
+        let mut neighbors: Vec<Vec<u32>> = self
+            .facets()
+            .iter()
+            .map(|f| f.neighbors().to_vec())
+            .collect();
         edit(&mut self.vertices, &mut neighbors);
         let mut lists = Lists::default();
         for list in &neighbors {
             lists.push(list);
         }
-        self.facet_neighbors = lists;
+        match self.numbering.get_mut() {
+            Some(Numbering::Renumbered { neighbors, .. }) => *neighbors = lists,
+            _ => self.facet_neighbors = lists,
+        }
     }
 
     /// The logical facets (design §5), in public order.
+    ///
+    /// For D = 1 and D >= 3 the first call numbers the facets and keeps
+    /// the numbering; for D = 2 they are stored in public order.
     #[must_use]
     pub fn facets(&self) -> Facets<'_> {
-        Facets { hull: self }
+        Facets {
+            hull: self,
+            numbering: self.numbering(),
+        }
+    }
+
+    /// The public numbering of the facets, computed on first use.
+    fn numbering(&self) -> &Numbering {
+        self.numbering.get_or_init(|| self.number_facets())
+    }
+
+    /// The lexicographic order of the stored vertex lists, ties by stored
+    /// position, and the neighbor lists renumbered in it (design §5).
+    fn number_facets(&self) -> Numbering {
+        let n = self.facet_vertices.len();
+        let order = lexicographic_order(n, |i| self.facet_vertices.get(i), |a, b| a.cmp(&b));
+        let mut number = vec![0_u32; n];
+        for (public, &stored) in order.iter().enumerate() {
+            number[stored as usize] = public as u32;
+        }
+        let mut neighbors =
+            Lists::with_capacity(n, self.facet_neighbors.iter().map(<[u32]>::len).sum());
+        for (public, &stored) in order.iter().enumerate() {
+            neighbors.push_iter(
+                self.facet_neighbors
+                    .get(stored as usize)
+                    .iter()
+                    .map(|&s| number[s as usize]),
+            );
+            neighbors.get_mut(public).sort_unstable();
+        }
+        Numbering::Renumbered {
+            order,
+            number,
+            neighbors,
+        }
     }
 
     /// The planes of the facets (design §5), by public facet number.
@@ -467,9 +573,12 @@ impl ConvexHull {
             position: &position,
         };
         let queries: Vec<(&[u32], u32)> = self
-            .facet_vertices
+            .facets()
             .iter()
-            .map(|vertices| (vertices, inner_reference(&self.vertices, vertices)))
+            .map(|facet| {
+                let vertices = facet.vertices();
+                (vertices, inner_reference(&self.vertices, vertices))
+            })
             .collect();
         let mut normals = Vec::with_capacity(queries.len() * d);
         let mut offsets = Vec::with_capacity(queries.len());
@@ -535,12 +644,13 @@ impl ConvexHull {
         }
     }
 
-    /// The boundary simplex stored at position `stored`.
+    /// The boundary simplex stored at position `stored`, with the public
+    /// number of its facet.
     fn stored_simplex(&self, stored: usize) -> BoundarySimplex<'_> {
         let d = self.dim;
         BoundarySimplex {
             vertices: &self.simplex_vertices[stored * d..(stored + 1) * d],
-            facet: self.simplex_facets[stored],
+            facet: self.numbering().public(self.simplex_facets[stored]),
         }
     }
 
@@ -550,6 +660,8 @@ impl ConvexHull {
     /// two vertices, which are swapped when the sort was odd.
     fn ordered_simplices(&self) -> Vec<u32> {
         let d = self.dim;
+        let numbering = self.numbering();
+        let facet = |i: usize| numbering.public(self.simplex_facets[i]);
         let row = |i: usize| &self.simplex_vertices[i * d..(i + 1) * d];
         // The ascending list of simplex `i` as its first D - 2 vertices and
         // its last two in order, and whether the stored two are swapped.
@@ -581,12 +693,7 @@ impl ConvexHull {
             ka.cmp(&kb).then_with(|| {
                 let (head_a, tail_a, odd_a) = split(a);
                 let (head_b, tail_b, odd_b) = split(b);
-                (head_a, tail_a, self.simplex_facets[a], odd_a).cmp(&(
-                    head_b,
-                    tail_b,
-                    self.simplex_facets[b],
-                    odd_b,
-                ))
+                (head_a, tail_a, facet(a), odd_a).cmp(&(head_b, tail_b, facet(b), odd_b))
             })
         });
         keyed.into_iter().map(|(_, i)| i).collect()
@@ -601,7 +708,11 @@ impl ConvexHull {
     /// not a facet.
     #[must_use]
     pub fn boundary_cycle(&self, facet: u32) -> Option<Vec<u32>> {
-        let vertices = self.facet_vertices.try_get(facet as usize)?;
+        if facet as usize >= self.facet_vertices.len() {
+            return None;
+        }
+        let stored = self.numbering().stored(facet);
+        let vertices = self.facet_vertices.get(stored);
         match self.dim {
             1 | 2 => Some(vertices.to_vec()),
             3 => {
@@ -611,10 +722,9 @@ impl ConvexHull {
                 // Any order of the facet's triangles gives the same cycle,
                 // so the stored order is read and nothing is sorted.
                 let triangles = (0..self.simplex_facets.len())
-                    .map(|stored| self.stored_simplex(stored))
-                    .filter(|s| s.facet == facet);
-                for simplex in triangles {
-                    let v = simplex.vertices;
+                    .filter(|&i| self.simplex_facets[i] as usize == stored)
+                    .map(|i| &self.simplex_vertices[i * 3..i * 3 + 3]);
+                for v in triangles {
                     for (a, b) in [(v[0], v[1]), (v[1], v[2]), (v[2], v[0])] {
                         if let Some(k) = edges.iter().position(|&e| e == (b, a)) {
                             edges.swap_remove(k);
@@ -917,39 +1027,20 @@ fn oriented_normal(
         .ok_or(ConvexHullError::NonFiniteFacetPlane)
 }
 
-/// Numbers facets and simplices in the public order. The planes are left
-/// to [`ConvexHull::planes`].
+/// Keeps the facets and simplices as classification left them. Their
+/// public numbering is that order for D = 2 and is computed on first use
+/// otherwise ([`ConvexHull::facets`]); the planes are left to
+/// [`ConvexHull::planes`] (design §5).
 fn publish(c: Classified<'_>) -> ConvexHull {
     let d = c.input.dim();
-
-    // Facets ordered by vertex list.
-    let order = lexicographic_order(c.faces.len(), |i| c.faces.vertices.get(i), |a, b| a.cmp(&b));
-    let mut number = vec![0_u32; c.faces.len()];
-    for (public, &internal) in order.iter().enumerate() {
-        number[internal as usize] = public as u32;
-    }
-
-    // Every list of the result is written flat, in public order, so no
-    // facet allocates (#254).
-    let facet_count = order.len();
-    let mut facet_vertices =
-        Lists::with_capacity(facet_count, c.faces.vertices.iter().map(<[u32]>::len).sum());
-    let mut facet_neighbors = Lists::with_capacity(
-        facet_count,
-        c.faces.neighbors.iter().map(<[u32]>::len).sum(),
-    );
-    for (public, &internal) in order.iter().enumerate() {
-        let internal = internal as usize;
-        facet_vertices.push(c.faces.vertices.get(internal));
-        facet_neighbors.push_iter(
-            c.faces
-                .neighbors
-                .get(internal)
-                .iter()
-                .map(|&n| number[n as usize]),
-        );
-        facet_neighbors.get_mut(public).sort_unstable();
-    }
+    let numbering = match c.order {
+        FaceOrder::Public => OnceLock::from(Numbering::Stored),
+        FaceOrder::Classification => OnceLock::new(),
+    };
+    let Faces {
+        vertices: facet_vertices,
+        neighbors: facet_neighbors,
+    } = c.faces;
 
     // Boundary simplices: ascending vertex lists, then the last two swapped
     // where that makes the order outward. Every simplex of the complex is
@@ -964,7 +1055,7 @@ fn publish(c: Classified<'_>) -> ConvexHull {
         let start = simplex_vertices.len();
         simplex_vertices.extend_from_slice(&s.vertices);
         simplex_vertices[start..].sort_unstable();
-        let facet = number[s.face as usize];
+        let facet = s.face;
         if d >= 2 {
             let odd = odd_permutation(&s.vertices);
             #[cfg(debug_assertions)]
@@ -1001,6 +1092,7 @@ fn publish(c: Classified<'_>) -> ConvexHull {
         interior_points: c.interior_points,
         facet_vertices,
         facet_neighbors,
+        numbering,
         simplex_vertices,
         simplex_facets,
         simplex_order: OnceLock::new(),
@@ -1074,6 +1166,134 @@ mod tests {
                 .map(|f| fresh.boundary_cycle(f))
                 .collect();
             assert_eq!(cycles, read);
+        }
+    }
+
+    /// A hull as `build` returns it, without the invariant check of debug
+    /// builds, which reads the facets.
+    fn published(dim: usize, points: &[f64]) -> ConvexHull {
+        publish(classify(accept(dim, points).unwrap()).unwrap())
+    }
+
+    #[test]
+    fn the_facets_are_numbered_on_first_use_above_d2() {
+        // Random points and integer grids, whose facets are not simplices:
+        // the public numbering is the lexicographic order of the vertex
+        // lists, from an independent sort, with the neighbors renumbered.
+        let mut rng = Rng(321);
+        for (dim, count, grid) in [
+            (1, 9, false),
+            (3, 200, false),
+            (4, 80, false),
+            (3, 120, true),
+            (4, 200, true),
+        ] {
+            let points: Vec<f64> = (0..dim * count)
+                .map(|_| {
+                    if grid {
+                        (rng.next() % 4) as f64
+                    } else {
+                        rng.unit()
+                    }
+                })
+                .collect();
+            let hull = published(dim, &points);
+            assert!(hull.numbering.get().is_none(), "build numbers nothing");
+            // Formatting numbers nothing either.
+            let _ = format!("{hull:?}");
+            assert!(hull.numbering.get().is_none());
+            let stored: Vec<Vec<u32>> = hull.facet_vertices.iter().map(<[u32]>::to_vec).collect();
+            let mut expected = stored.clone();
+            expected.sort();
+            let public: Vec<Vec<u32>> = hull
+                .facets()
+                .iter()
+                .map(|f| f.vertices().to_vec())
+                .collect();
+            assert_eq!(public, expected, "D = {dim}, grid {grid}");
+            // A neighbor is the public number of a stored neighbor, and the
+            // relation is symmetric.
+            let number = |list: &[u32]| public.iter().position(|p| p == list).unwrap() as u32;
+            for (s, list) in stored.iter().enumerate() {
+                let mut renumbered: Vec<u32> = hull
+                    .facet_neighbors
+                    .get(s)
+                    .iter()
+                    .map(|&n| number(&stored[n as usize]))
+                    .collect();
+                renumbered.sort_unstable();
+                let facet = hull.facets().get(number(list)).unwrap();
+                assert_eq!(facet.neighbors(), renumbered);
+                for &n in facet.neighbors() {
+                    let other = hull.facets().get(n).unwrap();
+                    assert!(other.neighbors().contains(&number(list)));
+                }
+            }
+            // The facet of a simplex is a public number whose facet holds
+            // the simplex's vertices.
+            for simplex in hull.triangulation().iter() {
+                let facet = hull.facets().get(simplex.facet).unwrap();
+                assert!(simplex
+                    .vertices
+                    .iter()
+                    .all(|v| facet.vertices().binary_search(v).is_ok()));
+            }
+            // Comparing numbers both sides, and numbering first or not
+            // changes nothing; a clone copies the numbering made so far.
+            let (a, b) = (published(dim, &points), published(dim, &points));
+            let numbered = a.clone();
+            let _ = numbered.facets();
+            assert!(numbered.numbering.get().is_some());
+            assert!(a == b && b == numbered && numbered == a);
+            assert!(a.numbering.get().is_some() && b.numbering.get().is_some());
+            assert!(numbered.clone().numbering.get().is_some());
+        }
+    }
+
+    #[test]
+    fn the_facets_of_d2_follow_the_cycle() {
+        // The facets of D = 2 are stored in public order: the boundary
+        // cycle, counterclockwise from the smallest vertex (design §5).
+        let mut rng = Rng(3210);
+        for (count, grid) in [(3, false), (60, false), (400, false), (40, true)] {
+            let points: Vec<f64> = (0..2 * count)
+                .map(|_| {
+                    if grid {
+                        (rng.next() % 4) as f64
+                    } else {
+                        rng.unit()
+                    }
+                })
+                .collect();
+            let hull = published(2, &points);
+            assert!(matches!(hull.numbering.get(), Some(Numbering::Stored)));
+            let n = hull.facets().len();
+            assert_eq!(n, hull.vertices().len());
+            // Walk the cycle: facet i ends where facet i + 1 starts, and
+            // every turn is a strict left turn.
+            let p = |v: u32| &points[v as usize * 2..v as usize * 2 + 2];
+            let mut cycle = vec![hull.vertices()[0]];
+            for i in 0..n {
+                let facet = hull.facets().get(i as u32).unwrap();
+                let here = *cycle.last().unwrap();
+                let pair = facet.vertices();
+                assert!(pair.contains(&here), "facet {i} starts at {here}");
+                cycle.push(if pair[0] == here { pair[1] } else { pair[0] });
+                let (prev, next) = ((i + n - 1) % n, (i + 1) % n);
+                let mut expected = vec![prev as u32, next as u32];
+                expected.sort_unstable();
+                assert_eq!(facet.neighbors(), expected);
+            }
+            assert_eq!(cycle.first(), cycle.last(), "the cycle closes");
+            for w in cycle
+                .windows(3)
+                .chain([[cycle[n - 1], cycle[0], cycle[1]].as_slice()])
+            {
+                let (a, b, c) = (p(w[0]), p(w[1]), p(w[2]));
+                let turn = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+                assert!(turn > 0.0, "counterclockwise at {:?}", w);
+            }
+            assert_eq!(cycle[0], *hull.vertices().iter().min().unwrap());
         }
     }
 

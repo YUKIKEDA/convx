@@ -71,13 +71,6 @@ impl<T: Copy> Lists<T> {
         &self.values[self.starts[i] as usize..self.starts[i + 1] as usize]
     }
 
-    /// List `i`, or `None` past the end.
-    pub(crate) fn try_get(&self, i: usize) -> Option<&[T]> {
-        let start = *self.starts.get(i)? as usize;
-        let end = *self.starts.get(i + 1)? as usize;
-        Some(&self.values[start..end])
-    }
-
     /// List `i`, to be changed in place.
     pub(crate) fn get_mut(&mut self, i: usize) -> &mut [T] {
         let (start, end) = (self.starts[i] as usize, self.starts[i + 1] as usize);
@@ -105,7 +98,6 @@ mod tests {
         assert_eq!(lists.get(0), &[3, 1]);
         assert!(lists.get(1).is_empty());
         assert_eq!(lists.get(2), &[7, 8, 9]);
-        assert_eq!(lists.try_get(3), None);
         lists.get_mut(2).sort_unstable_by(|a, b| b.cmp(a));
         let all: Vec<&[u32]> = lists.iter().collect();
         assert_eq!(all, vec![&[3, 1][..], &[][..], &[9, 8, 7][..]]);

@@ -89,11 +89,21 @@ impl Faces {
     }
 }
 
-/// The hull after classification. Faces are in construction order; the
-/// public numbering is fixed when the hull is published.
+/// The order classification leaves the faces in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FaceOrder {
+    /// The public order: the boundary cycle of D = 2 (design §5).
+    Public,
+    /// Construction order; the public numbering is computed on first use.
+    Classification,
+}
+
+/// The hull after classification, with its faces in the order `order`
+/// names.
 pub(crate) struct Classified<'a> {
     pub(crate) input: Input<'a>,
     pub(crate) faces: Faces,
+    pub(crate) order: FaceOrder,
     pub(crate) simplices: Vec<ComplexSimplex>,
     pub(crate) vertices: Vec<u32>,
     pub(crate) coplanar_points: Vec<u32>,
@@ -204,75 +214,35 @@ fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
         .map(|(&p, _)| p)
         .collect();
 
-    // Edge `i` joins `polygon[i]` and `polygon[i + 1]`. The edges are
-    // numbered here in the public order, the lexicographic order of their
-    // ascending vertex pairs, so that publication finds them in order. An
-    // edge belongs to its smaller endpoint, and a vertex is the smaller
-    // endpoint of at most two edges, so counting by that endpoint's rank
-    // among the vertices orders them without a comparison sort.
-    let edge = |i: usize| {
-        let (start, end) = (hull.polygon[i], hull.polygon[(i + 1) % n]);
-        (start.min(end), start.max(end))
-    };
-    let mut rank = vec![0_u32; hull.input.representative.len()];
-    for (r, &v) in vertices.iter().enumerate() {
-        rank[v as usize] = r as u32;
-    }
-    let mut first = vec![0_u32; n + 1];
-    for i in 0..n {
-        first[rank[edge(i).0 as usize] as usize + 1] += 1;
-    }
-    for r in 0..n {
-        first[r + 1] += first[r];
-    }
-    let mut by_number = vec![0_u32; n];
-    let mut filled = vec![0_u32; n];
-    for i in 0..n {
-        let r = rank[edge(i).0 as usize] as usize;
-        by_number[(first[r] + filled[r]) as usize] = i as u32;
-        filled[r] += 1;
-    }
-    for r in 0..n {
-        debug_assert!(filled[r] <= 2, "a vertex has two edges");
-        let at = first[r] as usize;
-        if filled[r] == 2 && edge(by_number[at] as usize).1 > edge(by_number[at + 1] as usize).1 {
-            by_number.swap(at, at + 1);
-        }
-    }
-    let mut number = vec![0_u32; n];
-    for (k, &i) in by_number.iter().enumerate() {
-        number[i as usize] = k as u32;
-    }
-
+    // The public order (design §5): edge `i` joins `cycle[i]` and
+    // `cycle[i + 1]`, where `cycle` is the counterclockwise polygon from
+    // its smallest vertex. Its neighbors are edges `i - 1` and `i + 1`. One
+    // pass writes every list in that order; nothing is sorted.
+    let first = (0..n).min_by_key(|&i| hull.polygon[i]).unwrap_or(0);
+    let cycle = |i: usize| hull.polygon[(first + i) % n];
     let mut faces = Faces {
         vertices: Lists::with_capacity(n, 2 * n),
         neighbors: Lists::with_capacity(n, 2 * n),
     };
     let mut simplices = Vec::with_capacity(n);
-    for (k, &i) in by_number.iter().enumerate() {
-        let i = i as usize;
-        let (low, high) = edge(i);
-        let prev = number[if i == 0 { n - 1 } else { i - 1 }];
-        let next = number[(i + 1) % n];
-        faces.vertices.push(&[low, high]);
+    for i in 0..n {
+        let (start, end) = (cycle(i), cycle(i + 1));
+        let prev = (if i == 0 { n - 1 } else { i - 1 }) as u32;
+        let next = ((i + 1) % n) as u32;
+        faces.vertices.push(&[start.min(end), start.max(end)]);
         faces.neighbors.push(&[prev.min(next), prev.max(next)]);
         // `neighbors[i]` is the simplex across the ridge opposite `vertices[i]`.
         // The tip is first, so slot 0 faces the previous edge and slot 1 the next.
         simplices.push(ComplexSimplex {
-            vertices: [hull.polygon[(i + 1) % n], hull.polygon[i]]
-                .as_slice()
-                .into(),
-            face: k as u32,
+            vertices: [end, start].as_slice().into(),
+            face: i as u32,
             neighbors: [prev, next].as_slice().into(),
         });
     }
-    debug_assert!(
-        faces.vertices.iter().is_sorted(),
-        "the edges are in the public order"
-    );
     Ok(Classified {
         input: hull.input,
         faces,
+        order: FaceOrder::Public,
         simplices,
         vertices,
         coplanar_points,
@@ -474,6 +444,7 @@ fn classify_built(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
     Ok(Classified {
         input: hull.input,
         faces,
+        order: FaceOrder::Classification,
         simplices,
         vertices,
         coplanar_points,
