@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-20 (#363): the Delaunay D2 insertion against CGAL's. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4. P7-7 (#322) to P7-9 (#324): hull D2 and acceptance.
+P7-19 (#362): the pass after the Delaunay insertion, until the owner's call on hull `cubesurf`. P7-20 (#363): the Delaunay D2 insertion against CGAL's. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4. P7-7 (#322) to P7-9 (#324): hull D2 and acceptance.
 
 ## Dependencies
 
