@@ -767,3 +767,76 @@ Met: 0 of 16.
   - `cubesurf` D3 10^5: 4.51 against CGAL and 5.90 against Qhull.
   - `grid` D6 10^4: 10.48 against Qhull, with the pass after construction at 62% of `build()`. That pass includes the sub-hulls of coplanar faces.
 - **Delaunay D4 and D5 against CGAL: 1.17 to 1.52.** Against Qhull, `cube` D4 is 1.11 and `cube` D5 0.99.
+
+## Delaunay D2: a CGAL-style structure, and the cost of a subnormal product, PR #NNN (#311)
+
+The spike P7-2. Does a CGAL-style structure for D = 2 halve convx's insertion? The decision rule of the Grill of 2026-10-09 applies: a prototype at most 0.5 of convx's insertion on the four sets leads to a dedicated structure; otherwise the next rows remove the costs of the current insertion one by one.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `6612a87`, and a scratch copy of it holding the prototype. rustc 1.97.1, `--release` with debug info, baseline target |
+| Prototype | A module beside `delaunay::insert` in the scratch copy. It stores one record per triangle (three vertices, three neighbors). Its cavity is found through neighbors. Its new triangles are linked as a fan, because in D = 2 the cavity boundary is one polygon around the new site. It uses convx's insertion order (`brio`), the same walk, the same conflict rules, and convx's predicates through `insert::Plane`, so only the structure differs. It keeps no cospherical flag per face. Its code is on #311 |
+| Machine | Intel Core i5-13400F, Windows 11 |
+| Cores | One, every process pinned (logical processor 2) |
+| Timed | The insertion phase: `brio` and `Mesh::build` for convx, `brio` and the prototype's build. Both run in one process on the same accepted input, alternating which goes first. CGAL's construction time comes from the P7 baseline above, under WSL2 on the same machine, so it is a reference, not a ratio |
+| Rounds | 3 processes per variant and set, 6 builds of each per process at 10^5 and 4 at 10^6 |
+| Reported | Median with min–max, in ms |
+
+The prototype published the same triangles as convx on every set (compared as sorted vertex triples).
+
+### Structure alone
+
+| Set | convx insertion | Prototype | Prototype / convx | CGAL construction (baseline, WSL2) |
+| --- | ---: | ---: | ---: | ---: |
+| `cube` D2 10^5 | 110.5 (104.9–114.7) | 97.2 (92.4–108.4) | 0.88 | 42.3 |
+| `sphere` D2 10^5 | 94.6 (91.0–100.7) | 86.2 (84.7–103.3) | 0.91 | 32.3 |
+| `cube` D2 10^6 | 1209 (1175–1254) | 1094 (1074–1126) | 0.91 | 465 |
+| `sphere` D2 10^6 | 866 (840–901) | 799 (781–855) | 0.92 | 318 |
+
+**The rule gives local improvements**: 0.88 to 0.92, not 0.5. A site costs about 20 predicate calls in both, 9.0 in-sphere tests and 11.2 orientations on `cube` (4.0 and 12.8 on `sphere`). The walk takes 5.4 steps and the cavity has 4.0 triangles (4.4 and 3.0).
+
+### The subnormal product of the first stage
+
+One in-sphere test of the first stage (`semi_static::lifted2`), timed alone on random quadruples of `cube` D2 10^5 points, took 40.4 ns. The same formula without the term `4 η X` of its bound took 6.4 ns. That term multiplies `4 η = 2^-1072`, a subnormal, by `X ≥ 1`; the product alone took 28.1 ns per call. An addition with a subnormal operand cost nothing measurable: 3.0 ns with and without `η` in the update of `filter::Approx`. The other products of `η` (`cull.rs`, `normal.rs`) are made once per plane, not per point.
+
+Every first-stage formula (`Estimate::new`, k ≤ 4) makes this product on every call: the orientations and in-sphere tests of Delaunay D = 2 and D = 3, and the first stage of the hull's orientations up to D = 4.
+
+A sound bound without the product, in the scratch copy:
+
+- Let `s = relative · permanent`.
+- When `s ≥ 2^-960` and `X ≤ 2^60`, then `4 η X ≤ 2^-1012 ≤ 2^-52 s`, and `s (1 + 2^-51)`, rounded, is at least `s + 4 η X`.
+- Otherwise the bound is computed as before, in a function marked cold and not inlined.
+
+The cold function matters. Written as an `if` in place, the compiler evaluated both branches with a select, and no build was faster.
+
+Insertion with that bound, convx and prototype in the same processes as above:
+
+| Set | convx, new bound / convx | Prototype, new bound / convx |
+| --- | ---: | ---: |
+| `cube` D2 10^5 | 0.65 | 0.60 |
+| `sphere` D2 10^5 | 0.86 | 0.77 |
+| `cube` D2 10^6 | 0.70 | 0.64 |
+| `sphere` D2 10^6 | 0.86 | 0.80 |
+
+`build()` with the new bound against `main`, alternated, 5 rounds × 3 builds:
+
+| Set | `main` | New bound | Ratio |
+| --- | ---: | ---: | ---: |
+| Delaunay `cube` D2 10^5 | 150.7 (145.8–160.5) | 115.3 (103.6–118.0) | 0.77 |
+| Delaunay `sphere` D2 10^5 | 122.6 (117.0–129.3) | 104.3 (98.6–123.2) | 0.85, inside the spread |
+| Delaunay `cube` D3 10^5 | 980.6 (954.7–1000.0) | 709.0 (691.1–746.2) | 0.72 |
+| Hull `sphere` D3 10^5 | 402.9 (391.1–442.7) | 395.8 (386.7–411.4) | 0.98, inside the spread |
+| Hull `sphere` D4 10^4 | 148.2 (143.8–158.2) | 149.1 (138.9–157.5) | 1.01, inside the spread |
+| Hull `cube` D3 10^6 | 157.3 (148.6–165.0) | 149.3 (142.9–157.3) | 0.95, inside the spread |
+| Hull `sphere` D2 10^5 | 22.5 (21.3–26.8) | 22.6 (21.5–25.7) | 1.01, inside the spread |
+
+### Reading
+
+- **The structure is not the gap.** A CGAL-style record per triangle with fan linking reads 0.88 to 0.92 of convx's insertion with the same predicates and order. By the Grill's rule, the next rows remove costs from the current insertion.
+- **The largest single cost found is the subnormal product in the first-stage bound.**
+  - Removing it soundly makes Delaunay `build()` 0.77 on `cube` D2 10^5 and 0.72 on `cube` D3 10^5, beyond the spread.
+  - On `sphere` D2 10^5 it reads 0.85, inside the spread in this run.
+  - The hull sets read 0.95 to 1.01, inside the spread. The hull's side tests are mostly decided by the cull plane's scan, which makes no such product per point.
+- **Even with the new bound, the gap to CGAL stays large.** convx's insertion of `cube` D2 10^5 comes to about 72 ms against CGAL's 42 ms for the whole construction (different operating systems). The next profile decides the rows after the bound.
