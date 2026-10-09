@@ -629,26 +629,34 @@ impl<'a, S: Shape> Mesh<'a, S> {
         self.neighbors[at..at + 3].copy_from_slice(&neighbors);
     }
 
-    /// Points the slot of `n` that held `old` at `new`.
+    /// Points the slot of `n` that held `old` at `new`, and forgets what was
+    /// known of that face: the triangle across it changed.
     fn repoint(&mut self, n: u32, old: u32, new: u32) {
         let back = self.back(n, old);
         debug_assert!(back.is_some(), "neighbors are symmetric");
         if let Some(back) = back {
             self.set_neighbor(n, back, new);
+            self.across[n as usize * 3 + back] = Across::Unknown;
         }
     }
 
-    /// Forgets what was known of every face of the triangles `cells`, on
-    /// both sides: their triangles changed.
-    fn forget(&mut self, cells: &[u32]) {
+    /// Forgets what was known of every face of the changed triangles
+    /// `cells`, on their own side. A face between two of them is forgotten
+    /// on both sides; the other side of the rest is forgotten by
+    /// [`Self::repoint`] or [`Self::forget_across`].
+    fn forget_own(&mut self, cells: &[u32]) {
         for &c in cells {
-            for slot in 0..3 {
-                self.across[c as usize * 3 + slot] = Across::Unknown;
-                let n = self.neighbor(c, slot);
-                if let Some(back) = self.back(n, c) {
-                    self.across[n as usize * 3 + back] = Across::Unknown;
-                }
-            }
+            self.across[c as usize * 3..c as usize * 3 + 3].fill(Across::Unknown);
+        }
+    }
+
+    /// Forgets what `n` knew of its face with `c`, which changed while `n`
+    /// kept pointing at it.
+    fn forget_across(&mut self, n: u32, c: u32) {
+        let back = self.back(n, c);
+        debug_assert!(back.is_some(), "neighbors are symmetric");
+        if let Some(back) = back {
+            self.across[n as usize * 3 + back] = Across::Unknown;
         }
     }
 
@@ -727,7 +735,8 @@ impl<'a, S: Shape> Mesh<'a, S> {
         self.set_triangle(t3, [c, a, q], [t, t2, nb]);
         self.repoint(na, t, t2);
         self.repoint(nb, t, t3);
-        self.forget(&[t, t2, t3]);
+        self.forget_across(nc, t);
+        self.forget_own(&[t, t2, t3]);
         stack.extend([t, t2, t3]);
     }
 
@@ -755,7 +764,9 @@ impl<'a, S: Shape> Mesh<'a, S> {
         self.set_triangle(t4, [y, q, p], [t, u_nr, u]);
         self.repoint(t_np, t, t2);
         self.repoint(u_nr, u, t4);
-        self.forget(&[t, t2, u, t4]);
+        self.forget_across(t_nr, t);
+        self.forget_across(u_np, u);
+        self.forget_own(&[t, t2, u, t4]);
         stack.extend([t, t2, u, t4]);
     }
 
@@ -778,7 +789,9 @@ impl<'a, S: Shape> Mesh<'a, S> {
         self.set_triangle(n, [q, d, b], [n_db, t_nb, t]);
         self.repoint(n_ad, n, t);
         self.repoint(t_nb, t, n);
-        self.forget(&[t, n]);
+        self.forget_across(t_na, t);
+        self.forget_across(n_db, n);
+        self.forget_own(&[t, n]);
     }
 
     /// Whether every live simplex's neighbor across each face is live,
