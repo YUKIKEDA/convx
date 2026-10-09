@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-23 (#372): the Delaunay D2 insertion by edge flips. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4. P7-7 (#322) to P7-9 (#324): hull D2 and acceptance.
+P7-7 (#322) to P7-9 (#324): hull D2 and acceptance. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -197,7 +197,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-20 | Spike | Delaunay D2: the insertion's own work against CGAL's                                   | #363  | Done        |
 | P7-21 | Feat | Delaunay: the sites in the order of their insertion                                      | #366  | Done        |
 | P7-22 | Spike | Delaunay D2: an insertion by edge flips                                                 | #370  | Done        |
-| P7-23 | Feat | Delaunay D2: insert by edge flips (ADR 0007)                                            | #372  | Not started |
+| P7-23 | Feat | Delaunay D2: insert by edge flips (ADR 0007)                                            | #372  | Done        |
 | P7-24 | Spike | Delaunay: one record per cell of the mesh                                              | #374  | Done        |
 
 ## Intentionally out of scope
