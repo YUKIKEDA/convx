@@ -1476,3 +1476,66 @@ With the same expansion at k = 6, Delaunay `cube` D5 10^4 read 1.06 against `mai
 - **The hull is unchanged**: its orientations of size five and six are almost all decided by the cull scan or the cofactors (profile on #350).
 - **Size five's bound is looser**: over the cancelling inputs of the margin test it is about 500 times the exact error, against 3 to 8 times for k ≤ 4, because the column sums stand for the permanent. How many tests of `cube` D4 it leaves open was not counted.
 - What this does not show: Delaunay `sphere` D4, whose tests go to the exact stage (#331); that is P7-17 (#352).
+
+## A double-double stage before the exact one, PR #355 (#352)
+
+P7-17. For 2 ≤ k ≤ 6, plain and lifted, a test the `f64` stage leaves open is evaluated in double-double, with Dekker's product and a bound derived once per size (`double_double`, design §1). For k ≤ 5 the `f64` stage is the first stage and the running filter no longer runs; for k = 6 the `f64` stage is the running filter. The D2 and D3 shapes of Delaunay start after the first stage they already ran.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | The head of #354 at `7ee1228` (the base this PR stacks on) against the head `429ac24`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2) |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md` (#341), the guard sets hull `cube` D5 and D6 and `sphere` D5 10^4, and the sets of the keep criterion: Delaunay `sphere` D2 10^5, D3 10^4 to 10^6, D4 10^4, and D5 10^4 |
+| Rounds | The base and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for hull `sphere` D4 10^5, Delaunay `sphere` D3 10^5, `cube` D5 10^4, and `sphere` D4 10^4; 3 × 1 for Delaunay `sphere` D3 10^6 and D5 10^4. Delaunay `sphere` D2 10^5, inside the spread in that run, was run again alone: 20 rounds × 3 builds |
+
+Every set published the same counts on both sides.
+
+### Against the base
+
+| Set | Base (#354) | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.70 ms (0.65 ms–3.87 ms) | 0.70 ms (0.63 ms–0.98 ms) | 0.99, inside the spread |
+| Hull `cube` D2 10^5 | 6.37 ms (5.70 ms–7.56 ms) | 6.62 ms (5.74 ms–8.98 ms) | 1.04, inside the spread |
+| Hull `cube` D3 10^4 | 1.50 ms (1.36 ms–1.92 ms) | 1.47 ms (1.32 ms–1.83 ms) | 0.98, inside the spread |
+| Hull `cube` D3 10^5 | 12.2 ms (11.4 ms–16.6 ms) | 12.2 ms (11.3 ms–13.3 ms) | 0.99, inside the spread |
+| Hull `cube` D4 10^4 | 7.22 ms (6.45 ms–15.0 ms) | 7.21 ms (6.39 ms–26.6 ms) | 1.00, inside the spread |
+| Hull `cube` D4 10^5 | 39.2 ms (37.0 ms–65.3 ms) | 37.4 ms (36.2 ms–46.7 ms) | 0.96, inside the spread |
+| Hull `cube` D5 10^4 | 60.0 ms (57.3 ms–63.6 ms) | 59.2 ms (56.7 ms–63.7 ms) | 0.99, inside the spread |
+| Hull `cube` D6 10^4 | 630 ms (591 ms–656 ms) | 628 ms (585 ms–702 ms) | 1.00, inside the spread |
+| Hull `cubesurf` D3 10^5 | 172 ms (167 ms–216 ms) | 99.1 ms (95.9 ms–109 ms) | 0.58, faster beyond the spread |
+| Hull `sphere` D2 10^4 | 1.65 ms (1.51 ms–2.22 ms) | 1.70 ms (1.56 ms–2.30 ms) | 1.03, inside the spread |
+| Hull `sphere` D2 10^5 | 17.6 ms (16.5 ms–21.5 ms) | 17.8 ms (16.7 ms–22.7 ms) | 1.01, inside the spread |
+| Hull `sphere` D3 10^4 | 30.3 ms (28.5 ms–42.4 ms) | 30.9 ms (29.0 ms–38.1 ms) | 1.02, inside the spread |
+| Hull `sphere` D3 10^5 | 369 ms (344 ms–418 ms) | 375 ms (357 ms–539 ms) | 1.02, inside the spread |
+| Hull `sphere` D4 10^4 | 136 ms (131 ms–167 ms) | 135 ms (131 ms–173 ms) | 0.99, inside the spread |
+| Hull `sphere` D4 10^5 | 1.65 s (1.65 s–1.69 s) | 1.65 s (1.63 s–1.66 s) | 1.00, inside the spread |
+| Hull `sphere` D5 10^4 | 854 ms (831 ms–888 ms) | 855 ms (838 ms–899 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^4 | 8.92 ms (8.17 ms–10.8 ms) | 9.16 ms (8.20 ms–10.3 ms) | 1.03, inside the spread |
+| Delaunay `cube` D2 10^5 | 93.4 ms (91.3 ms–102 ms) | 95.1 ms (91.1 ms–123 ms) | 1.02, inside the spread |
+| Delaunay `cube` D3 10^4 | 47.3 ms (45.1 ms–56.4 ms) | 48.0 ms (46.1 ms–52.5 ms) | 1.01, inside the spread |
+| Delaunay `cube` D3 10^5 | 549 ms (536 ms–581 ms) | 550 ms (538 ms–586 ms) | 1.00, inside the spread |
+| Delaunay `cube` D4 10^4 | 738 ms (724 ms–760 ms) | 725 ms (710 ms–781 ms) | 0.98, inside the spread |
+| Delaunay `cube` D5 10^4 | 8.62 s (8.35 s–8.67 s) | 8.54 s (8.40 s–8.64 s) | 0.99, inside the spread |
+| Delaunay `sphere` D2 10^4 | 13.2 ms (12.4 ms–15.1 ms) | 8.51 ms (7.98 ms–9.93 ms) | 0.65, faster beyond the spread |
+| Delaunay `sphere` D2 10^5 | 92.7 ms (88.9 ms–99.5 ms) | 77.8 ms (75.3 ms–93.4 ms) | 0.84, inside the spread |
+| Delaunay `sphere` D3 10^4 | 267 ms (261 ms–299 ms) | 97.0 ms (91.2 ms–106 ms) | 0.36, faster beyond the spread |
+| Delaunay `sphere` D3 10^5 | 2.39 s (2.37 s–2.40 s) | 952 ms (938 ms–953 ms) | 0.40, faster beyond the spread |
+| Delaunay `sphere` D3 10^6 | 17.8 s (17.8 s–18.0 s) | 7.83 s (7.81 s–8.33 s) | 0.44, faster beyond the spread |
+| Delaunay `sphere` D4 10^4 | 4.33 s (4.33 s–4.35 s) | 1.17 s (1.17 s–1.19 s) | 0.27, faster beyond the spread |
+| Delaunay `sphere` D5 10^4 | 47.0 s (46.8 s–49.6 s) | 14.5 s (14.5 s–16.4 s) | 0.31, faster beyond the spread |
+
+Delaunay `sphere` D2 10^5 in the second run, 20 rounds × 3 builds: base 94.7 ms (88.6 ms–103 ms), head 78.8 ms (75.3 ms–88.0 ms), 0.83, faster beyond the spread.
+
+### The fixtures
+
+The test binaries that build the fixtures and cases, release, one thread, pinned, 11 alternated runs each: `hull_fixtures` base 588 ms (567 ms–611 ms), head 485 ms (470 ms–493 ms), 0.82; `delaunay_cases` 167 ms (161 ms–175 ms) and 167 ms (159 ms–182 ms), 1.00; `voronoi_cases` 165 ms (163 ms–173 ms) and 164 ms (156 ms–171 ms), 1.00. A first run without pinning read 1.82 on `delaunay_cases`; pinned, the same binaries agree, and every test that reached the double-double stage there and stayed open was an exact zero that the running filter left open too.
+
+### Reading
+
+- **Every set of the keep criterion is faster beyond the spread**: Delaunay `sphere` D3 0.36 to 0.44, D4 0.27, D5 0.31, and D2 10^5 0.83. The exact stage was 63% to 88% of these builds (#331); the double-double stage decides the tests it took.
+- **Hull `cubesurf` D3 10^5 is 0.58**, and Delaunay `sphere` D2 10^4 0.65: their orientations left open by the first stage went through the running filter, which decided nothing on them, before the exact stage.
+- **Nothing is slower beyond the spread.** The `cube` sets are unchanged: on Delaunay `cube` D2 and D3 the first stage decided every in-sphere test (#331), so neither the running filter nor the new stage is reached there. Delaunay `cube` D5 10^4 (k = 6), where the running filter decides every test, is unchanged.
+- What this does not show: how many tests reach the double-double stage and how many it leaves to the exact one. Against Qhull and CGAL, the full parity run after this row's merge says.
