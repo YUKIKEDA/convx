@@ -3,6 +3,105 @@
 
 use super::*;
 
+thread_local! {
+    /// Makes D = 2 and D = 3 insert with the shape of any dimension
+    /// ([`insert::Any`]) on this thread, to compare the shapes.
+    pub(super) static GENERIC_INSERTION: core::cell::Cell<bool> =
+        const { core::cell::Cell::new(false) };
+}
+
+/// The triangulation of `points` by the shape of its dimension, and by the
+/// shape of any dimension.
+fn by_both_shapes(dim: usize, points: &[f64]) -> [DelaunayTriangulation; 2] {
+    let specialized = DelaunayBuilder::new(dim, points).build().unwrap();
+    GENERIC_INSERTION.with(|c| c.set(true));
+    let generic = DelaunayBuilder::new(dim, points).build();
+    GENERIC_INSERTION.with(|c| c.set(false));
+    [specialized, generic.unwrap()]
+}
+
+/// The insertion specialized for D = 2 and for D = 3 publishes what the
+/// insertion of any dimension publishes (design §7, ADR 0005): the same
+/// simplices, diagonals among cospherical sites included, with the same
+/// neighbors. General position, integer grids with many cospherical
+/// groups, sites near one sphere, and a flat lift, which does not insert.
+#[test]
+fn the_shapes_publish_the_same_triangulation() {
+    let mut state = 294_u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let unit = |next: &mut dyn FnMut() -> u64| (next() >> 11) as f64 / (1_u64 << 53) as f64;
+    for dim in [2_usize, 3] {
+        for (family, count) in [
+            ("general", 400),
+            ("grid", 300),
+            ("lattice", 200),
+            ("near sphere", 150),
+            ("on sphere", 12),
+        ] {
+            let mut points = Vec::with_capacity(dim * count);
+            for _ in 0..count {
+                let mut v: Vec<f64> = (0..dim).map(|_| 2.0 * unit(&mut next) - 1.0).collect();
+                match family {
+                    // Integer points of [0, 7]^D: many cospherical groups.
+                    "grid" => v.iter_mut().for_each(|x| *x = (next() % 8) as f64),
+                    // Integer points of [-2, 2]^D, with duplicates.
+                    "lattice" => v.iter_mut().for_each(|x| *x = (next() % 5) as f64 - 2.0),
+                    // On the unit sphere up to the rounding of a division.
+                    "near sphere" => {
+                        let norm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
+                        v.iter_mut().for_each(|x| *x /= norm);
+                    }
+                    // Exactly on one sphere: signs of unit axes.
+                    "on sphere" => {
+                        let axis = (next() % dim as u64) as usize;
+                        let sign = if next() % 2 == 0 { 1.0 } else { -1.0 };
+                        v.iter_mut().for_each(|x| *x = 0.0);
+                        v[axis] = sign;
+                    }
+                    _ => {}
+                }
+                points.extend(v);
+            }
+            if family == "on sphere" {
+                // Both signs of every axis, so the sites span the space.
+                points.clear();
+                for axis in 0..dim {
+                    for sign in [1.0, -1.0] {
+                        let mut v = vec![0.0; dim];
+                        v[axis] = sign;
+                        points.extend(v);
+                    }
+                }
+                assert!(is_flat(dim, &points), "D = {dim}: the lift is flat");
+            } else {
+                assert!(!is_flat(dim, &points), "D = {dim}, {family}: inserted");
+            }
+            let [specialized, generic] = by_both_shapes(dim, &points);
+            assert_eq!(specialized, generic, "D = {dim}, {family}");
+            assert_eq!(rows(&specialized), rows(&generic), "D = {dim}, {family}");
+            check(&specialized, &points);
+        }
+    }
+}
+
+/// The override bites: with it, D = 2 runs the code of any dimension. The
+/// two shapes are told apart by which predicate entry they call, which a
+/// result cannot show, so this test checks the dispatch itself.
+#[test]
+fn the_override_selects_the_shape_of_any_dimension() {
+    assert!(!generic_insertion());
+    GENERIC_INSERTION.with(|c| c.set(true));
+    let forced = generic_insertion();
+    GENERIC_INSERTION.with(|c| c.set(false));
+    assert!(forced);
+    assert!(!generic_insertion());
+}
+
 /// Every simplex as its (vertices, neighbors), in order.
 fn rows(t: &DelaunayTriangulation) -> Vec<(Vec<u32>, Vec<u32>)> {
     t.simplices()

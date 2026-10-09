@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P6-21 (#294): specialize the Delaunay insertion for D = 2 and D = 3. P6-14 (#276) is not started.
+P6-14 (#276): a ParGeo-style fully parallel hull, at 4 and 16 threads.
 
 ## Dependencies
 
@@ -166,7 +166,7 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-18 | Docs | A dedicated Delaunay insertion for D = 2 and D = 3                                  | #288  | Done        |
 | P6-19 | Feat | Hull: take candidates from a bucket queue by distance                               | #291  | Done        |
 | P6-20 | Feat | Hull: planes and the boundary complex on first use; publish without redundant work  | #293  | Done        |
-| P6-21 | Feat | Delaunay: specialize the insertion for D = 2 and D = 3                              | #294  | Not started |
+| P6-21 | Feat | Delaunay: specialize the insertion for D = 2 and D = 3                              | #294  | Done        |
 
 ## Intentionally out of scope
 
