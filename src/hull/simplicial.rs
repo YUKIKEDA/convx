@@ -24,6 +24,7 @@
 use std::collections::VecDeque;
 
 use super::input::Input;
+use super::records::Records;
 use super::ridge::{fingerprint, pair_equal_keys_into};
 use super::store::{Facet, FacetStore};
 use super::ConvexHullError;
@@ -46,6 +47,9 @@ pub(crate) struct SimplicialHull<'a> {
     pub(crate) strict_edges: bool,
     /// Extreme vertices counterclockwise, when [`Self::strict_edges`].
     pub(crate) polygon: Vec<u32>,
+    /// The plane numbers each point was found on (design §3). D = 1 and
+    /// D = 2 record nothing.
+    pub(crate) records: Records,
 }
 
 /// The most representatives [`SimplicialHull::discarding_pays`] samples.
@@ -59,12 +63,13 @@ const DISCARD_SAMPLE: usize = 1024;
 const DISCARD_ONE_IN: usize = 32;
 
 /// What decides the side of a point against a simplex: its vertices, its
-/// outward sign, and its certified cull plane, when it has one. A facet of
-/// the store and a simplex of a plan not yet applied are both read this
-/// way.
+/// outward sign, its plane number (design §3), and its certified cull
+/// plane, when it has one. A facet of the store and a simplex of a plan not
+/// yet applied are both read this way.
 struct Geometry<'a> {
     vertices: &'a [u32],
     outward: Sign,
+    number: u32,
     cull: Option<CullPlane<&'a [f64]>>,
     normal: Option<&'a [f64]>,
 }
@@ -74,6 +79,7 @@ impl<'a> From<Facet<'a>> for Geometry<'a> {
         Self {
             vertices: facet.vertices(),
             outward: facet.outward(),
+            number: facet.number(),
             cull: facet.cull(),
             normal: facet.normal(),
         }
@@ -96,14 +102,21 @@ impl Planes {
     }
 
     /// The geometry of simplex `k`, whose vertices are `vertices`, with
-    /// the outward sign `outward`.
-    fn geometry<'a>(&'a self, k: usize, vertices: &'a [u32], outward: Sign) -> Geometry<'a> {
+    /// the outward sign `outward` and the plane number `number`.
+    fn geometry<'a>(
+        &'a self,
+        k: usize,
+        vertices: &'a [u32],
+        outward: Sign,
+        number: u32,
+    ) -> Geometry<'a> {
         let d = vertices.len();
         let normal = &self.normals[k * d..(k + 1) * d];
         let (has_normal, cull) = self.kinds[k];
         Geometry {
             vertices,
             outward,
+            number,
             cull: cull.map(|(slope, floor)| CullPlane::from_parts(normal, slope, floor)),
             normal: has_normal.then_some(normal),
         }
@@ -121,12 +134,14 @@ impl<'a> SimplicialHull<'a> {
     /// Builds the simplicial hull of an accepted input.
     pub(crate) fn build(input: Input<'a>) -> Result<Self, ConvexHullError> {
         let dim = input.dim();
+        let records = Records::new(input.representative.len());
         let mut hull = Self {
             input,
             facets: FacetStore::new(dim),
             proved_interior: Vec::new(),
             strict_edges: false,
             polygon: Vec::new(),
+            records,
         };
         if dim == 1 {
             hull.build_segment()?;
@@ -233,7 +248,9 @@ impl<'a> SimplicialHull<'a> {
         self.plan_planes(vertices, outward, &mut planes)?;
         let mut slots = Vec::with_capacity(outward.len());
         for (k, (vertices, &outward)) in vertices.chunks_exact(d).zip(outward).enumerate() {
-            let slot = self.facets.alloc(vertices, outward, None);
+            let slot = self
+                .facets
+                .alloc(vertices, outward, self.facets.fresh_number());
             planes.store(k, d, &mut self.facets, slot);
             slots.push(slot);
         }
@@ -462,6 +479,7 @@ impl<'a> SimplicialHull<'a> {
                 &mut sides,
                 None,
                 &self.facets.facet(slot).into(),
+                &mut self.records,
                 &mut outside,
             )?;
             self.facets.set_outside(slot, &outside, farthest);
@@ -505,15 +523,19 @@ impl<'a> SimplicialHull<'a> {
         let mut visited = Marks::default();
         let mut cone = Cone::default();
         let mut slots = Vec::new();
+        // The plans read the hull and write the records.
+        let mut records = core::mem::take(&mut self.records);
         while let Some(candidate) = next_candidate(&mut pending) {
             let Some(start) = self.facets.slot_of(candidate.facet) else {
                 continue;
             };
-            self.walk_region(start, candidate.point, &mut visited, &mut cone.region)?;
-            self.plan_region(candidate.point, &mut cone)?;
+            let apex = candidate.point;
+            self.walk_region(start, apex, &records, &mut visited, &mut cone.region)?;
+            self.plan_region(apex, &mut records, &mut cone)?;
             self.commit(&mut cone, &mut slots);
             self.push_candidates(&slots, &mut pending);
         }
+        self.records = records;
         Ok(())
     }
 
@@ -538,6 +560,7 @@ impl<'a> SimplicialHull<'a> {
         &self,
         start: u32,
         apex: u32,
+        records: &Records,
         visited: &mut Marks,
         region: &mut Region,
     ) -> Result<(), ConvexHullError> {
@@ -556,7 +579,20 @@ impl<'a> SimplicialHull<'a> {
                 let sign = match visited.get(neighbor) {
                     Some(sign) => sign,
                     None => {
-                        let sign = self.side(self.facets.facet(neighbor), apex)?;
+                        let facet = self.facets.facet(neighbor);
+                        let sign = if records.holds(apex, facet.number()) {
+                            #[cfg(debug_assertions)]
+                            debug_assert_eq!(
+                                self.side(facet, apex)?,
+                                Sign::Zero,
+                                "point {apex} is recorded on a plane it is off"
+                            );
+                            #[cfg(test)]
+                            tests::RECORDED_SIGNS.with(|c| c.set(c.get() + 1));
+                            Sign::Zero
+                        } else {
+                            self.side(facet, apex)?
+                        };
                         visited.set(neighbor, sign);
                         if sign == Sign::Positive {
                             visible.push(neighbor);
@@ -593,7 +629,12 @@ impl<'a> SimplicialHull<'a> {
     /// reassigned to them. Every list of `created` is cleared first and
     /// keeps its storage, so a plan allocates only when one of them grows
     /// (#209).
-    fn plan_region(&self, apex: u32, created: &mut Cone) -> Result<(), ConvexHullError> {
+    fn plan_region(
+        &self,
+        apex: u32,
+        records: &mut Records,
+        created: &mut Cone,
+    ) -> Result<(), ConvexHullError> {
         let Cone {
             region: Region { visible, horizon },
             scratch:
@@ -612,6 +653,7 @@ impl<'a> SimplicialHull<'a> {
                 },
             vertices,
             links,
+            numbers,
             planes,
             outside,
             ranges,
@@ -626,6 +668,7 @@ impl<'a> SimplicialHull<'a> {
         // outward orientation.
         vertices.clear();
         links.clear();
+        numbers.clear();
         keys.clear();
         owners.clear();
         // Each ridge between two new simplices holds the apex and D - 2
@@ -658,6 +701,13 @@ impl<'a> SimplicialHull<'a> {
                 owners.push((k, other));
             }
             links.extend((0..dim).map(|_| Link::Old(h.across)));
+            // A simplex over a ridge of a facet whose plane holds the apex
+            // lies in that plane (design §3).
+            numbers.push(if h.on_plane {
+                self.facets.facet(h.across).number()
+            } else {
+                self.facets.fresh_number() + k as u32
+            });
         }
         let count = horizon.len();
         outward.clear();
@@ -723,8 +773,12 @@ impl<'a> SimplicialHull<'a> {
                 None
             } else {
                 let rows = if copy { Some(&mut *copied) } else { None };
-                let geometry =
-                    planes.geometry(k, &vertices[k * dim..(k + 1) * dim], Sign::Positive);
+                let geometry = planes.geometry(
+                    k,
+                    &vertices[k * dim..(k + 1) * dim],
+                    Sign::Positive,
+                    numbers[k],
+                );
                 take_outside(
                     &self.input,
                     orphans,
@@ -732,6 +786,7 @@ impl<'a> SimplicialHull<'a> {
                     sides,
                     rows,
                     &geometry,
+                    records,
                     outside,
                 )?
             };
@@ -774,12 +829,8 @@ impl<'a> SimplicialHull<'a> {
             self.facets.remove(slot);
         }
         slots.clear();
-        for (vertices, h) in created
-            .vertices
-            .chunks_exact(d)
-            .zip(&created.region.horizon)
-        {
-            let number = h.on_plane.then(|| self.facets.facet(h.across).number());
+        debug_assert_eq!(created.vertices.len(), created.numbers.len() * d);
+        for (vertices, &number) in created.vertices.chunks_exact(d).zip(&created.numbers) {
             slots.push(self.facets.alloc(vertices, Sign::Positive, number));
         }
         for (k, h) in created.region.horizon.iter().enumerate() {
@@ -814,6 +865,10 @@ struct Cone {
     vertices: Vec<u32>,
     /// D neighbor links per new simplex, slot by slot.
     links: Vec<Link>,
+    /// The plane number of each new simplex: that of the facet across its
+    /// horizon ridge when the apex is on that facet's plane, a fresh one
+    /// otherwise.
+    numbers: Vec<u32>,
     /// The working plane of each new simplex.
     planes: Planes,
     /// The outside points of every new simplex, each one's in a run.
@@ -949,8 +1004,15 @@ fn farthest(
 /// `copied`, the scan reads the points from those rows, which follow
 /// `remaining` as it shrinks.
 ///
+/// A point recorded on the simplex's plane number is on the plane and is
+/// not evaluated; a point the orientation finds on the plane is recorded
+/// in `records` (design §3).
+///
 /// A simplex's outside set is final once taken: points leave it only with
 /// the simplex.
+// The scan's state is the lists of one plan, borrowed apart; bundling them
+// would only move the count.
+#[allow(clippy::too_many_arguments)]
 fn take_outside(
     input: &Input<'_>,
     remaining: &mut Vec<u32>,
@@ -958,6 +1020,7 @@ fn take_outside(
     sides: &mut Vec<Option<Sign>>,
     mut copied: Option<&mut CopiedRows>,
     facet: &Geometry<'_>,
+    records: &mut Records,
     outside: &mut Vec<u32>,
 ) -> Result<Option<(u32, Option<f64>)>, ConvexHullError> {
     let first = outside.len();
@@ -993,7 +1056,24 @@ fn take_outside(
                 );
                 proved
             }
-            None => side(input, facet, p)?,
+            None if records.holds(p, facet.number) => {
+                #[cfg(debug_assertions)]
+                debug_assert_eq!(
+                    oriented_side(input, facet, p)?,
+                    Sign::Zero,
+                    "point {p} is recorded on a plane it is off"
+                );
+                #[cfg(test)]
+                tests::RECORDED_SIGNS.with(|c| c.set(c.get() + 1));
+                Sign::Zero
+            }
+            None => {
+                let sign = side(input, facet, p)?;
+                if sign == Sign::Zero {
+                    records.record(p, facet.number);
+                }
+                sign
+            }
         };
         if sign == Sign::Positive {
             outside.push(p);
@@ -1417,12 +1497,15 @@ pub(crate) mod tests {
     /// The hull after the initial simplex and the first assignment, before
     /// any point is absorbed.
     fn initial(dim: usize, points: &[f64]) -> SimplicialHull<'_> {
+        let input = accept(dim, points).unwrap();
+        let records = Records::new(input.representative.len());
         let mut hull = SimplicialHull {
-            input: accept(dim, points).unwrap(),
+            input,
             facets: FacetStore::new(dim),
             proved_interior: Vec::new(),
             strict_edges: false,
             polygon: Vec::new(),
+            records,
         };
         let initial = hull.initial_simplex().unwrap();
         let candidates: Vec<u32> = hull
@@ -1548,6 +1631,10 @@ pub(crate) mod tests {
             const { core::cell::Cell::new(None) };
         /// Plans on this thread that scanned copied rows.
         pub(super) static COPIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+        /// Signs that insertion on this thread took from a record instead
+        /// of evaluating them.
+        pub(crate) static RECORDED_SIGNS: core::cell::Cell<usize> =
+            const { core::cell::Cell::new(0) };
         /// Makes [`next_candidate`] take from the other end of the queue
         /// ([`Candidates::pop_nearest`]), so that a build on this thread
         /// inserts in another order.

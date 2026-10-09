@@ -8,6 +8,7 @@ pub(crate) mod input;
 pub(crate) mod invariants;
 pub(crate) mod merge;
 pub(crate) mod publish;
+mod records;
 pub(crate) mod ridge;
 pub(crate) mod simplicial;
 pub(crate) mod store;
