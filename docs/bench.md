@@ -1753,3 +1753,65 @@ The second run: hull `cubesurf` D3 10^5 1.11, inside the spread through one buil
 - Delaunay `cube` D2 10^5: 0.95, inside the spread.
 - The other Delaunay sets: 0.94 to 1.01.
 - Hull `cubesurf` D3 10^5: 1.13, slower beyond the spread, as before review. Every other hull set read 0.99 to 1.02. Every set published the same counts.
+
+## Delaunay D2: the insertion's own work against CGAL's, PR #367 (#363)
+
+The spike P7-20. It counts what one insertion does in convx and in CGAL, times the parts of convx's insertion, and prototypes the largest cost.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | Copies of `main` at `208bfd9` outside the crate, with atomic counters, phase timers enabled by an environment variable, and the prototypes as variants. rustc 1.97.1, `--release` with debug info; Windows 11, every process pinned (logical processor 2); the variants alternated per round, 10 rounds × 3 builds at 10^5 and 5 × 1 at 10^6 |
+| CGAL | `Delaunay_triangulation_2` over Epick, on the point files of the parity run, under WSL2 on the same machine, pinned with `taskset`. Counts with traits that wrap `Orientation_2` and `Side_of_oriented_circle_2`; times with Epick itself, 5 runs |
+| Published | The sorted vertex lists of the published simplices, hashed; every variant matched `main` on every set |
+
+### Per site
+
+| Set | Side | In-circle tests | Orientations | Cavity simplices | New simplices | Flips | Turn steps |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `cube` D2 | convx | 9.03 | 11.28 | 4.02 | 6.02 | — | 12.06 |
+| | CGAL | 9.11 | 6.64 | — | — | 3.06 | — |
+| `sphere` D2 | convx | 3.96 | 12.81 | 2.98 | 4.98 | — | 8.93 |
+| | CGAL | 4.00 | 11.15 | — | — | 1.99 | — |
+
+At 10^5; 10^6 gives the same counts within 1%. CGAL's flips are its positive in-circle answers, each of which flips an edge.
+
+### The parts of convx's insertion
+
+Timed with a timer at each boundary, which adds about 150 ms at 10^6 to a mesh of 760 ms (`cube`) and 630 ms (`sphere`):
+
+| Set | Location | Cavity search | Creation | Links | Freeing |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `cube` D2 10^6 | 308 ms | 298 ms | 126 ms | 138 ms | 37 ms |
+| `sphere` D2 10^6 | 308 ms | 227 ms | 96 ms | 108 ms | 38 ms |
+
+The first stage alone, on 10^6 random points of the unit square, takes 5.7 ns a lifted orientation and 2.3 ns an orientation: about 80 ns of predicates a site, against about 760 ns of mesh. VTune puts a fifth of `cube` D2 10^6 on the line of the first stage that loads the coordinates (`semi_static.rs`, the closure `diff`).
+
+### Prototypes
+
+| Set | `main` | Sites in insertion order | Vertices and neighbors in one array | Walk that skips its entry face |
+| --- | ---: | ---: | ---: | ---: |
+| `cube` D2 10^5 | 100 ms | 0.97, inside the spread | 1.00 | 1.01 |
+| `sphere` D2 10^5 | 82.0 ms | 0.95, inside the spread | 1.04 | 1.00 |
+| `cube` D2 10^6 | 1.20 s | **0.87, faster beyond the spread** | 1.02 | 1.00 |
+| `sphere` D2 10^6 | 928 ms | **0.83, faster beyond the spread** | 1.03 | 0.98 |
+
+Two different runs; each ratio is against `main` in its own run. Each run's `main` is given for the first prototype. The orientations per site of the walk that skips its entry face fall from 11.2 to 8.7 (`cube`) and 12.8 to 11.1 (`sphere`).
+
+- **Sites in insertion order:** the site rows copied into the order of `first` then the BRIO order before `Mesh::build`. The mesh is built on those indices, and the indices are mapped back for the published rows and the merged groups. The copy is inside the timed build. Unpinned and only twice, `cube` D3 10^5 and 10^6 read 0.92 to 0.99.
+- **Vertices and neighbors in one array:** one row of 2k per simplex in place of two arrays of k.
+- **Walk that skips its entry face:** `Mesh::locate` does not test the face it came through, as CGAL's remembering walk does.
+
+### Reading
+
+- **convx does CGAL's predicates, and they are cheap.** The in-circle tests per site match CGAL's. The orientations are 1.7 times CGAL's on `cube`, from the walk. The predicates are about a tenth of the mesh's time.
+- **The cost is where the sites are.** BRIO visits sites in a spatial order, but they are stored by input index, so consecutive insertions read coordinates far apart in memory. Stored in insertion order, the mesh of `cube` D2 10^6 drops from 814 to 668 ms and of `sphere` from 656 to 513 ms. CGAL allocates its vertices, and their points, in the order of its spatial sort.
+- **Neither the layout of the mesh's arrays nor the walk's tests matter at this size.** One array for vertices and neighbors read 1.00 to 1.04. A walk with a fifth fewer orientations read 0.98 to 1.01.
+- After the prototype, the mesh of `cube` D2 10^6 takes 668 ms against CGAL's whole build of 471 ms (on Linux). A profile after the row that follows says what remains.
+
+### Rows that follow
+
+| Row | Kind | What |
+| --- | --- | --- |
+| P7-21 (#366) | Feat | Delaunay: the sites in the order of their insertion |

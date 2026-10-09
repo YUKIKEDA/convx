@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-19 (#362): the pass after the Delaunay insertion, until the owner's call on hull `cubesurf`. P7-20 (#363): the Delaunay D2 insertion against CGAL's. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4. P7-7 (#322) to P7-9 (#324): hull D2 and acceptance.
+P7-21 (#366): the Delaunay sites in insertion order. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4. P7-7 (#322) to P7-9 (#324): hull D2 and acceptance.
 
 ## Dependencies
 
@@ -171,7 +171,7 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 
 ## P7
 
-Parity with Qhull and CGAL: `build()` at most the time of each reference with the same output, on every benchmark set (ADR 0006, Grill of 2026-10-09). The rows after P7-3 come from the spike P7-2 and the design P7-3. P7-2 led to local improvements of the current insertion: P7-4, then the profile P7-5. P7-3 led to P7-6, and its Grill to the speed rows P7-7 to P7-9 for hull D2 and acceptance. The profile P7-5 led to P7-10 to P7-13 for Delaunay, and the Grill of P7-11 to P7-14. The spike P7-12 led to P7-15 and P7-16 for the predicates, and the Grill of P7-15 to P7-17. The review of P7-16 led to P7-18. The spike P7-13 led to P7-19 and P7-20.
+Parity with Qhull and CGAL: `build()` at most the time of each reference with the same output, on every benchmark set (ADR 0006, Grill of 2026-10-09). The rows after P7-3 come from the spike P7-2 and the design P7-3. P7-2 led to local improvements of the current insertion: P7-4, then the profile P7-5. P7-3 led to P7-6, and its Grill to the speed rows P7-7 to P7-9 for hull D2 and acceptance. The profile P7-5 led to P7-10 to P7-13 for Delaunay, and the Grill of P7-11 to P7-14. The spike P7-12 led to P7-15 and P7-16 for the predicates, and the Grill of P7-15 to P7-17. The review of P7-16 led to P7-18. The spike P7-13 led to P7-19 and P7-20. The spike P7-20 led to P7-21.
 
 | ID   | Kind  | Title                                                                                   | Issue | Status      |
 | ---- | ----- | --------------------------------------------------------------------------------------- | ----- | ----------- |
@@ -193,8 +193,9 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-16 | Feat | Predicates: a first stage for determinants of size 5 and 6                               | #350  | Done        |
 | P7-17 | Feat | Predicates: a double-double stage for the dedicated formulas                             | #352  | Done        |
 | P7-18 | Fix  | Predicates: the lifted underflow terms of the first-stage formulas of k ≤ 4              | #355  | Not started |
-| P7-19 | Feat | Delaunay: the pass after the insertion at the cost of its tests                         | #362  | In progress |
-| P7-20 | Spike | Delaunay D2: the insertion's own work against CGAL's                                   | #363  | Not started |
+| P7-19 | Feat | Delaunay: the pass after the insertion at the cost of its tests                         | #362  | Done        |
+| P7-20 | Spike | Delaunay D2: the insertion's own work against CGAL's                                   | #363  | Done        |
+| P7-21 | Feat | Delaunay: the sites in the order of their insertion                                      | #366  | Not started |
 
 ## Intentionally out of scope
 
