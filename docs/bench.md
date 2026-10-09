@@ -1842,6 +1842,6 @@ Per site, for the flips. The prototype's triangles matched the cavity's on every
 
 ### Reading
 
-- **The rule is not met.** The flips build the mesh in 0.65 to 0.69 of the cavity's time on all four sets, beyond the spread, against a rule of at most 0.6. By the Grill, the current insertion keeps being improved. Whether to change the rule is the owner's decision.
+- **The rule is not met.** The flips build the mesh in 0.65 to 0.69 of the cavity's time on all four sets, beyond the spread, against a rule of at most 0.6. By the Grill's rule the current insertion would keep being improved. The owner changed the rule after the measurement (#370): the flips are adopted for D = 2 (ADR 0007, P7-23, #372).
 - **The flips do CGAL's work.** Their in-circle tests and flips per site match CGAL's to within 2%. The cavity does the same in-circle tests (#363), so the saving is in what the cavity writes and links: four freed and six new triangles a site, and the turns around the ridges, against three new triangles and three flips.
 - **What a dedicated path would leave.** On `cube` D2 10^6, the flips' mesh takes 414 ms. CGAL's whole build takes 471 ms on Linux. The order and the copy (about 90 ms) and the pass after the insertion (about 160 ms after #365) come on top.
