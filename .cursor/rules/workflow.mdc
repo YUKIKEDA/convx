@@ -51,6 +51,10 @@ When a row is recorded before Grill, and the user has named the ID and the Issue
 - ID, kind, title, and dependencies that the Issue already states
 - Status is `Set after Grill on #n` only. Do not put the acceptance text on the roadmap
 
+## Rows on the same lines
+
+Two rows that will edit the same lines (the roadmap's **Current work**, the end of `docs/bench.md`, one function) are opened one after the other, or the second is stacked on the first (below). #380 and #381 both branched from `340b7cc` and edited the same lines of `docs/roadmap.md`, `docs/bench.md`, and `src/hull/simplicial.rs`; each needed `main` merged twice.
+
 ## Stacked PRs
 
 A second Issue that builds on an open PR gets its own branch and PR, based on the first. That holds when the user says to continue on the open PR: its commits do not go onto the first PR. #211 took seven Issues that way, could not be reverted by Issue after a squash, and was split into nine PRs after review.
@@ -96,7 +100,14 @@ The `justfile` arrives with the crate. The names are fixed now.
 - `just lint` = `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`
 - `just test` = `cargo test`
 
-Cloud CI is not the definition of done until a workflow exists. Do not treat a missing Actions run as a pass.
+CI (`.github/workflows/ci.yml`) runs `just lint` and the tests on stable, and the tests on the MSRV. A pull request is ready when its checks pass. A missing run is not a pass.
+
+After each merge, read `main`'s CI run. A red `main` gets its own Issue and pull request before the next merge, and a pull request whose only failure is `main`'s says so in its body. From #380 to #386, three merges, `main` was red on a lint that stable Clippy 1.99 added, and nobody read it until #386 (#388).
+
+```text
+# BAD — merge, start the next row; main's run is red on a new stable lint
+# GOOD — merge, read main's run; red → Issue and fix PR before the next merge
+```
 
 ## Language
 
