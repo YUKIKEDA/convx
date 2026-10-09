@@ -9,6 +9,8 @@ A question is not permission. Do not run history-changing git in the same turn a
 
 After a pull request merges, that branch is unnecessary. Delete it locally and on the remote in the turn that learns of the merge. Do not leave it. That deletion is required by `.cursor/rules/workflow.mdc` and does not need a separate imperative. Any other `branch -D`, and deleting a branch that still has an open pull request, still needs an imperative that names the branch.
 
+A merge resolved by a script is committed only after the script succeeded and no conflict marker is left (`git diff --check`, or a search for `<<<<<<<`). Chain the steps with `&&`, not `;`. In #365 a script failed on an assertion, the `;` after it ran `git commit` anyway, and the merge committed the markers of `docs/bench.md`.
+
 ## Stop. Do not execute
 
 Treat as a question. Reply only. Do not `reset`, `rebase`, `push --force`, `--force-with-lease`, `branch -D`, or discard work:
