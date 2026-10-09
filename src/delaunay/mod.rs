@@ -35,7 +35,7 @@ use crate::hull::ridge::{fingerprint, pair_equal_keys_with_border};
 use crate::hull::simplicial::SimplicialHull;
 use crate::hull::ConvexHullError;
 use crate::lists::Lists;
-use crate::predicates::{orient, Sign};
+use crate::predicates::{orient, Sign, Start};
 use crate::small::Small;
 
 /// A neighbor slot with no simplex across it. Point and simplex numbers are
@@ -396,7 +396,7 @@ fn flat(input: &Input<'_>, sites: &insert::Sites) -> Result<bool, ConvexHullErro
             continue;
         }
         *ids.last_mut().unwrap_or(&mut 0) = p;
-        if sites.lifted(&ids)? != Sign::Zero {
+        if sites.lifted(&ids, Start::FirstStage)? != Sign::Zero {
             return Ok(false);
         }
     }
