@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-5 (#317): profile Delaunay D2 and D3 after P7-4 and name the next rows. P7-3 (#312): the design of what the hull's `build()` computes.
+P7-5 (#317): profile Delaunay D2 and D3 after P7-4 and name the next rows. P7-6 (#321): the hull's facets in D2 cycle order and their numbering on first use.
 
 ## Dependencies
 
@@ -171,15 +171,19 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 
 ## P7
 
-Parity with Qhull and CGAL: `build()` at most the time of each reference with the same output, on every benchmark set (ADR 0006, Grill of 2026-10-09). The rows after P7-3 come from the spike P7-2 and the design P7-3. P7-2 led to local improvements of the current insertion: P7-4, then the profile P7-5.
+Parity with Qhull and CGAL: `build()` at most the time of each reference with the same output, on every benchmark set (ADR 0006, Grill of 2026-10-09). The rows after P7-3 come from the spike P7-2 and the design P7-3. P7-2 led to local improvements of the current insertion: P7-4, then the profile P7-5. P7-3 led to P7-6, and its Grill to the speed rows P7-7 to P7-9 for hull D2 and acceptance.
 
 | ID   | Kind  | Title                                                                                   | Issue | Status      |
 | ---- | ----- | --------------------------------------------------------------------------------------- | ----- | ----------- |
 | P7-1 | Task  | Record the goal of parity with Qhull and CGAL, the baseline, and the method             | #310  | Done        |
 | P7-2 | Spike | Delaunay D2: does a CGAL-style structure halve the insertion?                           | #311  | Done        |
-| P7-3 | Docs  | Hull: `build()` computes only what the result needs; the rest on first use              | #312  | Not started |
+| P7-3 | Docs  | Hull: `build()` computes only what the result needs; the rest on first use              | #312  | Done        |
 | P7-4 | Feat  | Predicates: a first-stage bound with no subnormal product                               | #316  | Done        |
 | P7-5 | Task  | Profile Delaunay D2 and D3 after P7-4 and name the next rows                            | #317  | Not started |
+| P7-6 | Feat  | Hull: D2 facets in cycle order and the facet numbering on first use                     | #321  | Not started |
+| P7-7 | Feat  | Hull D2: a faster sort of the chain's points                                            | #322  | Not started |
+| P7-8 | Feat  | Acceptance: faster duplicate detection                                                  | #323  | Not started |
+| P7-9 | Feat  | Hull D2: a faster discard before the chain                                              | #324  | Not started |
 
 ## Intentionally out of scope
 
