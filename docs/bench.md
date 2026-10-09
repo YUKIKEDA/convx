@@ -589,7 +589,7 @@ Ratios to the sequential build ("inside" when the ranges of the three runs overl
 - **Against the keep criterion of #256** (faster beyond the spread on every hull set with at least 10^4 facets): not met at 4, 8, or 16 threads by any mode.
 - **The sequential build has moved since this branch.** The spike branch is from before the bucket queue (#292), which made `build()` 0.86 to 0.95 on the large `sphere` sets, and before the planes on first use (#297), another 0.87 to 0.90: about 0.75 to 0.85 together. Against today's `main`, the 0.76 to 0.87 of the rounds would be about level.
 
-## Recorded planes in insertion and classification, convx `9024602` (#306)
+## Recorded planes in insertion and classification, PR #308 (#306)
 
 P6-22: construction records the plane numbers a point is on, insertion takes a zero sign from the record, and classification starts a recorded point at its facet (design §3).
 
