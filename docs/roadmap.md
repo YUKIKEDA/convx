@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-19 (#362): the pass after the Delaunay insertion. P7-21 (#366): the Delaunay sites in insertion order. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4. P7-7 (#322) to P7-9 (#324): hull D2 and acceptance.
+P7-21 (#366): the Delaunay sites in insertion order. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4. P7-7 (#322) to P7-9 (#324): hull D2 and acceptance.
 
 ## Dependencies
 
@@ -193,7 +193,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-16 | Feat | Predicates: a first stage for determinants of size 5 and 6                               | #350  | Done        |
 | P7-17 | Feat | Predicates: a double-double stage for the dedicated formulas                             | #352  | Done        |
 | P7-18 | Fix  | Predicates: the lifted underflow terms of the first-stage formulas of k ≤ 4              | #355  | Not started |
-| P7-19 | Feat | Delaunay: the pass after the insertion at the cost of its tests                         | #362  | Not started |
+| P7-19 | Feat | Delaunay: the pass after the insertion at the cost of its tests                         | #362  | Done        |
 | P7-20 | Spike | Delaunay D2: the insertion's own work against CGAL's                                   | #363  | Done        |
 | P7-21 | Feat | Delaunay: the sites in the order of their insertion                                      | #366  | Not started |
 
