@@ -8,6 +8,10 @@ thread_local! {
     /// ([`insert::Any`]) on this thread, to compare the shapes.
     pub(super) static GENERIC_INSERTION: core::cell::Cell<bool> =
         const { core::cell::Cell::new(false) };
+    /// Makes the insertion store the sites in the input's order on this
+    /// thread, to compare with the order of insertion (#366).
+    pub(super) static STORED_IN_INPUT_ORDER: core::cell::Cell<bool> =
+        const { core::cell::Cell::new(false) };
 }
 
 /// The triangulation of `points` by the shape of its dimension, and by the
@@ -814,5 +818,56 @@ fn dimensions_above_the_inline_capacity_build() {
             .collect();
         let t = DelaunayBuilder::new(dim, &points).build().unwrap();
         assert!(!t.simplices().is_empty(), "D = {dim}");
+    }
+}
+
+/// The order the sites are stored in for the insertion changes nothing
+/// published: the same simplices in the same order, with the same
+/// neighbors (#366). The walk is seeded by the input index, so it takes the
+/// same steps either way. General position, integer grids with cospherical
+/// groups, a lattice with duplicates, and sites near one sphere, D = 2 to 4.
+#[test]
+fn the_storage_order_of_the_sites_changes_nothing_published() {
+    let mut state = 366_u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    for dim in 2..=4_usize {
+        for family in ["general", "grid", "lattice", "near sphere"] {
+            let count = if dim == 4 { 120 } else { 400 };
+            let mut points = Vec::with_capacity(dim * count);
+            for _ in 0..count {
+                let mut v: Vec<f64> = (0..dim)
+                    .map(|_| 2.0 * ((next() >> 11) as f64 / (1_u64 << 53) as f64) - 1.0)
+                    .collect();
+                match family {
+                    "grid" => v.iter_mut().for_each(|x| *x = (next() % 8) as f64),
+                    "lattice" => v.iter_mut().for_each(|x| *x = (next() % 5) as f64 - 2.0),
+                    "near sphere" => {
+                        let norm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
+                        v.iter_mut().for_each(|x| *x /= norm);
+                    }
+                    _ => {}
+                }
+                points.extend(v);
+            }
+            let inserted = DelaunayBuilder::new(dim, &points).build().unwrap();
+            STORED_IN_INPUT_ORDER.with(|c| c.set(true));
+            let stored = DelaunayBuilder::new(dim, &points).build();
+            STORED_IN_INPUT_ORDER.with(|c| c.set(false));
+            let stored = stored.unwrap();
+            let rows = |t: &DelaunayTriangulation| -> Vec<(Vec<u32>, Vec<u32>)> {
+                t.simplices()
+                    .iter()
+                    .map(|s| (s.vertices().to_vec(), s.neighbors().to_vec()))
+                    .collect()
+            };
+            assert!(!rows(&inserted).is_empty(), "D = {dim}, {family}");
+            assert_eq!(rows(&inserted), rows(&stored), "D = {dim}, {family}");
+            assert_eq!(inserted.representative(), stored.representative());
+        }
     }
 }

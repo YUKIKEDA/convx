@@ -376,6 +376,20 @@ fn ascending(row: &[u32]) -> (Small<(u32, usize), 11>, bool) {
     (sorted, negative)
 }
 
+/// Whether the mesh is built on the sites in the input's order instead of
+/// the order of insertion: a test's override on this thread, to show that
+/// the storage order changes nothing published. Always false otherwise.
+fn stored_in_input_order() -> bool {
+    #[cfg(test)]
+    {
+        tests::STORED_IN_INPUT_ORDER.with(core::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
+
 /// Whether D = 2 and D = 3 take the shape of any dimension: a test's
 /// override on this thread, to compare the shapes. Always false otherwise.
 fn generic_insertion() -> bool {
@@ -447,6 +461,12 @@ fn flat(input: &Input<'_>, sites: &insert::Sites) -> Result<bool, ConvexHullErro
 /// its vertices, since the mesh stores it positive, and its neighbors are
 /// the mesh's. Only merged groups are split again by placing, and only their
 /// faces are paired by vertex set.
+///
+/// The mesh is built on a copy of the sites in insertion order, so that
+/// consecutive insertions read nearby rows: by input index they lie far
+/// apart, and their loads were a quarter of D2 at 10^6 sites (#363, #366).
+/// Its vertices are mapped back to the input's indices for the published
+/// rows and groups.
 fn inserted<S: insert::Shape>(
     shape: S,
     input: &Input<'_>,
@@ -462,7 +482,20 @@ fn inserted<S: insert::Shape>(
         .filter(|p| !first.contains(p))
         .collect();
     let order = insert::brio(sites, &rest);
-    let mesh = insert::Mesh::build(shape, sites, first, &order)?;
+    let inserted_order: Vec<u32> = first.iter().chain(&order).copied().collect();
+    let (local, local_first, local_order) = if stored_in_input_order() {
+        let input_order: Vec<u32> = (0..input.representative.len() as u32).collect();
+        (sites.permuted(&input_order), first.clone(), order)
+    } else {
+        let local_order = (k as u32..inserted_order.len() as u32).collect();
+        (
+            sites.permuted(&inserted_order),
+            (0..k as u32).collect(),
+            local_order,
+        )
+    };
+    let mesh = insert::Mesh::build(shape, &local, &local_first, &local_order)?;
+    let site = |v: u32| local.input_index(v);
 
     // Union of the finite simplices that share a face and are cospherical
     // across it: the far vertex of the neighbor has lifted orientation zero
@@ -556,7 +589,8 @@ fn inserted<S: insert::Shape>(
         if draft_of[c as usize] == UNKNOWN {
             continue;
         }
-        let (sorted, negative) = ascending(mesh.vertices_of(c));
+        let vertices: Small<u32, 11> = mesh.vertices_of(c).iter().map(|&v| site(v)).collect();
+        let (sorted, negative) = ascending(&vertices);
         let start = draft.rows.len();
         draft.rows.extend(sorted.iter().map(|&(v, _)| v));
         draft.links.extend(
@@ -580,7 +614,7 @@ fn inserted<S: insert::Shape>(
         for run in members.chunk_by(|x, y| x.0 == y.0) {
             let mut group: Vec<u32> = run
                 .iter()
-                .flat_map(|&(_, c)| mesh.vertices_of(c).iter().copied())
+                .flat_map(|&(_, c)| mesh.vertices_of(c).iter().map(|&v| site(v)))
                 .collect();
             group.sort_unstable();
             group.dedup();

@@ -1816,6 +1816,67 @@ Two different runs; each ratio is against `main` in its own run. Each run's `mai
 | --- | --- | --- |
 | P7-21 (#366) | Feat | Delaunay: the sites in the order of their insertion |
 
+## Delaunay: the sites in the order of their insertion, PR #369 (#366)
+
+P7-21. The insertion read each site's row by its input index, while BRIO visits the sites in a spatial order. Those loads were a quarter of Delaunay D2 at 10^6 sites (#363, and the profile on #366). The mesh is now built on a copy of the rows in insertion order. The sites keep their input index:
+- it seeds the walk, so the simplices are created and published in the same order as before;
+- it maps the published rows and the merged groups back to the input's indices.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `214b6fe` against the head `a77c1b5`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2) |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md` (#341), the guard sets, and the keep criterion's Delaunay `cube` and `sphere` D2 10^6, with `cube` D3 10^6 |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about a second |
+| Published | The simplices, their neighbors, and the representatives, in their published order, hashed: the same on Delaunay `cube` and `sphere` D2 10^5, D3 2 × 10^4, D4 3000 and 2000, and `grid` D2 and D3 |
+
+Every set published the same counts on both sides.
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.68 ms (0.61 ms–1.16 ms) | 0.66 ms (0.61 ms–0.81 ms) | 0.96, inside the spread |
+| Hull `cube` D2 10^5 | 6.19 ms (5.70 ms–7.70 ms) | 6.22 ms (5.66 ms–6.80 ms) | 1.00, inside the spread |
+| Hull `cube` D3 10^4 | 1.55 ms (1.35 ms–2.01 ms) | 1.52 ms (1.36 ms–2.16 ms) | 0.98, inside the spread |
+| Hull `cube` D3 10^5 | 11.7 ms (11.1 ms–13.7 ms) | 11.8 ms (11.3 ms–15.2 ms) | 1.01, inside the spread |
+| Hull `cube` D4 10^4 | 6.90 ms (6.38 ms–8.25 ms) | 6.89 ms (6.30 ms–7.93 ms) | 1.00, inside the spread |
+| Hull `cube` D4 10^5 | 38.5 ms (36.9 ms–41.0 ms) | 38.2 ms (36.3 ms–46.2 ms) | 0.99, inside the spread |
+| Hull `cube` D5 10^4 | 60.6 ms (58.7 ms–71.1 ms) | 59.8 ms (57.6 ms–61.5 ms) | 0.99, inside the spread |
+| Hull `cube` D6 10^4 | 637 ms (614 ms–723 ms) | 634 ms (613 ms–759 ms) | 0.99, inside the spread |
+| Hull `cubesurf` D3 10^5 | 113 ms (109 ms–121 ms) | 113 ms (109 ms–120 ms) | 1.00, inside the spread |
+| Hull `sphere` D2 10^4 | 1.63 ms (1.51 ms–2.34 ms) | 1.67 ms (1.51 ms–2.14 ms) | 1.02, inside the spread |
+| Hull `sphere` D2 10^5 | 18.4 ms (16.4 ms–21.2 ms) | 18.2 ms (16.9 ms–22.3 ms) | 0.99, inside the spread |
+| Hull `sphere` D3 10^4 | 29.9 ms (28.4 ms–44.3 ms) | 30.5 ms (28.5 ms–39.8 ms) | 1.02, inside the spread |
+| Hull `sphere` D3 10^5 | 346 ms (338 ms–368 ms) | 347 ms (341 ms–367 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^4 | 138 ms (133 ms–147 ms) | 137 ms (134 ms–143 ms) | 0.99, inside the spread |
+| Hull `sphere` D4 10^5 | 1.65 s (1.64 s–1.70 s) | 1.64 s (1.62 s–1.66 s) | 0.99, inside the spread |
+| Hull `sphere` D5 10^4 | 901 ms (885 ms–921 ms) | 892 ms (878 ms–916 ms) | 0.99, inside the spread |
+| Delaunay `cube` D2 10^4 | 8.44 ms (7.96 ms–10.2 ms) | 8.67 ms (8.09 ms–9.54 ms) | 1.03, inside the spread |
+| Delaunay `cube` D2 10^5 | 89.8 ms (86.6 ms–97.5 ms) | 87.7 ms (85.1 ms–93.9 ms) | 0.98, inside the spread |
+| Delaunay `cube` D2 10^6 | 979 ms (965 ms–995 ms) | 830 ms (820 ms–840 ms) | 0.85, faster beyond the spread |
+| Delaunay `cube` D3 10^4 | 46.0 ms (43.7 ms–49.4 ms) | 45.1 ms (43.5 ms–49.5 ms) | 0.98, inside the spread |
+| Delaunay `cube` D3 10^5 | 509 ms (501 ms–530 ms) | 486 ms (476 ms–502 ms) | 0.96, inside the spread |
+| Delaunay `cube` D3 10^6 | 5.26 s (5.07 s–5.29 s) | 4.78 s (4.69 s–4.94 s) | 0.91, faster beyond the spread |
+| Delaunay `cube` D4 10^4 | 746 ms (737 ms–776 ms) | 721 ms (709 ms–749 ms) | 0.97, inside the spread |
+| Delaunay `cube` D5 10^4 | 8.10 s (7.29 s–8.52 s) | 7.57 s (7.30 s–8.62 s) | 0.93, inside the spread |
+| Delaunay `sphere` D2 10^4 | 8.16 ms (7.57 ms–9.25 ms) | 8.21 ms (7.68 ms–17.7 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D2 10^5 | 72.1 ms (69.1 ms–78.0 ms) | 70.8 ms (68.6 ms–75.7 ms) | 0.98, inside the spread |
+| Delaunay `sphere` D2 10^6 | 747 ms (734 ms–756 ms) | 634 ms (630 ms–642 ms) | 0.85, faster beyond the spread |
+| Delaunay `sphere` D3 10^4 | 94.6 ms (91.6 ms–103 ms) | 95.7 ms (93.3 ms–106 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D3 10^5 | 918 ms (916 ms–933 ms) | 897 ms (894 ms–905 ms) | 0.98, faster beyond the spread |
+
+### Reading
+
+- **The keep criterion is met.** Delaunay `cube` and `sphere` D2 10^6 read 0.85, faster beyond the spread, close to the prototype of #363 (0.87 and 0.83).
+- **D3 gains too.** `cube` D3 10^6 read 0.91 and `sphere` D3 10^5 0.98, both beyond the spread. D2 and D3 at 10^4 and 10^5 are inside the spread. The profile put the loads at 2 to 13% there.
+- **Nothing is slower beyond the spread.** Hull `cubesurf` D3 10^5, which read 1.11 to 1.14 after #365, read 1.00 here: no hull code changed in either PR (#368).
+- **The copy's memory** is the rows, `(D + 2)` `f64` per site, and the input index, one `u32` per site, on both sides: about 36 MB more at D2 10^6, against a mesh of about 2 × 10^6 simplices of 3 vertices, 3 neighbors, and 3 records each.
+- **The walk's seed.** In the prototype it came from the stored index, which changed the order of the published simplices without changing their set. The prototype's hash of the sorted vertex lists did not see that, so this head compares the published order itself. A test builds the same inputs with both storage orders (`the_storage_order_of_the_sites_changes_nothing_published`).
+
 ## Delaunay D2: an insertion by edge flips, PR #371 (#370)
 
 The spike P7-22. Does an insertion by edge flips, CGAL's method for D = 2, build the mesh in at most 0.6 of the time of convx's cavity insertion? The rule was set in the Grill of 2026-10-10 (on #370): at most 0.6 on each of Delaunay `cube` and `sphere` D2 at 10^5 and 10^6 leads to a dedicated D = 2 insertion and ADR 0007; otherwise the current insertion keeps being improved.
