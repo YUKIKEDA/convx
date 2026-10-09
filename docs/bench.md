@@ -2078,3 +2078,180 @@ Met: 13 of 41 (hull 9, Delaunay 4), as in the run of #361.
   - The three rows that changed it: the pass after the insertion (#365), the sites in insertion order (#369), and the insertion by edge flips (#373).
 - **Delaunay `sphere` D3 10^6** reads 1.04, from 1.10. `cube` D3 reads 1.57 to 1.65, from 1.60 to 1.86.
 - **Hull `sphere` D5 10^4** reads 0.99 against Qhull and is met; **hull `cube` D4 10^4** reads 1.01 and is not met. Neither path changed: these sets lie within a few percent of 1.00, where runs differ (#361).
+
+## Hull D2: the chain's points sorted by keys read once, PR #380 (#322)
+
+P7-7. The D = 2 hull sorted the points kept for its chain with a stable sort whose comparison read two input points. On hull `sphere` D2, where no point is discarded, that sort was 24 to 31% of `build()` (the profile on #322). Each point is now read once into keys that order as `f64::total_cmp` does. The keys and the index are sorted unstably, and the index makes them unique, so the order is the same. The chains then read the sorted coordinates in order.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `340b7cc` against the head `c6b6fcf`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2) |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md` (#341), the guard sets, and the keep criterion's hull `sphere` D2 10^5 and 10^6, with `cube` D2 10^6 |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about a second and for D2 10^6. Second runs: hull `sphere` D2 10^5 20 × 3 and `cube` D2 10^6 10 × 1; and all three D2 sets built with one codegen unit on each side |
+
+Every set published the same counts on both sides.
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.67 ms (0.60 ms–1.10 ms) | 0.68 ms (0.61 ms–1.04 ms) | 1.02, inside the spread |
+| Hull `cube` D2 10^5 | 6.04 ms (5.56 ms–7.26 ms) | 6.25 ms (5.71 ms–7.63 ms) | 1.04, inside the spread |
+| Hull `cube` D2 10^6 | 63.6 ms (63.0 ms–64.1 ms) | 67.5 ms (67.0 ms–70.8 ms) | 1.06, slower beyond the spread |
+| Hull `cube` D3 10^4 | 1.59 ms (1.34 ms–1.95 ms) | 1.61 ms (1.36 ms–2.65 ms) | 1.01, inside the spread |
+| Hull `cube` D3 10^5 | 12.6 ms (11.8 ms–14.2 ms) | 12.6 ms (11.2 ms–16.9 ms) | 1.00, inside the spread |
+| Hull `cube` D4 10^4 | 6.62 ms (6.32 ms–8.17 ms) | 6.68 ms (6.28 ms–7.79 ms) | 1.01, inside the spread |
+| Hull `cube` D4 10^5 | 35.3 ms (34.6 ms–48.6 ms) | 35.8 ms (34.6 ms–39.8 ms) | 1.01, inside the spread |
+| Hull `cube` D5 10^4 | 55.7 ms (54.2 ms–62.7 ms) | 55.9 ms (54.8 ms–59.7 ms) | 1.00, inside the spread |
+| Hull `cube` D6 10^4 | 577 ms (566 ms–597 ms) | 581 ms (572 ms–594 ms) | 1.01, inside the spread |
+| Hull `cubesurf` D3 10^5 | 105 ms (103 ms–112 ms) | 106 ms (103 ms–116 ms) | 1.01, inside the spread |
+| Hull `sphere` D2 10^4 | 1.60 ms (1.52 ms–7.13 ms) | 1.51 ms (1.40 ms–1.94 ms) | 0.94, inside the spread |
+| Hull `sphere` D2 10^5 | 18.8 ms (17.6 ms–21.7 ms) | 17.1 ms (15.6 ms–18.9 ms) | 0.91, inside the spread |
+| Hull `sphere` D2 10^6 | 207 ms (204 ms–212 ms) | 166 ms (165 ms–168 ms) | 0.80, faster beyond the spread |
+| Hull `sphere` D3 10^4 | 28.7 ms (27.2 ms–36.9 ms) | 28.2 ms (27.2 ms–40.3 ms) | 0.99, inside the spread |
+| Hull `sphere` D3 10^5 | 331 ms (320 ms–345 ms) | 334 ms (326 ms–365 ms) | 1.01, inside the spread |
+| Hull `sphere` D4 10^4 | 126 ms (123 ms–134 ms) | 128 ms (123 ms–139 ms) | 1.01, inside the spread |
+| Hull `sphere` D4 10^5 | 1.49 s (1.49 s–1.51 s) | 1.50 s (1.47 s–1.52 s) | 1.01, inside the spread |
+| Hull `sphere` D5 10^4 | 821 ms (803 ms–842 ms) | 830 ms (808 ms–906 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^4 | 7.41 ms (7.09 ms–8.33 ms) | 7.39 ms (7.02 ms–7.98 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^5 | 73.7 ms (72.0 ms–80.1 ms) | 73.4 ms (71.7 ms–84.0 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^4 | 41.8 ms (40.7 ms–44.5 ms) | 42.0 ms (40.7 ms–46.6 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^5 | 447 ms (440 ms–473 ms) | 443 ms (436 ms–458 ms) | 0.99, inside the spread |
+| Delaunay `cube` D4 10^4 | 660 ms (646 ms–704 ms) | 679 ms (673 ms–692 ms) | 1.03, inside the spread |
+| Delaunay `cube` D5 10^4 | 7.33 s (7.24 s–7.36 s) | 7.34 s (7.28 s–7.39 s) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^4 | 7.00 ms (6.75 ms–7.61 ms) | 6.90 ms (6.77 ms–8.72 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D2 10^5 | 58.5 ms (57.0 ms–65.7 ms) | 58.3 ms (57.2 ms–61.8 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^4 | 88.2 ms (86.2 ms–92.5 ms) | 88.1 ms (86.2 ms–90.5 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^5 | 841 ms (834 ms–850 ms) | 835 ms (831 ms–847 ms) | 0.99, inside the spread |
+
+The second runs:
+
+| Set | Default build | One codegen unit |
+| --- | --- | --- |
+| hull `sphere` D2 10^5 | 0.90: 18.7 ms (17.2–25.5) against 16.8 ms (15.6–22.9), inside the spread through the head's slowest builds | 0.90, inside the spread |
+| hull `sphere` D2 10^6 | — | 0.77: 237 ms against 181 ms, faster beyond the spread |
+| hull `cube` D2 10^6 | 1.02: 72.7 ms against 74.1 ms, inside the spread | 1.03, inside the spread |
+
+### Reading
+
+- **The keep criterion is met.**
+  - Hull `sphere` D2 10^6 reads 0.80, and 0.77 with one codegen unit, faster beyond the spread.
+  - Hull `sphere` D2 10^5 reads 0.90 or 0.91 in four runs, each inside the spread through single slow builds, so the difference is reported (`bench.mdc`).
+- **Hull `cube` D2 10^6 read 1.06 in the first run, then 1.02 and 1.03.** On `cube` the discard leaves few points to sort, and the profile put the sort at 4% of `build()` there. With one codegen unit it reads 1.03, inside the spread, so the first run is read as code generation and run-to-run noise.
+- The other sets: 0.94 to 1.04, inside the spread.
+
+## Hull D2: the discard against edges gathered once, PR #381 (#324)
+
+P7-9. Before the D = 2 chain, every representative is tested against the polygon of the eight directional extremes, one certified orientation per edge (design §6). Each test read the edge's two ends from the input again. On hull `cube` D2 that test was 32 to 41% of `build()` (the profile on #324). The edges' coordinates are now gathered once. The same certified orientation decides, so the same points are discarded.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `340b7cc` against the head `30d8076`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2) |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md` (#341), the guard sets, and the keep criterion's hull `cube` D2 10^5 and 10^6, with `sphere` D2 10^6 |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about a second and for D2 10^6. A second run of hull `cube` D2 10^5, 20 × 3 |
+
+Every set published the same counts on both sides.
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.70 ms (0.60 ms–0.87 ms) | 0.61 ms (0.52 ms–0.80 ms) | 0.87, inside the spread |
+| Hull `cube` D2 10^5 | 6.28 ms (5.54 ms–7.36 ms) | 5.29 ms (4.74 ms–6.95 ms) | 0.84, inside the spread |
+| Hull `cube` D2 10^6 | 65.4 ms (65.0 ms–66.9 ms) | 58.5 ms (56.4 ms–59.4 ms) | 0.90, faster beyond the spread |
+| Hull `cube` D3 10^4 | 1.63 ms (1.37 ms–2.43 ms) | 1.62 ms (1.34 ms–2.10 ms) | 0.99, inside the spread |
+| Hull `cube` D3 10^5 | 12.7 ms (11.8 ms–19.3 ms) | 13.0 ms (11.5 ms–25.4 ms) | 1.02, inside the spread |
+| Hull `cube` D4 10^4 | 6.55 ms (6.32 ms–9.07 ms) | 6.52 ms (6.34 ms–8.49 ms) | 1.00, inside the spread |
+| Hull `cube` D4 10^5 | 35.8 ms (34.1 ms–39.8 ms) | 35.3 ms (34.2 ms–36.9 ms) | 0.99, inside the spread |
+| Hull `cube` D5 10^4 | 55.4 ms (54.1 ms–63.7 ms) | 55.7 ms (54.5 ms–63.2 ms) | 1.00, inside the spread |
+| Hull `cube` D6 10^4 | 578 ms (568 ms–604 ms) | 580 ms (571 ms–613 ms) | 1.00, inside the spread |
+| Hull `cubesurf` D3 10^5 | 104 ms (101 ms–114 ms) | 103 ms (100 ms–114 ms) | 0.99, inside the spread |
+| Hull `sphere` D2 10^4 | 1.65 ms (1.50 ms–2.03 ms) | 1.68 ms (1.52 ms–2.64 ms) | 1.02, inside the spread |
+| Hull `sphere` D2 10^5 | 18.3 ms (17.0 ms–20.3 ms) | 18.5 ms (17.1 ms–21.4 ms) | 1.01, inside the spread |
+| Hull `sphere` D2 10^6 | 212 ms (208 ms–235 ms) | 211 ms (208 ms–217 ms) | 0.99, inside the spread |
+| Hull `sphere` D3 10^4 | 28.9 ms (28.2 ms–31.0 ms) | 28.8 ms (27.8 ms–30.1 ms) | 1.00, inside the spread |
+| Hull `sphere` D3 10^5 | 335 ms (325 ms–381 ms) | 334 ms (324 ms–351 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^4 | 126 ms (123 ms–134 ms) | 126 ms (123 ms–145 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^5 | 1.47 s (1.45 s–1.48 s) | 1.47 s (1.46 s–1.48 s) | 1.00, inside the spread |
+| Hull `sphere` D5 10^4 | 821 ms (800 ms–893 ms) | 828 ms (815 ms–882 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^4 | 7.40 ms (7.09 ms–9.60 ms) | 7.36 ms (7.02 ms–8.54 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^5 | 74.5 ms (71.8 ms–80.3 ms) | 72.9 ms (71.1 ms–78.0 ms) | 0.98, inside the spread |
+| Delaunay `cube` D3 10^4 | 42.1 ms (40.8 ms–77.2 ms) | 41.7 ms (40.9 ms–43.0 ms) | 0.99, inside the spread |
+| Delaunay `cube` D3 10^5 | 444 ms (441 ms–491 ms) | 448 ms (439 ms–483 ms) | 1.01, inside the spread |
+| Delaunay `cube` D4 10^4 | 649 ms (638 ms–665 ms) | 658 ms (638 ms–674 ms) | 1.01, inside the spread |
+| Delaunay `cube` D5 10^4 | 7.41 s (7.28 s–7.66 s) | 7.47 s (7.34 s–7.75 s) | 1.01, inside the spread |
+| Delaunay `sphere` D2 10^4 | 6.90 ms (6.66 ms–7.64 ms) | 6.91 ms (6.68 ms–7.61 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^5 | 58.2 ms (56.5 ms–61.2 ms) | 58.2 ms (56.4 ms–61.8 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^4 | 89.1 ms (86.5 ms–94.4 ms) | 88.5 ms (86.0 ms–92.1 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D3 10^5 | 837 ms (826 ms–841 ms) | 833 ms (827 ms–838 ms) | 1.00, inside the spread |
+
+The second run of hull `cube` D2 10^5, 20 × 3: 6.18 ms (5.46–10.05) against 5.26 ms (4.71–12.85), 0.85.
+
+### Reading
+
+- **The keep criterion is met.**
+  - Hull `cube` D2 10^6 reads 0.90, faster beyond the spread.
+  - Hull `cube` D2 10^5 reads 0.84 and 0.85 in two runs, its ranges overlapping only through single slow builds, so the difference is reported (`bench.mdc`).
+  - Hull `cube` D2 10^4 reads 0.87 too.
+- **Nothing is slower beyond the spread.** Hull `sphere` D2 reads 0.99 to 1.02: there the sample finds nothing inside and no point is tested. The other sets read 0.98 to 1.02.
+
+## Hull `cubesurf` and `grid`: where the time goes against Qhull, PR #386 (#368)
+
+The spike P7-25 asks where the time goes on the two degenerate hull sets, the furthest from parity (#379): `cubesurf` D3 10^5 is 2.70 against CGAL and 3.54 against Qhull; `grid` D6 10^4 is 6.55 against Qhull. It also asks how much of `cubesurf`'s spread is code generation (#365).
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `340b7cc`. VTune hotspots, software sampling, one pinned core: 20 builds of `cubesurf` D3 10^5, 3 of `grid` D6 10^4. A copy outside the crate that counts every plain orientation, those with a column of differences that is all zero, and those whose exact sign is zero. A second copy that answers zero for such a column, after the first stage and before the later stages |
+| Qhull | The work counters of the parity run of #379 (`qconvex Qt Ts`): hyperplanes and distance tests |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2); Qhull under WSL2 on the same machine |
+| Timed | `build()`, `main` and the copy alternated per round: 8 rounds × 3 builds of `cubesurf` D3 10^5, `cube` D3 10^5; 3 × 1 of `grid` D6 10^4; 4 × 1 of `sphere` D3 10^5; 6 × 3 of Delaunay `cube` D2 10^5. `main` built with one codegen unit against the default, 10 × 3 on `cubesurf` |
+
+### Where the time goes
+
+| Set | Orientations | Exactly zero | Zero with a column of zeros | Profile |
+| --- | ---: | ---: | ---: | --- |
+| `cubesurf` D3 10^5 | 110,187 | 100,308 | 100,308 | the orientations 32% of `build()`: the exact stage 19%, double-double 8%; the classification after construction about 38% |
+| `grid` D6 10^4 | 1,666,863 | 561,584 | 483,662 | the running filter of k = 6 57% of `build()` |
+| `cube` D3 10^5 | 7 | 0 | 0 | |
+| `sphere` D3 10^5 | 7 | 0 | 0 | |
+
+| Set | convx | Qhull: hyperplanes, distance tests | Qhull's time |
+| --- | ---: | --- | ---: |
+| `cubesurf` D3 10^5 | 102 ms | 501, 2,236,537 | 28.8 ms |
+| `grid` D6 10^4 | 2.23 s | 14,992, 8,004,186 | 340 ms |
+
+### Prototype: a zero column decides zero
+
+| Set | `main` | Prototype | Ratio |
+| --- | ---: | ---: | ---: |
+| hull `cubesurf` D3 10^5 | 114 ms (110–126) | 83.6 ms (81.0–91.3) | 0.73, faster beyond the spread |
+| hull `grid` D6 10^4 | 2.49 s (2.49–2.51) | 2.13 s (2.12–2.14) | 0.85, faster beyond the spread |
+| hull `cube` D3 10^5 | 12.5 ms (11.6–14.0) | 12.8 ms (11.3–16.4) | 1.03, inside the spread |
+| hull `sphere` D3 10^5 | 366 ms (365–367) | 371 ms (366–379) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^5 | 81.8 ms (79.1–87.8) | 79.5 ms (77.9–85.8) | 0.97, inside the spread |
+
+With one codegen unit, `main`'s `cubesurf` D3 10^5 read 0.99 of the default build (114 ms against 113 ms), inside the spread.
+
+### Reading
+
+- **Most of the degenerate work is exact zeros on hyperplanes parallel to the axes.** On `cubesurf` every zero has a column of differences that is all zero, and on `grid` 86% of them. `a - b` is zero in `f64` exactly when `a == b`, so such a column is exact and the determinant is zero. A bound can never certify a zero, so each of them ran the later stages. Answering zero for that column reads `cubesurf` 0.73 and `grid` 0.85. General inputs never reach it.
+- **`grid`'s gap is the cost of a side test.** Qhull's 8.0 million distance tests take 340 ms, about 40 ns each, a dot product with a hyperplane computed once per facet. convx's 1.7 million orientations take about 2.2 s, a 6 × 6 determinant each. The `grid` coordinates are small integers, so each facet's hyperplane is exact in `f64`, and a dot product with it would give the exact side, zero included.
+- **`cubesurf`'s spread is not code generation on `main`.** It read 0.99 with one codegen unit; the 1.11 to 1.14 of #365 came from that change's partition.
+- After the zero column, `cubesurf`'s classification after construction (about 38%) is next.
+
+### Rows that follow
+
+| Row | Kind | What |
+| --- | --- | --- |
+| P7-26 (#384) | Feat | Predicates: a zero column of differences decides zero before the later stages |
+| P7-27 (#385) | Spike | Hull: exact planes of integer inputs, side tests by a dot product |
