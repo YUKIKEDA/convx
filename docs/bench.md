@@ -1154,7 +1154,7 @@ Met: 9 of 41, as before. Ratios of `build()`; "(ref.)" marks a reference that is
 - No set is slower beyond the spread. The Delaunay sets, whose path this does not change, read 0.99 to 1.05, inside the spread.
 - No set changes its P7 judgement. Hull `sphere` D5 now reads 1.01 to 1.03 against Qhull.
 
-## Delaunay simplices in construction order, PR #NNN (#335)
+## Delaunay simplices in construction order, PR #342 (#335)
 
 P7-14. The Delaunay triangulation publishes its simplices in the order the construction leaves, and publication sorts nothing (design §7, #336). Voronoi sorts the cells of each cospherical group itself, as design §8 requires. This row was timed by the full method, which it started before #341 shortened it.
 
