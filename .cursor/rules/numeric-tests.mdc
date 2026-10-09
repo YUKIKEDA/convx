@@ -33,3 +33,5 @@ if mixed && k >= 4 { assert!(plane.is_none()); continue; }       // named except
 ```
 
 A power of two below `2^-1022` is built from its bits, not with `f64::powi`. On x86_64 Linux `powi` divides one by `2^-e` for a negative `e`, and `2^-e` overflows for `e < -1023`, so every such power comes out as 0. The reference of a test then computed zero determinants on Linux and passed on Windows, and a test of every exponent silently skipped the subnormal ones (#344).
+
+A change to a numeric test runs the suite on Linux (WSL) as well as on Windows. Every run before #345 was on Windows, and a Linux-only failure was found by a reviewer.

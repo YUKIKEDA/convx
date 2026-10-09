@@ -28,3 +28,5 @@ The acceptance text on #120 is still unmet.
 ```
 
 Before `gh pr create`, read the title and the body. If a closing verb sits next to an issue you are not finishing, rewrite that sentence. Do not paste the bad example above into a pull request.
+
+After a PR is created or its body edited, run `gh pr view <n> --json closingIssuesReferences` and check the list against the intent. #342 said "Part of #335" and later "To close #335 with this PR, …"; the merge closed #335, which had to be reopened.
