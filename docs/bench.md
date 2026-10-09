@@ -1153,3 +1153,79 @@ Met: 9 of 41, as before. Ratios of `build()`; "(ref.)" marks a reference that is
 - **The keep criterion of #321 is not met on hull `sphere` D3 10^5.** It reads 0.95 in the first run and 0.94 in a second run of ten rounds, both inside the spread. Its numbering on first use saves the sort of about 200,000 facets, a few percent of a build that construction dominates. Hull `sphere` D3 10^6 reads 0.93, D4 10^5 0.93, D5 0.92 to 0.95, and D6 0.94, all beyond the spread, as are `cube` D6 at 0.93 and 0.96.
 - No set is slower beyond the spread. The Delaunay sets, whose path this does not change, read 0.99 to 1.05, inside the spread.
 - No set changes its P7 judgement. Hull `sphere` D5 now reads 1.01 to 1.03 against Qhull.
+
+## Delaunay D3: new tetrahedra linked by face keys, PR #NNN (#329)
+
+P7-10, first part. At D = 3 the faces through the new site of the new tetrahedra are paired by their two other vertices, in an open-addressing table, instead of by a turn around each ridge through the cavity. D = 2 keeps the turn; a fan of the new triangles was tried and is not shipped (below). Timed by the shorter method of #341.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `82ed620` against the head `207bf41`, and two earlier commits of this branch. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2) |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1. The sets: those the keep criterion of #329 names (`cube` D2 and D3 at 10^5 and 10^6), the Delaunay path at 10^4 and 10^5, and the hull guard sets (`docs/verification.md`, Shorter runs of P7) |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds, or 5 × 1 for the sets over about 1.5 s |
+| Before the change | A scratch copy of `main` with timers around the two passes of `Mesh::insert`: on `cube` D3 10^5 the turns took 154 ms of a 760 ms build at 47 turn steps a site, and on `cube` D2 10^5 14 ms of 133 ms (#329) |
+
+Every set published the same counts on both sides.
+
+### The head (`207bf41`)
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Delaunay `cube` D2 10^4 | 10.5 ms (9.48 ms–12.4 ms) | 10.5 ms (9.41 ms–12.7 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^5 | 114 ms (107 ms–129 ms) | 112 ms (107 ms–126 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D2 10^4 | 14.5 ms (13.5 ms–16.3 ms) | 14.4 ms (13.3 ms–15.6 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D2 10^5 | 103 ms (97.9 ms–110 ms) | 104 ms (96.6 ms–108 ms) | 1.01, inside the spread |
+| Delaunay `cube` D3 10^4 | 58.6 ms (55.0 ms–70.2 ms) | 53.9 ms (52.0 ms–59.9 ms) | 0.92, inside the spread |
+| Delaunay `cube` D3 10^5 | 694 ms (678 ms–725 ms) | 650 ms (623 ms–709 ms) | 0.94, inside the spread |
+| Delaunay `sphere` D3 10^4 | 275 ms (269 ms–289 ms) | 277 ms (268 ms–296 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^6 | 1.46 s (1.42 s–1.51 s) | 1.45 s (1.42 s–1.48 s) | 1.00, inside the spread |
+| Hull `sphere` D3 10^5 | 366 ms (352 ms–393 ms) | 363 ms (348 ms–389 ms) | 0.99, inside the spread |
+| Hull `cube` D3 10^5 | 11.8 ms (11.2 ms–13.3 ms) | 11.7 ms (11.1 ms–13.8 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D3 10^5 | 2.52 s (2.51 s–2.60 s) | 2.46 s (2.44 s–2.57 s) | 0.98, inside the spread |
+| Delaunay `cube` D3 10^6 | 7.89 s (7.77 s–8.11 s) | 7.41 s (7.28 s–7.74 s) | 0.94 |
+
+### Earlier commits of this branch
+
+`9e71305` linked D2 and D3 by keys and cleared the whole table at every insertion:
+
+| Set | `main` | That commit | Ratio |
+| --- | ---: | ---: | ---: |
+| Delaunay `cube` D2 10^4 | 11.1 ms (10.4 ms–14.2 ms) | 10.9 ms (10.0 ms–12.5 ms) | 0.98, inside the spread |
+| Delaunay `cube` D2 10^5 | 121 ms (111 ms–134 ms) | 116 ms (107 ms–122 ms) | 0.96, inside the spread |
+| Delaunay `sphere` D2 10^4 | 14.2 ms (13.0 ms–15.6 ms) | 14.6 ms (13.3 ms–15.8 ms) | 1.03, inside the spread |
+| Delaunay `sphere` D2 10^5 | 103 ms (98.9 ms–111 ms) | 102 ms (99.0 ms–121 ms) | 0.99, inside the spread |
+| Delaunay `cube` D3 10^4 | 58.3 ms (55.5 ms–64.3 ms) | 52.9 ms (50.6 ms–59.4 ms) | 0.91, inside the spread |
+| Delaunay `cube` D3 10^5 | 680 ms (667 ms–728 ms) | 627 ms (605 ms–701 ms) | 0.92, inside the spread |
+| Delaunay `sphere` D3 10^4 | 271 ms (266 ms–286 ms) | 266 ms (260 ms–298 ms) | 0.98, inside the spread |
+| Delaunay `cube` D2 10^6 | 1.49 s (1.30 s–2.10 s) | 1.46 s (1.28 s–1.57 s) | 0.98, inside the spread |
+| Hull `sphere` D3 10^5 | 335 ms (324 ms–358 ms) | 332 ms (323 ms–349 ms) | 0.99, inside the spread |
+| Hull `cube` D3 10^5 | 11.4 ms (11.0 ms–12.3 ms) | 11.5 ms (10.9 ms–12.9 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D3 10^5 | 2.29 s (2.26 s–2.38 s) | 2.24 s (2.21 s–2.27 s) | 0.98, inside the spread |
+| Delaunay `cube` D3 10^6 | 7.31 s (7.31 s–7.37 s) | 6.82 s (6.79 s–6.86 s) | 0.93 |
+
+A commit between them (not kept) freed only the used positions and linked D2 as a fan, with one slot per site for the triangle whose boundary edge starts there:
+
+| Set | `main` | That commit | Ratio |
+| --- | ---: | ---: | ---: |
+| Delaunay `cube` D2 10^4 | 10.6 ms (9.45 ms–11.5 ms) | 9.88 ms (9.01 ms–11.9 ms) | 0.93, inside the spread |
+| Delaunay `cube` D2 10^5 | 114 ms (107 ms–126 ms) | 107 ms (101 ms–117 ms) | 0.94, inside the spread |
+| Delaunay `sphere` D2 10^4 | 14.3 ms (13.1 ms–17.2 ms) | 14.1 ms (13.1 ms–19.6 ms) | 0.98, inside the spread |
+| Delaunay `sphere` D2 10^5 | 104 ms (97.5 ms–115 ms) | 103 ms (97.1 ms–111 ms) | 0.99, inside the spread |
+| Delaunay `cube` D3 10^4 | 58.4 ms (56.7 ms–65.5 ms) | 55.5 ms (51.2 ms–60.7 ms) | 0.95, inside the spread |
+| Delaunay `cube` D3 10^5 | 706 ms (683 ms–732 ms) | 646 ms (632 ms–684 ms) | 0.92, inside the spread |
+| Delaunay `sphere` D3 10^4 | 278 ms (271 ms–290 ms) | 274 ms (266 ms–284 ms) | 0.98, inside the spread |
+| Delaunay `cube` D2 10^6 | 1.46 s (1.44 s–1.52 s) | 1.41 s (1.38 s–1.49 s) | 0.96, inside the spread |
+| Hull `sphere` D3 10^5 | 370 ms (361 ms–385 ms) | 372 ms (363 ms–391 ms) | 1.01, inside the spread |
+| Hull `cube` D3 10^5 | 12.4 ms (11.3 ms–13.8 ms) | 12.4 ms (11.5 ms–13.9 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^5 | 2.50 s (2.46 s–2.58 s) | 2.45 s (2.44 s–2.56 s) | 0.98, inside the spread |
+| Delaunay `cube` D3 10^6 | 8.05 s (7.74 s–8.14 s) | 7.47 s (7.24 s–7.61 s) | 0.93 |
+
+### Reading
+
+- **`cube` D3 10^6 reads 0.93 and 0.94, beyond the spread.** `cube` D3 10^5 reads 0.92, 0.95, 0.92, and 0.94 in four runs, always inside the spread through one slow build. The turns were about 20% of that build, and the key table recovers about a third of that.
+- **The D2 fan is not shipped.** It read 0.93 to 0.96 on `cube` D2 in three runs, inside the spread every time, and `bench.mdc` reverts a gain inside the spread. The turns were about 10% of the D2 build.
+- Clearing the whole table at every insertion, in `9e71305`, read the same on `cube` D3 (0.92 and 0.93) as freeing only the used positions; the head frees only those.
+- No set is slower beyond the spread. The D2 sets, whose code is `main`'s, read 0.99 to 1.01. The hull guard sets read 0.99.

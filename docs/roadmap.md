@@ -184,7 +184,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-7 | Feat  | Hull D2: a faster sort of the chain's points                                            | #322  | Not started |
 | P7-8 | Feat  | Acceptance: faster duplicate detection                                                  | #323  | Not started |
 | P7-9 | Feat  | Hull D2: a faster discard before the chain                                              | #324  | Not started |
-| P7-10 | Feat | Delaunay: link the cavity's new simplices without turning around ridges                  | #329  | Not started |
+| P7-10 | Feat | Delaunay: link the cavity's new simplices without turning around ridges                  | #329  | In progress |
 | P7-11 | Docs | Delaunay: what `build()` computes; the public order of the simplices                     | #330  | Done        |
 | P7-12 | Spike | Delaunay `sphere` D2: in-sphere tests that reach the exact stage                        | #331  | Not started |
 | P7-13 | Spike | Delaunay D2: insertion order and point location against CGAL's                          | #332  | Not started |
