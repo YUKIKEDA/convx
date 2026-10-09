@@ -1477,7 +1477,7 @@ With the same expansion at k = 6, Delaunay `cube` D5 10^4 read 1.06 against `mai
 - **Size five's bound is looser**: over the cancelling inputs of the margin test it is about 500 times the exact error, against 3 to 8 times for k ≤ 4, because the column sums stand for the permanent. How many tests of `cube` D4 it leaves open was not counted.
 - What this does not show: Delaunay `sphere` D4, whose tests go to the exact stage (#331); that is P7-17 (#352).
 
-## A double-double stage before the exact one, PR #355 (#352)
+## A double-double stage before the exact one, PR #356 (#352)
 
 P7-17. For 2 ≤ k ≤ 6, plain and lifted, a test the `f64` stage leaves open is evaluated in double-double, with Dekker's product and a bound derived once per size (`double_double`, design §1). For k ≤ 5 the `f64` stage is the first stage and the running filter no longer runs; for k = 6 the `f64` stage is the running filter. The D2 and D3 shapes of Delaunay start after the first stage they already ran.
 
