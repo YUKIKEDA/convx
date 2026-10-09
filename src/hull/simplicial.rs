@@ -233,7 +233,7 @@ impl<'a> SimplicialHull<'a> {
         self.plan_planes(vertices, outward, &mut planes)?;
         let mut slots = Vec::with_capacity(outward.len());
         for (k, (vertices, &outward)) in vertices.chunks_exact(d).zip(outward).enumerate() {
-            let slot = self.facets.alloc(vertices, outward);
+            let slot = self.facets.alloc(vertices, outward, None);
             planes.store(k, d, &mut self.facets, slot);
             slots.push(slot);
         }
@@ -546,25 +546,25 @@ impl<'a> SimplicialHull<'a> {
         visible.clear();
         horizon.clear();
         visible.push(start);
-        visited.set(start, true);
+        visited.set(start, Sign::Positive);
         let mut cursor = 0;
         while cursor < visible.len() {
             let slot = visible[cursor];
             cursor += 1;
             let facet = self.facets.facet(slot);
             for (m, &neighbor) in facet.neighbor_slots().iter().enumerate() {
-                let seen = match visited.get(neighbor) {
-                    Some(v) => v,
+                let sign = match visited.get(neighbor) {
+                    Some(sign) => sign,
                     None => {
-                        let v = self.side(self.facets.facet(neighbor), apex)? == Sign::Positive;
-                        visited.set(neighbor, v);
-                        if v {
+                        let sign = self.side(self.facets.facet(neighbor), apex)?;
+                        visited.set(neighbor, sign);
+                        if sign == Sign::Positive {
                             visible.push(neighbor);
                         }
-                        v
+                        sign
                     }
                 };
-                if !seen {
+                if sign != Sign::Positive {
                     let back = self
                         .facets
                         .facet(neighbor)
@@ -578,6 +578,7 @@ impl<'a> SimplicialHull<'a> {
                         slot: m as u32,
                         across: neighbor,
                         back: back as u32,
+                        on_plane: sign == Sign::Zero,
                     });
                 }
             }
@@ -773,8 +774,13 @@ impl<'a> SimplicialHull<'a> {
             self.facets.remove(slot);
         }
         slots.clear();
-        for vertices in created.vertices.chunks_exact(d) {
-            slots.push(self.facets.alloc(vertices, Sign::Positive));
+        for (vertices, h) in created
+            .vertices
+            .chunks_exact(d)
+            .zip(&created.region.horizon)
+        {
+            let number = h.on_plane.then(|| self.facets.facet(h.across).number());
+            slots.push(self.facets.alloc(vertices, Sign::Positive, number));
         }
         for (k, h) in created.region.horizon.iter().enumerate() {
             let slot = slots[k];
@@ -1067,6 +1073,9 @@ struct Horizon {
     slot: u32,
     across: u32,
     back: u32,
+    /// The apex is on the supporting plane of the facet across, so the new
+    /// simplex over this ridge takes its plane number (design §3).
+    on_plane: bool,
 }
 
 /// The region a point would replace: its visible facets V and its horizon
@@ -1077,12 +1086,12 @@ struct Region {
     horizon: Vec<Horizon>,
 }
 
-/// A flag per slot for one search at a time, cleared without
-/// touching the entries: an entry counts only when it carries the current
+/// The sign of the apex against each slot one search has tested, cleared
+/// without touching the entries: an entry counts only when it carries the current
 /// epoch.
 #[derive(Default)]
 struct Marks {
-    entries: Vec<(u32, bool)>,
+    entries: Vec<(u32, Sign)>,
     epoch: u32,
 }
 
@@ -1090,23 +1099,23 @@ impl Marks {
     /// Forgets every flag, for a store of `slots` slots.
     fn clear(&mut self, slots: usize) {
         if self.entries.len() < slots {
-            self.entries.resize(slots, (0, false));
+            self.entries.resize(slots, (0, Sign::Zero));
         }
         if self.epoch == u32::MAX {
-            self.entries.fill((0, false));
+            self.entries.fill((0, Sign::Zero));
             self.epoch = 0;
         }
         self.epoch += 1;
     }
 
-    fn get(&self, slot: u32) -> Option<bool> {
+    fn get(&self, slot: u32) -> Option<Sign> {
         match self.entries.get(slot as usize) {
             Some(&(epoch, value)) if epoch == self.epoch => Some(value),
             _ => None,
         }
     }
 
-    fn set(&mut self, slot: u32, value: bool) {
+    fn set(&mut self, slot: u32, value: Sign) {
         self.entries[slot as usize] = (self.epoch, value);
     }
 }

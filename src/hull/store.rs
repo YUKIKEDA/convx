@@ -41,6 +41,11 @@ pub(crate) struct FacetStore {
     /// and the floor of the cull threshold.
     planes: Vec<f64>,
     kinds: Vec<Plane>,
+    /// The plane number of each slot (design §3): facets with one number
+    /// have one supporting plane and one outer side.
+    numbers: Vec<u32>,
+    /// The next new plane number.
+    issued: u32,
     /// The sign of `orient(vertices, q)` for a point `q` outside.
     outward: Vec<Sign>,
     generations: Vec<u32>,
@@ -82,6 +87,8 @@ impl FacetStore {
             rows: Vec::new(),
             planes: Vec::new(),
             kinds: Vec::new(),
+            numbers: Vec::new(),
+            issued: 0,
             outward: Vec::new(),
             generations: Vec::new(),
             live: Vec::new(),
@@ -105,9 +112,9 @@ impl FacetStore {
     }
 
     /// A slot for a new facet with no neighbors, plane, or outside points
-    /// yet, and the outward sign `outward`. A freed slot is reused last in,
-    /// first out.
-    pub(crate) fn alloc(&mut self, vertices: &[u32], outward: Sign) -> u32 {
+    /// yet, the outward sign `outward`, and the plane number `number`, or a
+    /// new one. A freed slot is reused last in, first out.
+    pub(crate) fn alloc(&mut self, vertices: &[u32], outward: Sign, number: Option<u32>) -> u32 {
         let d = self.dim;
         debug_assert_eq!(vertices.len(), d, "a facet has D vertices");
         let slot = match self.free.pop() {
@@ -118,6 +125,7 @@ impl FacetStore {
                 self.rows.resize(self.rows.len() + d + self.links, 0);
                 self.planes.resize(self.planes.len() + d + 2, 0.0);
                 self.kinds.push(Plane::None);
+                self.numbers.push(0);
                 self.outward.push(Sign::Positive);
                 self.generations.push(0);
                 self.live.push(false);
@@ -130,6 +138,12 @@ impl FacetStore {
         let row = s * (d + self.links);
         self.rows[row..row + d].copy_from_slice(vertices);
         self.kinds[s] = Plane::None;
+        self.numbers[s] = number.unwrap_or_else(|| {
+            let new = self.issued;
+            abort_if_full(new as usize);
+            self.issued += 1;
+            new
+        });
         self.outward[s] = outward;
         self.live[s] = true;
         self.outside[s] = (0, 0);
@@ -302,6 +316,11 @@ impl<'a> Facet<'a> {
         self.store.outward[self.slot as usize]
     }
 
+    /// The plane number: see [`FacetStore::alloc`].
+    pub(crate) fn number(self) -> u32 {
+        self.store.numbers[self.slot as usize]
+    }
+
     fn plane_row(self) -> &'a [f64] {
         let d = self.store.dim;
         let start = self.slot as usize * (d + 2);
@@ -349,12 +368,12 @@ mod tests {
     #[test]
     fn removed_slots_are_reused_and_old_ids_stop_resolving() {
         let mut store = FacetStore::new(2);
-        let a = store.alloc(&[0, 1], Sign::Positive);
-        let b = store.alloc(&[1, 2], Sign::Negative);
+        let a = store.alloc(&[0, 1], Sign::Positive, None);
+        let b = store.alloc(&[1, 2], Sign::Negative, None);
         let old = store.id(a);
         store.remove(a);
         assert!(store.get(old).is_none());
-        let c = store.alloc(&[2, 3], Sign::Positive);
+        let c = store.alloc(&[2, 3], Sign::Positive, None);
         assert_eq!(c, a, "the freed slot is reused");
         assert!(store.get(old).is_none(), "a stale id misses the new facet");
         assert_eq!(
@@ -370,7 +389,7 @@ mod tests {
     #[test]
     fn planes_and_outside_sets_read_back() {
         let mut store = FacetStore::new(2);
-        let a = store.alloc(&[0, 1], Sign::Positive);
+        let a = store.alloc(&[0, 1], Sign::Positive, None);
         assert!(store.facet(a).normal().is_none() && store.facet(a).cull().is_none());
         store.set_plane(a, Some(&[0.6, 0.8]), None);
         assert_eq!(store.facet(a).normal(), Some(&[0.6, 0.8][..]));
@@ -381,7 +400,7 @@ mod tests {
         store.set_outside(a, &[5, 7], Some((7, None)));
         assert_eq!(store.facet(a).outside(), &[5, 7]);
         assert_eq!(store.facet(a).farthest(), Some((7, None)));
-        let b = store.alloc(&[1, 2], Sign::Positive);
+        let b = store.alloc(&[1, 2], Sign::Positive, None);
         store.set_outside(b, &[9], Some((9, Some(2.5))));
         assert_eq!(store.facet(b).farthest(), Some((9, Some(2.5))));
         assert_eq!(store.facet(a).outside(), &[5, 7]);
@@ -394,11 +413,11 @@ mod tests {
         for round in 0..4u32 {
             // Many removed runs, so the pool is compacted along the way.
             for i in 0..COMPACT_FROM as u32 / 2 {
-                let slot = store.alloc(&[i], Sign::Positive);
+                let slot = store.alloc(&[i], Sign::Positive, None);
                 store.set_outside(slot, &[i, round], Some((i, None)));
                 store.remove(slot);
             }
-            let slot = store.alloc(&[round], Sign::Positive);
+            let slot = store.alloc(&[round], Sign::Positive, None);
             store.set_outside(slot, &[round, 100 + round], Some((round, None)));
             kept.push(slot);
         }
