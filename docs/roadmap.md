@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-4 (#316): a first-stage bound with no subnormal product. P7-3 (#312): the design of what the hull's `build()` computes.
+P7-5 (#317): profile Delaunay D2 and D3 after P7-4 and name the next rows. P7-3 (#312): the design of what the hull's `build()` computes.
 
 ## Dependencies
 
@@ -178,7 +178,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-1 | Task  | Record the goal of parity with Qhull and CGAL, the baseline, and the method             | #310  | Done        |
 | P7-2 | Spike | Delaunay D2: does a CGAL-style structure halve the insertion?                           | #311  | Done        |
 | P7-3 | Docs  | Hull: `build()` computes only what the result needs; the rest on first use              | #312  | Not started |
-| P7-4 | Feat  | Predicates: a first-stage bound with no subnormal product                               | #316  | Not started |
+| P7-4 | Feat  | Predicates: a first-stage bound with no subnormal product                               | #316  | Done        |
 | P7-5 | Task  | Profile Delaunay D2 and D3 after P7-4 and name the next rows                            | #317  | Not started |
 
 ## Intentionally out of scope

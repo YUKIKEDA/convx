@@ -46,6 +46,28 @@
 //! The sign is certified when `|det| > (n + 1) u P̂ + 4 η X`, computed in
 //! `f64`. A non-finite value or bound certifies nothing: an overflow in the
 //! determinant overflows the permanent too, and a NaN fails both tests.
+//!
+//! # The bound without a subnormal product
+//!
+//! `4 η = 2^-1072` is subnormal, and a product with a subnormal factor is
+//! slow on common processors: on an Intel Core i5-13400F it took about
+//! 28 ns, against about 6 ns for the rest of an in-circle test (#311). So
+//! the bound is computed as `s (1 + 2^-50)` with `s = fl((n + 1) u P̂)`,
+//! when `s ≥ 2^-960` and `X ≤ 2^60`, and as `fl(s + fl(4 η X))` otherwise.
+//! The first is never smaller than the second, so it certifies a subset of
+//! what the proof above allows:
+//!
+//! - `4 η X ≤ 2^-1012`, and `fl(4 η X)` is at most that plus `η / 2`, so
+//!   `t = fl(4 η X) ≤ 2^-1011 ≤ 2^-51 s`.
+//! - `fl(s + t) ≤ (s + t)(1 + u) ≤ s (1 + 2^-51)(1 + 2^-53)`.
+//! - `s (1 + 2^-50)` is a normal number or infinity (`1 + 2^-50` is
+//!   exact), so its rounding is at least `s (1 + 2^-50)(1 - 2^-53)`, and
+//!   `(1 + 2^-50)(1 - 2^-53) - (1 + 2^-51)(1 + 2^-53) > 2^-53 > 0`.
+//!
+//! A NaN `s` or `X` fails the condition and takes the second form, as
+//! before. The second form is out of line and marked cold: written in
+//! place, the compiler evaluated both forms and selected one, and the
+//! product was made on every call (#311).
 
 use super::Sign;
 
@@ -53,6 +75,16 @@ const U: f64 = f64::EPSILON / 2.0;
 
 /// `4 η`, four times the smallest subnormal.
 const FOUR_ETA: f64 = f64::from_bits(4);
+
+/// The smallest `(n + 1) u P̂` for which the bound needs no product with
+/// `4 η`: `2^-960`.
+const PLAIN_FROM: f64 = f64::from_bits((1023 - 960) << 52);
+
+/// The largest `X` for which the bound needs no product with `4 η`: `2^60`.
+const PLAIN_UP_TO: f64 = f64::from_bits((1023 + 60) << 52);
+
+/// `1 + 2^-50`, the margin that covers `4 η X` below [`PLAIN_UP_TO`].
+const MARGIN: f64 = 1.0 + f64::from_bits((1023 - 50) << 52);
 
 /// The relative constant `(n + 1) u` of a formula whose monomials carry at
 /// most `n` roundings.
@@ -67,13 +99,32 @@ struct Estimate {
     bound: f64,
 }
 
+/// The bound `relative * permanent + 4 η x`, computed as the module docs
+/// prove (The bound without a subnormal product).
+#[inline(always)]
+fn bound(relative: f64, permanent: f64, x: f64) -> f64 {
+    let s = relative * permanent;
+    if s >= PLAIN_FROM && x <= PLAIN_UP_TO {
+        s * MARGIN
+    } else {
+        with_underflow_term(s, x)
+    }
+}
+
+/// `s + 4 η x`, rounded: the bound for a small `s` or a large `x`.
+#[cold]
+#[inline(never)]
+fn with_underflow_term(s: f64, x: f64) -> f64 {
+    s + FOUR_ETA * x
+}
+
 impl Estimate {
     /// `det` with the bound `relative * permanent + 4 η x`.
     #[inline(always)]
     fn new(det: f64, relative: f64, permanent: f64, x: f64) -> Self {
         Self {
             det,
-            bound: relative * permanent + FOUR_ETA * x,
+            bound: bound(relative, permanent, x),
         }
     }
 
@@ -709,6 +760,66 @@ mod tests {
         (0..count(dim, lifted))
             .map(|_| (0..dim).map(|_| rng.unit() * scale).collect())
             .collect()
+    }
+
+    /// The bound of the common path is never below `fl(s + fl(4 η x))`,
+    /// the bound of the proof, on the edges of its condition and on random
+    /// values. Without the margin, or without the condition, it is.
+    #[test]
+    fn the_plain_bound_covers_the_underflow_term() {
+        let proof = |s: f64, x: f64| s + FOUR_ETA * x;
+        let up = f64::next_up;
+        let down = f64::next_down;
+        let s_edges = [
+            PLAIN_FROM,
+            up(PLAIN_FROM),
+            down(2.0 * PLAIN_FROM),
+            2.0 * PLAIN_FROM,
+            1.0,
+            down(2.0),
+            2f64.powi(1000),
+            f64::MAX,
+        ];
+        let x_edges = [1.0, 2.0, down(PLAIN_UP_TO), PLAIN_UP_TO, 1e10, 3.0e17];
+        let mut rng = Rng(316);
+        let mut checked = 0;
+        let mut strictly_above = 0;
+        for &s in &s_edges {
+            for &x in &x_edges {
+                let b = bound(1.0, s, x);
+                assert!(b >= proof(s, x), "s {s:e}, x {x:e}");
+                checked += 1;
+                strictly_above += usize::from(b > proof(s, x));
+            }
+        }
+        for _ in 0..100_000 {
+            let s = rng.unit().abs() * 2f64.powi(rng.below(2000) as i32 - 960);
+            let x = 1.0 + rng.unit().abs() * 2f64.powi(rng.below(61) as i32);
+            if s >= PLAIN_FROM && x <= PLAIN_UP_TO {
+                assert!(bound(1.0, s, x) >= proof(s, x), "s {s:e}, x {x:e}");
+                checked += 1;
+            }
+        }
+        assert!(
+            checked > 10_000 && strictly_above > 0,
+            "{checked} {strictly_above}"
+        );
+        // Outside the condition the bound is the proof's, bit for bit.
+        for (s, x) in [
+            (down(PLAIN_FROM), 1.0),
+            (1e-300, up(PLAIN_UP_TO)),
+            (0.0, 1.0),
+            (f64::NAN, 1.0),
+            (1.0, f64::NAN),
+        ] {
+            let (b, p) = (bound(1.0, s, x), proof(s, x));
+            assert!(b.to_bits() == p.to_bits(), "s {s:e}, x {x:e}");
+        }
+        // The two mutations: no margin, and no condition. Each gives a
+        // bound below the proof's on some input above.
+        assert!(PLAIN_FROM * 1.0 < proof(PLAIN_FROM, PLAIN_UP_TO));
+        let tiny = 2f64.powi(-1060);
+        assert!(tiny * MARGIN < proof(tiny, PLAIN_UP_TO));
     }
 
     /// The bound is derived as a worst case, which no input here reaches,
