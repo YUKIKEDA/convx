@@ -57,7 +57,9 @@ fn one_dimension_duplicates_and_signed_zero() {
 fn triangle() {
     let hull = build(2, &[0.0, 0.0, 4.0, 0.0, 0.0, 3.0]);
     assert_eq!(hull.vertices(), vec![0, 1, 2]);
-    assert_eq!(facet_sets(&hull), vec![vec![0, 1], vec![0, 2], vec![1, 2]]);
+    // The boundary cycle, counterclockwise from the smallest vertex
+    // (design §5): 0 -> 1 -> 2 -> 0.
+    assert_eq!(facet_sets(&hull), vec![vec![0, 1], vec![1, 2], vec![0, 2]]);
     assert_eq!(hull.volume(), 6.0);
 }
 
@@ -226,7 +228,7 @@ fn orientation(dim: usize, points: &[f64], simplex: &[u32], apex: u32) -> i128 {
 /// vertex list, with the last two swapped when a hull vertex off its facet is
 /// not on the negative side (design §5, §10). The diagonals chosen inside
 /// non-simplex facets stay as they are.
-fn renormalized(hull: &ConvexHull, dim: usize, points: &[f64]) -> Vec<(u32, Vec<u32>)> {
+fn renormalized(hull: &ConvexHull, dim: usize, points: &[f64]) -> Vec<(Vec<u32>, Vec<u32>)> {
     hull.triangulation()
         .iter()
         .map(|simplex| {
@@ -243,15 +245,22 @@ fn renormalized(hull: &ConvexHull, dim: usize, points: &[f64]) -> Vec<(u32, Vec<
                     vertices.swap(dim - 2, dim - 1);
                 }
             }
-            (simplex.facet, vertices)
+            (facet_of(hull, simplex.facet), vertices)
         })
         .collect()
 }
 
-fn oriented(hull: &ConvexHull) -> Vec<(u32, Vec<u32>)> {
+/// The vertex list of facet `facet`: a simplex names its facet this way in
+/// the comparisons below, since a mirror image renumbers the facets of
+/// D = 2 (design §5).
+fn facet_of(hull: &ConvexHull, facet: u32) -> Vec<u32> {
+    hull.facets().get(facet).unwrap().vertices().to_vec()
+}
+
+fn oriented(hull: &ConvexHull) -> Vec<(Vec<u32>, Vec<u32>)> {
     hull.triangulation()
         .iter()
-        .map(|s| (s.facet, s.vertices.to_vec()))
+        .map(|s| (facet_of(hull, s.facet), s.vertices.to_vec()))
         .collect()
 }
 
@@ -259,7 +268,18 @@ fn check_transform(dim: usize, points: &[f64], map: impl Fn(&[f64]) -> Vec<f64>)
     let original = build(dim, points);
     let moved: Vec<f64> = points.chunks_exact(dim).flat_map(map).collect();
     let transformed = build(dim, &moved);
-    assert_eq!(facet_sets(&original), facet_sets(&transformed));
+    if dim == 2 {
+        // The facets of D = 2 follow the boundary cycle counterclockwise
+        // (design §5), so a mirror image numbers them the other way round.
+        let sorted = |hull: &ConvexHull| {
+            let mut facets = facet_sets(hull);
+            facets.sort();
+            facets
+        };
+        assert_eq!(sorted(&original), sorted(&transformed));
+    } else {
+        assert_eq!(facet_sets(&original), facet_sets(&transformed));
+    }
     assert_eq!(original.vertices(), transformed.vertices());
     assert_eq!(original.coplanar_points(), transformed.coplanar_points());
     assert_eq!(original.interior_points(), transformed.interior_points());

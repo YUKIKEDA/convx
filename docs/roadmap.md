@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-6 (#321): the hull's facets in D2 cycle order and their numbering on first use. P7-10 (#329): the Delaunay cavity's links. P7-14 (#335): the Delaunay simplices in construction order.
+P7-10 (#329): the Delaunay cavity's links. P7-11 (#330) waits for its Grill.
 
 ## Dependencies
 
@@ -180,7 +180,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-3 | Docs  | Hull: `build()` computes only what the result needs; the rest on first use              | #312  | Done        |
 | P7-4 | Feat  | Predicates: a first-stage bound with no subnormal product                               | #316  | Done        |
 | P7-5 | Task  | Profile Delaunay D2 and D3 after P7-4 and name the next rows                            | #317  | Done        |
-| P7-6 | Feat  | Hull: D2 facets in cycle order and the facet numbering on first use                     | #321  | Not started |
+| P7-6 | Feat  | Hull: D2 facets in cycle order and the facet numbering on first use                     | #321  | Done        |
 | P7-7 | Feat  | Hull D2: a faster sort of the chain's points                                            | #322  | Not started |
 | P7-8 | Feat  | Acceptance: faster duplicate detection                                                  | #323  | Not started |
 | P7-9 | Feat  | Hull D2: a faster discard before the chain                                              | #324  | Not started |

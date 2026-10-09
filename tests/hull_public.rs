@@ -19,14 +19,17 @@ fn square_facets_planes_and_cycles() {
         .iter()
         .map(|f| f.vertices().to_vec())
         .collect();
-    assert_eq!(lists, vec![vec![0, 1], vec![0, 3], vec![1, 2], vec![2, 3]]);
+    // The boundary cycle, counterclockwise from the smallest vertex
+    // (design §5).
+    assert_eq!(lists, vec![vec![0, 1], vec![1, 2], vec![2, 3], vec![0, 3]]);
     // Facet [0, 1] is y = 0 with outward normal (0, -1).
     assert_eq!(
         hull.planes().unwrap().get(0_u32).unwrap().normal(),
         vec![0.0, -1.0]
     );
     assert_eq!(hull.planes().unwrap().get(0_u32).unwrap().offset(), 0.0);
-    assert_eq!(hull.facets().get(0_u32).unwrap().neighbors(), vec![1, 2]);
+    // Its neighbors are the facets before and after it on the cycle.
+    assert_eq!(hull.facets().get(0_u32).unwrap().neighbors(), vec![1, 3]);
     assert_eq!(hull.boundary_cycle(0), Some(vec![0, 1]));
     assert_eq!(hull.boundary_cycle(4), None);
     assert_eq!(hull.volume(), 1.0);
@@ -233,7 +236,7 @@ fn planes_are_computed_once_and_shared() {
     assert!(planes.get(4).is_none());
     assert_eq!(first(planes).normal(), [0.0, -1.0]);
     assert_eq!(first(planes).offset(), 0.0);
-    // Facets [0, 1], [0, 3], [1, 2], [2, 3]: y = 0, x = 0, x = 1, y = 1.
+    // Facets [0, 1], [1, 2], [2, 3], [0, 3]: y = 0, x = 1, y = 1, x = 0.
     let all: Vec<(Vec<f64>, f64)> = planes
         .iter()
         .map(|p| (p.normal().to_vec(), p.offset()))
@@ -242,9 +245,9 @@ fn planes_are_computed_once_and_shared() {
         all,
         [
             (vec![0.0, -1.0], 0.0),
-            (vec![-1.0, 0.0], 0.0),
             (vec![1.0, 0.0], -1.0),
             (vec![0.0, 1.0], -1.0),
+            (vec![-1.0, 0.0], 0.0),
         ]
     );
     // Every call, from any thread, returns the planes kept by the first.
