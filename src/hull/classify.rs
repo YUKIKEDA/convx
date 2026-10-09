@@ -3,7 +3,11 @@
 //! After insertion and the coplanar merge, every representative that is not
 //! a vertex of the simplicial complex is classified by the exact sign of its
 //! distance to each logical facet: all negative is interior, and a zero on
-//! some facet puts it on that facet's boundary set.
+//! some facet puts it on that facet's boundary set. A point that
+//! construction recorded on the plane of a simplex of the final complex
+//! starts at that simplex's facet and moves only to neighboring facets at
+//! distance zero (design §3); every other point is tested against every
+//! facet.
 //!
 //! The facet's points (its simplicial vertices and the zero-distance points)
 //! all lie on the facet's supporting hyperplane. Their extreme points are the
@@ -33,7 +37,7 @@
 use std::collections::HashMap;
 
 use super::input::{accept, Input};
-use super::merge::merge;
+use super::merge::{merge, LogicalFacets};
 use super::ridge::{fingerprint, pair_equal_keys};
 use super::simplicial::SimplicialHull;
 use super::ConvexHullError;
@@ -321,47 +325,7 @@ fn classify_built(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
         .copied()
         .filter(|&p| !on_complex[p as usize] && !skipped[p as usize])
         .collect();
-    let mut on_boundary = vec![false; others.len()];
-    let mut zero_points: Vec<Vec<u32>> = vec![Vec::new(); groups.groups.len()];
-    if !others.is_empty() {
-        let mut sides = vec![None; others.len()];
-        for (g, group) in groups.groups.iter().enumerate() {
-            let Some(simplex) = group.simplices.first().and_then(|id| hull.facets.get(*id)) else {
-                continue;
-            };
-            sides.fill(None);
-            if let Some(cull) = simplex.cull() {
-                let (rows, stride) = hull.input.rows();
-                let origin = hull.input.point(simplex.vertices()[0]);
-                cull.mark_sides(origin, rows, stride, &others, &mut sides);
-            }
-            for (k, &p) in others.iter().enumerate() {
-                let side = match sides[k] {
-                    Some(proved) => {
-                        // `side` checks its own proof against the
-                        // orientation in debug builds, so this checks the
-                        // scan's.
-                        #[cfg(debug_assertions)]
-                        debug_assert_eq!(
-                            hull.side(simplex, p)?,
-                            proved,
-                            "the scan proved the wrong side of point {p}"
-                        );
-                        proved
-                    }
-                    None => hull.side(simplex, p)?,
-                };
-                debug_assert!(
-                    side != Sign::Positive,
-                    "a point is outside the finished hull"
-                );
-                if side == Sign::Zero {
-                    on_boundary[k] = true;
-                    zero_points[g].push(p);
-                }
-            }
-        }
-    }
+    let (on_boundary, zero_points) = distance_zeros(&hull, &groups, &others)?;
 
     // Extreme points of each group; `None` when they are the group's
     // vertices, a single simplex with no other point on its plane.
@@ -515,6 +479,170 @@ fn classify_built(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
         coplanar_points,
         interior_points,
     })
+}
+
+/// Per point, whether some group's distance is zero, and per group its
+/// points at distance zero, each list unordered.
+type Zeros = (Vec<bool>, Vec<Vec<u32>>);
+
+/// The exact distance-zero signs of `others` against every group. Points
+/// construction proved strictly inside are not among `others`.
+fn distance_zeros(
+    hull: &SimplicialHull<'_>,
+    groups: &LogicalFacets,
+    others: &[u32],
+) -> Result<Zeros, ConvexHullError> {
+    let mut on_boundary = vec![false; others.len()];
+    let mut zero_points: Vec<Vec<u32>> = vec![Vec::new(); groups.groups.len()];
+    // The group of a recorded number of each other point, if a simplex of
+    // the final complex carries one, and the points with none, which are
+    // scanned against every group.
+    let starts = recorded_groups(hull, groups, others);
+    let scanned: Vec<u32> = others
+        .iter()
+        .zip(&starts)
+        .filter(|&(_, start)| start.is_none())
+        .map(|(&p, _)| p)
+        .collect();
+    let scanned_at: Vec<usize> = (0..others.len()).filter(|&k| starts[k].is_none()).collect();
+    if !scanned.is_empty() {
+        let mut sides = vec![None; scanned.len()];
+        for (g, group) in groups.groups.iter().enumerate() {
+            let Some(simplex) = group.simplices.first().and_then(|id| hull.facets.get(*id)) else {
+                continue;
+            };
+            sides.fill(None);
+            if let Some(cull) = simplex.cull() {
+                let (rows, stride) = hull.input.rows();
+                let origin = hull.input.point(simplex.vertices()[0]);
+                cull.mark_sides(origin, rows, stride, &scanned, &mut sides);
+            }
+            for (k, &p) in scanned.iter().enumerate() {
+                let side = match sides[k] {
+                    Some(proved) => {
+                        // `side` checks its own proof against the
+                        // orientation in debug builds, so this checks the
+                        // scan's.
+                        #[cfg(debug_assertions)]
+                        debug_assert_eq!(
+                            hull.side(simplex, p)?,
+                            proved,
+                            "the scan proved the wrong side of point {p}"
+                        );
+                        proved
+                    }
+                    None => hull.side(simplex, p)?,
+                };
+                debug_assert!(
+                    side != Sign::Positive,
+                    "a point is outside the finished hull"
+                );
+                if side == Sign::Zero {
+                    on_boundary[scanned_at[k]] = true;
+                    zero_points[g].push(p);
+                }
+            }
+        }
+    }
+    // A recorded point is on its start group's plane. The groups at
+    // distance zero from it are connected through neighbors, and every
+    // other group is strictly negative (design §3).
+    let mut tested = vec![usize::MAX; groups.groups.len()];
+    let mut stack: Vec<u32> = Vec::new();
+    for (k, (&p, start)) in others.iter().zip(&starts).enumerate() {
+        let Some(start) = *start else {
+            continue;
+        };
+        let side_of = |g: u32| -> Result<Sign, ConvexHullError> {
+            match groups.groups[g as usize]
+                .simplices
+                .first()
+                .and_then(|id| hull.facets.get(*id))
+            {
+                Some(simplex) => hull.side(simplex, p),
+                None => {
+                    debug_assert!(false, "a group has a live simplex");
+                    Ok(Sign::Negative)
+                }
+            }
+        };
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(
+            side_of(start)?,
+            Sign::Zero,
+            "point {p} is recorded on a plane it is off"
+        );
+        on_boundary[k] = true;
+        zero_points[start as usize].push(p);
+        tested[start as usize] = k;
+        stack.clear();
+        stack.push(start);
+        while let Some(g) = stack.pop() {
+            for &n in groups.neighbors.get(g as usize) {
+                if tested[n as usize] == k {
+                    continue;
+                }
+                tested[n as usize] = k;
+                let side = side_of(n)?;
+                debug_assert!(
+                    side != Sign::Positive,
+                    "a point is outside the finished hull"
+                );
+                if side == Sign::Zero {
+                    zero_points[n as usize].push(p);
+                    stack.push(n);
+                }
+            }
+        }
+        // Debug builds check the walk against every group.
+        #[cfg(debug_assertions)]
+        for g in 0..groups.groups.len() as u32 {
+            if tested[g as usize] != k {
+                debug_assert_eq!(
+                    side_of(g)?,
+                    Sign::Negative,
+                    "the walk from a record missed a facet through point {p}"
+                );
+            }
+        }
+    }
+    Ok((on_boundary, zero_points))
+}
+
+/// Per point of `others`, the group of a simplex of the final complex whose
+/// plane number construction recorded for that point, if any.
+fn recorded_groups(
+    hull: &SimplicialHull<'_>,
+    groups: &LogicalFacets,
+    others: &[u32],
+) -> Vec<Option<u32>> {
+    let mut starts = vec![None; others.len()];
+    if hull.records.is_empty() {
+        return starts;
+    }
+    // Simplices with one number lie in one plane, so in one logical facet.
+    let mut numbers: Vec<(u32, u32)> = groups
+        .groups
+        .iter()
+        .enumerate()
+        .flat_map(|(g, group)| {
+            group
+                .simplices
+                .iter()
+                .filter_map(|id| hull.facets.get(*id))
+                .map(move |s| (s.number(), g as u32))
+        })
+        .collect();
+    numbers.sort_unstable();
+    for (start, &p) in starts.iter_mut().zip(others) {
+        *start = hull.records.numbers(p).find_map(|n| {
+            numbers
+                .binary_search_by_key(&n, |&(number, _)| number)
+                .ok()
+                .map(|i| numbers[i].1)
+        });
+    }
+    starts
 }
 
 /// Extreme points of `candidates`, which lie on the hyperplane through the
@@ -1153,6 +1281,79 @@ pub(crate) mod tests {
             );
         }
         (proved.len(), reused, chain)
+    }
+
+    #[test]
+    fn recorded_planes_change_no_partition() {
+        use crate::hull::records::Records;
+        use crate::hull::simplicial::tests::RECORDED_SIGNS;
+
+        let mut rng = Rng(306);
+        let mut cases: Vec<(String, usize, Vec<f64>)> = Vec::new();
+        for dim in 3..=5 {
+            // Random points of a small grid: many points on facets, ridges,
+            // and edges, so on planes construction records.
+            let coarse: Vec<f64> = (0..80 * dim).map(|_| (rng.next() % 4) as f64).collect();
+            cases.push((format!("coarse {dim}"), dim, coarse));
+        }
+        // Points on the surface of a cube, one coordinate at +-4.
+        let surface: Vec<f64> = (0..300)
+            .flat_map(|_| {
+                let mut p: Vec<f64> = (0..3).map(|_| (rng.next() % 9) as f64 - 4.0).collect();
+                let axis = (rng.next() % 3) as usize;
+                p[axis] = if rng.next().is_multiple_of(2) {
+                    -4.0
+                } else {
+                    4.0
+                };
+                p
+            })
+            .collect();
+        cases.push(("cube surface".to_string(), 3, surface));
+        for (name, dim, points) in &cases {
+            let built = || SimplicialHull::build(accept(*dim, points).unwrap()).unwrap();
+            RECORDED_SIGNS.with(|c| c.set(0));
+            let recorded = built();
+            assert!(
+                RECORDED_SIGNS.with(core::cell::Cell::get) > 0,
+                "{name}: insertion took no sign from a record"
+            );
+            let groups = merge(&recorded).unwrap();
+            let others: Vec<u32> = classify_built(built()).unwrap().coplanar_points;
+            let starts = recorded_groups(&recorded, &groups, &others);
+            assert!(
+                starts.iter().any(Option::is_some),
+                "{name}: no boundary point starts from a record"
+            );
+            let mut cleared = built();
+            cleared.records = Records::new(cleared.input.representative.len());
+            let sorted = |(on, mut zeros): Zeros| {
+                zeros.iter_mut().for_each(|z| z.sort_unstable());
+                (on, zeros)
+            };
+            assert_eq!(
+                sorted(distance_zeros(&recorded, &groups, &others).unwrap()),
+                sorted(distance_zeros(&cleared, &groups, &others).unwrap()),
+                "{name}"
+            );
+            let with = classify_built(recorded).unwrap();
+            let mut reference = built();
+            reference.records = Records::new(reference.input.representative.len());
+            let reference = classify_built(reference).unwrap();
+            check(&with);
+            assert_eq!(with.vertices, reference.vertices, "{name}");
+            assert_eq!(with.coplanar_points, reference.coplanar_points, "{name}");
+            assert_eq!(with.interior_points, reference.interior_points, "{name}");
+            assert_eq!(with.faces.vertices, reference.faces.vertices, "{name}");
+            assert_eq!(with.faces.neighbors, reference.faces.neighbors, "{name}");
+            let simplices = |c: &Classified<'_>| -> Vec<(Vec<u32>, u32)> {
+                c.simplices
+                    .iter()
+                    .map(|s| (s.vertices.to_vec(), s.face))
+                    .collect()
+            };
+            assert_eq!(simplices(&with), simplices(&reference), "{name}");
+        }
     }
 
     #[test]
