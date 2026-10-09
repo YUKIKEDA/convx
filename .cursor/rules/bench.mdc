@@ -51,6 +51,10 @@ A change after review that touches the timed path makes a new head. Time the bas
 
 When instruction counts drop but wall time stays inside the spread, the PR reports both and claims no speedup. Whether to merge is the owner's call on those numbers (#92).
 
+A keep criterion names a set only where the saving the profile predicts exceeds that set's measured spread. In #337 the criterion named hull `sphere` D3 10^5, where the change saved a sort worth a few percent against a spread of about 10%; it read 0.94 and 0.95, inside the spread both times.
+
+When a change moves work to first use, the timer stops when `build()` returns, and any read of the result comes after it. The first harness of #337 read `facets().len()` inside the timed section, which would have charged the head for the numbering it moved to first use.
+
 A timing names what its timed section contains. Reuse buffers across repetitions. Keep work common to every variant outside the section. Name the inputs: set, seed, repetitions, toolchain, and cores. Timers or profiling hooks added to measure are not committed; the PR records the method instead.
 
 ```text
