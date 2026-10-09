@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-None. P6-22 (#306) is done.
+P7-2 (#311): a spike on a CGAL-style structure for Delaunay D2. P7-3 (#312): the design of what the hull's `build()` computes.
 
 ## Dependencies
 
@@ -14,10 +14,10 @@ None. P6-22 (#306) is done.
 M0 → P1 → P2 → P3
               → P4
               → P5
-              → P6
+              → P6 → P7
 ```
 
-P3, P4, and P5 follow a correct sequential hull (P2). P4 does not wait for P3. P5 does not gate P4. P6 replaces the construction core, the predicate filter, and the result storage after the measurements of P5; its rows come before the remaining P5 rows. The sign convention and the lift formula are part of P4 from the start.
+P3, P4, and P5 follow a correct sequential hull (P2). P4 does not wait for P3. P5 does not gate P4. P6 replaces the construction core, the predicate filter, and the result storage after the measurements of P5; its rows come before the remaining P5 rows. P7 works toward parity with Qhull and CGAL on the core that P6 built. The sign convention and the lift formula are part of P4 from the start.
 
 ## M0
 
@@ -168,6 +168,16 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 | P6-20 | Feat | Hull: planes and the boundary complex on first use; publish without redundant work  | #293  | Done        |
 | P6-21 | Feat | Delaunay: specialize the insertion for D = 2 and D = 3                              | #294  | Done        |
 | P6-22 | Feat | Hull: record the planes a point lies on and use them in insertion and classification | #306  | Done        |
+
+## P7
+
+Parity with Qhull and CGAL: `build()` at most the time of each reference with the same output, on every benchmark set (ADR 0006, Grill of 2026-10-09). The rows after P7-3 come from the spike P7-2 and the design P7-3.
+
+| ID   | Kind  | Title                                                                                   | Issue | Status      |
+| ---- | ----- | --------------------------------------------------------------------------------------- | ----- | ----------- |
+| P7-1 | Task  | Record the goal of parity with Qhull and CGAL, the baseline, and the method             | #310  | Done        |
+| P7-2 | Spike | Delaunay D2: does a CGAL-style structure halve the insertion?                           | #311  | Not started |
+| P7-3 | Docs  | Hull: `build()` computes only what the result needs; the rest on first use              | #312  | Not started |
 
 ## Intentionally out of scope
 
