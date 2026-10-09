@@ -2202,3 +2202,56 @@ The second run of hull `cube` D2 10^5, 20 × 3: 6.18 ms (5.46–10.05) against 5
   - Hull `cube` D2 10^5 reads 0.84 and 0.85 in two runs, its ranges overlapping only through single slow builds, so the difference is reported (`bench.mdc`).
   - Hull `cube` D2 10^4 reads 0.87 too.
 - **Nothing is slower beyond the spread.** Hull `sphere` D2 reads 0.99 to 1.02: there the sample finds nothing inside and no point is tested. The other sets read 0.98 to 1.02.
+
+## Hull `cubesurf` and `grid`: where the time goes against Qhull, PR #386 (#368)
+
+The spike P7-25 asks where the time goes on the two degenerate hull sets, the furthest from parity (#379): `cubesurf` D3 10^5 is 2.70 against CGAL and 3.54 against Qhull; `grid` D6 10^4 is 6.55 against Qhull. It also asks how much of `cubesurf`'s spread is code generation (#365).
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `340b7cc`. VTune hotspots, software sampling, one pinned core: 20 builds of `cubesurf` D3 10^5, 3 of `grid` D6 10^4. A copy outside the crate that counts every plain orientation, those with a column of differences that is all zero, and those whose exact sign is zero. A second copy that answers zero for such a column, after the first stage and before the later stages |
+| Qhull | The work counters of the parity run of #379 (`qconvex Qt Ts`): hyperplanes and distance tests |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2); Qhull under WSL2 on the same machine |
+| Timed | `build()`, `main` and the copy alternated per round: 8 rounds × 3 builds of `cubesurf` D3 10^5, `cube` D3 10^5; 3 × 1 of `grid` D6 10^4; 4 × 1 of `sphere` D3 10^5; 6 × 3 of Delaunay `cube` D2 10^5. `main` built with one codegen unit against the default, 10 × 3 on `cubesurf` |
+
+### Where the time goes
+
+| Set | Orientations | Exactly zero | Zero with a column of zeros | Profile |
+| --- | ---: | ---: | ---: | --- |
+| `cubesurf` D3 10^5 | 110,187 | 100,308 | 100,308 | the orientations 32% of `build()`: the exact stage 19%, double-double 8%; the classification after construction about 38% |
+| `grid` D6 10^4 | 1,666,863 | 561,584 | 483,662 | the running filter of k = 6 57% of `build()` |
+| `cube` D3 10^5 | 7 | 0 | 0 | |
+| `sphere` D3 10^5 | 7 | 0 | 0 | |
+
+| Set | convx | Qhull: hyperplanes, distance tests | Qhull's time |
+| --- | ---: | --- | ---: |
+| `cubesurf` D3 10^5 | 102 ms | 501, 2,236,537 | 28.8 ms |
+| `grid` D6 10^4 | 2.23 s | 14,992, 8,004,186 | 340 ms |
+
+### Prototype: a zero column decides zero
+
+| Set | `main` | Prototype | Ratio |
+| --- | ---: | ---: | ---: |
+| hull `cubesurf` D3 10^5 | 114 ms (110–126) | 83.6 ms (81.0–91.3) | 0.73, faster beyond the spread |
+| hull `grid` D6 10^4 | 2.49 s (2.49–2.51) | 2.13 s (2.12–2.14) | 0.85, faster beyond the spread |
+| hull `cube` D3 10^5 | 12.5 ms (11.6–14.0) | 12.8 ms (11.3–16.4) | 1.03, inside the spread |
+| hull `sphere` D3 10^5 | 366 ms (365–367) | 371 ms (366–379) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^5 | 81.8 ms (79.1–87.8) | 79.5 ms (77.9–85.8) | 0.97, inside the spread |
+
+With one codegen unit, `main`'s `cubesurf` D3 10^5 read 0.99 of the default build (114 ms against 113 ms), inside the spread.
+
+### Reading
+
+- **Most of the degenerate work is exact zeros on hyperplanes parallel to the axes.** On `cubesurf` every zero has a column of differences that is all zero, and on `grid` 86% of them. `a - b` is zero in `f64` exactly when `a == b`, so such a column is exact and the determinant is zero. A bound can never certify a zero, so each of them ran the later stages. Answering zero for that column reads `cubesurf` 0.73 and `grid` 0.85. General inputs never reach it.
+- **`grid`'s gap is the cost of a side test.** Qhull's 8.0 million distance tests take 340 ms, about 40 ns each, a dot product with a hyperplane computed once per facet. convx's 1.7 million orientations take about 2.2 s, a 6 × 6 determinant each. The `grid` coordinates are small integers, so each facet's hyperplane is exact in `f64`, and a dot product with it would give the exact side, zero included.
+- **`cubesurf`'s spread is not code generation on `main`.** It read 0.99 with one codegen unit; the 1.11 to 1.14 of #365 came from that change's partition.
+- After the zero column, `cubesurf`'s classification after construction (about 38%) is next.
+
+### Rows that follow
+
+| Row | Kind | What |
+| --- | --- | --- |
+| P7-26 (#384) | Feat | Predicates: a zero column of differences decides zero before the later stages |
+| P7-27 (#385) | Spike | Hull: exact planes of integer inputs, side tests by a dot product |
