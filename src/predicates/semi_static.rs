@@ -71,20 +71,28 @@
 //! The permanent `P` of the absolute values is not computed. Every monomial
 //! takes one entry from each column, so `P <= prod_c s_c`, with
 //! `s_c = sum_r |a[r][c]|` the sums of the columns' absolute values, and
-//! `P̂ = fl(prod_c s_c)` stands for it. Each of its `2k - 2` roundings only
-//! adds nonnegative values or multiplies them, so `P̂ >= (1 - u)^(2k - 2) P`,
-//! which `(n + 1) u` covers as it covers `(1 - u)^n` above.
+//! `P̂ = fl(prod_c s_c)` stands for it. Its `k (k - 1)` additions (`k - 1`
+//! per column) and `k - 1` products, 24 roundings, only add nonnegative
+//! values or multiply them, so `P̂ >= (1 - u)^24 P`, which `(n + 1) u`
+//! covers as it covers `(1 - u)^n` above: the slack of `(n + 1) u P̂` over
+//! the rounding error is at least `u P̂ / 2`.
 //!
 //! The underflow term uses the same sums. Each product of a minor underflows
 //! by at most `η / 2`, scaled by the entries above it. With `x_1 = 0` and
 //! `x_m = s_(m-1) x_(m-1) + m / 2`, the scaled underflow of every minor of
-//! `m` coordinate columns is at most `η x_m (1 + u)^n`. A lifted last column
-//! adds, for each of its `m` products, the underflow of its entry, at most
-//! `D η / 2`, scaled by the child minor, whose absolute value is at most
-//! `p_(m-1) = s_0 s_1 ... s_(m-2)`: so
-//! `x_m = s_l x_(m-1) + m p_(m-1) D / 2 + m / 2`, with `s_l` the sum of the
-//! lifted entries. `X = max(1, x_k)`, and the bound is that of every formula,
+//! `m` coordinate columns is at most `η x_m (1 + u)^n`, with `s_l` the sum
+//! of the lifted entries in place of `s_(k-1)` when the last column is
+//! lifted. `X = max(1, x_k)`, and the bound is that of every formula,
 //! `(n + 1) u P̂ + 4 η X`.
+//!
+//! The underflow of the lifted entries themselves needs no term. Each of the
+//! `k` products of the last level would add at most `D η / 2`, scaled by its
+//! child minor, at most `p = s_0 s_1 ... s_(k-2)`: at most `10 η p` in all for
+//! D = 4. When `s_l >= 2^-1015`, `P̂ >= p s_l / 2`, so the slack
+//! `u P̂ / 2 >= 2^-1070 p` exceeds it. Otherwise every coordinate difference
+//! is below `2^-507` (a larger one has a normal square, and its lifted entry
+//! exceeds `2^-1015`), so `p < 5^4 2^-2028` and `10 η p` is far below the
+//! slack `2 η X >= 2 η` of the underflow term.
 //!
 //! Size six is left to the running filter. The same expansion took 296 ns a
 //! test at k = 6, against 270 ns for the running filter, and made Delaunay
@@ -477,16 +485,8 @@ fn large<const K: usize>(origin: &[f64], points: &[&[f64]], lifted: bool) -> Est
     // The underflow bound from the column sums (module docs).
     let column_sum = |c: usize| -> f64 { rows.iter().map(|row| row[c].abs()).sum() };
     let mut x = 0.0;
-    let mut leading = 1.0;
     for m in 2..=K {
-        let s_last = column_sum(m - 1);
-        let half = m as f64 / 2.0;
-        x = if lifted && m == K {
-            s_last * x + m as f64 * leading * dim as f64 / 2.0 + half
-        } else {
-            s_last * x + half
-        };
-        leading *= column_sum(m - 2);
+        x = column_sum(m - 1) * x + m as f64 / 2.0;
     }
     // The permanent of the absolute values is at most the product of the
     // column sums (module docs, Size five).
