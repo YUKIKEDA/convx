@@ -668,7 +668,7 @@ On `main` at `dbe136c` (#306) the same rows were 58.6% / 38.9% and 68.8% / 27.7%
 - **No hull set of this file is slower beyond the spread in this run, but the `sphere` sets from D = 3 are slower by about 1 to 3%.** Their medians are 1.01 to 1.04 here, and 0.97 to 1.02 in a separate run of `main`, the store-only build, and the head on `sphere` D3 10^5 and 10^6, D4 10^5, and D6 10^4, where the store-only build read 0.98 to 1.01. Their points are in general position, so nothing is recorded; what they still pay is a plane number per new simplex, the sign of the apex kept per tested facet, and a check that the record is empty.
 - **Two earlier commits of this branch were slower on `sphere`.** At `52b0401` every walk looked up the apex's record for each facet it tested, and `sphere` D3 10^6 read 1.03 beyond the spread. At `3f62832` the walk looked up only an apex with a record, but the plane number was still part of the geometry every side test reads, and `sphere` D4 10^5 read 1.02 beyond the spread. The head keeps the number out of that geometry and passes it only to the scan of outside points.
 
-## Baseline of P7, PR #NNN (#310)
+## Baseline of P7, PR #313 (#310)
 
 The yardstick of ADR 0006 at the start of P7: every set of the ADR, judged against each reference with the same output.
 
