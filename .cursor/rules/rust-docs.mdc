@@ -22,6 +22,7 @@ Sources: [rustdoc book](https://doc.rust-lang.org/stable/rustdoc/how-to-write-do
 - When `Cargo.toml` exists, `missing_docs` is deny on the library crate. `pub(crate)` items do not need rustdoc.
 - A new item goes before the doc comment of the item that follows it, or after that item's end. Inserted between a doc comment and its item, it takes that doc: in #319 a new test took the doc of `the_bound_keeps_its_measured_margin`.
 - An edit that inserts before an item anchors at the first line of that item's doc comment, not at its attribute or signature. After the edit, read the diff for a `///` block directly above the new item's own `///` block. #342 repeated the split of #319 twice, after #328 had made the rule above.
+- A change to what a module covers (a size, a stage, a range) updates every doc that states it: the module's own, its parent module's, and the item docs that repeat it. Search for the old statement (`k ≤ 4`) before the PR. #354 widened the first stage to k ≤ 5 and left "k ≤ 4" in the module docs of `predicates` and on `semi_static::sign`.
 - Tests do not require a fixed Preconditions / Steps / Expected comment. The test's name and body should show which design invariant failed.
 
 ```rust
