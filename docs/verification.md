@@ -127,7 +127,7 @@ A record is revised only by editing the file in a change under review, under "Re
 
 The judgment inside "Open a performance set".
 
-`benches/sets.txt` lists each set as `set <family> <dim> <count> <seed>` under the generator id it was written for: the `cube` and `sphere` families of `tests/common/generator.rs`, D = 2..=8, 10^4, 10^5, and 10^6 points, seed 1. The list stores no expected topology. `cargo run --release --example export_qhull_sets [-- <filter>]` writes each set to `.dev/perf/` (not in git) in Qhull's input format: the dimension, the count, then one point per line in shortest round-trip `f64` decimal, so Qhull reads the same bit patterns convx is given. Existing files are kept. The filter is matched by `-`-separated tokens: `-- d3-n10000` writes the two D = 3 sets of 10^4 points, not those of 10^5 or 10^6.
+`benches/sets.txt` lists each set as `set <family> <dim> <count> <seed>` under the generator id it was written for: the `cube` and `sphere` families of `tests/common/generator.rs`, D = 2..=8, 10^4, 10^5, and 10^6 points, seed 1, and the two degenerate sets of P7, `cubesurf` D3 10^5 and `grid` D6 10^4 (ADR 0006). The list stores no expected topology. `cargo run --release --example export_qhull_sets [-- <filter>]` writes each set to `.dev/perf/` (not in git) in Qhull's input format: the dimension, the count, then one point per line in shortest round-trip `f64` decimal, so Qhull reads the same bit patterns convx is given. Existing files are kept. The filter is matched by `-`-separated tokens: `-- d3-n10000` writes the two D = 3 sets of 10^4 points, not those of 10^5 or 10^6.
 
 The Qhull reference is run as `qconvex i s TI <file>`: `i` lists the vertices of each facet, which are the logical facets to compare, and `s` adds the summary (input points, dimension, vertex and facet counts); `s` alone prints no facet vertex sets. No `QJ` (no joggle), no `Qt` (logical facets, not a triangulated output), no other option that perturbs the input, in the same dimension as the set. Timings compare logical facets with logical facets. A correctness test never reads these files, and a timing run never writes a correctness record.
 
@@ -144,4 +144,28 @@ Four timed sections are reported side by side (#250), so that a gap can be read 
 
 The construction timer is not committed (`.cursor/rules/bench.mdc`). It goes into a scratch copy of the measured commit: `SimplicialHull::build` becomes a wrapper that times the original body and prints `construct <seconds>` to standard error, and `delaunay::inserted` prints the same line right after `insert::Mesh::build`. The timing binary pairs each line with the build it belongs to. Qhull's work counters come from the same `s` summary: points processed, hyperplanes created, and distance tests. They say whether a gap is the amount of work or its cost per operation.
 
-CGAL is the second reference (#215). It decides signs exactly on the input `f64`, as convx does, with the kernel `Epick` (`Epick_d<Dimension_tag<D>>` above D = 3); it is timed on the same files, built with `g++ -O3 -DNDEBUG -g` and no `-march`, as convx is built for the baseline target. The timed section is construction only; reading the file and counting the output are outside it. The hull is `CGAL::convex_hull_2` for D = 2, `CGAL::convex_hull_3` into a `Surface_mesh` for D = 3, and for D >= 4 `CGAL::Triangulation`, built with range `insert`, whose hull facets are the full cells incident to the infinite vertex. Delaunay is `Delaunay_triangulation_2` and `Delaunay_triangulation_3` built from the range, and `CGAL::Delaunay_triangulation` with range `insert` for D >= 4. CGAL's output is simplicial, so its facet count is compared with convx's logical facets only on sets in general position, where the two are the same; a set where they differ is reported, not timed. Delaunay is compared by finite simplex count. Measured numbers, and any speedup target, are written only in the change that first measures them (`.cursor/rules/bench.mdc`). Reference comparisons are kept in `docs/bench.md`, one section per measured convx commit.
+CGAL is the second reference (#215). It decides signs exactly on the input `f64`, as convx does, with the kernel `Epick` (`Epick_d<Dimension_tag<D>>` above D = 3); it is timed on the same files, built with `g++ -O3 -DNDEBUG -g` and no `-march`, as convx is built for the baseline target. The timed section is construction only; reading the file and counting the output are outside it. The hull is `CGAL::convex_hull_2` for D = 2, `CGAL::convex_hull_3` into a `Surface_mesh` for D = 3, and for D >= 4 `CGAL::Triangulation`, built with range `insert`, whose hull facets are the full cells incident to the infinite vertex. Delaunay is `Delaunay_triangulation_2` and `Delaunay_triangulation_3` built from the range, and `CGAL::Delaunay_triangulation` with range `insert` for D >= 4. CGAL's output is simplicial, so its facet count is compared with convx's logical facets only on sets in general position, where the two are the same. Where they differ, the vertex sets decide (ADR 0006): on `cubesurf` D3 10^5 CGAL's triangulated boundary has the same vertices and is judged against, and on `grid` D6 10^4 its d-dimensional hull lists other vertices and is a reference value. Delaunay is compared by finite simplex count. Measured numbers, and any speedup target, are written only in the change that first measures them (`.cursor/rules/bench.mdc`). Reference comparisons are kept in `docs/bench.md`, one section per measured convx commit.
+
+### Parity run of P7
+
+The run that judges a set against ADR 0006. It times convx, CGAL, and Qhull on every set of the ADR on one machine, and splits convx's `build()` into its phases.
+
+- **Points.** `export_qhull_sets` writes every set of the ADR (filters `d2`, `d3`, `d4-n10000`, `d4-n100000`, `d5-n10000`, `d5-n100000`, `d6-n10000`, `d6-n100000`, `cubesurf`, `grid-d6`), and every tool reads those files.
+- **convx.** A scratch copy of the measured commit is used. A scratch example reads a file and prints, per build:
+  - `build()`;
+  - the vertex and facet counts (sites and simplices for Delaunay);
+  - for the hull, the time of `planes()` after `build()`.
+
+  A scratch mark function prints the time at four points:
+  - the start and the end of `SimplicialHull::build` in `classify`;
+  - the start and the end of `publish` in `ConvexHullBuilder::build`;
+  - for Delaunay, around `insert::brio` and `insert::Mesh::build`, and around `publish`.
+
+  Construction, the pass after it, and publication come from those marks. A sub-hull of a coplanar face marks again, and the first marks of a build are the outer build's. Neither the example nor the marks are committed (`.cursor/rules/bench.mdc`). Their code is on the Issue that ran them (#275, #310).
+- **CGAL.** The program of #215, built as above.
+- **Qhull.** `qconvex` or `qdelaunay` `i s TI <file> TO <out>`, its compute time and work counters read from the summary, and the whole process timed.
+- **Runner.**
+  - Per set, one unrecorded convx build first.
+  - Then per round: convx, then CGAL, then Qhull, each pinned with `taskset -c 2`.
+  - 5 rounds of 3 builds when that first build took under 1.5 s, otherwise 3 rounds of 1.
+- **Report.** Per set: the median and the min–max of each tool, the phase shares of `build()`, the ratio to each reference, whether each ratio is judged or a reference value, and whether the set is met. The counts of the three tools are compared, and a disagreement is reported next to the set.

@@ -667,3 +667,103 @@ On `main` at `dbe136c` (#306) the same rows were 58.6% / 38.9% and 68.8% / 27.7%
 - **Qhull is still ahead on both**: the head is 5.8 times Qhull's compute time on `cubesurf` D3 10^5 (13.7 before) and 10.0 times on `grid` D6 10^4 (14.7 before). The side tests of insertion are still 65% of `cubesurf`, and on `grid` D6 the sub-hulls of the coplanar faces, which classification builds one dimension down, are most of the build.
 - **No hull set of this file is slower beyond the spread in this run, but the `sphere` sets from D = 3 are slower by about 1 to 3%.** Their medians are 1.01 to 1.04 here, and 0.97 to 1.02 in a separate run of `main`, the store-only build, and the head on `sphere` D3 10^5 and 10^6, D4 10^5, and D6 10^4, where the store-only build read 0.98 to 1.01. Their points are in general position, so nothing is recorded; what they still pay is a plane number per new simplex, the sign of the apex kept per tested facet, and a check that the record is empty.
 - **Two earlier commits of this branch were slower on `sphere`.** At `52b0401` every walk looked up the apex's record for each facet it tested, and `sphere` D3 10^6 read 1.03 beyond the spread. At `3f62832` the walk looked up only an apex with a record, but the plane number was still part of the geometry every side test reads, and `sphere` D4 10^5 read 1.02 beyond the spread. The head keeps the number out of that geometry and passes it only to the scan of outside points.
+
+## Baseline of P7, PR #NNN (#310)
+
+The yardstick of ADR 0006 at the start of P7: every set of the ADR, judged against each reference with the same output.
+
+### Method
+
+The procedure is "Parity run of P7" in `docs/verification.md`.
+
+| Item | Value |
+| --- | --- |
+| convx | The head of #308, `6e27ca2`, with the generator change of this pull request (`315009f`; no library code changed). rustc 1.99.0, `--release` with debug info, baseline target |
+| CGAL | 5.4 (Ubuntu 22.04 `libcgal-dev`), g++ 11.4, the program and flags of #215 |
+| Qhull | 2020.2 (Ubuntu 22.04 `qhull-bin`), `qconvex i s TI <file> TO <out>` and `qdelaunay i s TI <file> TO <out>` |
+| Machine | Intel Core i5-13400F, Ubuntu 22.04 under WSL2 (kernel 5.15.133.1) on Windows 11 |
+| Cores | One, every process pinned with `taskset -c 2` |
+| Points | `benches/sets.txt`, seed 1, generator `xoshiro256starstar-v1`, written by `export_qhull_sets` |
+| Rounds | One unrecorded convx build per set, then convx, CGAL, Qhull alternated per round: 5 rounds × 3 builds when that build took under 1.5 s, otherwise 3 × 1 |
+| Reported | Median with min–max in parentheses; Qhull's compute time is a median. A ratio is convx's median `build()` over the reference's median. "(ref.)" marks a reference whose output differs, which is not judged (ADR 0006). A set is met when every judged ratio is at most 1.00 |
+| Phases | Shares of `build()`: construction, the pass after it, publication; the rest is acceptance and duplicate detection |
+
+The 41 sets took 30 minutes. The scratch example, the marks, and the runner are on #310.
+
+### Counts
+
+convx, CGAL, and Qhull agree on every vertex and facet count of the hull and every Delaunay simplex count, except as follows.
+
+- Qhull merges vertices on hull `sphere` D2 at 10^5 and 10^6 (99,996 and 998,669 vertices) and cospherical regions on every Delaunay `sphere` set (for example D3 10^6: 2,911,192 regions against 3,017,144 simplices).
+- On hull `cubesurf` D3 10^5, CGAL's triangulated boundary has the same 155 vertices and 306 triangles against 169 logical facets.
+- On hull `grid` D6 10^4, CGAL's d-dimensional hull lists 3,661 vertices and 124,682 facets against 89 and 17, and Qhull lists 193 vertices, those of its merged facets, against 89, with the same 17 facets.
+
+### Hull
+
+Met: 9 of 25.
+
+| Set | convx `build()` | `planes()` after it | Construction / pass after / publication, % | CGAL | Qhull compute | `build()` / CGAL | `build()` / Qhull | P7 | Qhull hyperplanes / distance tests | Vertices / facets |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| `cube` D2 10^4 | 0.58 ms (0.56 ms–0.68 ms) | 0.00 ms | 68 / 14 / 2 | 0.48 ms (0.45 ms–0.70 ms) | 0.56 ms | 1.21 | 1.02 | not met | 45 / 65,050 | 24 / 24 |
+| `cube` D2 10^5 | 5.70 ms (5.46 ms–6.86 ms) | 0.01 ms | 67 / 11 / 1 | 4.58 ms (4.31 ms–5.17 ms) | 5.64 ms | 1.24 | 1.01 | not met | 48 / 699,388 | 25 / 25 |
+| `cube` D2 10^6 | 66.9 ms (65.8 ms–74.2 ms) | 0.17 ms | 55 / 9 / 1 | 45.9 ms (44.3 ms–49.2 ms) | 56.8 ms | 1.46 | 1.18 | not met | 76 / 6,417,683 | 39 / 39 |
+| `cube` D3 10^4 | 1.28 ms (1.21 ms–1.49 ms) | 0.05 ms | 81 / 7 / 2 | 2.17 ms (2.08 ms–2.53 ms) | 1.51 ms | 0.59 | 0.85 | met | 755 / 138,265 | 121 / 238 |
+| `cube` D3 10^5 | 10.7 ms (9.68 ms–11.5 ms) | 0.08 ms | 81 / 3 / 1 | 26.6 ms (25.4 ms–29.1 ms) | 11.6 ms | 0.40 | 0.93 | met | 952 / 1,279,410 | 175 / 346 |
+| `cube` D3 10^6 | 141 ms (136 ms–153 ms) | 0.27 ms | 77 / 2 / 0 | 576 ms (557 ms–592 ms) | 148 ms | 0.24 | 0.95 | met | 1,888 / 13,617,348 | 285 / 566 |
+| `cube` D4 10^4 | 6.58 ms (6.33 ms–11.8 ms) | 0.51 ms | 86 / 9 / 4 | 43.9 ms (42.8 ms–46.6 ms) | 6.79 ms | 0.15 | 0.97 | met | 11,158 / 402,164 | 404 / 2,320 |
+| `cube` D4 10^5 | 35.9 ms (33.7 ms–38.6 ms) | 1.02 ms | 90 / 4 / 1 | 567 ms (547 ms–599 ms) | 34.2 ms | 0.06 | 1.05 | not met | 20,086 / 3,590,089 | 770 / 4,376 |
+| `cube` D5 10^4 | 58.5 ms (56.3 ms–62.5 ms) | 5.82 ms | 84 / 11 / 5 | 231 ms (222 ms–242 ms) | 76.7 ms | 0.25 | 0.76 | met | 125,948 / 2,010,291 | 961 / 20,232 |
+| `cube` D5 10^5 | 230 ms (220 ms–256 ms) | 14.2 ms | 88 / 7 / 3 | 1.74 s (1.70 s–1.82 s) | 326 ms | 0.13 | 0.71 | met | 344,329 / 20,893,652 | 2,339 / 48,818 |
+| `cube` D6 10^4 | 635 ms (617 ms–653 ms) | 62.6 ms | 81 / 12 / 6 | 2.08 s (2.06 s–2.13 s) | 1.27 s | 0.30 | 0.50 | met | 1,234,219 / 13,946,956 | 1,882 / 174,102 |
+| `cube` D6 10^5 | 2.80 s (2.74 s–2.90 s) | 190 ms | 83 / 12 / 5 | 11.16 s (11.08 s–11.48 s) | 6.92 s | 0.25 | 0.40 | met | 4,718,136 / 149,602,813 | 5,444 / 518,754 |
+| `sphere` D2 10^4 | 1.79 ms (1.53 ms–2.62 ms) | 0.40 ms | 42 / 32 / 17 | 0.61 ms (0.59 ms–0.66 ms) | 6.56 ms | 2.92 | 0.27 (ref.) | not met | 19,998 / 189,622 | 10,000 / 10,000 |
+| `sphere` D2 10^5 | 20.4 ms (17.7 ms–23.1 ms) | 5.58 ms | 40 / 31 / 20 | 8.06 ms (7.10 ms–8.85 ms) | 112 ms | 2.53 | 0.18 (ref.) | not met | 199,989 / 2,395,166 | 100,000 / 100,000 |
+| `sphere` D2 10^6 | 287 ms (270 ms–322 ms) | 116 ms | 47 / 31 / 14 | 88.1 ms (83.6 ms–95.5 ms) | 1.93 s | 3.25 | 0.15 (ref.) | not met | 1,997,357 / 28,928,990 | 999,973 / 999,973 |
+| `sphere` D3 10^4 | 28.6 ms (28.2 ms–30.7 ms) | 4.23 ms | 80 / 14 / 5 | 22.6 ms (21.7 ms–24.1 ms) | 18.4 ms | 1.27 | 1.56 | not met | 56,158 / 341,173 | 10,000 / 19,996 |
+| `sphere` D3 10^5 | 357 ms (343 ms–375 ms) | 44.7 ms | 79 / 14 / 6 | 407 ms (390 ms–432 ms) | 248 ms | 0.88 | 1.44 | not met | 565,222 / 4,349,516 | 100,000 / 199,996 |
+| `sphere` D3 10^6 | 5.38 s (5.33 s–5.39 s) | 565 ms | 74 / 18 / 8 | 8.02 s (7.89 s–8.26 s) | 3.46 s | 0.67 | 1.56 | not met | 5,654,825 / 52,940,589 | 1,000,000 / 1,999,996 |
+| `sphere` D4 10^4 | 133 ms (130 ms–142 ms) | 15.9 ms | 80 / 14 / 6 | 120 ms (118 ms–135 ms) | 96.2 ms | 1.11 | 1.39 | not met | 258,048 / 889,697 | 10,000 / 67,192 |
+| `sphere` D4 10^5 | 1.77 s (1.72 s–1.79 s) | 170 ms | 76 / 17 / 7 | 1.29 s (1.28 s–1.31 s) | 1.33 s | 1.38 | 1.33 | not met | 2,626,423 / 10,538,224 | 100,000 / 675,154 |
+| `sphere` D5 10^4 | 894 ms (866 ms–923 ms) | 86.4 ms | 80 / 13 / 6 | 978 ms (950 ms–1.01 s) | 840 ms | 0.91 | 1.06 | not met | 1,413,713 / 3,017,965 | 10,000 / 299,994 |
+| `sphere` D5 10^5 | 11.76 s (11.68 s–11.80 s) | 995 ms | 73 / 19 / 9 | 11.16 s (10.97 s–11.46 s) | 10.81 s | 1.05 | 1.09 | not met | 15,164,634 / 35,472,228 | 100,000 / 3,112,922 |
+| `sphere` D6 10^4 | 7.40 s (7.38 s–7.45 s) | 553 ms | 77 / 16 / 7 | 9.43 s (9.35 s–9.46 s) | 8.13 s | 0.78 | 0.91 | met | 8,596,125 / 14,508,402 | 10,000 / 1,570,453 |
+| `cubesurf` D3 10^5 | 170 ms (168 ms–179 ms) | 0.22 ms | 78 / 21 / 0 | 37.8 ms (36.6 ms–46.3 ms) | 28.9 ms | 4.51 | 5.90 | not met | 501 / 2,236,537 | 155 / 169 |
+| `grid` D6 10^4 | 3.64 s (3.62 s–3.65 s) | 2.44 ms | 37 / 62 / 0 | 254 ms (254 ms–256 ms) | 347 ms | 14.29 (ref.) | 10.48 | not met | 14,992 / 8,004,186 | 89 / 17 |
+
+### Delaunay
+
+Met: 0 of 16.
+
+| Set | convx `build()` | Construction / pass after / publication, % | CGAL | Qhull compute | `build()` / CGAL | `build()` / Qhull | P7 | Qhull hyperplanes / distance tests | Sites / simplices |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| `cube` D2 10^4 | 12.6 ms (12.3 ms–13.6 ms) | 73 / 24 / 1 | 4.07 ms (3.78 ms–4.53 ms) | 19.1 ms | 3.09 | 0.66 | not met | 56,426 / 377,169 | 10,000 / 19,974 |
+| `cube` D2 10^5 | 138 ms (135 ms–142 ms) | 72 / 26 / 1 | 42.3 ms (40.8 ms–45.4 ms) | 236 ms | 3.26 | 0.58 | not met | 565,024 / 4,837,796 | 100,000 / 199,973 |
+| `cube` D2 10^6 | 1.71 s (1.66 s–1.71 s) | 65 / 33 / 0 | 465 ms (465 ms–466 ms) | 3.34 s | 3.67 | 0.51 | not met | 5,661,165 / 56,857,785 | 1,000,000 / 1,999,959 |
+| `sphere` D2 10^4 | 14.6 ms (14.1 ms–16.1 ms) | 85 / 13 / 0 | 3.82 ms (3.69 ms–4.04 ms) | 23.4 ms | 3.81 | 0.62 (ref.) | not met | 45,385 / 437,697 | 10,000 / 9,998 |
+| `sphere` D2 10^5 | 112 ms (108 ms–119 ms) | 79 / 18 / 1 | 32.3 ms (31.0 ms–35.2 ms) | 377 ms | 3.46 | 0.30 (ref.) | not met | 450,890 / 5,578,213 | 100,000 / 99,998 |
+| `sphere` D2 10^6 | 1.12 s (1.08 s–1.15 s) | 74 / 23 / 0 | 318 ms (313 ms–339 ms) | 11.84 s | 3.51 | 0.09 (ref.) | not met | 6,096,936 / 140,732,829 | 1,000,000 / 1,000,025 |
+| `cube` D3 10^4 | 80.0 ms (78.1 ms–81.6 ms) | 80 / 19 / 0 | 29.2 ms (28.0 ms–30.8 ms) | 92.8 ms | 2.74 | 0.86 | not met | 255,564 / 881,892 | 10,000 / 66,373 |
+| `cube` D3 10^5 | 930 ms (908 ms–953 ms) | 75 / 24 / 0 | 308 ms (305 ms–321 ms) | 1.27 s | 3.02 | 0.73 | not met | 2,602,230 / 11,306,061 | 100,000 / 671,608 |
+| `cube` D3 10^6 | 10.71 s (10.42 s–10.85 s) | 69 / 30 / 0 | 3.48 s (3.46 s–3.49 s) | 15.67 s | 3.08 | 0.68 | not met | 26,219,307 / 125,621,001 | 1,000,000 / 6,747,791 |
+| `sphere` D3 10^4 | 259 ms (253 ms–359 ms) | 90 / 10 / 0 | 131 ms (126 ms–155 ms) | 114 ms | 1.97 | 2.27 (ref.) | not met | 191,857 / 1,121,621 | 10,000 / 30,038 |
+| `sphere` D3 10^5 | 2.53 s (2.48 s–2.54 s) | 90 / 10 / 0 | 921 ms (914 ms–927 ms) | 1.90 s | 2.75 | 1.33 (ref.) | not met | 1,974,009 / 15,785,569 | 100,000 / 302,013 |
+| `sphere` D3 10^6 | 20.00 s (19.75 s–20.19 s) | 89 / 11 / 0 | 6.38 s (6.36 s–6.41 s) | 17.34 s | 3.13 | 1.15 (ref.) | not met | 19,314,633 / 137,640,502 | 1,000,000 / 3,017,144 |
+| `cube` D4 10^4 | 892 ms (867 ms–987 ms) | 81 / 17 / 0 | 629 ms (620 ms–669 ms) | 802 ms | 1.42 | 1.11 | not met | 1,397,526 / 3,183,815 | 10,000 / 295,350 |
+| `sphere` D4 10^4 | 3.86 s (3.84 s–3.91 s) | 89 / 11 / 0 | 2.53 s (2.52 s–2.54 s) | 1.28 s | 1.52 | 3.01 (ref.) | not met | 1,078,477 / 4,371,357 | 10,000 / 128,710 |
+| `cube` D5 10^4 | 8.13 s (7.99 s–8.29 s) | 81 / 19 / 0 | 6.93 s (6.86 s–6.95 s) | 8.20 s | 1.17 | 0.99 | not met | 8,593,628 / 15,161,004 | 10,000 / 1,551,630 |
+| `sphere` D5 10^4 | 47.03 s (45.94 s–47.11 s) | 89 / 11 / 0 | 34.38 s (34.08 s–35.03 s) | 14.32 s | 1.37 | 3.28 (ref.) | not met | 6,939,777 / 19,199,869 | 10,000 / 674,290 |
+
+### Reading
+
+- **Met: 9 of 41.** All are hull sets: `cube` D3 at every size, `cube` D4 10^4, `cube` D5 and D6 at both sizes, and `sphere` D6 10^4.
+- **Delaunay D2 and D3 against CGAL: 2.74 to 3.81, except `sphere` D3 10^4 at 1.97.** This is the largest gap among the dimensions used most. Construction is 65 to 90% of `build()`, and the pass after it is 10 to 33%. P7-2 (#311) starts here.
+- **Hull D2 against CGAL.**
+  - `sphere`: 2.53 to 3.25. Construction is 40 to 47% of `build()`, the pass after it 31 to 32%, and publication 14 to 20%; `convex_hull_2` returns only the hull points. P7-3 (#312) changes what `build()` computes.
+  - `cube`: 1.21 to 1.46 against CGAL, and 1.01 to 1.18 against Qhull.
+- **Hull `sphere` D3 and D4 against Qhull: 1.33 to 1.56.** Construction alone is 1.01 to 1.25 times Qhull's compute time. Against CGAL, D3 is 0.67 to 1.27 and D4 is 1.11 to 1.38.
+- **Hull `sphere` D5: 1.06 to 1.09 against Qhull, and 0.91 to 1.05 against CGAL.**
+- **Hull `cube` D4 10^5: 1.05 against Qhull.** It read 1.03 in the run behind the Grill and 1.07 in the section After P6 above.
+- **The degenerate sets.**
+  - `cubesurf` D3 10^5: 4.51 against CGAL and 5.90 against Qhull.
+  - `grid` D6 10^4: 10.48 against Qhull, with the pass after construction at 62% of `build()`. That pass includes the sub-hulls of coplanar faces.
+- **Delaunay D4 and D5 against CGAL: 1.17 to 1.52.** Against Qhull, `cube` D4 is 1.11 and `cube` D5 0.99.
