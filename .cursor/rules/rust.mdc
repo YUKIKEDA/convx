@@ -15,6 +15,8 @@ Sources: Clippy restriction lints; Rust API Guidelines C-VALIDATE, C-GOOD-ERR. B
 - No logging. Failures use the error types in the design. Do not add a log facade.
 - `debug_assert!` only for an internal invariant that means a convx bug. Not for caller input.
 - A lookup that an invariant guarantees does not end in a silent fallback. `position(..).unwrap_or(0)` turns a broken invariant into a write to slot 0. Assert the `Some` in debug builds before the fallback, or return the error (#263).
+- A value computed on first use keeps only an outcome the input decides: the value, or a failure that every later computation would repeat. A failure that may not repeat (an allocation that could not be made) is returned and not kept, so the next call computes again. `ConvexHull::planes` first kept `ExactEvaluationExhausted` forever (#297).
+- A hand-written `Debug` does not print a view whose own `Debug` prints the owner. The first `Debug` of `ConvexHull` printed its triangulation view and overflowed the stack (#297).
 - A `loop` that ends only because an invariant holds gets a `debug_assert!` on a bound the invariant gives. Without it a broken invariant hangs a test and a release build (#265: the turn around a ridge ends within the size of the cavity).
 - Validate caller input at the public boundary. Do not panic on bad data. Illegal combinations are types, not runtime errors (`.cursor/rules/types.mdc`).
 - Do not use `==` on computed `f32` or `f64` to decide a geometric sign (Clippy `float_cmp`). The exception is point identity where the design says to use `==`. Allow `float_cmp` only on that line, and comment the design section.

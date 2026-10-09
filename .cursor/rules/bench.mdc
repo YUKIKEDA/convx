@@ -33,7 +33,11 @@ A section of `docs/bench.md` measured on an open pull request names that pull re
 
 A speed PR also times an input that takes the path it does not change, and reports it. In #265 the `cube` and `sphere` sets were 0.60 to 0.84 of the base, and two full grids, where every simplex is in a merged cospherical group, were inside the spread and 0.92.
 
-A measurement that an ADR cites is recorded in `docs/bench.md`, and the ADR points to that section. A comment on an Issue is not the repository's record (ADR 0004, #270).
+A measurement that an ADR, a code comment, or a PR cites is recorded in `docs/bench.md`, and the citation points to that section. A comment on an Issue is not the repository's record (ADR 0004, #270; the spike behind the bucket queue, #290 and #292). A claim of speed in an ADR names its measurement, or says that the gain is expected and which row measures it (ADR 0005, #296).
+
+Assign a row of a profile to a phase from its callers in the call tree, not from the function's name or from where the cost was expected. In #289 a stable sort was listed under publication; its caller was the chain of construction.
+
+"Inside the spread" is a statement about repeated runs, not about one pair of ranges. When the ranges overlap only through one outlier and other runs agree on the difference, report the difference. In #292 `cube` D6 10^4 read 1.04 "inside the spread" because one build of the base took 919 ms against a median of 740; two other runs gave about 3%.
 
 A change after review that touches the timed path makes a new head. Time the base and that head again, both on one machine. A table of the base against the earlier head from one machine, next to the earlier head against the new head from another, is not the base against the shipped head (#259).
 
