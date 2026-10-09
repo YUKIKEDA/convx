@@ -17,6 +17,8 @@ A speed PR reports the wall time on the exact input its Issue names, next to tha
 
 Build both sides of a comparison with the same profile and the same flags (debug info included). Pin them to one core and alternate them. A difference inside the spread of repeated runs is not a result.
 
+A cheaper form of a costly expression keeps the slow form out of line, `#[cold]` and `#[inline(never)]`. A whole-build timing, or the assembly, then shows that the slow form is gone from the common path. In #318 the cheaper bound of the first stage was written as an `if` in place. The compiler evaluated both forms and selected one, and no build got faster, while the formula timed alone looked four times faster.
+
 After the first speed change, profile again before opening the PR: what remains may be a different cost (#99: allocation was half of what was left). Every count and time in the PR comes from a build of the head it ships (#92 once reported a count from an earlier commit).
 
 Measure the external reference on the machine that times convx, and translate the Issue's target by the ratio before reading a result. Record the reference's own work counters too (`qconvex Qt Ts`: points processed, facets created, distance tests): they say whether a gap is the amount of work or its cost per operation. In #120 the owner's Qhull took 1.32 s and the agent machine's 2.95 s, and Qhull created about as many facets as convx.
