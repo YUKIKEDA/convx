@@ -1543,3 +1543,82 @@ The test binaries that build the fixtures and cases, release, one thread, pinned
 - **Hull `cubesurf` D3 10^5 is 0.58**, and Delaunay `sphere` D2 10^4 0.65: their orientations left open by the first stage went through the running filter, which decided nothing on them, before the exact stage.
 - **Nothing is slower beyond the spread.** The `cube` sets are unchanged: on Delaunay `cube` D2 and D3 the first stage decided every in-sphere test (#331), so neither the running filter nor the new stage is reached there. Delaunay `cube` D5 10^4 (k = 6), where the running filter decides every test, is unchanged.
 - What this does not show: how many tests reach the double-double stage and how many it leaves to the exact one. Against Qhull and CGAL, the full parity run after this row's merge says.
+
+## The P7 parity run after P7-16 and P7-17, PR #361 (#360)
+
+Due after the third speed row merged since #341: P7-10 (#343), P7-14 (#342), P7-16 (#354), and P7-17 (#356) have merged since the last full run (#342).
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `73f0fde`, `--release` with debug info |
+| Machine | Intel Core i5-13400F, WSL2 on Windows 11, the parity run of `docs/verification.md` |
+| References | Qhull and CGAL as in the baseline (#313), on the same machine |
+| Judgement | `build()` against each judged reference, the median of the runs; "(ref.)" marks a reference that is not judged (ADR 0006) |
+
+### P7 judgement
+
+Met: 13 of 41 (hull 9, Delaunay 4), against 11 in the run of #342.
+
+| Set | convx `build()` | / CGAL | / Qhull | P7 |
+| --- | ---: | ---: | ---: | --- |
+| Hull `cube` D2 10^4 | 0.57 ms | 1.18 | 1.01 | not met |
+| Hull `cube` D2 10^5 | 5.77 ms | 1.28 | 1.02 | not met |
+| Hull `cube` D2 10^6 | 68.1 ms | 1.49 | 1.19 | not met |
+| Hull `cube` D3 10^4 | 1.28 ms | 0.58 | 0.85 | met |
+| Hull `cube` D3 10^5 | 10.4 ms | 0.41 | 0.89 | met |
+| Hull `cube` D3 10^6 | 139 ms | 0.25 | 0.94 | met |
+| Hull `cube` D4 10^4 | 6.62 ms | 0.15 | 0.97 | met |
+| Hull `cube` D4 10^5 | 34.8 ms | 0.06 | 1.02 | not met |
+| Hull `cube` D5 10^4 | 55.4 ms | 0.25 | 0.75 | met |
+| Hull `cube` D5 10^5 | 216 ms | 0.13 | 0.67 | met |
+| Hull `cube` D6 10^4 | 615 ms | 0.30 | 0.49 | met |
+| Hull `cube` D6 10^5 | 2.60 s | 0.23 | 0.39 | met |
+| Hull `sphere` D2 10^4 | 1.55 ms | 2.50 | 0.23 (ref.) | not met |
+| Hull `sphere` D2 10^5 | 15.9 ms | 2.14 | 0.14 (ref.) | not met |
+| Hull `sphere` D2 10^6 | 226 ms | 2.57 | 0.12 (ref.) | not met |
+| Hull `sphere` D3 10^4 | 27.3 ms | 1.21 | 1.46 | not met |
+| Hull `sphere` D3 10^5 | 335 ms | 0.83 | 1.37 | not met |
+| Hull `sphere` D3 10^6 | 5.00 s | 0.62 | 1.46 | not met |
+| Hull `sphere` D4 10^4 | 127 ms | 1.06 | 1.33 | not met |
+| Hull `sphere` D4 10^5 | 1.62 s | 1.27 | 1.22 | not met |
+| Hull `sphere` D5 10^4 | 849 ms | 0.87 | 1.02 | not met |
+| Hull `sphere` D5 10^5 | 10.86 s | 0.98 | 1.01 | not met |
+| Hull `sphere` D6 10^4 | 6.99 s | 0.75 | 0.86 | met |
+| Hull `cubesurf` D3 10^5 | 102 ms | 2.77 | 3.58 | not met |
+| Hull `grid` D6 10^4 | 2.24 s | 8.81 (ref.) | 6.53 | not met |
+| Delaunay `cube` D2 10^4 | 8.03 ms | 2.01 | 0.43 | not met |
+| Delaunay `cube` D2 10^5 | 88.2 ms | 2.13 | 0.38 | not met |
+| Delaunay `cube` D2 10^6 | 1.08 s | 2.29 | 0.33 | not met |
+| Delaunay `sphere` D2 10^4 | 7.37 ms | 1.96 | 0.31 (ref.) | not met |
+| Delaunay `sphere` D2 10^5 | 70.7 ms | 2.20 | 0.19 (ref.) | not met |
+| Delaunay `sphere` D2 10^6 | 823 ms | 2.62 | 0.07 (ref.) | not met |
+| Delaunay `cube` D3 10^4 | 46.9 ms | 1.60 | 0.51 | not met |
+| Delaunay `cube` D3 10^5 | 554 ms | 1.77 | 0.44 | not met |
+| Delaunay `cube` D3 10^6 | 6.29 s | 1.86 | 0.40 | not met |
+| Delaunay `sphere` D3 10^4 | 80.1 ms | 0.63 | 0.70 (ref.) | met |
+| Delaunay `sphere` D3 10^5 | 787 ms | 0.86 | 0.42 (ref.) | met |
+| Delaunay `sphere` D3 10^6 | 6.89 s | 1.10 | 0.41 (ref.) | not met |
+| Delaunay `cube` D4 10^4 | 700 ms | 1.15 | 0.93 | not met |
+| Delaunay `sphere` D4 10^4 | 918 ms | 0.37 | 0.75 (ref.) | met |
+| Delaunay `cube` D5 10^4 | 7.46 s | 1.12 | 0.95 | not met |
+| Delaunay `sphere` D5 10^4 | 11.69 s | 0.34 | 0.83 (ref.) | met |
+
+### What moved
+
+- **Delaunay `sphere` D3 10^4 and 10^5, D4 10^4, and D5 10^4 are met** (0.63, 0.86, 0.37, 0.34 against CGAL), against 1.84, 2.38, 1.52, and 1.37 in the run of #342. The double-double stage (#356) decides the in-sphere tests that went to the exact stage.
+- **Delaunay `sphere` D3 10^6** reads 1.10 against CGAL, from 2.73.
+- **Delaunay `cube` D4 10^4** reads 1.15, from 1.33 (the first stage of size five, #354). `cube` D5 10^4 reads 1.12, from 1.15; its tests have k = 6 and are decided by the running filter.
+- **Hull `cube` D4 10^5 and `sphere` D5 10^4** read 1.02 against Qhull, not met, after 0.93 and 0.99 in the run of #342. Neither path changed between the two runs, so they moved by run-to-run noise, as that section said.
+
+### The sets not met
+
+| Path | Sets | Decided by |
+| --- | --- | --- |
+| Hull D2 | `cube` 10^4 to 10^6 (1.18 to 1.49), `sphere` 10^4 to 10^6 (2.14 to 2.57) | CGAL; P7-7 (#322) and P7-9 (#324) |
+| Hull D3 to D5 | `sphere` D3 10^4 to 10^6 (Qhull 1.37 to 1.46), `sphere` D4 10^4 and 10^5 (1.06 to 1.33), `sphere` D5 10^4 and 10^5 (Qhull 1.02 and 1.01), `cube` D4 10^5 (Qhull 1.02) | Qhull, and CGAL on `sphere` D4 |
+| Hull, degenerate | `cubesurf` D3 10^5 (2.77 and 3.58), `grid` D6 10^4 (Qhull 6.53) | both |
+| Delaunay D2 | `cube` and `sphere`, 10^4 to 10^6 (1.96 to 2.62) | CGAL; P7-13 (#332) |
+| Delaunay D3 | `cube` 10^4 to 10^6 (1.60 to 1.86), `sphere` 10^6 (1.10) | CGAL |
+| Delaunay D4, D5 | `cube` D4 10^4 (1.15), `cube` D5 10^4 (1.12) | CGAL |
