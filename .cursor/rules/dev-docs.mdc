@@ -35,4 +35,6 @@ $$
 
 Do not put `$` inside a Rust or other code block. Place the formula outside the code block.
 
+Text with LaTeX that a script writes is passed as is: from a file, or as a raw string. Before the commit, search the added lines for control characters. In #399 a script read `\t` of `\tau` as an escape, and six tabs reached review in both design files.
+
 A new formula does not reuse a symbol already defined nearby with another meaning. Name a new quantity with a new letter. In #116, $k$ was the geometric degree in §1, and a new sentence used it for the number of points.
