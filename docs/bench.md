@@ -2956,7 +2956,7 @@ The spike P7-36 takes line-level profiles of Delaunay `cube` D2 and D3 10^5. The
 
 | Function | Line | Share of its own time |
 | --- | --- | ---: |
-| D3 `insert` (1.27 s own) | `self.link_by_keys(&boundary, &created)`: pairing the new tetrahedra's faces | 59.7% |
+| D3 `insert` (1.27 s own) | `self.link_by_keys(&boundary, &created)`: pairing the new tetrahedra's faces (inlined; see the correction below) | 59.7% |
 | | `self.conflict(n, q)` (outside the test itself) | 10.4% |
 | D2 `insert_by_flips` (0.61 s own) | `self.flip(c, n, q)` | 55.5% |
 | | finding the slot, reading the neighbor, recording | 9 to 7% each |
@@ -2965,7 +2965,19 @@ The spike P7-36 takes line-level profiles of Delaunay `cube` D2 and D3 10^5. The
 
 ### Reading
 
-- **D3: pairing the new faces is about 21% of the build.** `link_by_keys` pairs about 60 faces per point through an open-addressing table keyed by an edge. Whether the time is the key and the probe, the new cells' reads, or their writes needs an instruction-level profile of that function; that is the first step of P7-37 (#421).
+- **D3: pairing the new faces is about 9% of the build, not 21%** (corrected, #425). `link_by_keys` pairs about 60 faces per point through an open-addressing table keyed by an edge. The 21% read the line of its call while it is inlined into `insert`; see the correction below. P7-37 (#421) is withdrawn.
 - **The predicates are about 30% of D2 and 35% of D3**, at 8 to 27 ns per call through the semi-static first stage. A static filter, which bounds every call of one input once, is a design question (certification for every accepted input, the fallback, the stages after it): P7-38 (#422), set after its Grill.
 - **D2's BRIO order is 11%**: the space-filling keys about 5% and their sort about 4%. That is P7-39 (#423).
 - **Smaller items, read again after these rows:** D2's flips (about 7% of the build), the walk's modulo (about 4%), and cell allocation (4 to 7%).
+
+### Correction: `link_by_keys` without inlining (#425)
+
+The first step of P7-37 (#421) profiled `link_by_keys` in a copy of `main` (`8e1cbf0`) with `#[inline(never)]` on it. The copy timed the same as `main`, pinned and alternated: `cube` D3 10^5 1.01, `cube` D3 10^4 1.00, `sphere` D3 10^4 1.01. Its profile (VTune, pinned, 8 builds of `cube` D3 10^5) put `link_by_keys`' own time at 0.31 s, about 39 ms per build and 8.4% of the process. Its lines:
+
+- the table write, 28%;
+- the key comparison and the read of the other entry, 28%;
+- the hash, 9%.
+
+`insert`'s own time fell to 14.3%. Within it, the cavity walk (marks, the stack, reading neighbors) is about 35%, the call into the conflict test 19%, and the search for the back link 13%.
+
+So the line of the call took time that is not `link_by_keys`' own while the function was inlined. Its share is about 9% of the build. A change would save part of that, within the spread of `cube` D3 10^5 (about ±5%), so no keep criterion can be named, and P7-37 is withdrawn (owner, 2026-10-10).

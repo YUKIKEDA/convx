@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-8 (#323): acceptance. P7-37 (#421) and P7-39 (#423): Delaunay; P7-34 (#410) and P7-38 (#422) after their Grills. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+P7-8 (#323): acceptance. P7-39 (#423): Delaunay; P7-34 (#410) and P7-38 (#422) after their Grills. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -211,7 +211,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-34 | Feat  | Hull: the coplanar merge on an input with no zero sign recorded                         | #410  | Set after Grill on #410 |
 | P7-35 | Feat  | Hull D2: classify and publish a strict polygon without sorts or regrowth                | #411  | Done        |
 | P7-36 | Spike | Delaunay D2 and D3: where the insertion's own time goes, line by line                   | #412  | Done        |
-| P7-37 | Feat  | Delaunay D3: pair the new tetrahedra's faces at less cost                               | #421  | Not started |
+| P7-37 | Feat  | Delaunay D3: pair the new tetrahedra's faces at less cost                               | #421  | Withdrawn after measurement (#425) |
 | P7-38 | Feat  | Predicates: a static filter for Delaunay's predicates                                   | #422  | Set after Grill on #422 |
 | P7-39 | Feat  | Delaunay D2: the BRIO order at less cost                                                | #423  | Not started |
 
