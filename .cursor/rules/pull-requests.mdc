@@ -11,6 +11,8 @@ Same as Conventional Commits: `type(optional-scope): subject`.
 
 Type, scope, and subject are English.
 
+The type is the kind of the row the pull request closes: `feat` for a `Feat` row, `docs` for a spike's record, `chore` for rules (`conventional-commits.mdc`). Check it against the row before the pull request opens. `perf` is not a type here; #380 to #417 opened eight pull requests with it, and six merged so before a review caught it.
+
 ## Body
 
 Follow `.github/pull_request_template.md`. Same section headings, in this order:
