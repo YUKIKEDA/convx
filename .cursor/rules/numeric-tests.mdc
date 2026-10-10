@@ -18,6 +18,7 @@ A test of a floating-point geometric result must be able to fail when the result
 - A change that moves a check into debug builds records a `cargo test --release` run in the PR. Debug assertions hide the release path.
 - Every path that discards a point or decides a side on a proof is checked against the exact sign in debug builds, not only the path through `side`. #112 checked `proved_side` and missed the scan that drops culled points.
 - A test-only reference path takes the same inputs (rows, stride, bounds) as the path it mirrors, or a `debug_assert` pins the cases it does not cover.
+- A change that starts to rely on an existing bound for soundness derives or measures that bound in the same change. In #399 the new cull planes took `tau` from the exact direction's bound, `D 2^-49`, which nobody had derived since it was written. The review asked; the derivation gave at most `(k/2 + 5) u`, a measurement `2.7 u`, and a per-component claim in a doc comment turned out unsupported for `k >= 9`.
 - Mutate files by copying them aside and restoring the copy. `git checkout` also discards uncommitted work in those files.
 - A family test fails when a case's precondition is missing (no plane, no normal, an overflow), instead of skipping the case. A skipped case is a named exception with its reason. Otherwise a magnitude can pass without reaching any assertion.
 - A test over a family of inputs states the expected result of every case. An exception is named in the test with its reason. Do not weaken the assertion for the whole family.
