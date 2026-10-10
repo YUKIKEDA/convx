@@ -263,59 +263,52 @@ fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
         hull.input.representatives.is_sorted(),
         "the representatives are ascending"
     );
-    let mut on_cycle = vec![false; hull.input.representative.len()];
+    // What the build knows of each representative.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Known {
+        Nothing,
+        OnCycle,
+        ProvedInterior,
+    }
+    let mut known = vec![Known::Nothing; hull.input.representative.len()];
     for &v in &hull.polygon {
-        on_cycle[v as usize] = true;
+        known[v as usize] = Known::OnCycle;
     }
-    let others: Vec<u32> = hull
-        .input
-        .representatives
-        .iter()
-        .copied()
-        .filter(|&p| !on_cycle[p as usize])
-        .collect();
-    let mut proved = vec![false; hull.input.representative.len()];
     for &p in &hull.proved_interior {
-        debug_assert!(!on_cycle[p as usize], "a discarded point is not a vertex");
-        proved[p as usize] = true;
+        debug_assert!(
+            known[p as usize] != Known::OnCycle,
+            "a discarded point is not a vertex"
+        );
+        known[p as usize] = Known::ProvedInterior;
     }
-    let mut on_boundary = vec![false; others.len()];
-    for (k, &point) in others.iter().enumerate() {
-        if proved[point as usize] {
-            debug_assert!(
-                polygon_edge(&hull.input, &hull.polygon, point)?.is_none(),
-                "point {point} was discarded and is not strictly inside"
-            );
-            continue;
-        }
-        if polygon_edge(&hull.input, &hull.polygon, point)?.is_some() {
-            on_boundary[k] = true;
+    // One pass over the ascending representatives writes the three lists,
+    // each ascending, without a sort (#411). The cycle's vertices and the
+    // points off it are sized up front; a list collected through a filter
+    // grew by reallocation (#440).
+    let representatives = &hull.input.representatives;
+    let mut vertices = Vec::with_capacity(n);
+    let mut coplanar_points = Vec::new();
+    let mut interior_points = Vec::with_capacity(representatives.len().saturating_sub(n));
+    for &point in representatives {
+        match known[point as usize] {
+            Known::OnCycle => vertices.push(point),
+            Known::ProvedInterior => {
+                debug_assert!(
+                    polygon_edge(&hull.input, &hull.polygon, point)?.is_none(),
+                    "point {point} was discarded and is not strictly inside"
+                );
+                interior_points.push(point);
+            }
+            Known::Nothing => {
+                if polygon_edge(&hull.input, &hull.polygon, point)?.is_some() {
+                    coplanar_points.push(point);
+                } else {
+                    interior_points.push(point);
+                }
+            }
         }
     }
-
-    // The cycle's vertices, ascending: one pass over the ascending
-    // representatives, not a sort (#411).
-    let vertices: Vec<u32> = hull
-        .input
-        .representatives
-        .iter()
-        .copied()
-        .filter(|&p| on_cycle[p as usize])
-        .collect();
     debug_assert_eq!(vertices.len(), n, "every cycle vertex is a representative");
-    // `others` is ascending, so both lists are too.
-    let coplanar_points: Vec<u32> = others
-        .iter()
-        .zip(&on_boundary)
-        .filter(|&(_, &b)| b)
-        .map(|(&p, _)| p)
-        .collect();
-    let interior_points: Vec<u32> = others
-        .iter()
-        .zip(&on_boundary)
-        .filter(|&(_, &b)| !b)
-        .map(|(&p, _)| p)
-        .collect();
 
     // The public order (design §5): edge `i` joins `cycle[i]` and
     // `cycle[i + 1]`, where `cycle` is the counterclockwise polygon from
