@@ -3261,3 +3261,99 @@ Met at 1.05: 23 of 41 (hull 18, Delaunay 5); 19 in the run of #404. Met at 1.00:
 | Hull `cube` D2 10^5 and 10^6 | 2 | 1.07 and 1.33 against CGAL |
 | Hull `sphere` D3 10^6 | 1 | 1.20 against Qhull |
 | Hull `cubesurf` D3 10^5 | 1 | 2.03 against Qhull, 1.50 against CGAL |
+
+## Hull D2: the points off the polygon in one pass, PR #441 (#440)
+
+P7-43. The parity run of #438 read hull `cube` D2 10^5 at 1.07 against CGAL, no longer met at 1.05 (1.01 in the run of #404).
+
+### Across P7-35 (#439)
+
+The base of #417 (`5ba92ef`), #417 (`d466627`), and `main` (`3a59a89`), pinned and alternated, 20 rounds × 3 builds:
+
+| Set | `5ba92ef` | `d466627` | `3a59a89` |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.61 ms (0.53 ms–1.38 ms) | 0.61 ms (0.53 ms–0.79 ms), 1.00 | 0.61 ms (0.53 ms–3.99 ms), 0.99 |
+| Hull `cube` D2 10^5 | 5.35 ms (4.79 ms–10.4 ms) | 5.52 ms (4.89 ms–9.41 ms), 1.03 | 5.49 ms (4.89 ms–6.33 ms), 1.03 |
+| Hull `cube` D2 10^6 | 64.6 ms (60.9 ms–94.0 ms) | 65.5 ms (62.0 ms–83.0 ms), 1.01 | 66.3 ms (60.9 ms–105 ms), 1.03 |
+| Hull `sphere` D2 10^5 | 16.5 ms (15.0 ms–27.7 ms) | 12.6 ms (11.1 ms–16.9 ms), 0.77 | 12.3 ms (10.9 ms–14.8 ms), 0.75 |
+
+Inside the spread, but in the direction of #417's own timing (1.06 and 1.04) and of the parity run (1.05).
+
+A VTune profile of `main` on `cube` D2 10^5 (software sampling, pinned, 2,000 builds) put `classify_chain` at 11.3% of `build()`. Of that, the lists of the points off the cycle took 8.2%:
+
+| Line | Share of `build()` |
+| --- | ---: |
+| `others`, collected through `filter` | 4.4%, of which growing the list 1.9% |
+| `interior_points`, through `zip`, `filter`, and `map` | 2.9%, of which growing the list 1.2% |
+| `coplanar_points` | 0.9% |
+| The cycle's vertices, the pass #417 added | 0.6% |
+
+P7-35 classified a strict polygon without sorts or regrowth for `sphere` D2, where every point is on the cycle. On `cube` D2 nearly every point is off it, and its lists still grew by reallocation, in four passes.
+
+### The change
+
+One pass over the ascending representatives writes the cycle's vertices, the coplanar points, and the interior points, each ascending. The vertices and the interior points are sized up front. What the build knows of each representative (on the cycle, proved interior, or neither) is one list of a three-state type, where it was two lists of booleans.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `3a59a89` against the head `01df6af`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md`, with hull `cube` D2 10^6 |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second. A second run of hull `cube` D2 10^5 and Delaunay `cube` D4 10^4, 20 × 3 |
+
+Every set published the same counts on both sides.
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.57 ms (0.53 ms–1.16 ms) | 0.51 ms (0.47 ms–0.75 ms) | 0.88, inside the spread |
+| Hull `cube` D2 10^5 | 5.39 ms (4.88 ms–6.08 ms) | 4.88 ms (4.37 ms–5.45 ms) | 0.91, inside the spread |
+| Hull `cube` D2 10^6 | 58.0 ms (56.8 ms–62.3 ms) | 51.4 ms (50.5 ms–54.1 ms) | 0.89, faster beyond the spread |
+| Hull `sphere` D2 10^4 | 1.16 ms (1.12 ms–1.44 ms) | 1.16 ms (1.09 ms–1.50 ms) | 1.00, inside the spread |
+| Hull `sphere` D2 10^5 | 12.2 ms (11.1 ms–26.1 ms) | 11.9 ms (10.8 ms–13.2 ms) | 0.98, inside the spread |
+| Hull `cube` D3 10^4 | 1.42 ms (1.27 ms–1.91 ms) | 1.42 ms (1.25 ms–2.20 ms) | 1.00, inside the spread |
+| Hull `cube` D3 10^5 | 11.6 ms (10.9 ms–12.5 ms) | 11.3 ms (10.9 ms–12.6 ms) | 0.98, inside the spread |
+| Hull `cubesurf` D3 10^5 | 58.1 ms (57.2 ms–61.1 ms) | 57.9 ms (56.9 ms–62.2 ms) | 1.00, inside the spread |
+| Hull `sphere` D3 10^4 | 21.0 ms (19.9 ms–22.8 ms) | 20.6 ms (20.2 ms–23.2 ms) | 0.98, inside the spread |
+| Hull `sphere` D3 10^5 | 250 ms (245 ms–270 ms) | 249 ms (241 ms–272 ms) | 1.00, inside the spread |
+| Hull `cube` D4 10^4 | 5.44 ms (5.12 ms–6.70 ms) | 5.55 ms (5.28 ms–6.29 ms) | 1.02, inside the spread |
+| Hull `cube` D4 10^5 | 33.1 ms (32.3 ms–45.0 ms) | 33.4 ms (31.7 ms–37.7 ms) | 1.01, inside the spread |
+| Hull `sphere` D4 10^4 | 91.7 ms (89.0 ms–98.6 ms) | 91.2 ms (88.4 ms–101 ms) | 0.99, inside the spread |
+| Hull `sphere` D4 10^5 | 1.15 s (1.12 s–1.19 s) | 1.12 s (1.11 s–1.14 s) | 0.98, inside the spread |
+| Hull `cube` D5 10^4 | 54.9 ms (53.1 ms–64.1 ms) | 53.9 ms (52.3 ms–57.6 ms) | 0.98, inside the spread |
+| Hull `sphere` D5 10^4 | 789 ms (775 ms–828 ms) | 784 ms (765 ms–895 ms) | 0.99, inside the spread |
+| Hull `cube` D6 10^4 | 564 ms (558 ms–580 ms) | 563 ms (552 ms–596 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^4 | 6.39 ms (6.20 ms–7.59 ms) | 6.46 ms (6.16 ms–7.20 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^5 | 64.7 ms (63.0 ms–72.6 ms) | 64.9 ms (62.6 ms–76.2 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^6 | 672 ms (669 ms–699 ms) | 677 ms (673 ms–686 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D2 10^4 | 6.29 ms (6.07 ms–8.68 ms) | 6.34 ms (6.18 ms–6.82 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D2 10^5 | 52.5 ms (50.2 ms–56.6 ms) | 52.2 ms (51.0 ms–55.4 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D2 10^6 | 513 ms (505 ms–521 ms) | 517 ms (516 ms–526 ms) | 1.01, inside the spread |
+| Delaunay `cube` D3 10^4 | 40.2 ms (38.5 ms–47.4 ms) | 39.6 ms (38.5 ms–41.5 ms) | 0.99, inside the spread |
+| Delaunay `cube` D3 10^5 | 427 ms (418 ms–472 ms) | 427 ms (418 ms–456 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^4 | 87.3 ms (85.4 ms–93.5 ms) | 87.7 ms (85.6 ms–101 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^5 | 828 ms (819 ms–837 ms) | 835 ms (825 ms–839 ms) | 1.01, inside the spread |
+| Delaunay `cube` D4 10^4 | 667 ms (653 ms–711 ms) | 695 ms (682 ms–734 ms) | 1.04, inside the spread |
+| Delaunay `cube` D5 10^4 | 7.62 s (7.48 s–7.80 s) | 7.54 s (7.48 s–7.62 s) | 0.99, inside the spread |
+
+The second run, 20 × 3: hull `cube` D2 10^5 5.34 ms (4.81–6.47) against 4.75 ms (4.32–8.16), 0.89; Delaunay `cube` D4 10^4 711 ms (678–764) against 742 ms (710–778), 1.04.
+
+### Delaunay `cube` D4
+
+The change does not reach Delaunay, yet `cube` D4 10^4 read 1.04 in both runs, every build of the head slower than the fastest of `main`. Two checks:
+
+- **`main` against itself**, in the same harness, 20 × 3: 735 ms against 735 ms, 1.00. The order of the alternation does not favour either side.
+- **Both built with one codegen unit** (`CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1`), 20 × 3: Delaunay `cube` D4 10^4 735 ms (704–765) against 738 ms (711–776), 1.00; hull `cube` D2 10^5 5.35 ms (4.79–8.31) against 4.98 ms (4.50–6.44), 0.93.
+
+The 1.04 follows how the crate is split into codegen units, not the code of Delaunay, and goes away with one unit; the gain on `cube` D2 stays.
+
+### Reading
+
+- **Hull `cube` D2 10^6 reads 0.89, faster beyond the spread.**
+- **Hull `cube` D2 10^5 reads 0.91 and 0.89 in two runs**, and 0.93 with one codegen unit. Its ranges overlap by more than single builds: 15 of the head's 30 builds in the first run are slower than the fastest of `main`. The keep criterion asks it to be faster beyond the spread, and it is not, though three runs agree on the difference. Whether to keep the change on that is the owner's call (`bench.mdc`). `cube` D2 10^4 reads 0.88.
+- **`sphere` D2 reads 0.98 and 1.00.** Its points are on the cycle, where nothing changed.
+- **Nothing is slower beyond the spread.** Delaunay `cube` D4 10^4 reads 1.04 inside the spread; it is the code layout above. The other sets read 0.98 to 1.02.

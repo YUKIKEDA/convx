@@ -217,6 +217,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-40 | Spike | Delaunay: where the predicates' call paths spend their time, line by line               | #427  | Done        |
 | P7-41 | Feat  | Delaunay: the passes after insertion at less cost                                       | #429  | Done        |
 | P7-42 | Feat  | Delaunay: the predicates' wrappers gather only what the first stage reads               | #430  | Withdrawn after review (#431) |
+| P7-43 | Feat  | Hull D2: the points off the polygon in one pass, without regrowth                       | #440  | Done        |
 
 ## Intentionally out of scope
 
