@@ -2793,3 +2793,75 @@ The profiles include the generation of the points once per process, a few percen
 - **Hull `sphere` D2 is classification and publication,** 48% together, around a chain that is 41%: P7-35 (#411).
 - **Delaunay's predicates are cheap per call.** What is left is the insertion's own lines: 35% of `cube` D3 (about 1.8 µs per point), and in D2 a spread of the insertion's lines (14%), the BRIO order (10%), and `ascending` (6%). Which lines own it needs line-level counts: the spike P7-36 (#412).
 - **Allocation and copies** (`memcpy`, `RtlReAllocateHeap`) are 4 to 10% of each set, spread over the callers above: cell allocation in Delaunay, the planes and the store in the hull, and `publish`. Each row above takes the part in its own path.
+
+## Hull: planes of D = 3 and 4 by a fixed-size path, PR #416 (#409)
+
+P7-33. The spike P7-32 (#413) put the planes of new simplices at 29 to 31% of hull `sphere` D3 10^5 and D4 10^4, about 180 ns per plane in D3, as many planes as Qhull's hyperplanes.
+
+A facet of three or four points now takes its working normal and its cull threshold from `fixed_plane`: fixed-size arrays, the small cofactors, one certification, and the threshold from the certified error. It applies within a range, every coordinate at most 2^100 and every edge entry zero or in [2^-100, 2^100]. There the general path's power-of-two scaling changes no bit, and the cull plane's `tau` from the cofactors is the certified error itself, so the bits are the general path's. Debug builds check every plane against it.
+
+Two prototypes came first, timed against `main` on the hull sets of D3 to D6:
+- taking the certified error as `tau` alone read 0.95 to 0.99;
+- also skipping the scaling where it changes no bit read 0.93 to 0.96, inside the spread.
+
+The fixed-size path read 0.76 and 0.77 on `sphere` D3. So the time was the general path's lists and steps per plane, not the arithmetic of the scaling or of `plane_error`.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `95d79a9` against the head `57775e7`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md`, with hull `grid` and `lattice` D5 and D6 |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second |
+
+Every set published the same counts on both sides.
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.63 ms (0.53 ms–0.78 ms) | 0.61 ms (0.53 ms–0.72 ms) | 0.97, inside the spread |
+| Hull `cube` D2 10^5 | 5.68 ms (5.30 ms–6.89 ms) | 5.50 ms (4.91 ms–6.31 ms) | 0.97, inside the spread |
+| Hull `cube` D3 10^4 | 1.59 ms (1.34 ms–2.09 ms) | 1.53 ms (1.27 ms–2.56 ms) | 0.96, inside the spread |
+| Hull `cube` D3 10^5 | 12.7 ms (11.5 ms–25.7 ms) | 12.4 ms (11.1 ms–15.3 ms) | 0.98, inside the spread |
+| Hull `cube` D4 10^4 | 6.74 ms (6.30 ms–7.89 ms) | 5.76 ms (5.30 ms–7.06 ms) | 0.85, inside the spread |
+| Hull `cube` D4 10^5 | 35.7 ms (34.1 ms–39.1 ms) | 33.7 ms (32.2 ms–35.5 ms) | 0.94, inside the spread |
+| Hull `cube` D5 10^4 | 57.8 ms (54.8 ms–62.2 ms) | 56.1 ms (53.8 ms–62.5 ms) | 0.97, inside the spread |
+| Hull `cube` D6 10^4 | 600 ms (571 ms–632 ms) | 599 ms (567 ms–628 ms) | 1.00, inside the spread |
+| Hull `cubesurf` D3 10^5 | 61.6 ms (57.1 ms–73.1 ms) | 61.2 ms (57.6 ms–70.5 ms) | 0.99, inside the spread |
+| Hull `grid` D5 10^4 | 15.3 ms (14.7 ms–18.7 ms) | 14.6 ms (14.2 ms–17.5 ms) | 0.95, inside the spread |
+| Hull `grid` D6 10^4 | 265 ms (265 ms–278 ms) | 259 ms (258 ms–270 ms) | 0.98, inside the spread |
+| Hull `lattice` D5 10^4 | 25.9 ms (25.2 ms–28.3 ms) | 25.2 ms (24.6 ms–27.0 ms) | 0.98, inside the spread |
+| Hull `lattice` D6 10^4 | 508 ms (498 ms–518 ms) | 501 ms (490 ms–508 ms) | 0.99, inside the spread |
+| Hull `sphere` D2 10^4 | 1.60 ms (1.40 ms–2.15 ms) | 1.56 ms (1.39 ms–2.30 ms) | 0.98, inside the spread |
+| Hull `sphere` D2 10^5 | 16.9 ms (15.9 ms–18.3 ms) | 17.6 ms (16.0 ms–18.9 ms) | 1.04, inside the spread |
+| Hull `sphere` D3 10^4 | 28.5 ms (27.4 ms–32.2 ms) | 21.6 ms (20.5 ms–23.1 ms) | 0.76, faster beyond the spread |
+| Hull `sphere` D3 10^5 | 342 ms (323 ms–415 ms) | 264 ms (251 ms–292 ms) | 0.77, faster beyond the spread |
+| Hull `sphere` D4 10^4 | 130 ms (124 ms–142 ms) | 96.5 ms (91.8 ms–106 ms) | 0.74, faster beyond the spread |
+| Hull `sphere` D4 10^5 | 1.53 s (1.52 s–1.54 s) | 1.17 s (1.15 s–1.21 s) | 0.76, faster beyond the spread |
+| Hull `sphere` D5 10^4 | 850 ms (813 ms–945 ms) | 845 ms (806 ms–894 ms) | 0.99, inside the spread |
+| Delaunay `cube` D2 10^4 | 7.49 ms (7.10 ms–9.59 ms) | 7.44 ms (7.17 ms–9.80 ms) | 0.99, inside the spread |
+| Delaunay `cube` D2 10^5 | 78.1 ms (72.5 ms–82.0 ms) | 78.3 ms (72.9 ms–89.3 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^4 | 43.7 ms (41.9 ms–47.4 ms) | 43.1 ms (41.1 ms–47.4 ms) | 0.99, inside the spread |
+| Delaunay `cube` D3 10^5 | 466 ms (442 ms–513 ms) | 464 ms (441 ms–480 ms) | 1.00, inside the spread |
+| Delaunay `cube` D4 10^4 | 684 ms (645 ms–721 ms) | 689 ms (648 ms–814 ms) | 1.01, inside the spread |
+| Delaunay `cube` D5 10^4 | 7.78 s (7.70 s–8.67 s) | 7.74 s (7.65 s–8.77 s) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^4 | 7.03 ms (6.83 ms–7.71 ms) | 7.02 ms (6.83 ms–8.87 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^5 | 61.5 ms (57.8 ms–67.3 ms) | 61.5 ms (57.5 ms–66.3 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^4 | 91.4 ms (86.1 ms–96.8 ms) | 90.0 ms (86.3 ms–95.6 ms) | 0.98, inside the spread |
+| Delaunay `sphere` D3 10^5 | 859 ms (831 ms–877 ms) | 855 ms (854 ms–942 ms) | 0.99, inside the spread |
+
+### Reading
+
+- **The keep criterion is met.**
+  - Hull `sphere` D3 10^5 reads 0.77 (342 ms to 264 ms) and D3 10^4 0.76.
+  - D4 reads 0.74 at 10^4 (130 ms to 97 ms) and 0.76 at 10^5 (1.53 s to 1.17 s).
+  - All four are faster beyond the spread.
+- **Against the references of #404**, the ratios of that run times these speedups, indicative until the next parity run:
+  - `sphere` D3 10^5: 1.30 to about 1.00 against Qhull;
+  - D3 10^4: 1.49 to about 1.13;
+  - D4 10^4: 1.28 to about 0.95;
+  - D4 10^5: 1.24 to about 0.94.
+- **Nothing is slower beyond the spread.** The other sets read 0.94 to 1.04. `cube` D4 reads 0.85 and 0.94; its hulls make fewer planes.

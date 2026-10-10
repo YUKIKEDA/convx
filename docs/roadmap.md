@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-8 (#323): acceptance. P7-33 (#409), P7-35 (#411), and the spike P7-36 (#412): the general sets; P7-34 (#410) after its Grill. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+P7-8 (#323): acceptance. P7-35 (#411) and the spike P7-36 (#412): the general sets; P7-34 (#410) after its Grill. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -207,7 +207,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-30 | Feat  | Hull: each face of the lattice classified once                                          | #394  | Done        |
 | P7-31 | Feat  | Predicates: the exact direction's error bound from its derivation                       | #400  | Not started |
 | P7-32 | Spike | Where the time goes on the general sets left: Delaunay D2 and D3, hull sphere D2 to D4  | #408  | Done        |
-| P7-33 | Feat  | Hull: planes of D = 3 and 4 by a fixed-size path                                        | #409  | Not started |
+| P7-33 | Feat  | Hull: planes of D = 3 and 4 by a fixed-size path                                        | #409  | Done        |
 | P7-34 | Feat  | Hull: the coplanar merge on an input with no zero sign recorded                         | #410  | Set after Grill on #410 |
 | P7-35 | Feat  | Hull D2: classify and publish a strict polygon without sorts or regrowth                | #411  | Not started |
 | P7-36 | Spike | Delaunay D2 and D3: where the insertion's own time goes, line by line                   | #412  | Not started |
