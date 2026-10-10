@@ -2677,3 +2677,72 @@ The first change alone, timed the same way against `main` before the second: hul
 - **Delaunay `lattice` and `grid` D3 10^4 read 0.73 and 0.81.** Their cospherical groups are split by `placing`. Their ranges overlap `main`'s only through single slow builds of `main` (6.00 ms and 2.65 ms against medians of 3.32 and 1.92), so the difference is reported.
 - **Nothing is slower beyond the spread.** The other sets read 0.97 to 1.05.
 - What remains of `grid` D6 is the recursion over lower faces, P7-30 (#394), after its Grill.
+
+## Hull: each face's extreme points once per build, PR #406 (#394)
+
+P7-30. Classification finds a facet's extreme points from the hull of its points one dimension down, recursively (design §3). The profile on #394 put that recursion at 282 ms of hull `grid` D6 10^4's 428 ms: it built 12 hulls in D5, 120 in D4, 960 in D3, and 5,760 in D2, where the 6-cube has 60, 160, and 240 faces of those dimensions. The lower levels also triangulated and listed what the level above does not read. The Grill of 2026-10-10 on #394 chose two changes, in two commits:
+
+- **A, faces once** (`685f1b2`): the extreme points of a face are kept per build with the face's candidates as ascending input indices. A face that several facets share is read back. The extreme points of a point set depend on the set alone, so the result is the same.
+- **B, vertices only below** (`318a67a`): a hull one dimension down is built for its vertices only, without placing, point lists, or neighbor links.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | The base is the head of #405 (`710fddb`: `main` at `e94f5f6` with P7-29), against A (`685f1b2`) and B, the head (`318a67a`). rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md`, with hull `grid` D5 and D6, `lattice` D5 and D6, `cubesurf` D5 10^4, and Delaunay `grid` and `lattice` D3 10^4 |
+| Rounds | The base, A, and B alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second |
+| Output | The published hull of the base and of B, hashed in release, the same on hull `grid`, `lattice`, `cubesurf`, `onsphere`, `nearsphere`, and `cluster` in D5 10^4 and D6 at 2,000 and 10^4 points (18 inputs) |
+
+Every set published the same counts in all three.
+
+### Against the base
+
+| Set | Base | A | Head (B) | A / base | Head / base | Head / A |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.62 ms | 0.61 ms | 0.63 ms | 0.98, inside | 1.01, inside | 1.03, inside |
+| Hull `cube` D2 10^5 | 5.54 ms | 5.36 ms | 5.67 ms | 0.97, inside | 1.02, inside | 1.06, inside |
+| Hull `cube` D3 10^4 | 1.58 ms | 1.57 ms | 1.58 ms | 0.99, inside | 1.00, inside | 1.01, inside |
+| Hull `cube` D3 10^5 | 12.7 ms | 13.1 ms | 13.0 ms | 1.03, inside | 1.02, inside | 0.99, inside |
+| Hull `cube` D4 10^4 | 7.21 ms | 7.05 ms | 7.13 ms | 0.98, inside | 0.99, inside | 1.01, inside |
+| Hull `cube` D4 10^5 | 38.8 ms | 39.0 ms | 38.6 ms | 1.01, inside | 1.00, inside | 0.99, inside |
+| Hull `cube` D5 10^4 | 61.2 ms | 60.8 ms | 61.2 ms | 0.99, inside | 1.00, inside | 1.01, inside |
+| Hull `cube` D6 10^4 | 615 ms | 615 ms | 617 ms | 1.00, inside | 1.00, inside | 1.00, inside |
+| Hull `cubesurf` D3 10^5 | 66.3 ms | 67.1 ms | 65.2 ms | 1.01, inside | 0.98, inside | 0.97, inside |
+| Hull `cubesurf` D5 10^4 | 526 ms | 524 ms | 524 ms | 1.00, inside | 1.00, inside | 1.00, inside |
+| Hull `grid` D5 10^4 | 25.1 ms | 18.2 ms | 16.5 ms | 0.72, faster beyond | 0.66, faster beyond | 0.91, inside |
+| Hull `grid` D6 10^4 | 451 ms | 301 ms | 283 ms | 0.67, faster beyond | 0.63, faster beyond | 0.94, inside |
+| Hull `lattice` D5 10^4 | 39.6 ms | 30.6 ms | 28.5 ms | 0.77, faster beyond | 0.72, faster beyond | 0.93, inside |
+| Hull `lattice` D6 10^4 | 798 ms | 593 ms | 527 ms | 0.74, faster beyond | 0.66, faster beyond | 0.89, faster beyond |
+| Hull `sphere` D2 10^4 | 1.60 ms | 1.56 ms | 1.57 ms | 0.98, inside | 0.98, inside | 1.00, inside |
+| Hull `sphere` D2 10^5 | 16.8 ms | 16.1 ms | 16.6 ms | 0.96, inside | 0.99, inside | 1.03, inside |
+| Hull `sphere` D3 10^4 | 30.8 ms | 30.6 ms | 31.2 ms | 0.99, inside | 1.02, inside | 1.02, inside |
+| Hull `sphere` D3 10^5 | 375 ms | 374 ms | 373 ms | 1.00, inside | 0.99, inside | 1.00, inside |
+| Hull `sphere` D4 10^4 | 139 ms | 139 ms | 138 ms | 1.00, inside | 0.99, inside | 0.99, inside |
+| Hull `sphere` D4 10^5 | 1.71 s | 1.69 s | 1.70 s | 0.98, inside | 0.99, inside | 1.01, inside |
+| Hull `sphere` D5 10^4 | 899 ms | 890 ms | 899 ms | 0.99, inside | 1.00, inside | 1.01, inside |
+| Delaunay `cube` D2 10^4 | 7.65 ms | 8.12 ms | 7.62 ms | 1.06, inside | 1.00, inside | 0.94, inside |
+| Delaunay `cube` D2 10^5 | 78.4 ms | 81.6 ms | 80.0 ms | 1.04, inside | 1.02, inside | 0.98, inside |
+| Delaunay `cube` D3 10^4 | 47.1 ms | 47.2 ms | 47.6 ms | 1.00, inside | 1.01, inside | 1.01, inside |
+| Delaunay `cube` D3 10^5 | 511 ms | 511 ms | 514 ms | 1.00, inside | 1.01, inside | 1.01, inside |
+| Delaunay `cube` D4 10^4 | 775 ms | 757 ms | 751 ms | 0.98, inside | 0.97, inside | 0.99, inside |
+| Delaunay `cube` D5 10^4 | 8.37 s | 8.52 s | 8.46 s | 1.02, inside | 1.01, inside | 0.99, inside |
+| Delaunay `grid` D3 10^4 | 1.55 ms | 1.51 ms | 1.62 ms | 0.98, inside | 1.05, inside | 1.07, inside |
+| Delaunay `lattice` D3 10^4 | 2.46 ms | 2.46 ms | 2.42 ms | 1.00, inside | 0.98, inside | 0.98, inside |
+| Delaunay `sphere` D2 10^4 | 7.16 ms | 7.51 ms | 7.13 ms | 1.05, inside | 1.00, inside | 0.95, inside |
+| Delaunay `sphere` D2 10^5 | 65.3 ms | 66.5 ms | 66.4 ms | 1.02, inside | 1.02, inside | 1.00, inside |
+| Delaunay `sphere` D3 10^4 | 98.9 ms | 99.5 ms | 99.6 ms | 1.01, inside | 1.01, inside | 1.00, inside |
+| Delaunay `sphere` D3 10^5 | 943 ms | 943 ms | 926 ms | 1.00, inside | 0.98, inside | 0.98, inside |
+
+"inside" is inside the spread.
+
+### Reading
+
+- **The keep criterion is met.**
+  - Hull `grid` D6 10^4 reads 0.63 (451 ms to 283 ms), `lattice` D6 0.66, `grid` D5 0.66, and `lattice` D5 0.72, all faster beyond the spread.
+  - `grid` D6 now takes less than Qhull's 340 ms (#379): about 0.83 of it. It was 6.55 times in #379 and 1.64 times in the parity run of #404.
+- **Most of it is A.** The memo alone reads 0.67 to 0.77 on those sets. B adds 0.89 on `lattice` D6, faster beyond the spread, and 0.91 to 0.94 inside the spread on the others.
+- **`cubesurf` D5 does not move (1.00).** Its ten facet hulls in D4 need no level below them (the profile on #394), so there is no lower face to share.
+- **Nothing is slower beyond the spread.** The other sets read 0.96 to 1.07 against the base in either commit.
