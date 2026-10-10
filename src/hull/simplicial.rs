@@ -31,7 +31,8 @@ use super::ConvexHullError;
 use crate::arena::FacetId;
 use crate::cull::CullPlane;
 use crate::normal::{
-    certified_working_normal, facet_cofactors, facet_cofactors_in_lanes, working_normal,
+    certified_working_normal, facet_cofactors, facet_cofactors_in_lanes, fixed_plane,
+    working_normal,
 };
 use crate::predicates::{Sign, COFACTOR_LANES};
 use crate::small::Small;
@@ -177,6 +178,11 @@ impl<'a> SimplicialHull<'a> {
         planes.clear();
         let count = outward.len();
         let simplex = |k: usize| &vertices[k * d..(k + 1) * d];
+        match d {
+            3 => return self.plan_fixed_planes::<3>(vertices, outward, planes),
+            4 => return self.plan_fixed_planes::<4>(vertices, outward, planes),
+            _ => {}
+        }
         let full = count - count % COFACTOR_LANES;
         for first in (0..full).step_by(COFACTOR_LANES) {
             let points: [Small<&[f64], 10>; COFACTOR_LANES] =
@@ -192,6 +198,45 @@ impl<'a> SimplicialHull<'a> {
             let points = self.coords_of(simplex(k));
             let cofactors = facet_cofactors(&points);
             Self::push_plane(&points, outward, cofactors.as_deref(), planes)?;
+        }
+        Ok(())
+    }
+
+    /// [`Self::plan_planes`] for D = `K`, 3 or 4: each plane by
+    /// [`fixed_plane`] when it takes the simplex, otherwise by the general
+    /// path (#409). Debug builds check each fixed-size plane against the
+    /// general path, bit for bit.
+    fn plan_fixed_planes<const K: usize>(
+        &self,
+        vertices: &[u32],
+        outward: &[Sign],
+        planes: &mut Planes,
+    ) -> Result<(), ConvexHullError> {
+        for (k, &outward) in outward.iter().enumerate() {
+            let points = self.coords_of(&vertices[k * K..(k + 1) * K]);
+            match fixed_plane::<K>(&points, outward) {
+                Some((normal, threshold)) => {
+                    #[cfg(debug_assertions)]
+                    {
+                        let mut general = Planes::default();
+                        let cofactors = facet_cofactors(&points);
+                        Self::push_plane(&points, outward, cofactors.as_deref(), &mut general)?;
+                        let bits = |x: &[f64]| x.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+                        debug_assert_eq!(bits(&general.normals), bits(&normal), "the normal");
+                        debug_assert_eq!(
+                            general.kinds[0].map(|(s, f)| (s.to_bits(), f.to_bits())),
+                            Some((threshold.0.to_bits(), threshold.1.to_bits())),
+                            "the cull threshold"
+                        );
+                    }
+                    planes.normals.extend_from_slice(&normal);
+                    planes.kinds.push(Some(threshold));
+                }
+                None => {
+                    let cofactors = facet_cofactors(&points);
+                    Self::push_plane(&points, outward, cofactors.as_deref(), planes)?;
+                }
+            }
         }
         Ok(())
     }

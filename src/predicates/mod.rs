@@ -508,6 +508,14 @@ pub(crate) fn direction_cofactors(facet: &[&[f64]]) -> Option<Cofactors> {
     Some(cofactors[..k].into())
 }
 
+/// The cofactors of a facet of two to four points, as
+/// [`direction_cofactors`] takes them from [`filter::small_cofactors`]:
+/// `None` when the edges leave its range. The hull's fixed-size planes read
+/// them without a `Cofactors` list (#409).
+pub(crate) fn small_direction_cofactors(facet: &[&[f64]]) -> Option<[(f64, f64); 4]> {
+    filter::small_cofactors(facet)
+}
+
 /// Facets per call of [`scaled_direction_cofactors_in_lanes`].
 pub(crate) const COFACTOR_LANES: usize = filter::FACET_LANES;
 

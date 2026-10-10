@@ -147,10 +147,8 @@ impl CullPlane {
             d >= 1 && normal.len() == d,
             "facet needs D points of dimension D"
         );
-        let n = d as f64;
-        let slope = (4.0 * (n + 1.0) * UNIT_ROUNDOFF + 2.0 * tau) * (1.0 + 4.0 * UNIT_ROUNDOFF);
-        let floor = (n + 1.0) * ETA;
-        slope.is_finite().then(|| Self {
+        let (slope, floor) = threshold_of(d, tau)?;
+        Some(Self {
             normal: normal.into(),
             #[cfg(debug_assertions)]
             origin: Some(facet[0].into()),
@@ -330,6 +328,16 @@ impl<N: core::ops::Deref<Target = [f64]>> CullPlane<N> {
             *flag = side == Some(Sign::Negative);
         }
     }
+}
+
+/// The slope and the floor of the cull threshold of a facet of `d` points
+/// whose working normal lies within `tau` of the exact outward unit normal;
+/// `None` when the slope is not finite.
+pub(crate) fn threshold_of(d: usize, tau: f64) -> Option<(f64, f64)> {
+    let n = d as f64;
+    let slope = (4.0 * (n + 1.0) * UNIT_ROUNDOFF + 2.0 * tau) * (1.0 + 4.0 * UNIT_ROUNDOFF);
+    let floor = (n + 1.0) * ETA;
+    slope.is_finite().then_some((slope, floor))
 }
 
 /// Certified upper bound on `|normal - side * c / |c||`, from the filtered
