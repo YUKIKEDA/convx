@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-8 (#323): acceptance. P7-39 (#423): Delaunay; P7-34 (#410) and P7-38 (#422) after their Grills. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+P7-8 (#323): acceptance. The spike P7-40 (#427) and P7-39 (#423): Delaunay; P7-34 (#410) after its Grill. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -171,7 +171,7 @@ Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row ke
 
 ## P7
 
-Parity with Qhull and CGAL: `build()` at most the time of each reference with the same output, on every benchmark set (ADR 0006, Grill of 2026-10-09), judged within 5% (amendment of 2026-10-10, #382). The rows after P7-3 come from the spike P7-2 and the design P7-3. P7-2 led to local improvements of the current insertion: P7-4, then the profile P7-5. P7-3 led to P7-6, and its Grill to the speed rows P7-7 to P7-9 for hull D2 and acceptance. The profile P7-5 led to P7-10 to P7-13 for Delaunay, and the Grill of P7-11 to P7-14. The spike P7-12 led to P7-15 and P7-16 for the predicates, and the Grill of P7-15 to P7-17. The review of P7-16 led to P7-18. The spike P7-13 led to P7-19 and P7-20. The spike P7-20 led to P7-21. The Grill of 2026-10-10 on #370 led to P7-22, and its outcome, with the owner's change of the rule, to ADR 0007 and P7-23. The Grill of 2026-10-10 on #374 led to P7-24. The review of #365 led to the spike P7-25, and P7-25 to P7-26 and P7-27. P7-27 led to P7-28 to P7-30. The review of #399 led to P7-31. The parity run of #404 led to the spike P7-32, and P7-32 to P7-33 to P7-36. P7-36 led to P7-37 to P7-39.
+Parity with Qhull and CGAL: `build()` at most the time of each reference with the same output, on every benchmark set (ADR 0006, Grill of 2026-10-09), judged within 5% (amendment of 2026-10-10, #382). The rows after P7-3 come from the spike P7-2 and the design P7-3. P7-2 led to local improvements of the current insertion: P7-4, then the profile P7-5. P7-3 led to P7-6, and its Grill to the speed rows P7-7 to P7-9 for hull D2 and acceptance. The profile P7-5 led to P7-10 to P7-13 for Delaunay, and the Grill of P7-11 to P7-14. The spike P7-12 led to P7-15 and P7-16 for the predicates, and the Grill of P7-15 to P7-17. The review of P7-16 led to P7-18. The spike P7-13 led to P7-19 and P7-20. The spike P7-20 led to P7-21. The Grill of 2026-10-10 on #370 led to P7-22, and its outcome, with the owner's change of the rule, to ADR 0007 and P7-23. The Grill of 2026-10-10 on #374 led to P7-24. The review of #365 led to the spike P7-25, and P7-25 to P7-26 and P7-27. P7-27 led to P7-28 to P7-30. The review of #399 led to P7-31. The parity run of #404 led to the spike P7-32, and P7-32 to P7-33 to P7-36. P7-36 led to P7-37 to P7-39. The prototype of P7-38 led to P7-40.
 
 | ID   | Kind  | Title                                                                                   | Issue | Status      |
 | ---- | ----- | --------------------------------------------------------------------------------------- | ----- | ----------- |
@@ -212,8 +212,9 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-35 | Feat  | Hull D2: classify and publish a strict polygon without sorts or regrowth                | #411  | Done        |
 | P7-36 | Spike | Delaunay D2 and D3: where the insertion's own time goes, line by line                   | #412  | Done        |
 | P7-37 | Feat  | Delaunay D3: pair the new tetrahedra's faces at less cost                               | #421  | Withdrawn after measurement (#425) |
-| P7-38 | Feat  | Predicates: a static filter for Delaunay's predicates                                   | #422  | Set after Grill on #422 |
+| P7-38 | Feat  | Predicates: a static filter for Delaunay's predicates                                   | #422  | Withdrawn after measurement (#428) |
 | P7-39 | Feat  | Delaunay D2: the BRIO order at less cost                                                | #423  | Not started |
+| P7-40 | Spike | Delaunay: where the predicates' call paths spend their time, line by line               | #427  | Not started |
 
 ## Intentionally out of scope
 
