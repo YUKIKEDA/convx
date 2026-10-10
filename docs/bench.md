@@ -2311,3 +2311,117 @@ After this measurement, the branch merged `main` (`77fb3c2`), which brought #380
 - **The keep criterion is met.** Hull `cubesurf` D3 10^5 reads 0.73 and `grid` D6 10^4 0.86, both faster beyond the spread, as in the prototype of P7-25 (0.73 and 0.85).
 - **Nothing is slower beyond the spread.** Delaunay `cube` D4 10^4 reads 1.06 and hull `sphere` D2 10^4 1.07, each inside the spread, its range overlapping `main`'s. The other sets read 0.98 to 1.03.
 - **`grid`'s remaining gap** is the cost of a side test against Qhull's dot product, the spike P7-27 (#385).
+
+## Hull `grid`: missing cull planes, exact planes, and classification, PR #395 (#385)
+
+The spike P7-27 asks how many of hull `grid` D6 10^4's side tests a facet with an exact plane could decide, what such a test costs against the orientation, and which rows follow. The reading of P7-25 (#386) put `grid`'s gap in the cost of each side test. The counts below place it elsewhere: most of the side tests that reached the orientation were on facets with no cull plane at all.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | The head of #389 (`4ffb02c`: `main` at `f7b4968` with P7-26), copied outside the crate three times: the base; prototype A, a cull plane from the exact direction where the filtered cofactors fail; prototype A + B, exact integer planes on top. A fourth copy carried counters and phase timers, with the prototypes switched at run time |
+| Prototype A | When `direction_cofactors` returns `None`, the working normal is the exact cofactor direction, rounded once, within `D · 2^-49` of the exact unit direction (design §1). The cull plane takes `tau` from that error, in the threshold of `src/cull.rs` |
+| Prototype B | When every input coordinate is an integer of magnitude `M ≤ 2^20`, each facet's cofactors are computed exactly by fraction-free elimination in `i128`. When `2 M Σ |c_j| ≤ 2^52`, every sum `Σ (x_j − o_j) c_j` is exact in `f64`. The facet then decides every side, zero included, by that sum, in the scan and in single tests |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2). rustc 1.97.1, `--release` with debug info |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1. The base and A alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second. A and A + B the same way, on the integer sets |
+| Runs | Both timings ran with nothing else on the machine. An earlier pair of runs overlapped an unpinned comparison loop and was discarded; its ratios agreed |
+| Checked | The published hull's vertices and facet vertex sets, hashed, the same for the base, A, and A + B: every family of the generator, D = 2 to 7, 10^3 and 10^4 points (D = 7 at 10^3; D ≥ 6 at 10^4 for the integer families only). The crate's suite in debug with A, where every proved side is checked against the orientation; A + B in debug on hull `grid` and `lattice` D5 10^4 and D6 2,000, and `onsphere` D5 10^4 |
+
+### Where the side tests went
+
+Hull `grid` D6 10^4, counted in one build:
+
+| | Base | A | A + B |
+| --- | ---: | ---: | ---: |
+| Working planes without filtered cofactors | 9,139 of 77,304 | 0 of 68,165 | 0 of 68,165 |
+| Side tests that reached the orientation | 935,808 | 350,577 | 0 |
+| of which on a facet with no cull plane | 656,841 | 0 | 0 |
+| of which zero | 350,577 | 350,577 | 0 |
+| Sides decided by an exact plane | – | – | 3,592,105 |
+| Orientations in `build()` | 1,154,911 | 569,680 | 219,096 |
+| Construction, one build | 1,416 ms | 127 ms | 88 ms |
+| Classification, one build | 677 ms | 512 ms | 489 ms |
+
+The orientations left with A + B are all in classification, in the hulls it builds of each facet's points one dimension down. With A + B, classification spent:
+
+- 366 ms finding the extreme points of the facets. The recursion built 12 hulls in D5, 120 in D4, 960 in D3, and 5,760 in D2, taking 70, 47, 51, and 20 ms. The 6-cube has 60 faces of dimension 4, 160 of dimension 3, and 240 of dimension 2, so the recursion finds each lower face many times over.
+- 243 ms in the placing triangulation, at all depths. It rebuilds a map of every ridge of every simplex for each point it places.
+
+With A, the same phase timers on other inputs:
+
+| Set | `build()` | Construction | Placing |
+| --- | ---: | ---: | ---: |
+| Hull `lattice` D6 10^4 | 2.16 s | 166 ms | about 1.47 s |
+| Hull `cubesurf` D5 10^4 | 2.04 s | 307 ms | 1.45 s |
+| Hull `cubesurf` D3 10^5 | 117 ms | 43 ms | 2 ms; `distance_zeros` 64 ms |
+
+### A against the base
+
+| Set | Base | A | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cluster` D5 10^4 | 928 ms (908 ms–937 ms) | 790 ms (771 ms–809 ms) | 0.85, faster beyond the spread |
+| Hull `cube` D2 10^4 | 0.59 ms (0.52 ms–0.90 ms) | 0.60 ms (0.53 ms–1.12 ms) | 1.01, inside the spread |
+| Hull `cube` D2 10^5 | 5.52 ms (4.96 ms–7.73 ms) | 5.50 ms (4.74 ms–7.11 ms) | 1.00, inside the spread |
+| Hull `cube` D3 10^4 | 1.49 ms (1.32 ms–2.45 ms) | 1.46 ms (1.35 ms–2.12 ms) | 0.98, inside the spread |
+| Hull `cube` D3 10^5 | 12.2 ms (11.2 ms–13.4 ms) | 12.0 ms (11.1 ms–13.2 ms) | 0.99, inside the spread |
+| Hull `cube` D4 10^4 | 6.78 ms (6.30 ms–11.3 ms) | 6.95 ms (6.37 ms–8.34 ms) | 1.02, inside the spread |
+| Hull `cube` D4 10^5 | 37.4 ms (35.6 ms–39.9 ms) | 37.2 ms (35.0 ms–39.7 ms) | 0.99, inside the spread |
+| Hull `cube` D5 10^4 | 58.7 ms (55.6 ms–67.3 ms) | 59.8 ms (55.6 ms–64.4 ms) | 1.02, inside the spread |
+| Hull `cube` D6 10^4 | 644 ms (618 ms–664 ms) | 640 ms (621 ms–707 ms) | 0.99, inside the spread |
+| Hull `cubesurf` D3 10^5 | 81.9 ms (78.2 ms–94.0 ms) | 82.1 ms (77.3 ms–84.3 ms) | 1.00, inside the spread |
+| Hull `grid` D5 10^4 | 32.3 ms (30.0 ms–35.5 ms) | 29.1 ms (26.8 ms–31.9 ms) | 0.90, inside the spread |
+| Hull `grid` D6 10^4 | 2.00 s (1.98 s–2.01 s) | 598 ms (587 ms–641 ms) | 0.30, faster beyond the spread |
+| Hull `lattice` D5 10^4 | 58.2 ms (57.0 ms–61.0 ms) | 48.6 ms (46.7 ms–52.1 ms) | 0.83, faster beyond the spread |
+| Hull `lattice` D6 10^4 | 4.70 s (4.67 s–4.86 s) | 1.93 s (1.90 s–1.97 s) | 0.41, faster beyond the spread |
+| Hull `nearsphere` D5 10^4 | 524 ms (518 ms–544 ms) | 501 ms (484 ms–512 ms) | 0.96, faster beyond the spread |
+| Hull `onsphere` D5 10^4 | 38.6 ms (36.1 ms–44.0 ms) | 38.3 ms (36.2 ms–40.9 ms) | 0.99, inside the spread |
+| Hull `sphere` D2 10^4 | 1.55 ms (1.41 ms–20.4 ms) | 1.53 ms (1.39 ms–2.30 ms) | 0.99, inside the spread |
+| Hull `sphere` D2 10^5 | 16.4 ms (14.9 ms–17.9 ms) | 16.3 ms (15.0 ms–18.2 ms) | 1.00, inside the spread |
+| Hull `sphere` D3 10^4 | 30.1 ms (28.0 ms–32.7 ms) | 30.2 ms (28.3 ms–32.8 ms) | 1.00, inside the spread |
+| Hull `sphere` D3 10^5 | 366 ms (350 ms–432 ms) | 360 ms (344 ms–374 ms) | 0.98, inside the spread |
+| Hull `sphere` D4 10^4 | 134 ms (128 ms–141 ms) | 132 ms (128 ms–143 ms) | 0.98, inside the spread |
+| Hull `sphere` D4 10^5 | 1.68 s (1.67 s–1.70 s) | 1.67 s (1.66 s–1.68 s) | 1.00, inside the spread |
+| Hull `sphere` D5 10^4 | 888 ms (856 ms–992 ms) | 884 ms (850 ms–954 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^4 | 7.98 ms (7.40 ms–10.4 ms) | 7.99 ms (7.46 ms–32.3 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^5 | 82.9 ms (75.4 ms–95.9 ms) | 81.4 ms (75.9 ms–86.0 ms) | 0.98, inside the spread |
+| Delaunay `cube` D3 10^4 | 46.8 ms (43.2 ms–53.0 ms) | 46.1 ms (43.8 ms–54.2 ms) | 0.99, inside the spread |
+| Delaunay `cube` D3 10^5 | 501 ms (486 ms–550 ms) | 506 ms (487 ms–538 ms) | 1.01, inside the spread |
+| Delaunay `cube` D4 10^4 | 727 ms (707 ms–753 ms) | 724 ms (704 ms–776 ms) | 1.00, inside the spread |
+| Delaunay `cube` D5 10^4 | 7.98 s (7.83 s–8.55 s) | 7.99 s (7.86 s–8.24 s) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^4 | 7.39 ms (6.93 ms–9.16 ms) | 7.40 ms (6.90 ms–9.59 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^5 | 63.4 ms (58.3 ms–77.9 ms) | 63.4 ms (60.1 ms–74.4 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^4 | 96.5 ms (92.2 ms–104 ms) | 96.5 ms (94.0 ms–112 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^5 | 918 ms (903 ms–928 ms) | 910 ms (901 ms–927 ms) | 0.99, inside the spread |
+
+### A + B against A
+
+| Set | A | A + B | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D3 10^5 | 11.6 ms (10.9 ms–13.9 ms) | 11.4 ms (10.9 ms–21.6 ms) | 0.99, inside the spread |
+| Hull `cube` D6 10^4 | 588 ms (560 ms–666 ms) | 617 ms (590 ms–685 ms) | 1.05, inside the spread |
+| Hull `grid` D3 10^5 | 1.39 ms (1.20 ms–1.75 ms) | 2.13 ms (1.92 ms–2.42 ms) | 1.54, slower beyond the spread |
+| Hull `grid` D4 10^4 | 2.10 ms (1.85 ms–2.97 ms) | 1.94 ms (1.76 ms–3.62 ms) | 0.92, inside the spread |
+| Hull `grid` D5 10^4 | 27.3 ms (26.1 ms–29.9 ms) | 24.6 ms (23.4 ms–26.9 ms) | 0.90, inside the spread |
+| Hull `grid` D6 10^4 | 595 ms (582 ms–608 ms) | 520 ms (519 ms–528 ms) | 0.88, faster beyond the spread |
+| Hull `lattice` D3 10^5 | 1.47 ms (1.35 ms–1.85 ms) | 2.25 ms (2.03 ms–2.89 ms) | 1.54, slower beyond the spread |
+| Hull `lattice` D4 10^4 | 2.66 ms (2.53 ms–3.29 ms) | 2.30 ms (2.17 ms–2.74 ms) | 0.86, inside the spread |
+| Hull `lattice` D5 10^4 | 45.0 ms (43.1 ms–50.5 ms) | 36.5 ms (34.9 ms–39.4 ms) | 0.81, faster beyond the spread |
+| Hull `lattice` D6 10^4 | 1.95 s (1.94 s–2.00 s) | 1.96 s (1.93 s–1.97 s) | 1.01, inside the spread |
+| Hull `onsphere` D4 10^4 | 1.07 ms (0.99 ms–1.30 ms) | 1.31 ms (1.26 ms–1.87 ms) | 1.22, inside the spread |
+| Hull `onsphere` D5 10^4 | 35.7 ms (34.4 ms–43.2 ms) | 41.2 ms (39.6 ms–46.9 ms) | 1.15, inside the spread |
+
+### Reading
+
+- **Missing cull planes were most of `grid`'s gap.**
+  - On integer edges in D ≥ 5, the filtered elimination meets pivots that are exactly zero and cannot certify them. 12% of the working planes then had no cull plane, and every point tested against them ran a 7 × 7 orientation.
+  - A certifies the plane from the exact direction the facet already computes. It reads hull `grid` D6 10^4 0.30 (2.00 s to 598 ms, against Qhull's 340 ms in #379), `lattice` D6 10^4 0.41, `lattice` D5 0.83, `cluster` D5 0.85, and `nearsphere` D5 0.96, all faster beyond the spread.
+  - Every other set is inside the spread, with the same counts. That is the row P7-28 (#392).
+- **Exact planes decide the rest of the side tests, but add little.**
+  - B leaves no orientation in construction. It reads `grid` D6 0.88 and `lattice` D5 0.81 against A, faster beyond the spread, and `grid` D4 and D5 and `lattice` D4 0.86 to 0.92.
+  - It costs a pass over the input and an exact elimination per facet. `grid` and `lattice` D3 10^5 read 1.54, slower beyond the spread, and `onsphere` D4 and D5 1.15 to 1.22. `cube` D6 reads 1.05, from the wider plane rows of the store.
+  - After A, construction is 88 to 127 ms of `grid`'s build, and classification is the rest. No row is proposed for B.
+- **Classification is what remains on the degenerate sets.**
+  - Placing is quadratic in the points of a face: about 1.47 s of `lattice` D6, 1.45 s of `cubesurf` D5 10^4, and 243 ms of `grid` D6. That is P7-29 (#393).
+  - The recursion finds each lower face again from every facet that contains it: about 200 ms of `grid` D6. How a face is recognized across recursions branches the design, so P7-30 (#394) is set after its Grill.
+  - On `cubesurf` D3 10^5, the remaining classification is the walk of `distance_zeros` over the recorded points, 64 ms; it is left to the parity run after P7-28.
