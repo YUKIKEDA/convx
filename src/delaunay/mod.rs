@@ -334,6 +334,19 @@ impl Draft {
 /// the vertices is not predictable, and the branches of an insertion sort
 /// cost about half of building the published rows (#362).
 fn ascending(row: &[u32]) -> (Small<(u32, usize), 11>, bool) {
+    let pairs =
+        |rows: &[u32], slots: &[usize]| rows.iter().copied().zip(slots.iter().copied()).collect();
+    match row.len() {
+        3 => {
+            let (rows, slots, negative) = ascending_fixed([row[0], row[1], row[2]]);
+            return (pairs(&rows, &slots), negative);
+        }
+        4 => {
+            let (rows, slots, negative) = ascending_fixed([row[0], row[1], row[2], row[3]]);
+            return (pairs(&rows, &slots), negative);
+        }
+        _ => {}
+    }
     // Each vertex above its slot in one word: distinct vertices order the
     // words as they order themselves. On the stack up to 11 vertices (D = 10),
     // on the heap above, as the sorted list is.
@@ -343,30 +356,13 @@ fn ascending(row: &[u32]) -> (Small<(u32, usize), 11>, bool) {
         .map(|(slot, &v)| u64::from(v) << 32 | slot as u64)
         .collect();
     let mut negative = false;
-    let mut exchange = |a: &mut [u64], i: usize, j: usize| {
-        negative ^= a[i] > a[j];
-        (a[i], a[j]) = (a[i].min(a[j]), a[i].max(a[j]));
-    };
-    match row.len() {
-        3 => {
-            for (i, j) in [(0, 1), (1, 2), (0, 1)] {
-                exchange(&mut words, i, j);
+    for i in 1..row.len() {
+        for j in (1..=i).rev() {
+            if words[j - 1] < words[j] {
+                break;
             }
-        }
-        4 => {
-            for (i, j) in [(0, 1), (2, 3), (0, 2), (1, 3), (1, 2)] {
-                exchange(&mut words, i, j);
-            }
-        }
-        n => {
-            for i in 1..n {
-                for j in (1..=i).rev() {
-                    if words[j - 1] < words[j] {
-                        break;
-                    }
-                    exchange(&mut words, j - 1, j);
-                }
-            }
+            negative = !negative;
+            words.swap(j - 1, j);
         }
     }
     let sorted = words
@@ -374,6 +370,52 @@ fn ascending(row: &[u32]) -> (Small<(u32, usize), 11>, bool) {
         .map(|&w| ((w >> 32) as u32, (w & u64::from(u32::MAX)) as usize))
         .collect();
     (sorted, negative)
+}
+
+/// [`ascending`] of `K` = 3 or 4 vertices (D = 2 and 3), in arrays: the
+/// vertices ascending, the slot of each in `row`, and the parity. A list per
+/// cell, of eleven pairs inline, was copied on every call (#429).
+#[inline(always)]
+fn ascending_fixed<const K: usize>(row: [u32; K]) -> ([u32; K], [usize; K], bool) {
+    let mut words: [u64; K] = core::array::from_fn(|slot| u64::from(row[slot]) << 32 | slot as u64);
+    let mut negative = false;
+    let mut exchange = |a: &mut [u64; K], i: usize, j: usize| {
+        negative ^= a[i] > a[j];
+        (a[i], a[j]) = (a[i].min(a[j]), a[i].max(a[j]));
+    };
+    debug_assert!(K == 3 || K == 4, "three or four vertices");
+    if K == 3 {
+        for (i, j) in [(0, 1), (1, 2), (0, 1)] {
+            exchange(&mut words, i, j);
+        }
+    } else {
+        for (i, j) in [(0, 1), (2, 3), (0, 2), (1, 3), (1, 2)] {
+            exchange(&mut words, i, j);
+        }
+    }
+    (
+        words.map(|w| (w >> 32) as u32),
+        words.map(|w| (w & u64::from(u32::MAX)) as usize),
+        negative,
+    )
+}
+
+/// Appends the cell `vertices` (`K` mesh vertices) to `draft` as its sites
+/// ascending, with `link(slot)` for the neighbor across each face, and
+/// returns whether the ascending order is negative.
+#[inline(always)]
+fn push_sorted<const K: usize>(
+    draft: &mut Draft,
+    vertices: &[u32],
+    site: impl Fn(u32) -> u32,
+    link: impl Fn(usize) -> u32,
+) -> bool {
+    let (rows, slots, negative) = ascending_fixed::<K>(core::array::from_fn(|i| site(vertices[i])));
+    draft.rows.extend_from_slice(&rows);
+    for slot in slots {
+        draft.links.push(link(slot));
+    }
+    negative
 }
 
 /// Whether the mesh is built on the sites in the input's order instead of
@@ -589,15 +631,22 @@ fn inserted<S: insert::Shape>(
         if draft_of[c as usize] == UNKNOWN {
             continue;
         }
-        let vertices: Small<u32, 11> = mesh.vertices_of(c).iter().map(|&v| site(v)).collect();
-        let (sorted, negative) = ascending(&vertices);
         let start = draft.rows.len();
-        draft.rows.extend(sorted.iter().map(|&(v, _)| v));
-        draft.links.extend(
-            sorted
-                .iter()
-                .map(|&(_, slot)| draft_of[mesh.neighbor(c, slot) as usize]),
-        );
+        let link = |slot: usize| draft_of[mesh.neighbor(c, slot) as usize];
+        let negative = match k {
+            3 => push_sorted::<3>(&mut draft, mesh.vertices_of(c), site, link),
+            4 => push_sorted::<4>(&mut draft, mesh.vertices_of(c), site, link),
+            _ => {
+                let vertices: Small<u32, 11> =
+                    mesh.vertices_of(c).iter().map(|&v| site(v)).collect();
+                let (sorted, negative) = ascending(&vertices);
+                draft.rows.extend(sorted.iter().map(|&(v, _)| v));
+                draft
+                    .links
+                    .extend(sorted.iter().map(|&(_, slot)| link(slot)));
+                negative
+            }
+        };
         draft.negative.push(negative);
         draft.group.push(draft.sites.len() as u32);
         draft.sites.push(&draft.rows[start..]);
