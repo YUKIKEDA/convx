@@ -3008,3 +3008,38 @@ Every set published the same counts on both sides.
 - **D2 does not move.** The in-circle test's arithmetic, with its permanent, is about 9% of the build. Most of what the spikes P7-32 and P7-36 counted as the predicates is around the call: the wrapper `sphere_sign`, a `position` search for the infinite vertex in `conflict`, and reading the sites.
 - **D3 gains about 6%**, against new constants to derive and test and an ADR.
 - The keep criterion asked D2 and D3 to be faster. **P7-38 is withdrawn** (owner, 2026-10-10). The call paths get the spike P7-40 (#427).
+
+## Delaunay: where the predicates' call paths spend their time, PR #431 (#427)
+
+The spike P7-40 follows the prototype of P7-38 (#428), which left D2 unchanged when the first stage's bound got cheaper. It profiles the predicates' call paths of Delaunay `cube` and `sphere` D2 10^5 and `cube` D3 10^5 without inlining, as `bench.mdc` asks since #425.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | A copy of `main` (`232dd97`) with `#[inline(never)]` on `Shape::orient` and `Shape::lifted`, `sphere_sign`, `replaced`, `conflict`, `sign_of`, and `semi_static::sign`. rustc 1.97.1, `--release` with debug info |
+| Same build | The copy against `main`, pinned and alternated: `cube` D2 10^5 0.98, `sphere` D2 10^5 0.98, `cube` D3 10^5 0.95, all inside the spread, the same counts |
+| Profile | VTune hotspots, software sampling, pinned: 60 builds of each D2 set, 8 of `cube` D3. Shares of the process, own and inclusive |
+
+### Where the time goes
+
+| | `cube` D2 10^5 | `sphere` D2 10^5 | `cube` D3 10^5 |
+| --- | ---: | ---: | ---: |
+| Insertion, inclusive | 60.8% | – | 77.9% |
+| of which its own lines | 12.5% | 7.5% | 34.4% |
+| Predicate arithmetic (`semi_static`), own | about 20% | about 15% | about 15% |
+| The wrappers (`sphere_sign`, `replaced`, `conflict`, `Shape::orient`), own | about 5% | about 9% | about 6% |
+| BRIO order | 10.2% | – | 1.2% |
+| `ascending` | 5.1% | – | 3.1% |
+| The orientation pass in `complex` | 4.4% | – | 2.0% |
+| `complex`'s own lines | about 3% | about 4% | about 8% |
+| `publish` | 2.8% | – | – |
+| `memcpy` and the heap, spread over `ascending`, cell allocation, `complex`, `publish`, and `Sites` | about 9% | about 9% | about 5% |
+
+### Reading
+
+- **D2's gap is spread, not in one place.** The predicates' arithmetic is about a fifth of the build. The rest is spread over the insertion's own lines, the wrappers, BRIO, and the passes after insertion, each a few percent.
+- **The wrappers gather more than the first stage reads.** `Shape::lifted` gathers each site's stored lifted height for every call, and the first stage recomputes the lift from the differences; only the later stages read the heights. `conflict` searches the cell for the infinite vertex on every call. That is P7-42 (#430), about 5 to 9%.
+- **The passes after insertion** are about 15% of `cube` D2 (`ascending`, the orientation pass, `complex`'s own lines, `publish`, with their copies): P7-41 (#429).
+- **The BRIO order** is P7-39 (#423), about 10% of D2.
+- D3's insertion's own lines remain the largest share (34%). #425 put `link_by_keys` at about 9% of them; the rest is the cavity walk.
