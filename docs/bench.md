@@ -3107,7 +3107,7 @@ Every set published the same counts on both sides.
 - **D3 moves less** (`cube` D3 0.96 and 0.97, inside the spread): the passes after insertion are about 6% of it, and its insertion's own lines are the largest share (#431).
 - **Nothing is slower beyond the spread.** `cube` D4 reads 1.03 and D5 1.01, inside the spread; they take the general `ascending`.
 
-## Delaunay: the BRIO keys by masks and one sorted key, PR #433 (#423)
+## Delaunay: the BRIO keys by masks and one sorted key, PR #434 (#423)
 
 P7-39. The BRIO order took 11.5% of Delaunay `cube` D2 10^5 (#423):
 
