@@ -1101,29 +1101,42 @@ pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
     } else {
         ((1_u64 << bits) - 1) as f64
     };
+    // Coordinate `j` of site `s` on the grid of `bits` bits. The mask keeps
+    // the cell within those bits, as the loop below keeps only them, so the
+    // masks of D = 2 and 3 and the loop agree for any cell (review of #434).
+    let mask = (1_u64 << bits) - 1;
+    let cell = |p: &[f64], j: usize| -> u64 {
+        let width = high[j] - low[j];
+        let t = if width > 0.0 {
+            (p[j] - low[j]) / width
+        } else {
+            0.0
+        };
+        // NaN and out-of-range values saturate; only the order is affected.
+        (t * scale) as u64 & mask
+    };
+    // The bits of the cells interleaved from the top, coordinate 0 first
+    // within each level: bit `b` of coordinate `j` lands at `b d + d - 1 - j`.
+    // D = 2 and 3 spread each cell's bits with masks (#423); the loop below
+    // gives the same code for every dimension.
     let morton = |s: u32| -> u64 {
         let p = rows.point(s);
-        // On the stack for D <= 16, so the order allocates nothing per site.
-        let cell: Small<u64, 16> = (0..d)
-            .map(|j| {
-                let width = high[j] - low[j];
-                let t = if width > 0.0 {
-                    (p[j] - low[j]) / width
-                } else {
-                    0.0
-                };
-                // NaN and out-of-range values saturate; only the order is
-                // affected.
-                (t * scale) as u64
-            })
-            .collect();
-        let mut code = 0_u64;
-        for b in (0..bits).rev() {
-            for &c in &cell {
-                code = (code << 1) | ((c >> b) & 1);
+        match d {
+            2 => spread2(cell(p, 0)) << 1 | spread2(cell(p, 1)),
+            3 => spread3(cell(p, 0)) << 2 | spread3(cell(p, 1)) << 1 | spread3(cell(p, 2)),
+            _ => {
+                // On the stack for D <= 16, so the order allocates nothing
+                // per site.
+                let cells: Small<u64, 16> = (0..d).map(|j| cell(p, j)).collect();
+                let mut code = 0_u64;
+                for b in (0..bits).rev() {
+                    for &c in &cells {
+                        code = (code << 1) | ((c >> b) & 1);
+                    }
+                }
+                code
             }
         }
-        code
     };
     let round = |s: u32| -> u32 {
         // SplitMix64 of the index; about half the sites get 0 (the last
@@ -1134,9 +1147,34 @@ pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
         z ^= z >> 31;
         z.trailing_zeros().min(32)
     };
-    let mut keyed: Vec<(u32, u64, u32)> = sites.iter().map(|&s| (round(s), morton(s), s)).collect();
-    keyed.sort_unstable_by_key(|&(r, m, s)| (core::cmp::Reverse(r), m, s));
-    keyed.into_iter().map(|(_, _, s)| s).collect()
+    // One key per site that orders as `(Reverse(round), code, site)`: the
+    // round is at most 32, the code below 2^63, the site a `u32` (#423).
+    let mut keys: Vec<u128> = sites
+        .iter()
+        .map(|&s| u128::from(32 - round(s)) << 96 | u128::from(morton(s)) << 32 | u128::from(s))
+        .collect();
+    keys.sort_unstable();
+    keys.into_iter().map(|key| key as u32).collect()
+}
+
+/// The low 32 bits of `x` spread to the even bit positions.
+fn spread2(x: u64) -> u64 {
+    let mut x = x & 0xffff_ffff;
+    x = (x | x << 16) & 0x0000_ffff_0000_ffff;
+    x = (x | x << 8) & 0x00ff_00ff_00ff_00ff;
+    x = (x | x << 4) & 0x0f0f_0f0f_0f0f_0f0f;
+    x = (x | x << 2) & 0x3333_3333_3333_3333;
+    (x | x << 1) & 0x5555_5555_5555_5555
+}
+
+/// The low 21 bits of `x` spread to every third bit position.
+fn spread3(x: u64) -> u64 {
+    let mut x = x & 0x1f_ffff;
+    x = (x | x << 32) & 0x001f_0000_0000_ffff;
+    x = (x | x << 16) & 0x001f_0000_ff00_00ff;
+    x = (x | x << 8) & 0x100f_00f0_0f00_f00f;
+    x = (x | x << 4) & 0x10c3_0c30_c30c_30c3;
+    (x | x << 2) & 0x1249_2492_4924_9249
 }
 
 #[cfg(test)]
@@ -1144,6 +1182,117 @@ mod tests {
     use super::*;
     use crate::hull::input::accept;
     use core::cmp::Ordering;
+
+    /// The BRIO order before #423: the bits interleaved one at a time,
+    /// and a sort of tuples. The reference of [`brio`]'s tests.
+    fn brio_by_tuples(rows: &Sites, sites: &[u32]) -> Vec<u32> {
+        let d = rows.dim();
+        let mut low = vec![f64::INFINITY; d];
+        let mut high = vec![f64::NEG_INFINITY; d];
+        for &s in sites {
+            for (j, &x) in rows.point(s).iter().enumerate() {
+                low[j] = low[j].min(x);
+                high[j] = high[j].max(x);
+            }
+        }
+        let bits = (63 / d.max(1)).min(21) as u32;
+        let scale = if bits == 0 {
+            0.0
+        } else {
+            ((1_u64 << bits) - 1) as f64
+        };
+        let morton = |s: u32| -> u64 {
+            let p = rows.point(s);
+            // On the stack for D <= 16, so the order allocates nothing per site.
+            let cell: Small<u64, 16> = (0..d)
+                .map(|j| {
+                    let width = high[j] - low[j];
+                    let t = if width > 0.0 {
+                        (p[j] - low[j]) / width
+                    } else {
+                        0.0
+                    };
+                    // NaN and out-of-range values saturate; only the order is
+                    // affected.
+                    (t * scale) as u64
+                })
+                .collect();
+            let mut code = 0_u64;
+            for b in (0..bits).rev() {
+                for &c in &cell {
+                    code = (code << 1) | ((c >> b) & 1);
+                }
+            }
+            code
+        };
+        let round = |s: u32| -> u32 {
+            // SplitMix64 of the index; about half the sites get 0 (the last
+            // round), a quarter 1, and so on.
+            let mut z = u64::from(s).wrapping_add(0x9e37_79b9_7f4a_7c15);
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            z ^= z >> 31;
+            z.trailing_zeros().min(32)
+        };
+        let mut keyed: Vec<(u32, u64, u32)> =
+            sites.iter().map(|&s| (round(s), morton(s), s)).collect();
+        keyed.sort_unstable_by_key(|&(r, m, s)| (core::cmp::Reverse(r), m, s));
+        keyed.into_iter().map(|(_, _, s)| s).collect()
+    }
+
+    #[test]
+    fn brio_keeps_the_order_of_the_tuples() {
+        // Sites in D = 1 to 5 (the masks of D = 2 and 3, the loop of the
+        // others): random ones, a grid with repeated coordinates, a set with
+        // two values in one coordinate, and D + 1 random sites (the fewest
+        // an accepted input has). The order is the reference's, site for
+        // site.
+        let mut state = 0x4230_0001_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let mut cases = 0;
+        for d in 1..=5 {
+            for case in 0..4 {
+                let n = if case == 3 { d + 1 } else { 2000 };
+                let points: Vec<f64> = (0..n * d)
+                    .map(|i| match case {
+                        0 => (next() >> 11) as f64 / (1_u64 << 53) as f64 * 2.0 - 1.0,
+                        1 => (next() % 7) as f64,
+                        2 if i % d == 0 => 3.5 + (next() % 2) as f64,
+                        _ => (next() >> 11) as f64 / (1_u64 << 53) as f64,
+                    })
+                    .collect();
+                let input = accept(d, &points).unwrap();
+                let rows = Sites::of(&input);
+                let all: Vec<u32> = input.representatives.clone();
+                assert_eq!(
+                    brio(&rows, &all),
+                    brio_by_tuples(&rows, &all),
+                    "D = {d}, case {case}"
+                );
+                cases += 1;
+            }
+        }
+        assert_eq!(cases, 20);
+    }
+
+    #[test]
+    fn the_masks_spread_every_bit() {
+        // Each bit alone and every bit together, against the loop's
+        // positions: bit `b` at `2b` and at `3b`.
+        for b in 0..32 {
+            assert_eq!(spread2(1 << b), 1 << (2 * b), "bit {b}");
+        }
+        for b in 0..21 {
+            assert_eq!(spread3(1 << b), 1 << (3 * b), "bit {b}");
+        }
+        assert_eq!(spread2(u64::from(u32::MAX)), 0x5555_5555_5555_5555);
+        assert_eq!(spread3(0x1f_ffff), 0x1249_2492_4924_9249);
+    }
 
     /// Exact lifted orientation of four integer sites of dimension 2: the
     /// sign of the 3 x 3 determinant of `(p - o, |p|^2 - |o|^2)` in `i128`.
