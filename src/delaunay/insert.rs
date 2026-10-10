@@ -1101,7 +1101,10 @@ pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
     } else {
         ((1_u64 << bits) - 1) as f64
     };
-    // Coordinate `j` of site `s` on the grid of `bits` bits.
+    // Coordinate `j` of site `s` on the grid of `bits` bits. The mask keeps
+    // the cell within those bits, as the loop below keeps only them, so the
+    // masks of D = 2 and 3 and the loop agree for any cell (review of #434).
+    let mask = (1_u64 << bits) - 1;
     let cell = |p: &[f64], j: usize| -> u64 {
         let width = high[j] - low[j];
         let t = if width > 0.0 {
@@ -1110,7 +1113,7 @@ pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
             0.0
         };
         // NaN and out-of-range values saturate; only the order is affected.
-        (t * scale) as u64
+        (t * scale) as u64 & mask
     };
     // The bits of the cells interleaved from the top, coordinate 0 first
     // within each level: bit `b` of coordinate `j` lands at `b d + d - 1 - j`.
