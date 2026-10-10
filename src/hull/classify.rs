@@ -1326,12 +1326,16 @@ pub(crate) mod tests {
     #[test]
     fn placing_keeps_the_triangulation_of_the_full_scan() {
         // Points in convex position within their span, as `placing` takes
-        // them: the vertices of a cube, integer points on a sphere (a
-        // cospherical group of Delaunay), and points on the moment curve.
-        // Each family is placed whole and as random subsets, in shuffled
-        // index orders, in its own dimension and lifted into one more by a
-        // constant coordinate (a facet of a hull). The simplices and their
-        // order are those of the reference that gathers every ridge again.
+        // them: the vertices of a cube (the extreme points of a grid's
+        // faces), integer points on a sphere (a cospherical group of
+        // Delaunay), and points on the moment curve. Each family is placed
+        // whole and as random subsets of at most 24 points, in shuffled index
+        // orders, in its own dimension (k = 2 to 6) and lifted into one more
+        // by a constant coordinate (a facet of a hull), so up to D = 7. Then
+        // the extreme points of the facets of real hulls of grids, lattices,
+        // and cube surfaces, as classification passes them. The simplices
+        // and their order are those of the reference that gathers every
+        // ridge again.
         let mut rng = Rng(393);
         let cube = |k: usize| -> Vec<Vec<f64>> {
             (0..1_u32 << k)
@@ -1364,7 +1368,7 @@ pub(crate) mod tests {
         };
         let mut cases = 0;
         let mut beyond = 0;
-        for k in 2..=5 {
+        for k in 2..=6 {
             let families: [(&str, Vec<Vec<f64>>); 3] = [
                 ("cube", cube(k)),
                 ("sphere", sphere(k)),
@@ -1416,8 +1420,53 @@ pub(crate) mod tests {
                 }
             }
         }
-        assert_eq!(cases, 144);
-        assert!(beyond > 120, "{beyond} cases place a point beyond a ridge");
+        assert_eq!(cases, 180);
+        assert!(beyond > 150, "{beyond} cases place a point beyond a ridge");
+
+        // The facets of hulls of degenerate inputs, each a face that is not
+        // a simplex, with the input's coordinates.
+        let mut faces = 0;
+        for (name, k, n) in [
+            ("grid", 3, 300),
+            ("grid", 5, 300),
+            ("lattice", 3, 300),
+            ("lattice", 4, 300),
+            ("cubesurf", 3, 200),
+            ("cubesurf", 4, 120),
+        ] {
+            let mut points = Vec::with_capacity(n * k);
+            for _ in 0..n {
+                match name {
+                    "grid" => points.extend((0..k).map(|_| (rng.next() % 4) as f64)),
+                    "lattice" => points.extend((0..k).map(|_| (rng.next() % 5) as f64 - 2.0)),
+                    _ => {
+                        let start = points.len();
+                        points.extend((0..k).map(|_| (rng.next() % 9) as f64 - 4.0));
+                        let axis = rng.next() as usize % k;
+                        points[start + axis] = if rng.next().is_multiple_of(2) {
+                            -4.0
+                        } else {
+                            4.0
+                        };
+                    }
+                }
+            }
+            let hull = crate::ConvexHullBuilder::new(k, &points).build().unwrap();
+            let point = |i: u32| &points[i as usize * k..(i as usize + 1) * k];
+            let mut found = 0;
+            for facet in hull.facets().iter() {
+                let extreme = facet.vertices();
+                if extreme.len() <= k {
+                    continue;
+                }
+                let expected = placing_by_full_scan(k, point, extreme).unwrap();
+                assert_eq!(placing(k, point, extreme).unwrap(), expected, "{name} D{k}");
+                found += 1;
+            }
+            assert!(found > 0, "{name} D{k}: no facet that is not a simplex");
+            faces += found;
+        }
+        assert!(faces > 30, "{faces} faces of real hulls");
     }
 
     #[test]
