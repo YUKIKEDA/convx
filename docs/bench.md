@@ -3043,3 +3043,66 @@ The spike P7-40 follows the prototype of P7-38 (#428), which left D2 unchanged w
 - **The passes after insertion** are about 15% of `cube` D2 (`ascending`, the orientation pass, `complex`'s own lines, `publish`, with their copies): P7-41 (#429).
 - **The BRIO order** is P7-39 (#423), about 10% of D2.
 - D3's insertion's own lines remain the largest share (34%). #425 put `link_by_keys` at about 9% of them; the rest is the cavity walk.
+
+## Delaunay: the cells of D = 2 and 3 sorted in arrays, PR #432 (#429)
+
+P7-41. The spike P7-40 (#431) put the passes after insertion at about 15% of Delaunay `cube` D2 10^5. A copy of `main` with `#[inline(never)]` on `inserted`, `ascending`, `Draft::finish`, and `publish` timed the same as `main` (0.97 to 1.01) and put, of the build:
+
+- `ascending` at 5.6%, half of it copies (`memcpy`);
+- `inserted`'s own lines at about 5%, with another 3.2% of copies under it.
+
+`ascending` returned each cell's sorted vertices as a list of eleven pairs inline, about 180 bytes, copied on every call. Cells of three and four vertices (D = 2 and 3) now go through `ascending_fixed`, which sorts in arrays with the same network, and are written to the draft from those arrays. `ascending` takes the same function for three and four vertices, so the network is in one place. The published triangulation is the same.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `4e4b081` (the code of `232dd97`) against the head `832b8fe`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md`, with Delaunay `cube` and `sphere` D2 10^6 |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second |
+
+Every set published the same counts on both sides.
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.56 ms (0.54 ms–1.13 ms) | 0.57 ms (0.53 ms–1.21 ms) | 1.02, inside the spread |
+| Hull `cube` D2 10^5 | 5.61 ms (4.86 ms–8.21 ms) | 5.44 ms (4.79 ms–7.03 ms) | 0.97, inside the spread |
+| Hull `cube` D3 10^4 | 1.50 ms (1.25 ms–2.20 ms) | 1.47 ms (1.25 ms–2.03 ms) | 0.98, inside the spread |
+| Hull `cube` D3 10^5 | 12.3 ms (11.0 ms–14.1 ms) | 12.6 ms (11.1 ms–15.5 ms) | 1.02, inside the spread |
+| Hull `cube` D4 10^4 | 5.64 ms (5.26 ms–6.78 ms) | 5.55 ms (5.32 ms–6.65 ms) | 0.98, inside the spread |
+| Hull `cube` D4 10^5 | 33.5 ms (32.5 ms–37.1 ms) | 33.5 ms (32.8 ms–35.2 ms) | 1.00, inside the spread |
+| Hull `cube` D5 10^4 | 55.8 ms (54.4 ms–59.6 ms) | 55.5 ms (53.7 ms–59.1 ms) | 0.99, inside the spread |
+| Hull `cube` D6 10^4 | 566 ms (550 ms–588 ms) | 560 ms (551 ms–666 ms) | 0.99, inside the spread |
+| Hull `cubesurf` D3 10^5 | 59.9 ms (58.4 ms–64.3 ms) | 60.0 ms (58.8 ms–64.5 ms) | 1.00, inside the spread |
+| Hull `sphere` D2 10^4 | 1.24 ms (1.12 ms–4.80 ms) | 1.21 ms (1.11 ms–3.84 ms) | 0.97, inside the spread |
+| Hull `sphere` D2 10^5 | 12.4 ms (11.3 ms–16.8 ms) | 12.5 ms (11.3 ms–15.3 ms) | 1.00, inside the spread |
+| Hull `sphere` D3 10^4 | 22.4 ms (21.0 ms–26.2 ms) | 22.2 ms (21.1 ms–26.5 ms) | 0.99, inside the spread |
+| Hull `sphere` D3 10^5 | 254 ms (245 ms–295 ms) | 253 ms (246 ms–293 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^4 | 92.3 ms (90.3 ms–97.9 ms) | 91.6 ms (89.5 ms–95.6 ms) | 0.99, inside the spread |
+| Hull `sphere` D4 10^5 | 1.19 s (1.14 s–1.25 s) | 1.17 s (1.15 s–1.23 s) | 0.98, inside the spread |
+| Hull `sphere` D5 10^4 | 805 ms (774 ms–874 ms) | 797 ms (772 ms–826 ms) | 0.99, inside the spread |
+| Delaunay `cube` D2 10^4 | 7.70 ms (7.22 ms–8.21 ms) | 7.38 ms (6.69 ms–7.82 ms) | 0.96, inside the spread |
+| Delaunay `cube` D2 10^5 | 73.4 ms (72.0 ms–82.2 ms) | 67.6 ms (65.6 ms–73.3 ms) | 0.92, inside the spread |
+| Delaunay `cube` D2 10^6 | 835 ms (793 ms–902 ms) | 759 ms (738 ms–764 ms) | 0.91, faster beyond the spread |
+| Delaunay `cube` D3 10^4 | 41.5 ms (40.7 ms–44.4 ms) | 40.1 ms (38.9 ms–43.9 ms) | 0.97, inside the spread |
+| Delaunay `cube` D3 10^5 | 454 ms (435 ms–468 ms) | 434 ms (425 ms–455 ms) | 0.96, inside the spread |
+| Delaunay `cube` D4 10^4 | 671 ms (655 ms–740 ms) | 694 ms (684 ms–723 ms) | 1.03, inside the spread |
+| Delaunay `cube` D5 10^4 | 7.52 s (7.43 s–7.57 s) | 7.62 s (7.57 s–7.81 s) | 1.01, inside the spread |
+| Delaunay `sphere` D2 10^4 | 7.07 ms (6.88 ms–9.16 ms) | 6.69 ms (6.42 ms–7.49 ms) | 0.95, inside the spread |
+| Delaunay `sphere` D2 10^5 | 59.0 ms (57.7 ms–62.9 ms) | 55.0 ms (53.8 ms–57.2 ms) | 0.93, faster beyond the spread |
+| Delaunay `sphere` D2 10^6 | 583 ms (578 ms–589 ms) | 545 ms (539 ms–565 ms) | 0.94, faster beyond the spread |
+| Delaunay `sphere` D3 10^4 | 89.2 ms (87.3 ms–99.6 ms) | 87.7 ms (85.8 ms–92.0 ms) | 0.98, inside the spread |
+| Delaunay `sphere` D3 10^5 | 846 ms (841 ms–863 ms) | 836 ms (834 ms–871 ms) | 0.99, inside the spread |
+
+### Reading
+
+- **The keep criterion is met.**
+  - Delaunay `sphere` D2 10^5 reads 0.93, faster beyond the spread.
+  - `cube` D2 10^5 reads 0.92. Its ranges overlap only through the head's two slowest builds (72.9 ms and 73.3 ms, against `main`'s fastest 72.0 ms); the other 28 are faster than any build of `main`, so the difference is reported (`bench.mdc`).
+  - At 10^6, `cube` reads 0.91 and `sphere` 0.94, both faster beyond the spread.
+- **D3 moves less** (`cube` D3 0.96 and 0.97, inside the spread): the passes after insertion are about 6% of it, and its insertion's own lines are the largest share (#431).
+- **Nothing is slower beyond the spread.** `cube` D4 reads 1.03 and D5 1.01, inside the spread; they take the general `ascending`.
