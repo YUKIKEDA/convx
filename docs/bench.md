@@ -2592,3 +2592,88 @@ Met at 1.05: 19 of 41 (hull 14, Delaunay 5); 17 in the run of #379, read again u
   - These are the chain's sort (P7-7, #380) and the discard (P7-9, #381).
 - **Met at 1.00 now:** hull `cube` D4 10^4 (0.96 against Qhull, from 1.01) and `sphere` D5 10^5 (0.98, from 1.04). `cube` D4 10^5 reads 1.01 (from 1.04), met at 1.05 only. No row changed their paths: they lie within a few percent of 1.00, where runs differ.
 - **Delaunay** did not move beyond a few percent. No row of this period changed it.
+
+## Hull: placing keeps its boundary and projects into one buffer, PR #405 (#393)
+
+P7-29. The placing triangulation (design §3), which classification uses for every face that is not a simplex and Delaunay for every cospherical group, made two changes:
+
+- **It keeps the boundary ridges of its complex from one point to the next.** For each point placed, it used to gather every ridge of every simplex into a map again.
+  - A point that does not raise the dimension now adds a simplex on each boundary ridge it is beyond. Each ridge of the added simplices then leaves the boundary if it was on it, or joins it.
+  - A point that raises the dimension gathers the boundary again, at most `D` times per call.
+  - Each boundary ridge keeps the side of its opposite vertex, which does not change until the dimension does.
+- **It projects the rows of each orientation into one buffer reused across calls.** It used to allocate a `Vec` per row. After the first change, a profile still put `placing` at 51% of hull `lattice` D6 10^4; the allocations were most of it.
+
+The triangulation is the same, simplex for simplex and in the same order; a test compares it with the earlier implementation, kept as a test-only reference.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `e94f5f6` against the head `44142cb`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md`, with hull `grid` D5 and D6, `lattice` D5 and D6, `cubesurf` D5 10^4, and Delaunay `grid` and `lattice` D3 10^4 |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second |
+| Profiles | A copy with a timer around `placing` (not committed), on `main` (recorded on #393), on the first change, and on the head |
+
+Every set published the same counts on both sides.
+
+### Where `placing` went
+
+| Set | `main` | First change (`b4fb530`) | Head |
+| --- | ---: | ---: | ---: |
+| Hull `lattice` D6 10^4 | 1,407 ms of 1,989 (71%) | 600 ms of 1,185 (51%) | 211 ms of 776 (27%) |
+| Hull `cubesurf` D5 10^4 | 1,288 ms of 1,734 (74%) | 265 ms of 709 (37%) | 55 ms of 490 (11%) |
+| Hull `grid` D6 10^4 | 215 ms of 609 (35%) | 121 ms of 504 (24%) | 56 ms of 436 (13%) |
+
+One build each in the copy with the timer; the head's column is the head's code with the timer.
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.61 ms (0.55 ms–1.09 ms) | 0.61 ms (0.56 ms–0.78 ms) | 1.00, inside the spread |
+| Hull `cube` D2 10^5 | 5.48 ms (5.14 ms–9.90 ms) | 5.66 ms (5.13 ms–7.50 ms) | 1.03, inside the spread |
+| Hull `cube` D3 10^4 | 1.57 ms (1.34 ms–4.95 ms) | 1.53 ms (1.32 ms–4.74 ms) | 0.97, inside the spread |
+| Hull `cube` D3 10^5 | 12.3 ms (11.6 ms–14.9 ms) | 12.2 ms (11.3 ms–14.5 ms) | 0.99, inside the spread |
+| Hull `cube` D4 10^4 | 6.85 ms (6.44 ms–9.02 ms) | 6.82 ms (6.31 ms–8.70 ms) | 1.00, inside the spread |
+| Hull `cube` D4 10^5 | 36.1 ms (34.5 ms–45.4 ms) | 36.2 ms (34.4 ms–39.2 ms) | 1.00, inside the spread |
+| Hull `cube` D5 10^4 | 57.8 ms (54.9 ms–109 ms) | 57.7 ms (55.3 ms–67.1 ms) | 1.00, inside the spread |
+| Hull `cube` D6 10^4 | 588 ms (569 ms–610 ms) | 588 ms (565 ms–606 ms) | 1.00, inside the spread |
+| Hull `cubesurf` D3 10^5 | 62.9 ms (60.2 ms–70.0 ms) | 61.5 ms (58.5 ms–73.7 ms) | 0.98, inside the spread |
+| Hull `cubesurf` D5 10^4 | 1.84 s (1.82 s–1.91 s) | 507 ms (484 ms–518 ms) | 0.27, faster beyond the spread |
+| Hull `grid` D5 10^4 | 29.3 ms (27.6 ms–33.5 ms) | 25.2 ms (24.3 ms–29.9 ms) | 0.86, inside the spread |
+| Hull `grid` D6 10^4 | 599 ms (588 ms–611 ms) | 432 ms (420 ms–436 ms) | 0.72, faster beyond the spread |
+| Hull `lattice` D5 10^4 | 48.3 ms (45.7 ms–57.5 ms) | 40.3 ms (37.5 ms–43.6 ms) | 0.83, faster beyond the spread |
+| Hull `lattice` D6 10^4 | 2.03 s (2.02 s–2.06 s) | 772 ms (757 ms–782 ms) | 0.38, faster beyond the spread |
+| Hull `sphere` D2 10^4 | 1.52 ms (1.39 ms–1.78 ms) | 1.59 ms (1.40 ms–2.27 ms) | 1.05, inside the spread |
+| Hull `sphere` D2 10^5 | 16.8 ms (15.6 ms–33.1 ms) | 17.1 ms (16.1 ms–23.9 ms) | 1.02, inside the spread |
+| Hull `sphere` D3 10^4 | 30.8 ms (28.1 ms–39.2 ms) | 31.0 ms (28.4 ms–41.3 ms) | 1.00, inside the spread |
+| Hull `sphere` D3 10^5 | 342 ms (329 ms–385 ms) | 347 ms (323 ms–369 ms) | 1.01, inside the spread |
+| Hull `sphere` D4 10^4 | 130 ms (121 ms–142 ms) | 130 ms (123 ms–142 ms) | 1.01, inside the spread |
+| Hull `sphere` D4 10^5 | 1.57 s (1.53 s–1.74 s) | 1.60 s (1.52 s–1.80 s) | 1.02, inside the spread |
+| Hull `sphere` D5 10^4 | 843 ms (812 ms–884 ms) | 844 ms (818 ms–892 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^4 | 7.37 ms (7.13 ms–9.96 ms) | 7.25 ms (7.08 ms–8.91 ms) | 0.98, inside the spread |
+| Delaunay `cube` D2 10^5 | 75.3 ms (72.3 ms–126 ms) | 73.3 ms (70.5 ms–81.9 ms) | 0.97, inside the spread |
+| Delaunay `cube` D3 10^4 | 42.1 ms (40.4 ms–45.5 ms) | 41.7 ms (40.3 ms–48.0 ms) | 0.99, inside the spread |
+| Delaunay `cube` D3 10^5 | 452 ms (432 ms–497 ms) | 446 ms (430 ms–507 ms) | 0.99, inside the spread |
+| Delaunay `cube` D4 10^4 | 697 ms (683 ms–735 ms) | 706 ms (665 ms–796 ms) | 1.01, inside the spread |
+| Delaunay `cube` D5 10^4 | 7.72 s (7.62 s–8.05 s) | 7.94 s (7.64 s–8.01 s) | 1.03, inside the spread |
+| Delaunay `grid` D3 10^4 | 1.92 ms (1.75 ms–2.65 ms) | 1.56 ms (1.39 ms–2.51 ms) | 0.81, inside the spread |
+| Delaunay `lattice` D3 10^4 | 3.32 ms (3.01 ms–6.00 ms) | 2.41 ms (2.19 ms–3.55 ms) | 0.73, inside the spread |
+| Delaunay `sphere` D2 10^4 | 7.03 ms (6.76 ms–7.37 ms) | 7.01 ms (6.78 ms–7.68 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^5 | 59.4 ms (56.8 ms–71.6 ms) | 58.6 ms (56.3 ms–61.9 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D3 10^4 | 88.9 ms (86.3 ms–96.9 ms) | 88.0 ms (86.2 ms–102 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D3 10^5 | 862 ms (856 ms–893 ms) | 856 ms (840 ms–876 ms) | 0.99, inside the spread |
+
+The first change alone, timed the same way against `main` before the second: hull `cubesurf` D5 10^4 0.38, `lattice` D6 0.57, `grid` D6 0.84, all faster beyond the spread.
+
+### Reading
+
+- **The keep criterion is met.**
+  - Hull `cubesurf` D5 10^4 reads 0.27 (1.84 s to 507 ms), `lattice` D6 0.38 (2.03 s to 772 ms), and `grid` D6 0.72 (599 ms to 432 ms), all faster beyond the spread.
+  - `grid` D6 is now about 1.27 times Qhull's 340 ms (#379). It was 6.55 times in #379 and 1.64 times in the parity run of #404.
+- **`lattice` D5 reads 0.83, faster beyond the spread.** `grid` D5 reads 0.86, inside the spread.
+- **Delaunay `lattice` and `grid` D3 10^4 read 0.73 and 0.81.** Their cospherical groups are split by `placing`. Their ranges overlap `main`'s only through single slow builds of `main` (6.00 ms and 2.65 ms against medians of 3.32 and 1.92), so the difference is reported.
+- **Nothing is slower beyond the spread.** The other sets read 0.97 to 1.05.
+- What remains of `grid` D6 is the recursion over lower faces, P7-30 (#394), after its Grill.
