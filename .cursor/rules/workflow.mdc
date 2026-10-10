@@ -51,6 +51,10 @@ When a row is recorded before Grill, and the user has named the ID and the Issue
 - ID, kind, title, and dependencies that the Issue already states
 - Status is `Set after Grill on #n` only. Do not put the acceptance text on the roadmap
 
+## Long commands
+
+A command expected to take more than a minute or two is announced to the owner with its expected time before it starts, or it runs in the background. A command whose time is unknown runs in the background. In #406 a test was being shrunk, and a command ran for about ten minutes in the foreground without a word; the owner asked twice what was happening.
+
 ## Rows on the same lines
 
 Two rows that will edit the same lines (the roadmap's **Current work**, the end of `docs/bench.md`, one function) are opened one after the other, or the second is stacked on the first (below). #380 and #381 both branched from `340b7cc` and edited the same lines of `docs/roadmap.md`, `docs/bench.md`, and `src/hull/simplicial.rs`; each needed `main` merged twice.

@@ -7,6 +7,7 @@ alwaysApply: true
 
 A check or a test that stands for a statement in `docs/design.ja.md` or `docs/verification.md` implements the whole statement.
 
+- A test's ranges and families match the Definition of done's list (dimensions, sizes, input families). Check them against that list before the PR. A family that cannot be met as written is said on the Issue, with the reason. In #405 the test stopped at D = 6 and three families, where #393 named D = 7 and grids, lattices, and cube surfaces; grids are not in convex position, which the Issue did not say.
 - Check the full statement, not a necessary condition of it. Its self-test includes a case that passes the weaker condition and fails the full one.
 - When the design fixes an order (input checks, errors, sort keys), test it with one input that fails two adjacent steps and assert the first.
 - Every rule written in the docs has a code path, and a test that fails when that path is skipped. A sentence with no code behind it is a gap, not documentation.
