@@ -2425,3 +2425,83 @@ With A, the same phase timers on other inputs:
   - Placing is quadratic in the points of a face: about 1.47 s of `lattice` D6, 1.45 s of `cubesurf` D5 10^4, and 243 ms of `grid` D6. That is P7-29 (#393).
   - The recursion finds each lower face again from every facet that contains it: about 200 ms of `grid` D6. How a face is recognized across recursions branches the design, so P7-30 (#394) is set after its Grill.
   - On `cubesurf` D3 10^5, the remaining classification is the walk of `distance_zeros` over the recorded points, 64 ms; it is left to the parity run after P7-28.
+
+## Hull: a cull plane from the exact direction, PR #399 (#392)
+
+P7-28. A facet whose working normal is the exact cofactor direction, rounded once, now has a cull plane: the direction's error bound `D · 2^-49` is the plane's `tau` (design §1). Two kinds of facet take that path. Those whose filtered elimination cannot certify a pivot, as on integer edges with a pivot that is exactly zero, had no cull plane before. Those whose filtered cofactors certify the direction only loosely (above `10^-10`) had one bounded by those loose cofactors. Every certified working normal now has a cull plane, so the facet store no longer has a state with a normal and no plane, and a side test reads one plane where it read two (the normal and the cull plane).
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `219b274` against the head `bb68a8e`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md`, with hull `grid` D5 and D6, `lattice` D5 and D6, `cluster` D5, and `nearsphere` D5 10^4 |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second |
+| Counts | A copy of the head with counters (not committed): the working planes by certificate, and the orientations of one build |
+
+Every set published the same counts on both sides.
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cluster` D5 10^4 | 989 ms (931 ms–1.01 s) | 575 ms (564 ms–583 ms) | 0.58, faster beyond the spread |
+| Hull `cube` D2 10^4 | 0.60 ms (0.51 ms–0.71 ms) | 0.60 ms (0.52 ms–0.90 ms) | 1.01, inside the spread |
+| Hull `cube` D2 10^5 | 5.15 ms (4.72 ms–6.37 ms) | 5.18 ms (4.70 ms–5.92 ms) | 1.01, inside the spread |
+| Hull `cube` D3 10^4 | 1.54 ms (1.34 ms–1.98 ms) | 1.56 ms (1.31 ms–2.21 ms) | 1.01, inside the spread |
+| Hull `cube` D3 10^5 | 12.4 ms (11.5 ms–17.1 ms) | 12.4 ms (11.3 ms–14.1 ms) | 1.00, inside the spread |
+| Hull `cube` D4 10^4 | 6.69 ms (6.27 ms–7.79 ms) | 6.52 ms (6.21 ms–7.88 ms) | 0.97, inside the spread |
+| Hull `cube` D4 10^5 | 35.4 ms (34.4 ms–39.9 ms) | 35.6 ms (34.4 ms–37.9 ms) | 1.01, inside the spread |
+| Hull `cube` D5 10^4 | 56.0 ms (54.5 ms–63.8 ms) | 55.7 ms (53.8 ms–59.8 ms) | 1.00, inside the spread |
+| Hull `cube` D6 10^4 | 579 ms (564 ms–593 ms) | 573 ms (565 ms–591 ms) | 0.99, inside the spread |
+| Hull `cubesurf` D3 10^5 | 77.1 ms (75.7 ms–83.4 ms) | 61.0 ms (59.6 ms–64.0 ms) | 0.79, faster beyond the spread |
+| Hull `grid` D5 10^4 | 29.2 ms (28.6 ms–31.6 ms) | 26.1 ms (25.6 ms–27.7 ms) | 0.89, faster beyond the spread |
+| Hull `grid` D6 10^4 | 1.95 s (1.94 s–1.96 s) | 584 ms (581 ms–586 ms) | 0.30, faster beyond the spread |
+| Hull `lattice` D5 10^4 | 53.6 ms (52.2 ms–70.3 ms) | 43.2 ms (42.8 ms–45.1 ms) | 0.81, faster beyond the spread |
+| Hull `lattice` D6 10^4 | 4.67 s (4.64 s–4.68 s) | 1.95 s (1.95 s–1.96 s) | 0.42, faster beyond the spread |
+| Hull `nearsphere` D5 10^4 | 564 ms (558 ms–579 ms) | 533 ms (526 ms–541 ms) | 0.95, faster beyond the spread |
+| Hull `sphere` D2 10^4 | 1.55 ms (1.39 ms–2.10 ms) | 1.51 ms (1.38 ms–1.90 ms) | 0.98, inside the spread |
+| Hull `sphere` D2 10^5 | 16.6 ms (15.0 ms–18.1 ms) | 16.2 ms (14.9 ms–17.9 ms) | 0.98, inside the spread |
+| Hull `sphere` D3 10^4 | 31.7 ms (29.6 ms–46.6 ms) | 30.1 ms (27.8 ms–43.1 ms) | 0.95, inside the spread |
+| Hull `sphere` D3 10^5 | 334 ms (326 ms–362 ms) | 327 ms (321 ms–345 ms) | 0.98, inside the spread |
+| Hull `sphere` D4 10^4 | 127 ms (124 ms–141 ms) | 124 ms (122 ms–131 ms) | 0.98, inside the spread |
+| Hull `sphere` D4 10^5 | 1.48 s (1.47 s–1.50 s) | 1.45 s (1.44 s–1.47 s) | 0.98, inside the spread |
+| Hull `sphere` D5 10^4 | 823 ms (808 ms–854 ms) | 815 ms (802 ms–844 ms) | 0.99, inside the spread |
+| Delaunay `cube` D2 10^4 | 7.32 ms (7.11 ms–11.4 ms) | 7.43 ms (7.12 ms–8.24 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^5 | 72.9 ms (71.3 ms–77.5 ms) | 74.0 ms (72.1 ms–80.7 ms) | 1.01, inside the spread |
+| Delaunay `cube` D3 10^4 | 42.0 ms (41.0 ms–45.0 ms) | 42.1 ms (40.7 ms–45.0 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^5 | 446 ms (439 ms–462 ms) | 447 ms (436 ms–466 ms) | 1.00, inside the spread |
+| Delaunay `cube` D4 10^4 | 659 ms (649 ms–675 ms) | 671 ms (658 ms–689 ms) | 1.02, inside the spread |
+| Delaunay `cube` D5 10^4 | 7.56 s (7.41 s–7.82 s) | 7.56 s (7.47 s–7.62 s) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^4 | 7.04 ms (6.71 ms–8.43 ms) | 7.07 ms (6.85 ms–7.98 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D2 10^5 | 58.4 ms (56.9 ms–66.7 ms) | 59.0 ms (57.4 ms–68.3 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D3 10^4 | 87.8 ms (86.2 ms–91.6 ms) | 88.4 ms (86.3 ms–91.5 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D3 10^5 | 832 ms (819 ms–846 ms) | 837 ms (826 ms–845 ms) | 1.01, inside the spread |
+
+### Where the change acts
+
+Counted on the head, one build each:
+
+| Set | Planes certified by cofactors | Exact, no filtered cofactors | Exact, loose filtered cofactors | Orientations (`main` with P7-26) |
+| --- | ---: | ---: | ---: | ---: |
+| Hull `grid` D6 10^4 | 68,165 | 9,139 | 0 | 569,680 (1,154,911) |
+| Hull `cluster` D5 10^4 | 49,083 | 4,039 | 22,258 | 271,748 (658,658) |
+| Hull `cubesurf` D3 10^5 | 633 | 0 | 0 | 106,010 (106,010) |
+
+The orientations of `main` are those of the spike P7-27 (#395) on the head of #389, which is `main`'s predicate path.
+
+### Reading
+
+- **The keep criterion is met.**
+  - Hull `grid` D6 10^4 reads 0.30 (1.95 s to 584 ms; Qhull 340 ms in #379) and `grid` D5 0.89.
+  - `lattice` D6 reads 0.42 and `lattice` D5 0.81.
+  - All four are faster beyond the spread, as in the prototype of P7-27 (0.30, 0.90, 0.41, 0.83).
+- **`cluster` D5 reads 0.58, against 0.85 in the prototype.** The prototype took the exact error only where no filtered cofactors existed. Here 22,258 of its planes had loose filtered cofactors, and the exact error bounds them more tightly. Its orientations fall from 658,658 to 271,748.
+- **Hull `cubesurf` D3 10^5 reads 0.79, faster beyond the spread, with the same orientations.**
+  - None of its planes takes the exact path.
+  - With one codegen unit on both sides, it reads 0.76 (81.8 ms to 62.5 ms, 10 × 3), so this is not the partition into codegen units.
+  - A phase timer (not committed) puts the difference in classification's `distance_zeros`: 40 ms on `main`, 24.5 ms on the head, three builds each.
+  - That walk calls the side test about half a million times. Each call now reads one plane from the store instead of a normal and a cull plane.
+- **Nothing is slower beyond the spread.** The other sets read 0.95 to 1.02.
