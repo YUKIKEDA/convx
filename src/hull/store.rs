@@ -17,13 +17,12 @@ use crate::arena::FacetId;
 use crate::cull::CullPlane;
 use crate::predicates::Sign;
 
-/// What a facet's plane row holds.
+/// What a facet's plane row holds. A certified working normal always
+/// certifies a cull threshold (design §1), so the two are stored together.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Plane {
     /// No working normal could be certified.
     None,
-    /// A certified working normal, but no certified cull threshold.
-    Normal,
     /// A certified working normal and its cull threshold.
     Cull,
 }
@@ -203,30 +202,21 @@ impl FacetStore {
         &mut self.rows[start..start + self.links]
     }
 
-    /// Stores the working plane of the facet in `slot`: `normal` when one
-    /// was certified, and the cull threshold when that was certified too.
-    pub(crate) fn set_plane(
-        &mut self,
-        slot: u32,
-        normal: Option<&[f64]>,
-        cull: Option<(f64, f64)>,
-    ) {
+    /// Stores the working plane of the facet in `slot`: its working normal
+    /// with the slope and the floor of its cull threshold, when they were
+    /// certified.
+    pub(crate) fn set_plane(&mut self, slot: u32, plane: Option<(&[f64], (f64, f64))>) {
         let d = self.dim;
         let s = slot as usize;
         let row = &mut self.planes[s * (d + 2)..(s + 1) * (d + 2)];
-        self.kinds[s] = match (normal, cull) {
-            (Some(normal), cull) => {
+        self.kinds[s] = match plane {
+            Some((normal, (slope, floor))) => {
                 row[..d].copy_from_slice(normal);
-                match cull {
-                    Some((slope, floor)) => {
-                        row[d] = slope;
-                        row[d + 1] = floor;
-                        Plane::Cull
-                    }
-                    None => Plane::Normal,
-                }
+                row[d] = slope;
+                row[d + 1] = floor;
+                Plane::Cull
             }
-            (None, _) => Plane::None,
+            None => Plane::None,
         };
     }
 
@@ -329,15 +319,8 @@ impl<'a> Facet<'a> {
         &self.store.planes[start..start + d + 2]
     }
 
-    /// The working unit normal, when one could be certified.
-    pub(crate) fn normal(self) -> Option<&'a [f64]> {
-        match self.store.kinds[self.slot as usize] {
-            Plane::None => None,
-            Plane::Normal | Plane::Cull => Some(&self.plane_row()[..self.store.dim]),
-        }
-    }
-
-    /// The cull plane, when one could be certified.
+    /// The cull plane, with the working unit normal, when they could be
+    /// certified.
     pub(crate) fn cull(self) -> Option<CullPlane<&'a [f64]>> {
         let d = self.store.dim;
         match self.store.kinds[self.slot as usize] {
@@ -345,7 +328,7 @@ impl<'a> Facet<'a> {
                 let row = self.plane_row();
                 Some(CullPlane::from_parts(&row[..d], row[d], row[d + 1]))
             }
-            Plane::None | Plane::Normal => None,
+            Plane::None => None,
         }
     }
 
@@ -392,13 +375,12 @@ mod tests {
     fn planes_and_outside_sets_read_back() {
         let mut store = FacetStore::new(2);
         let a = store.alloc(&[0, 1], Sign::Positive, store.fresh_number());
-        assert!(store.facet(a).normal().is_none() && store.facet(a).cull().is_none());
-        store.set_plane(a, Some(&[0.6, 0.8]), None);
-        assert_eq!(store.facet(a).normal(), Some(&[0.6, 0.8][..]));
         assert!(store.facet(a).cull().is_none());
-        store.set_plane(a, Some(&[0.0, 1.0]), Some((1e-15, 1e-300)));
+        store.set_plane(a, Some((&[0.0, 1.0], (1e-15, 1e-300))));
         let cull = store.facet(a).cull().expect("a cull plane");
         assert_eq!(cull.normal(), &[0.0, 1.0]);
+        store.set_plane(a, None);
+        assert!(store.facet(a).cull().is_none());
         store.set_outside(a, &[5, 7], Some((7, None)));
         assert_eq!(store.facet(a).outside(), &[5, 7]);
         assert_eq!(store.facet(a).farthest(), Some((7, None)));

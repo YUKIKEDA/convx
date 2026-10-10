@@ -30,7 +30,9 @@ use super::store::{Facet, FacetStore};
 use super::ConvexHullError;
 use crate::arena::FacetId;
 use crate::cull::CullPlane;
-use crate::normal::{facet_cofactors, facet_cofactors_in_lanes, working_normal};
+use crate::normal::{
+    certified_working_normal, facet_cofactors, facet_cofactors_in_lanes, working_normal,
+};
 use crate::predicates::{Sign, COFACTOR_LANES};
 use crate::small::Small;
 
@@ -63,14 +65,13 @@ const DISCARD_SAMPLE: usize = 1024;
 const DISCARD_ONE_IN: usize = 32;
 
 /// What decides the side of a point against a simplex: its vertices, its
-/// outward sign, and its certified cull plane, when it has one. A facet of
-/// the store and a simplex of a plan not yet applied are both read this
-/// way.
+/// outward sign, and its certified cull plane, when it has one, which holds
+/// its working normal. A facet of the store and a simplex of a plan not yet
+/// applied are both read this way.
 struct Geometry<'a> {
     vertices: &'a [u32],
     outward: Sign,
     cull: Option<CullPlane<&'a [f64]>>,
-    normal: Option<&'a [f64]>,
 }
 
 impl<'a> From<Facet<'a>> for Geometry<'a> {
@@ -79,18 +80,19 @@ impl<'a> From<Facet<'a>> for Geometry<'a> {
             vertices: facet.vertices(),
             outward: facet.outward(),
             cull: facet.cull(),
-            normal: facet.normal(),
         }
     }
 }
 
 /// The working planes of simplices, one entry per simplex: the working unit
-/// normal (D entries) and, when certified, the cull threshold.
+/// normal (D entries, zeros when none was certified) and its cull
+/// threshold, which every certified working normal has.
 #[derive(Default)]
 struct Planes {
     normals: Vec<f64>,
-    /// Whether the simplex has a working normal, and its cull threshold.
-    kinds: Vec<(bool, Option<(f64, f64)>)>,
+    /// The slope and the floor of the simplex's cull threshold, when its
+    /// working normal was certified.
+    kinds: Vec<Option<(f64, f64)>>,
 }
 
 impl Planes {
@@ -104,20 +106,17 @@ impl Planes {
     fn geometry<'a>(&'a self, k: usize, vertices: &'a [u32], outward: Sign) -> Geometry<'a> {
         let d = vertices.len();
         let normal = &self.normals[k * d..(k + 1) * d];
-        let (has_normal, cull) = self.kinds[k];
         Geometry {
             vertices,
             outward,
-            cull: cull.map(|(slope, floor)| CullPlane::from_parts(normal, slope, floor)),
-            normal: has_normal.then_some(normal),
+            cull: self.kinds[k].map(|(slope, floor)| CullPlane::from_parts(normal, slope, floor)),
         }
     }
 
     /// Writes simplex `k`'s plane into the store's facet `slot`.
     fn store(&self, k: usize, d: usize, facets: &mut FacetStore, slot: u32) {
-        let (has_normal, cull) = self.kinds[k];
-        let normal = has_normal.then(|| &self.normals[k * d..(k + 1) * d]);
-        facets.set_plane(slot, normal, cull);
+        let plane = self.kinds[k].map(|cull| (&self.normals[k * d..(k + 1) * d], cull));
+        facets.set_plane(slot, plane);
     }
 }
 
@@ -209,18 +208,26 @@ impl<'a> SimplicialHull<'a> {
         // The cofactors certify both the working normal and the cull plane;
         // they are evaluated once (#86). The working normal is the certified
         // cofactor direction, the same direction a published plane takes
-        // from its own basis (design §1).
-        let normal = working_normal(points, outward, cofactors)?;
-        match normal {
-            Some(normal) => {
-                let cull = CullPlane::with_cofactors(points, &normal, outward, cofactors)
-                    .map(|c| (c.slope(), c.floor()));
+        // from its own basis (design §1). An exact direction certifies the
+        // cull plane by its own error (#392).
+        let plane = certified_working_normal(points, outward, cofactors)?.and_then(
+            |(normal, certificate)| {
+                CullPlane::certified(points, &normal, outward, cofactors, certificate)
+                    .map(|c| (normal, (c.slope(), c.floor())))
+            },
+        );
+        debug_assert!(
+            plane.is_some() || working_normal(points, outward, cofactors)?.is_none(),
+            "a certified working normal certifies its cull plane"
+        );
+        match plane {
+            Some((normal, cull)) => {
                 planes.normals.extend_from_slice(&normal);
-                planes.kinds.push((true, cull));
+                planes.kinds.push(Some(cull));
             }
             None => {
                 planes.normals.extend(core::iter::repeat_n(0.0, d));
-                planes.kinds.push((false, None));
+                planes.kinds.push(None);
             }
         }
         Ok(())
@@ -978,7 +985,7 @@ fn oriented_side(
 /// The working distance of `point` from a simplex, or `None` without a
 /// certified working normal.
 fn working_distance(input: &Input<'_>, facet: &Geometry<'_>, point: u32) -> Option<f64> {
-    let normal = facet.normal?;
+    let normal = facet.cull.as_ref()?.normal();
     let origin = input.point(facet.vertices[0]);
     Some(
         input
