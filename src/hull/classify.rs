@@ -715,21 +715,19 @@ pub(crate) fn placing<'p>(
     // independent basis; their count is the current affine dimension.
     let mut axes: Vec<usize> = Vec::with_capacity(d);
     let mut basis: Vec<u32> = vec![first];
-    let project = |v: u32, axes: &[usize], extra: Option<usize>| -> Vec<f64> {
-        let x = point(v);
-        axes.iter()
-            .map(|&a| x[a])
-            .chain(extra.map(|j| x[j]))
-            .collect()
-    };
-    // The orientation of `ridge` followed by `v` within the current span.
-    let side_of = |ridge: &[u32], v: u32, axes: &[usize]| -> Result<Sign, ConvexHullError> {
-        let projected: Vec<Vec<f64>> = ridge
-            .iter()
-            .chain(core::iter::once(&v))
-            .map(|&u| project(u, axes, None))
-            .collect();
-        let refs: Vec<&[f64]> = projected.iter().map(Vec::as_slice).collect();
+    // The orientation of `vertices` projected onto `axes`. The projected
+    // rows go into one buffer reused across calls; a `Vec` per row was most
+    // of the time left after the boundary was kept (#393).
+    let mut rows: Vec<f64> = Vec::new();
+    let mut projected_sign = |vertices: &mut dyn Iterator<Item = u32>,
+                              axes: &[usize]|
+     -> Result<Sign, ConvexHullError> {
+        rows.clear();
+        for v in vertices {
+            let x = point(v);
+            rows.extend(axes.iter().map(|&a| x[a]));
+        }
+        let refs: Small<&[f64], 11> = rows.chunks_exact(axes.len()).collect();
         Ok(orient(&refs)?)
     };
     let mut boundary = Boundary::of(&simplices);
@@ -737,13 +735,9 @@ pub(crate) fn placing<'p>(
         // Does p raise the affine dimension?
         let mut raised = None;
         for j in (0..d).filter(|j| !axes.contains(j)) {
-            let projected: Vec<Vec<f64>> = basis
-                .iter()
-                .chain(core::iter::once(&p))
-                .map(|&v| project(v, &axes, Some(j)))
-                .collect();
-            let refs: Vec<&[f64]> = projected.iter().map(Vec::as_slice).collect();
-            if orient(&refs)? != Sign::Zero {
+            let with_j: Small<usize, 11> = axes.iter().copied().chain([j]).collect();
+            let mut vertices = basis.iter().copied().chain([p]);
+            if projected_sign(&mut vertices, &with_j)? != Sign::Zero {
                 raised = Some(j);
                 break;
             }
@@ -760,14 +754,15 @@ pub(crate) fn placing<'p>(
         // Beyond which boundary ridges of the current complex is p?
         let mut added = Vec::new();
         for (ridge, (opposite, known)) in &mut boundary.ridges {
-            let sp = side_of(ridge, p, &axes)?;
+            let sp = projected_sign(&mut ridge.iter().copied().chain([p]), &axes)?;
             if sp == Sign::Zero {
                 continue;
             }
             let sa = match *known {
                 Some(sign) => sign,
                 None => {
-                    let sign = side_of(ridge, *opposite, &axes)?;
+                    let sign =
+                        projected_sign(&mut ridge.iter().copied().chain([*opposite]), &axes)?;
                     *known = Some(sign);
                     sign
                 }
