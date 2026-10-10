@@ -21,8 +21,8 @@
 
 use crate::predicates::{
     certified_cofactor_direction, cofactor_direction_from, direction_cofactors, orient_direction,
-    scaled_direction_cofactors_in_lanes, Cofactors, Direction, ExactEvaluationExhausted, Sign,
-    COFACTOR_LANES,
+    scaled_direction_cofactors_in_lanes, small_direction_cofactors, Cofactors, Direction,
+    ExactEvaluationExhausted, Sign, COFACTOR_LANES,
 };
 
 const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
@@ -154,6 +154,61 @@ pub(crate) enum NormalCertificate {
         /// The Euclidean distance bound to the exact unit direction.
         error: f64,
     },
+}
+
+/// The working plane of a facet of `K` = 3 or 4 points of dimension `K`, made
+/// with fixed-size arithmetic (#409): the working normal oriented to
+/// `outward`, and the slope and the floor of its cull threshold. They are bit
+/// for bit those of the general path, [`certified_working_normal`] and
+/// [`crate::cull::CullPlane::certified`]; debug builds check it at the
+/// caller.
+///
+/// The general path evaluates the cofactors of the facet scaled by one power
+/// of two. Within the range taken here, every coordinate at most `2^100` and
+/// every edge entry zero or in `[2^-100, 2^100]`, that scaling is exact, the
+/// small cofactors take both the scaled and the unscaled edges, and every
+/// value of the certification scales by a power of two without leaving the
+/// normal range, so the direction and its error are the same bits. When the
+/// cofactors certify the direction, the cull plane's `tau` from them
+/// ([`crate::cull::CullPlane::with_cofactors`]) is that same error: it
+/// recomputes the same length and the same quotients, so its deviation term
+/// is exactly zero. `None` sends the facet to the general path: outside the
+/// range, or a direction the filter does not certify.
+pub(crate) fn fixed_plane<const K: usize>(
+    facet: &[&[f64]],
+    outward: Sign,
+) -> Option<([f64; K], (f64, f64))> {
+    const HIGH: f64 = f64::from_bits((1023 + 100) << 52);
+    const LOW: f64 = f64::from_bits((1023 - 100) << 52);
+    debug_assert!(
+        (3..=4).contains(&K) && facet.len() == K && facet.iter().all(|p| p.len() == K),
+        "a facet of K points of dimension K, K = 3 or 4"
+    );
+    let origin = facet[0];
+    let inside = facet.iter().all(|p| {
+        p.iter().zip(origin).all(|(&x, &o)| {
+            let d = (x - o).abs();
+            x.abs() <= HIGH && (d == 0.0 || (LOW..=HIGH).contains(&d))
+        })
+    });
+    if !inside {
+        return None;
+    }
+    let cofactors = small_direction_cofactors(facet)?;
+    let (direction, error) = certified_cofactor_direction(K, Some(&cofactors[..K]))?;
+    let side = match outward {
+        Sign::Positive => 1.0,
+        Sign::Negative => -1.0,
+        Sign::Zero => return None,
+    };
+    let normal: [f64; K] = core::array::from_fn(|j| {
+        if side > 0.0 {
+            direction[j]
+        } else {
+            -direction[j]
+        }
+    });
+    Some((normal, crate::cull::threshold_of(K, error)?))
 }
 
 /// [`working_normal`] with what certifies it.
@@ -347,6 +402,131 @@ pub(crate) fn with_unit_scaling<R>(facet: &[&[f64]], f: impl FnOnce(&[&[f64]]) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The general path's plane of `facet`: the working normal, and the slope
+    /// and the floor of its cull threshold, as bits.
+    fn general_plane(facet: &[&[f64]], outward: Sign) -> Option<(Vec<u64>, (u64, u64))> {
+        let cofactors = facet_cofactors(facet);
+        let (normal, certificate) =
+            certified_working_normal(facet, outward, cofactors.as_deref()).unwrap()?;
+        let plane = crate::cull::CullPlane::certified(
+            facet,
+            &normal,
+            outward,
+            cofactors.as_deref(),
+            certificate,
+        )?;
+        Some((
+            normal.iter().map(|x| x.to_bits()).collect(),
+            (plane.slope().to_bits(), plane.floor().to_bits()),
+        ))
+    }
+
+    fn fixed_bits<const K: usize>(
+        facet: &[&[f64]],
+        outward: Sign,
+    ) -> Option<(Vec<u64>, (u64, u64))> {
+        fixed_plane::<K>(facet, outward).map(|(normal, (slope, floor))| {
+            (
+                normal.iter().map(|x| x.to_bits()).collect(),
+                (slope.to_bits(), floor.to_bits()),
+            )
+        })
+    }
+
+    #[test]
+    fn fixed_planes_are_the_general_paths() {
+        // Facets of K = 3 and 4 points with a coordinate scale and an edge
+        // scale per column (the edges at most 2^40 below the coordinates, so
+        // they survive the rounding of the sums). Inside the range: every
+        // coordinate at most 2^100, every edge entry in [2^-100, 2^100].
+        // Outside it, two kinds where the general path differs and the
+        // range must send the facet there: a column of huge coordinates next
+        // to a column of tiny edges (the general path's power-of-two scaling
+        // pushes the tiny edges out of the small cofactors' range), and tiny
+        // edges in D = 4 (the squares of the unscaled cofactors underflow).
+        // Wherever the fixed-size plane is made, it is the general path's,
+        // bit for bit; it is made for every facet inside the range and for
+        // none outside it (#409).
+        let mut state = 0x4090_0001_u64;
+        let mut unit = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 11) as f64 / (1_u64 << 53) as f64 * 2.0 - 1.0
+        };
+        let pow = |e: i32| crate::normal::scale_by_power_of_two(1.0, e);
+        // (coordinate exponent, edge exponent) per column; the last column's
+        // pair repeats for K = 4. An edge exponent of `ZERO` is a column whose
+        // edges are zero: a facet on a plane `x_j = c`.
+        const ZERO: i32 = i32::MIN;
+        type Columns = [(i32, i32); 3];
+        let cases: [(Columns, bool); 9] = [
+            ([(0, -10), (0, -20), (0, -30)], true),
+            ([(90, 60), (90, 70), (90, 80)], true),
+            ([(-90, -97), (-60, -90), (-80, -95)], true),
+            ([(60, 40), (-60, -80), (0, -20)], true),
+            ([(240, 200), (-200, -200), (0, -10)], false),
+            ([(150, 120), (0, -10), (0, -20)], false),
+            ([(-200, -220), (-200, -230), (-200, -225)], false),
+            ([(0, -10), (-150, -160), (0, -20)], false),
+            // Huge coordinates on a plane `x_0 = c`: the general path scales
+            // by 2^-300, which takes the other columns' edges below the small
+            // cofactors' range, while their own edges are inside it.
+            ([(300, ZERO), (-90, -90), (0, -10)], false),
+        ];
+        let (mut made, mut sent) = (0, 0);
+        for k in [3, 4] {
+            for (case, (columns, inside)) in cases.iter().enumerate() {
+                let scale = |j: usize| columns[j.min(2)];
+                for trial in 0..20 {
+                    let base: Vec<f64> = (0..k)
+                        .map(|j| (1.5 + unit() * 0.25) * pow(scale(j).0))
+                        .collect();
+                    let facet: Vec<Vec<f64>> = (0..k)
+                        .map(|i| {
+                            base.iter()
+                                .enumerate()
+                                .map(|(j, &b)| {
+                                    if i == 0 || scale(j).1 == ZERO {
+                                        b
+                                    } else {
+                                        b + (0.5 + unit() * 0.25)
+                                            * pow(scale(j).1)
+                                            * if (i + j) % 2 == 0 { 1.0 } else { -1.0 }
+                                    }
+                                })
+                                .collect()
+                        })
+                        .collect();
+                    let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
+                    let outward = if trial % 2 == 0 {
+                        Sign::Positive
+                    } else {
+                        Sign::Negative
+                    };
+                    let fixed = if k == 3 {
+                        fixed_bits::<3>(&refs, outward)
+                    } else {
+                        fixed_bits::<4>(&refs, outward)
+                    };
+                    let tag = format!("K = {k}, case {case}, trial {trial}");
+                    match fixed {
+                        Some(plane) => {
+                            assert!(*inside, "{tag}: made outside the range");
+                            assert_eq!(Some(plane), general_plane(&refs, outward), "{tag}");
+                            made += 1;
+                        }
+                        None => {
+                            assert!(!*inside, "{tag}: not made inside the range");
+                            sent += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!((made, sent), (160, 200));
+    }
 
     /// `|a - sign * b|^2`.
     fn squared_distance(a: &[f64], b: &[f64], sign: f64) -> f64 {
