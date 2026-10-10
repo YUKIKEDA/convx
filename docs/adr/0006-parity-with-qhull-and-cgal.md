@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Amended on 2026-10-10: a set is met within 5% of each judged reference (Amendment below).
+Accepted. Amended on 2026-10-10: a set is met within 5% of each judged reference. Amended on 2026-10-11: CGAL's Delaunay reference gives the same output as convx (Amendments below).
 
 ## Date
 
@@ -91,3 +91,28 @@ Issue: #382. Decided by the owner on 2026-10-10.
 
 **What it changes.** A row runs the parity run on a set when its ratio to `main` could move that set across 1.05. Everything else above stands: the sets, the method, the references, and the order of the work.
 
+## Amendment of 2026-10-11: CGAL's Delaunay reference gives the same output
+
+Issue: #455, from the spike P7-49 (#454). Decided by the owner on 2026-10-11, in the Grill on #454.
+
+**What changes.** CGAL's Delaunay reference is timed producing what convx's `build()` publishes:
+
+- the triangulation is built from (point, input index) pairs, with a vertex base and a cell base that carry an index;
+- each finite cell's vertices, as input indices, and its neighbors, as cell numbers, are written into flat arrays;
+- both are inside the timed section.
+
+For D = 2 and 3 these are `Delaunay_triangulation_2` and `_3` with their `with_info` bases, built from the range of pairs. For D >= 4, `CGAL::Delaunay_triangulation` takes no pairs: the points are spatially sorted by index, as its range `insert` does, and inserted in that order with the last vertex as the hint, each vertex given its index. The arrays are written by the same loop. What convx publishes beyond these arrays is left out of the reference: each simplex's sites in ascending order, and the cospherical groups.
+
+**Why.** The decision above judges each set against "each reference whose output is the same". CGAL's Delaunay reference timed the construction from the points and wrote nothing, while convx's `build()` publishes each simplex's vertices and neighbors. The spike P7-49 measured CGAL with the same output (`docs/bench.md`):
+
+| Set | Construction from the points | Same output |
+| --- | ---: | ---: |
+| `cube` D2 10^5 | 41.6 ms | 53.8 ms |
+| `sphere` D2 10^5 | 32.3 ms | 41.6 ms |
+| `cube` D2 10^6 | 481 ms | 696 ms |
+| `cube` D3 10^5 | 319 ms | 349 ms |
+| `cube` D3 10^6 | 3.21 s | 3.69 s |
+
+**What is reported.** Each parity section judges against the reference with the same output. It also reports, beside it, the ratio to CGAL's construction from the points: the change moves the judgement in convx's favour, and both numbers stay visible.
+
+**What it does not change.** The hull's references, Qhull, the sets, and the method. Whether the hull's references give the same output is the spike P7-51 (#456).
