@@ -2865,3 +2865,67 @@ Every set published the same counts on both sides.
   - D4 10^4: 1.28 to about 0.95;
   - D4 10^5: 1.24 to about 0.94.
 - **Nothing is slower beyond the spread.** The other sets read 0.94 to 1.04. `cube` D4 reads 0.85 and 0.94; its hulls make fewer planes.
+
+## Hull D2: the boundary complex in flat lists, PR #417 (#411)
+
+P7-35. The spike P7-32 (#413) put `classify_chain` at 32% of hull `sphere` D2 10^5, where every point is extreme, and `publish` at 16%. A first change took the sort of the cycle's vertices out (one pass over the ascending representatives) and sized the published vertex coordinates up front (a `flat_map` gave no size hint, and the list grew by reallocation). It read 0.94, inside the spread. A line-level profile of `classify_chain` then put 81% of its own time on one line: building a record per simplex, two inline lists of 40 bytes each, about 90 bytes per simplex. `publish` spent most of its own time on those records, and on dropping them.
+
+The boundary complex is now `Complex`, flat lists of vertices, faces, and neighbors, as the faces already were, read through a borrowed view per simplex. The published hull is the same.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | The base is P7-33, the head of #416 (`57775e7`), against the head `66774a0`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md`, with hull `cube` and `sphere` D2 10^6, `grid` and `lattice` D5 and D6 |
+| Rounds | The base and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about a tenth of a second |
+| Output | The published hull of the base and of the head, hashed in release (its `Debug` form and its volume's bits), the same on 42 inputs: `cube`, `sphere`, `grid`, `lattice`, `cubesurf`, `onsphere`, and `cluster`, in D2 to D6 |
+
+Every set published the same counts on both sides.
+
+### Against the base
+
+| Set | Base | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.62 ms (0.54 ms–0.73 ms) | 0.62 ms (0.53 ms–0.82 ms) | 1.00, inside the spread |
+| Hull `cube` D2 10^5 | 5.37 ms (4.85 ms–8.20 ms) | 5.71 ms (4.96 ms–8.27 ms) | 1.06, inside the spread |
+| Hull `cube` D2 10^6 | 58.7 ms (56.9 ms–63.6 ms) | 60.7 ms (56.8 ms–62.6 ms) | 1.04, inside the spread |
+| Hull `cube` D3 10^4 | 1.43 ms (1.23 ms–4.31 ms) | 1.49 ms (1.26 ms–2.58 ms) | 1.04, inside the spread |
+| Hull `cube` D3 10^5 | 12.4 ms (11.2 ms–14.4 ms) | 12.6 ms (11.1 ms–14.2 ms) | 1.02, inside the spread |
+| Hull `cube` D4 10^4 | 5.59 ms (5.27 ms–6.69 ms) | 5.63 ms (5.30 ms–7.91 ms) | 1.01, inside the spread |
+| Hull `cube` D4 10^5 | 34.5 ms (32.5 ms–43.7 ms) | 34.1 ms (32.6 ms–45.8 ms) | 0.99, inside the spread |
+| Hull `cube` D5 10^4 | 57.0 ms (54.0 ms–62.8 ms) | 57.4 ms (54.7 ms–66.4 ms) | 1.01, inside the spread |
+| Hull `cube` D6 10^4 | 594 ms (565 ms–630 ms) | 592 ms (569 ms–671 ms) | 1.00, inside the spread |
+| Hull `cubesurf` D3 10^5 | 60.7 ms (58.0 ms–66.5 ms) | 60.4 ms (57.2 ms–66.4 ms) | 1.00, inside the spread |
+| Hull `grid` D5 10^4 | 14.6 ms (14.2 ms–16.2 ms) | 14.7 ms (14.3 ms–16.7 ms) | 1.01, inside the spread |
+| Hull `grid` D6 10^4 | 259 ms (255 ms–271 ms) | 261 ms (258 ms–271 ms) | 1.01, inside the spread |
+| Hull `lattice` D5 10^4 | 25.7 ms (24.5 ms–29.6 ms) | 25.5 ms (24.8 ms–29.1 ms) | 0.99, inside the spread |
+| Hull `lattice` D6 10^4 | 501 ms (493 ms–513 ms) | 502 ms (489 ms–516 ms) | 1.00, inside the spread |
+| Hull `sphere` D2 10^4 | 1.60 ms (1.52 ms–1.94 ms) | 1.27 ms (1.14 ms–2.23 ms) | 0.79, inside the spread |
+| Hull `sphere` D2 10^5 | 16.9 ms (15.2 ms–20.5 ms) | 12.9 ms (11.4 ms–19.4 ms) | 0.76, inside the spread |
+| Hull `sphere` D2 10^6 | 174 ms (173 ms–178 ms) | 134 ms (126 ms–137 ms) | 0.77, faster beyond the spread |
+| Hull `sphere` D3 10^4 | 23.0 ms (21.8 ms–41.0 ms) | 23.3 ms (21.2 ms–25.0 ms) | 1.01, inside the spread |
+| Hull `sphere` D3 10^5 | 270 ms (255 ms–301 ms) | 263 ms (248 ms–344 ms) | 0.98, inside the spread |
+| Hull `sphere` D4 10^4 | 96.4 ms (91.9 ms–106 ms) | 94.2 ms (89.8 ms–99.5 ms) | 0.98, inside the spread |
+| Hull `sphere` D4 10^5 | 1.17 s (1.14 s–1.19 s) | 1.19 s (1.17 s–1.20 s) | 1.02, inside the spread |
+| Hull `sphere` D5 10^4 | 849 ms (805 ms–900 ms) | 845 ms (808 ms–880 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^4 | 7.55 ms (7.21 ms–21.1 ms) | 7.62 ms (7.13 ms–10.9 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^5 | 75.9 ms (73.6 ms–81.4 ms) | 76.8 ms (72.7 ms–91.9 ms) | 1.01, inside the spread |
+| Delaunay `cube` D3 10^4 | 43.4 ms (41.3 ms–67.1 ms) | 43.5 ms (40.8 ms–58.6 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^5 | 470 ms (442 ms–505 ms) | 454 ms (442 ms–484 ms) | 0.96, inside the spread |
+| Delaunay `cube` D4 10^4 | 684 ms (644 ms–793 ms) | 688 ms (649 ms–740 ms) | 1.01, inside the spread |
+| Delaunay `cube` D5 10^4 | 7.76 s (7.66 s–7.84 s) | 7.75 s (7.62 s–7.81 s) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^4 | 7.12 ms (6.78 ms–9.27 ms) | 7.19 ms (6.91 ms–8.71 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D2 10^5 | 59.9 ms (57.0 ms–64.5 ms) | 60.2 ms (58.5 ms–65.3 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D3 10^4 | 91.4 ms (86.9 ms–96.0 ms) | 92.4 ms (87.0 ms–103 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D3 10^5 | 848 ms (822 ms–866 ms) | 854 ms (835 ms–877 ms) | 1.01, inside the spread |
+
+### Reading
+
+- **The keep criterion is met.**
+  - Hull `sphere` D2 10^5 reads 0.76 (16.9 ms to 12.9 ms). Its ranges overlap only through one slow build of the head (19.4 ms; the next is 15.4 ms against the base's fastest 15.2 ms), and a first run of 8 × 3 read 0.75, faster beyond the spread. So the difference is reported (`bench.mdc`).
+  - `sphere` D2 10^6 reads 0.77 (175 ms to 134 ms), faster beyond the spread, and D2 10^4 0.79.
+- **Against CGAL in #404**, `sphere` D2 read 1.80 to 1.87; times these speedups, about 1.4, indicatively.
+- **Nothing is slower beyond the spread.** The other sets read 0.96 to 1.06, including `grid` and `lattice` D5 and D6, whose faces are triangulated by placing into the same complex.
