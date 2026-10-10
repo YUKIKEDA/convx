@@ -152,7 +152,7 @@ fn polygon_edge(
 /// Builds and classifies the hull of an accepted input.
 pub(crate) fn classify(input: Input<'_>) -> Result<Classified<'_>, ConvexHullError> {
     let built = SimplicialHull::build(input)?;
-    classify_built(built, &mut FoundFaces::default(), None)
+    classify_built(built, &mut FoundFaces::default())
 }
 
 /// The extreme points of the faces found so far in one build, each keyed by
@@ -166,7 +166,7 @@ struct FoundFaces {
 }
 
 /// The vertices of the hull of an accepted input, for a face one level
-/// down. `global` maps its
+/// down: nothing else of its classification is read. `global` maps its
 /// indices to the input's.
 fn sub_vertices(
     input: Input<'_>,
@@ -176,7 +176,13 @@ fn sub_vertices(
     #[cfg(test)]
     tests::SUB_HULLS.with(|c| c.set(c.get() + 1));
     let hull = SimplicialHull::build(input)?;
-    Ok(classify_built(hull, faces, Some(global))?.vertices)
+    if hull.strict_edges {
+        // The cycle vertices of a strict polygon are its extreme points.
+        let mut vertices = hull.polygon.clone();
+        vertices.sort_unstable();
+        return Ok(vertices);
+    }
+    Ok(found_vertices(&hull, faces, Some(global))?.vertices)
 }
 
 /// Classifies a strict polygon from its extreme cycle.
@@ -388,7 +394,6 @@ fn found_vertices(
 fn classify_built<'a>(
     hull: SimplicialHull<'a>,
     faces: &mut FoundFaces,
-    global: Option<&[u32]>,
 ) -> Result<Classified<'a>, ConvexHullError> {
     if hull.strict_edges {
         return classify_chain(hull);
@@ -401,7 +406,7 @@ fn classify_built<'a>(
         extremes,
         is_vertex,
         vertices,
-    } = found_vertices(&hull, faces, global)?;
+    } = found_vertices(&hull, faces, None)?;
     let d = hull.input.dim();
     // Every representative is a vertex, on the complex, on the boundary
     // by the scan, or interior: either proved during construction or
@@ -1596,7 +1601,7 @@ pub(crate) mod tests {
             let mut proved = hull.proved_interior.clone();
             proved.sort_unstable();
             assert_eq!(proved, interior, "the points off the edges are discarded");
-            let c = classify_built(hull, &mut FoundFaces::default(), None).unwrap();
+            let c = classify_built(hull, &mut FoundFaces::default()).unwrap();
             check(&c);
             assert_eq!(c.vertices, vertices);
             assert_eq!(c.coplanar_points, coplanar);
@@ -1614,7 +1619,7 @@ pub(crate) mod tests {
             let hull = SimplicialHull::build(accept(2, &points).unwrap()).unwrap();
             assert!(hull.strict_edges);
             assert!(hull.proved_interior.is_empty(), "no polygon, no discard");
-            let c = classify_built(hull, &mut FoundFaces::default(), None).unwrap();
+            let c = classify_built(hull, &mut FoundFaces::default()).unwrap();
             check(&c);
             assert_eq!(c.vertices, vec![0, 2, 3]);
             assert_eq!(c.coplanar_points, vec![1]);
@@ -1661,7 +1666,7 @@ pub(crate) mod tests {
                 } else {
                     assert!(proved.is_empty(), "{inside} inside: none is discarded");
                 }
-                let c = classify_built(hull, &mut FoundFaces::default(), None).unwrap();
+                let c = classify_built(hull, &mut FoundFaces::default()).unwrap();
                 // check is quadratic in the facets; the lists below are
                 // what the cutoff could change.
                 assert_eq!(c.vertices.len(), on_circle);
@@ -1688,7 +1693,7 @@ pub(crate) mod tests {
             let hull = SimplicialHull::build(accept(2, &points).unwrap()).unwrap();
             assert!(hull.strict_edges, "every D = 2 hull is the chain");
             assert!(hull.proved_interior.is_empty(), "no site is inside");
-            let c = classify_built(hull, &mut FoundFaces::default(), None).unwrap();
+            let c = classify_built(hull, &mut FoundFaces::default()).unwrap();
             check(&c);
             assert_eq!(c.vertices, vertices);
             assert!(c.coplanar_points.is_empty());
@@ -1705,10 +1710,10 @@ pub(crate) mod tests {
         let mut proved = sequential.proved_interior.clone();
         proved.sort_unstable();
 
-        let reused = classify_built(sequential, &mut FoundFaces::default(), None).unwrap();
+        let reused = classify_built(sequential, &mut FoundFaces::default()).unwrap();
         let mut reference = built();
         reference.proved_interior.clear();
-        let reference = classify_built(reference, &mut FoundFaces::default(), None).unwrap();
+        let reference = classify_built(reference, &mut FoundFaces::default()).unwrap();
         check(&reused);
         assert_eq!(reused.vertices, reference.vertices);
         assert_eq!(reused.coplanar_points, reference.coplanar_points);
@@ -1758,7 +1763,7 @@ pub(crate) mod tests {
                 "{name}: insertion took no sign from a record"
             );
             let groups = merge(&recorded).unwrap();
-            let others: Vec<u32> = classify_built(built(), &mut FoundFaces::default(), None)
+            let others: Vec<u32> = classify_built(built(), &mut FoundFaces::default())
                 .unwrap()
                 .coplanar_points;
             let starts = recorded_groups(&recorded, &groups, &others);
@@ -1777,10 +1782,10 @@ pub(crate) mod tests {
                 sorted(distance_zeros(&cleared, &groups, &others).unwrap()),
                 "{name}"
             );
-            let with = classify_built(recorded, &mut FoundFaces::default(), None).unwrap();
+            let with = classify_built(recorded, &mut FoundFaces::default()).unwrap();
             let mut reference = built();
             reference.records = Records::new(reference.input.representative.len());
-            let reference = classify_built(reference, &mut FoundFaces::default(), None).unwrap();
+            let reference = classify_built(reference, &mut FoundFaces::default()).unwrap();
             check(&with);
             assert_eq!(with.vertices, reference.vertices, "{name}");
             assert_eq!(with.coplanar_points, reference.coplanar_points, "{name}");
