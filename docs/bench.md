@@ -2746,3 +2746,50 @@ Every set published the same counts in all three.
 - **Most of it is A.** The memo alone reads 0.67 to 0.77 on those sets. B adds 0.89 on `lattice` D6, faster beyond the spread, and 0.91 to 0.94 inside the spread on the others.
 - **`cubesurf` D5 does not move (1.00).** Its ten facet hulls in D4 need no level below them (the profile on #394), so there is no lower face to share.
 - **Nothing is slower beyond the spread.** The other sets read 0.96 to 1.07 against the base in either commit.
+
+## Where the time goes on the general sets left, PR #413 (#408)
+
+The spike P7-32 profiles the sets in general position that the parity run of #404 left unmet: Delaunay D2 and D3, and hull `sphere` D2 to D4. It names the rows that follow.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | P7-29 (#405) and P7-30 (#406): the code of `7d694c3`, profiled as the same changes before #406 moved onto `b8a9bcd`. rustc 1.97.1, `--release` with debug info |
+| Profile | VTune hotspots, software sampling, the process pinned (logical processor 2): Delaunay `cube` and `sphere` D2 10^5 (50 builds each), `cube` D3 10^5 (8), hull `sphere` D2 10^5 (200), `sphere` D3 10^5 (10), `sphere` D4 10^4 (30). Inclusive shares of the process, from the top-down tree |
+| Counts | A copy with counters (not committed): Delaunay's orientations and in-sphere tests, the hull's planes made and side tests, one build each |
+| References | The parity run of #404: `build()` phases, CGAL and Qhull times, and Qhull's counters |
+
+The profiles include the generation of the points once per process, a few percent.
+
+### Where the time goes
+
+| Set (#404 ratio) | Shares of the process |
+| --- | --- |
+| Delaunay `cube` D2 10^5 (1.75 vs CGAL) | insertion by flips 62%: in-circle tests 21%, locating 19% (orientations), its own lines 14%; BRIO order 10%; `ascending` 6%; publication 4% |
+| Delaunay `sphere` D2 10^5 (1.79) | the same shape; cell allocation and its copies 5% |
+| Delaunay `cube` D3 10^5 (1.61) | insertion 78%: its own lines (the cavity) 35%, in-sphere tests 27%, locating 9%, cell allocation 7%; `ascending` 5% |
+| Hull `sphere` D2 10^5 (1.80 vs CGAL) | the chain 41% (sort 15%, left turns 12%, discard 7%); `classify_chain` 32% (its own loop 19%, a sort of the cycle's vertices 10%); `publish` 16% (reallocation 4%); acceptance 8% |
+| Hull `sphere` D3 10^5 (1.30 vs Qhull) | planes of new simplices 29% (cofactors in lanes, certification, cull plane, copies); side tests 13% (5% reading the cull plane from the store); coplanar merge 8%; outside sets 13%; facet numbering 4% |
+| Hull `sphere` D4 10^4 (1.28) | planes 31%; side tests 12%; coplanar merge 10%; facet numbering 5%; store allocation 7% |
+
+### Work against cost per operation
+
+| Set | Work | Cost per operation |
+| --- | --- | --- |
+| Delaunay `cube` D2 10^5 | 1,444,781 orientations (14 per point), 903,364 in-circle tests (9 per point) | about 8 ns per orientation, 16 ns per in-circle test |
+| Delaunay `sphere` D2 10^5 | 1,347,345 orientations, 396,345 in-circle tests | |
+| Delaunay `cube` D3 10^5 | 2,020,271 orientations, 4,590,425 in-sphere tests (46 per point) | about 27 ns per in-sphere test; the cavity's own lines about 1.8 µs per point |
+| Hull `sphere` D3 10^5 | 517,421 planes, 1,034,242 side tests; Qhull 565,222 hyperplanes, 4,349,516 distance tests | about 180 ns per plane |
+| Hull `sphere` D4 10^4 | 225,621 planes, 485,984 side tests; Qhull 258,048 hyperplanes, 889,697 distance tests | |
+
+### Reading
+
+- **The hull D3 and D4 gaps are the cost per facet, not the work.**
+  - convx makes about as many planes as Qhull makes hyperplanes, and runs fewer side tests than Qhull's distance tests.
+  - Each plane costs about 180 ns in D3, through the general cofactor path; that is P7-33 (#409), a fixed-size path for D = 3 and 4.
+  - The coplanar merge finds nothing on these inputs and costs 8 to 10%. Whether it can be skipped when construction recorded no zero sign needs a proof, so P7-34 (#410) is set after its Grill.
+  - Facet numbering (4 to 5%) and reading the cull plane from the store (4 to 5%) are smaller. They are read again in the profile after P7-33 and P7-34.
+- **Hull `sphere` D2 is classification and publication,** 48% together, around a chain that is 41%: P7-35 (#411).
+- **Delaunay's predicates are cheap per call.** What is left is the insertion's own lines: 35% of `cube` D3 (about 1.8 µs per point), and in D2 a spread of the insertion's lines (14%), the BRIO order (10%), and `ascending` (6%). Which lines own it needs line-level counts: the spike P7-36 (#412).
+- **Allocation and copies** (`memcpy`, `RtlReAllocateHeap`) are 4 to 10% of each set, spread over the callers above: cell allocation in Delaunay, the planes and the store in the hull, and `publish`. Each row above takes the part in its own path.
