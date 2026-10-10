@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-43 (#440): hull D2's points off the polygon, from the parity run of #438. P7-8 (#323): acceptance. P7-34 (#410) after its Grill. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+P7-8 (#323): acceptance. P7-34 (#410) after its Grill. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -217,7 +217,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-40 | Spike | Delaunay: where the predicates' call paths spend their time, line by line               | #427  | Done        |
 | P7-41 | Feat  | Delaunay: the passes after insertion at less cost                                       | #429  | Done        |
 | P7-42 | Feat  | Delaunay: the predicates' wrappers gather only what the first stage reads               | #430  | Withdrawn after review (#431) |
-| P7-43 | Feat  | Hull D2: the points off the polygon in one pass, without regrowth                       | #440  | In progress |
+| P7-43 | Feat  | Hull D2: the points off the polygon in one pass, without regrowth                       | #440  | Done        |
 
 ## Intentionally out of scope
 
