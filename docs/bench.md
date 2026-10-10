@@ -3039,7 +3039,7 @@ The spike P7-40 follows the prototype of P7-38 (#428), which left D2 unchanged w
 ### Reading
 
 - **D2's gap is spread, not in one place.** The predicates' arithmetic is about a fifth of the build. The rest is spread over the insertion's own lines, the wrappers, BRIO, and the passes after insertion, each a few percent.
-- **The wrappers gather more than the first stage reads.** `Shape::lifted` gathers each site's stored lifted height for every call, and the first stage recomputes the lift from the differences; only the later stages read the heights. `conflict` searches the cell for the infinite vertex on every call. That is P7-42 (#430), about 5 to 9%.
+- **The wrappers are glue, a few percent each.** For D2 and D3, `Plane` and `Space` already call the first stage on the points alone and gather the stored lifted heights only when a later stage runs; the generic `Sites::lifted`, which gathers them for every call, serves the other dimensions. What the wrappers do here is copy a cell's vertex ids and `q`, look up each site's row, and search the cell for the infinite vertex (three or four ids). Half of their 5 to 9% would be inside the spread of D2, so no row is proposed for them; P7-42 (#430) was opened on a reading of `Sites::lifted` and is withdrawn (owner, 2026-10-10).
 - **The passes after insertion** are about 15% of `cube` D2 (`ascending`, the orientation pass, `complex`'s own lines, `publish`, with their copies): P7-41 (#429).
 - **The BRIO order** is P7-39 (#423), about 10% of D2.
 - D3's insertion's own lines remain the largest share (34%). #425 put `link_by_keys` at about 9% of them; the rest is the cavity walk.
