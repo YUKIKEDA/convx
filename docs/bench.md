@@ -2755,7 +2755,7 @@ The spike P7-32 profiles the sets in general position that the parity run of #40
 
 | Item | Value |
 | --- | --- |
-| convx | The head of #406 (`8bc3b45`: `main` at `e94f5f6` with P7-29 and P7-30). rustc 1.97.1, `--release` with debug info |
+| convx | P7-29 (#405) and P7-30 (#406): the code of `7d694c3`, profiled as the same changes before #406 moved onto `b8a9bcd`. rustc 1.97.1, `--release` with debug info |
 | Profile | VTune hotspots, software sampling, the process pinned (logical processor 2): Delaunay `cube` and `sphere` D2 10^5 (50 builds each), `cube` D3 10^5 (8), hull `sphere` D2 10^5 (200), `sphere` D3 10^5 (10), `sphere` D4 10^4 (30). Inclusive shares of the process, from the top-down tree |
 | Counts | A copy with counters (not committed): Delaunay's orientations and in-sphere tests, the hull's planes made and side tests, one build each |
 | References | The parity run of #404: `build()` phases, CGAL and Qhull times, and Qhull's counters |
