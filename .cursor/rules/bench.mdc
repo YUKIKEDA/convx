@@ -47,6 +47,8 @@ Time the sets the Issue names. Before adding a larger set, estimate its time fro
 
 A section of `docs/bench.md` measured on an open pull request names that pull request, not only its head: a squash merge removes the head's hash from `main`. Put the merge commit in the heading once it is known, keep the measured head in the method table, and say what changed in that pull request after the measurement. #260 keyed a section by `029eb3f`, the head of #259, which then gained a commit and merged as `430af36`. A merge of `main` into the timed branch is such a change: the section names what the merge brought and whether it was timed again. #389 merged #380, #381, and #388 after its timing, and its section said so only after review.
 
+A section measured on a stacked branch gives its commit hashes again after GitHub rebases that branch onto the squash of the one below: the old hashes stop resolving. In #406 the section named `685f1b2` and `318a67a`, which became `3965c5a` and `245927b` when #405 merged.
+
 A pull request number written into a heading before the pull request exists is checked against the number it gets when it opens. In #356 the heading named #355, and an Issue took that number in between.
 
 A speed PR also times an input that takes the path it does not change, and reports it. In #265 the `cube` and `sphere` sets were 0.60 to 0.84 of the base, and two full grids, where every simplex is in a merged cospherical group, were inside the spread and 0.92.
