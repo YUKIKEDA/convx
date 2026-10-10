@@ -2929,3 +2929,43 @@ Every set published the same counts on both sides.
   - `sphere` D2 10^6 reads 0.77 (175 ms to 134 ms), faster beyond the spread, and D2 10^4 0.79.
 - **Against CGAL in #404**, `sphere` D2 read 1.80 to 1.87; times these speedups, about 1.4, indicatively.
 - **Nothing is slower beyond the spread.** The other sets read 0.96 to 1.06, including `grid` and `lattice` D5 and D6, whose faces are triangulated by placing into the same complex.
+
+## Delaunay D2 and D3: where the insertion's own time goes, PR #424 (#412)
+
+The spike P7-36 takes line-level profiles of Delaunay `cube` D2 and D3 10^5. The spike P7-32 (#413) left the insertion's own lines there as the largest share.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `d466627`. rustc 1.97.1, `--release` with debug info |
+| Profile | VTune hotspots, software sampling, the process pinned (logical processor 2): `cube` D2 10^5, 60 builds; `cube` D3 10^5, 8 builds. Inclusive shares from the top-down tree; the own time of the insertion, `locate`, `alloc`, and `brio` by source line (`-source-object function=…`) |
+
+### Shares of the process
+
+| | D2 10^5 | D3 10^5 |
+| --- | ---: | ---: |
+| Insertion, inclusive | 61.5% | 78.9% |
+| of which its own lines | 13% | 35% |
+| of which in-circle or in-sphere tests | 18.8% | 31.2% |
+| of which locating (orientations) | 17.1% | 4.9% |
+| of which cell allocation | 4.5% | 6.5% |
+| BRIO order | 11.0% | – |
+
+### Where the own lines go
+
+| Function | Line | Share of its own time |
+| --- | --- | ---: |
+| D3 `insert` (1.27 s own) | `self.link_by_keys(&boundary, &created)`: pairing the new tetrahedra's faces | 59.7% |
+| | `self.conflict(n, q)` (outside the test itself) | 10.4% |
+| D2 `insert_by_flips` (0.61 s own) | `self.flip(c, n, q)` | 55.5% |
+| | finding the slot, reading the neighbor, recording | 9 to 7% each |
+| D2 `locate` (0.12 s own) | the random offset of the walk (`% k`), twice per step | 28% |
+| D3 `alloc` (0.14 s own) | copying the vertices, filling the neighbors and records | 100% |
+
+### Reading
+
+- **D3: pairing the new faces is about 21% of the build.** `link_by_keys` pairs about 60 faces per point through an open-addressing table keyed by an edge. Whether the time is the key and the probe, the new cells' reads, or their writes needs an instruction-level profile of that function; that is the first step of P7-37 (#421).
+- **The predicates are about 30% of D2 and 35% of D3**, at 8 to 27 ns per call through the semi-static first stage. A static filter, which bounds every call of one input once, is a design question (certification for every accepted input, the fallback, the stages after it): P7-38 (#422), set after its Grill.
+- **D2's BRIO order is 11%**: the space-filling keys about 5% and their sort about 4%. That is P7-39 (#423).
+- **Smaller items, read again after these rows:** D2's flips (about 7% of the build), the walk's modulo (about 4%), and cell allocation (4 to 7%).
