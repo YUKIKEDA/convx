@@ -76,7 +76,9 @@ const INLINE: usize = 18;
 pub(super) enum Across {
     /// Not decided: a face between two simplices created together from
     /// boundary faces of different cavity simplices, or one with a simplex
-    /// at infinity.
+    /// at infinity. The pass after the insertion decides the first kind by
+    /// an orientation, and by the lifted orientation only when that is zero
+    /// (design §7, #451).
     Unknown,
     /// The far vertex of either is not on the circumsphere of the other.
     Distinct,
@@ -502,7 +504,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
     }
 
     /// Orientation of the sites `ids` (D + 1 of them).
-    fn orient_ids(&self, ids: &[u32]) -> Result<Sign, ConvexHullError> {
+    pub(super) fn orient_ids(&self, ids: &[u32]) -> Result<Sign, ConvexHullError> {
         self.shape.orient(self.sites, ids)
     }
 

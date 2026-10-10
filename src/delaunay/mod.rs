@@ -432,6 +432,21 @@ fn stored_in_input_order() -> bool {
     }
 }
 
+/// Whether the pass after the insertion tests every face the insertion left
+/// unknown by the lifted orientation, without the orientation that decides
+/// most of them first: a test's override on this thread, to show that the
+/// orientation changes nothing published (#451). Always false otherwise.
+fn every_unknown_face_lifted() -> bool {
+    #[cfg(test)]
+    {
+        tests::EVERY_UNKNOWN_FACE_LIFTED.with(core::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
+
 /// Whether D = 2 and D = 3 take the shape of any dimension: a test's
 /// override on this thread, to compare the shapes. Always false otherwise.
 fn generic_insertion() -> bool {
@@ -538,12 +553,35 @@ fn inserted<S: insert::Shape>(
     };
     let mesh = insert::Mesh::build(shape, &local, &local_first, &local_order)?;
     let site = |v: u32| local.input_index(v);
+    // The place of each local site in the insertion order: its own index,
+    // unless a test stores the sites in the input's order.
+    let ranks: Vec<u32> = if stored_in_input_order() {
+        let mut ranks = vec![0_u32; input.representative.len()];
+        for (rank, &v) in inserted_order.iter().enumerate() {
+            ranks[v as usize] = rank as u32;
+        }
+        ranks
+    } else {
+        Vec::new()
+    };
+    let rank = |v: u32| {
+        if ranks.is_empty() {
+            v
+        } else {
+            ranks[v as usize]
+        }
+    };
+    let mut gate: Vec<u32> = Vec::with_capacity(k + 1);
 
     // Union of the finite simplices that share a face and are cospherical
     // across it: the far vertex of the neighbor has lifted orientation zero
     // against the simplex. The insertion decided this for every face it
-    // linked to a simplex outside the cavity; the faces between simplices
-    // it created together are tested here.
+    // linked to a simplex outside the cavity. A face between two simplices
+    // it created together is left unknown. Such a face needs the lifted test
+    // only when the sites of the two simplices other than the newest are
+    // affinely dependent: otherwise, if the two are cospherical, faces the
+    // insertion recorded cospherical already join them (design §7, #451).
+    // One orientation of those sites decides which.
     let slots = mesh.slots();
     let mut parent: Vec<u32> = (0..slots as u32).collect();
     fn root(parent: &mut [u32], mut i: u32) -> u32 {
@@ -592,7 +630,27 @@ fn inserted<S: insert::Shape>(
             let cospherical = match across {
                 insert::Across::Cospherical => true,
                 insert::Across::Distinct => false,
-                insert::Across::Unknown => test()?,
+                insert::Across::Unknown if every_unknown_face_lifted() => test()?,
+                insert::Across::Unknown => {
+                    // The sites of `c` and `n` without the newest, which the
+                    // insertion that made both added.
+                    let vertices = mesh.vertices_of(c);
+                    let Some(&far) = mesh.vertices_of(n).iter().find(|v| !vertices.contains(v))
+                    else {
+                        debug_assert!(false, "neighbors differ in one vertex");
+                        continue;
+                    };
+                    gate.clear();
+                    gate.extend_from_slice(vertices);
+                    gate.push(far);
+                    let newest = (0..gate.len()).max_by_key(|&i| rank(gate[i])).unwrap_or(0);
+                    gate.swap_remove(newest);
+                    if mesh.orient_ids(&gate)? == Sign::Zero {
+                        test()?
+                    } else {
+                        false
+                    }
+                }
             };
             debug_assert!(
                 across == insert::Across::Unknown || mesh.is_finite(n) && test()? == cospherical,
