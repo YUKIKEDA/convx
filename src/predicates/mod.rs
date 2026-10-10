@@ -574,6 +574,28 @@ pub(crate) fn cofactor_direction(
 /// `cofactors` are the filtered cofactors of `facet` already evaluated by
 /// [`direction_cofactors`], so a caller that needs them twice evaluates them
 /// once (#86).
+///
+/// # The error of the exact direction
+///
+/// The exact path returns `err = k 2^-49`. With `u = 2^-53`, its error is
+/// at most `(k/2 + 5) u`, below `16 k u` for every `k`:
+///
+/// - The exact cofactors `c` are shifted right by `s` bits so that the
+///   longest has 64 bits, and truncated: `b = trunc(c / 2^s)`, each entry
+///   within 1. When `s > 0`, `|c / 2^s| >= 2^63`, so the direction moves by
+///   at most `2 sqrt(k) 2^-63` (`|a/|a| - b/|b|| <= 2|a - b|/|a|`).
+/// - Each `b_j` (below `2^64`) is rounded to `x_j` with relative error `u`:
+///   the direction moves by at most `2u`.
+/// - The norm `N` sums `k` squares of integers below `2^64`, so nothing
+///   underflows or overflows: the sum is within `gamma_k` relatively, and
+///   the square root halves that and adds `u`.
+/// - Each quotient `x_j / N` adds `u`: `|v - x/|x|| <= (u + gamma_k/2 + u)`
+///   to first order.
+///
+/// The sum is `(k/2 + 4) u` to first order; the second-order terms are
+/// below `u` for any `k` a facet can have. Measured against exact unit
+/// directions, the largest error was `2.7 u` (`docs/bench.md`, PR #399).
+/// Scaling the facet by a power of two and flipping the sign are exact.
 pub(crate) fn cofactor_direction_from(
     facet: &[&[f64]],
     cofactors: Option<&[(f64, f64)]>,

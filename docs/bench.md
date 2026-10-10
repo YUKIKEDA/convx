@@ -2505,3 +2505,21 @@ The orientations of `main` are those of the spike P7-27 (#395) on the head of #3
   - A phase timer (not committed) puts the difference in classification's `distance_zeros`: 40 ms on `main`, 24.5 ms on the head, three builds each.
   - That walk calls the side test about half a million times. Each call now reads one plane from the store instead of a normal and a cull plane.
 - **Nothing is slower beyond the spread.** The other sets read 0.95 to 1.02.
+
+### The exact direction's error
+
+The new planes take `tau` from the exact direction's bound, `k 2^-49 = 16 k u` (`u = 2^-53`). The review asked whether it holds. A test in a copy of the crate (not committed) wrote 2,690 facets and the directions of the exact path (`cofactor_direction_from` without filtered cofactors). The facets were k = 2 to 10, five kinds of 60 facets each: integers 0..3, integers -1000..1000, uniform in [-1, 1], uniform times 10^200, and thin facets with edges 2^-40 off parallel. A script computed each facet's exact cofactors as rationals and the distance to the exact unit direction to 80 digits.
+
+| k | Largest error | Derived bound `(k/2 + 5) u` | Bound used, `16 k u` |
+| --- | ---: | ---: | ---: |
+| 2 | 1.44 u | 6 u | 32 u |
+| 3 | 1.55 u | 6.5 u | 48 u |
+| 4 | 2.14 u | 7 u | 64 u |
+| 5 | 2.12 u | 7.5 u | 80 u |
+| 6 | 1.89 u | 8 u | 96 u |
+| 7 | 1.80 u | 8.5 u | 112 u |
+| 8 | 1.82 u | 9 u | 128 u |
+| 9 | 2.66 u | 9.5 u | 144 u |
+| 10 | 2.03 u | 10 u | 160 u |
+
+No facet exceeded the bound. The derivation is on `cofactor_direction_from` and in design §1. The bound used is 10 to 60 times the largest error; tightening it is P7-31 (#400).

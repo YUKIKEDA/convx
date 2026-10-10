@@ -436,8 +436,9 @@ pub(super) fn determinant_of(rows: Rows<'_>) -> Result<BigInt, ExactEvaluationEx
 }
 
 /// The unit direction of the exact cofactor vector of the hyperplane through
-/// `facet` (k points of dimension k), rounded to `f64`: each component is
-/// within `2^-50` of the exact unit vector's. `None` when every cofactor is
+/// `facet` (k points of dimension k), rounded to `f64`: within `(k/2 + 5) u`
+/// (Euclidean, `u = 2^-53`) of the exact unit vector, as
+/// [`super::cofactor_direction_from`] derives. `None` when every cofactor is
 /// zero, that is, when the points are affinely dependent.
 pub(super) fn cofactor_direction_exact(
     facet: &[&[f64]],
