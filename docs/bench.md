@@ -2682,14 +2682,14 @@ The first change alone, timed the same way against `main` before the second: hul
 
 P7-30. Classification finds a facet's extreme points from the hull of its points one dimension down, recursively (design §3). The profile on #394 put that recursion at 282 ms of hull `grid` D6 10^4's 428 ms: it built 12 hulls in D5, 120 in D4, 960 in D3, and 5,760 in D2, where the 6-cube has 60, 160, and 240 faces of those dimensions. The lower levels also triangulated and listed what the level above does not read. The Grill of 2026-10-10 on #394 chose two changes, in two commits:
 
-- **A, faces once** (`685f1b2`): the extreme points of a face are kept per build with the face's candidates as ascending input indices. A face that several facets share is read back. The extreme points of a point set depend on the set alone, so the result is the same.
-- **B, vertices only below** (`318a67a`): a hull one dimension down is built for its vertices only, without placing, point lists, or neighbor links.
+- **A, faces once** (`3965c5a`): the extreme points of a face are kept per build with the face's candidates as ascending input indices. A face that several facets share is read back. The extreme points of a point set depend on the set alone, so the result is the same.
+- **B, vertices only below** (`245927b`): a hull one dimension down is built for its vertices only, without placing, point lists, or neighbor links.
 
 ### Method
 
 | Item | Value |
 | --- | --- |
-| convx | The base is the head of #405 (`710fddb`: `main` at `e94f5f6` with P7-29), against A (`685f1b2`) and B, the head (`318a67a`). rustc 1.97.1, `--release` with debug info, baseline target |
+| convx | The base is P7-29 (#405) as timed on its head, the code `main` has since `b8a9bcd` (the commit #405 gained after the timing changed a test only), against A and B. A and B were timed as the same changes before this branch moved onto `b8a9bcd`; their trees are those of `3965c5a` and `245927b`. rustc 1.97.1, `--release` with debug info, baseline target |
 | Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
 | Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
 | Sets | The shorter run of `docs/verification.md`, with hull `grid` D5 and D6, `lattice` D5 and D6, `cubesurf` D5 10^4, and Delaunay `grid` and `lattice` D3 10^4 |

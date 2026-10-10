@@ -728,7 +728,14 @@ fn face_extremes(
             // Back to this level's indices, through the key's order.
             return Ok(found
                 .iter()
-                .map(|v| candidates[key.binary_search(v).unwrap_or_default()])
+                .map(|v| {
+                    let at = key.binary_search(v);
+                    debug_assert!(
+                        at.is_ok(),
+                        "a face's extreme points are among its candidates"
+                    );
+                    candidates[at.unwrap_or_default()]
+                })
                 .collect());
         }
     }
@@ -1075,6 +1082,46 @@ pub(crate) mod tests {
                 without,
                 "k = {k}, without the memo"
             );
+        }
+    }
+
+    /// The D6 cases of the two tests above and below, which take minutes in
+    /// debug: run in release with
+    /// `cargo test --release -- --ignored faces_once_in_d6`.
+    #[test]
+    #[ignore = "minutes in debug; run in release"]
+    fn faces_once_in_d6() {
+        // The 6-cube's faces of dimension 5 to 2: 12 + 60 + 160 + 240.
+        let points = cube_grid(6);
+        assert_eq!(sub_hulls(6, &points, true), 472);
+        assert_eq!(sub_hulls(6, &points, false), 12 + 120 + 960 + 5760);
+        // The published hull with the memo equals the one without it.
+        let mut rng = Rng(406);
+        for family in ["grid", "lattice", "cubesurf"] {
+            let mut points = Vec::with_capacity(2000 * 6);
+            for _ in 0..2000 {
+                match family {
+                    "grid" => points.extend((0..6).map(|_| (rng.next() % 4) as f64)),
+                    "lattice" => points.extend((0..6).map(|_| (rng.next() % 5) as f64 - 2.0)),
+                    _ => {
+                        let start = points.len();
+                        points.extend((0..6).map(|_| (rng.next() % 9) as f64 - 4.0));
+                        let axis = rng.next() as usize % 6;
+                        points[start + axis] = if rng.next().is_multiple_of(2) {
+                            -4.0
+                        } else {
+                            4.0
+                        };
+                    }
+                }
+            }
+            let hull = |remembered: bool| {
+                FACES_REMEMBERED.with(|c| c.set(remembered));
+                let hull = crate::ConvexHullBuilder::new(6, &points).build();
+                FACES_REMEMBERED.with(|c| c.set(true));
+                hull
+            };
+            assert!(hull(true).unwrap() == hull(false).unwrap(), "{family} D6");
         }
     }
 
