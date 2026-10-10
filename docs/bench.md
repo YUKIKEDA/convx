@@ -3576,3 +3576,62 @@ The change does not reach the hull. Hull `cube` D2 read 1.03 and 1.04 in both ru
 - **D4 and D5 read 0.98 and 1.02, inside the spread.** They take the generic path.
 - **Nothing is slower beyond the spread.** Hull D2's 1.03 to 1.04 is within what identical builds differ by, and reads 1.01 to 1.02 with one codegen unit.
 - On the parity ratios of #438, this is about 1.35 for `cube` D2 10^5 and for `cube` D3 10^5. The first stage's bound (P7-46, #447) and the faces the insertion leaves unknown (P7-47, #448) follow.
+
+## Delaunay D2 and D3: the first stage's bound on fixed rows, prototype, PR #450 (#447)
+
+The spike P7-46. After P7-45 (#446), the in-circle test costs about 137 instructions a call and the in-sphere test about 307 (#445). In each, the present first stage computes the permanent for its bound, a second sum of absolute products as long as the determinant.
+
+P7-38's prototype (#428) tried a bound from the columns' largest entries, CGAL's form, and read 1.00 on D2, while the generic entry still cost about 200 instructions a call. The Grill on #444 asked for that bound again, prototyped on P7-45, and a feature row only if it gains.
+
+### The prototype
+
+A copy of P7-45 (`afae8ca`), not committed:
+
+- In `fixed_sign`, before the present stage, the four formulas (orientation of D = 2 and 3, lifted orientation of D = 2 and 3) are evaluated without their permanents.
+- Each is certified when it exceeds a constant times the product of the columns' largest absolute differences, CGAL's form. For the lifted orientations, that product is taken with the square of the largest column twice.
+- A column's largest entry outside [2^-199, 2^199] (about 10^-60 to 10^60) skips the new stage.
+- What it does not certify goes to the present stage, then the later ones.
+- The constants are generous (about four times CGAL's), for timing only, not derived.
+
+Every test passes, and debug builds compare every sign with the generic path.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | P7-45 at `afae8ca` against the copy. rustc 1.97.1, `--release` with debug info |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
+| Rounds | P7-45 and the copy alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second |
+
+Every set published the same counts on both sides.
+
+| Set | P7-45 | Prototype | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D3 10^5 | 12.0 ms (11.1 ms–13.7 ms) | 12.0 ms (11.1 ms–13.2 ms) | 1.00, inside the spread |
+| Hull `sphere` D3 10^4 | 22.7 ms (21.1 ms–26.6 ms) | 22.8 ms (21.2 ms–25.5 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^4 | 6.14 ms (5.51 ms–8.15 ms) | 6.00 ms (5.55 ms–7.51 ms) | 0.98, inside the spread |
+| Delaunay `cube` D2 10^5 | 60.6 ms (56.3 ms–66.6 ms) | 61.0 ms (57.2 ms–65.4 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^6 | 658 ms (646 ms–676 ms) | 660 ms (653 ms–671 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^4 | 6.24 ms (5.62 ms–24.9 ms) | 6.61 ms (5.99 ms–7.30 ms) | 1.06, inside the spread |
+| Delaunay `sphere` D2 10^5 | 47.9 ms (44.8 ms–59.8 ms) | 52.7 ms (49.2 ms–59.1 ms) | 1.10, inside the spread |
+| Delaunay `sphere` D2 10^6 | 486 ms (463 ms–536 ms) | 511 ms (503 ms–532 ms) | 1.05, inside the spread |
+| Delaunay `cube` D3 10^4 | 37.8 ms (35.8 ms–41.1 ms) | 37.3 ms (35.1 ms–56.4 ms) | 0.99, inside the spread |
+| Delaunay `cube` D3 10^5 | 428 ms (397 ms–452 ms) | 415 ms (388 ms–437 ms) | 0.97, inside the spread |
+| Delaunay `cube` D3 10^6 | 4.63 s (4.55 s–4.67 s) | 4.55 s (4.47 s–4.62 s) | 0.98, inside the spread |
+| Delaunay `sphere` D3 10^4 | 93.5 ms (89.7 ms–103 ms) | 95.8 ms (92.6 ms–130 ms) | 1.02, inside the spread |
+| Delaunay `sphere` D3 10^5 | 885 ms (865 ms–897 ms) | 909 ms (905 ms–922 ms) | 1.03, slower beyond the spread |
+| Delaunay `cube` D4 10^4 | 768 ms (746 ms–794 ms) | 776 ms (757 ms–878 ms) | 1.01, inside the spread |
+
+
+### Reading
+
+- **No set is faster beyond the spread.**
+  - `cube` D2 reads 0.98 to 1.01.
+  - `cube` D3 reads 0.97 to 0.99.
+- **`sphere` is slower:**
+  - `sphere` D2 reads 1.05 to 1.10;
+  - `sphere` D3 10^5 reads 1.03, slower beyond the spread.
+
+  Their sites lie near one circle or sphere, so the in-circle and in-sphere determinants are small against the columns' extent. The new stage leaves those open, and the present stage then evaluates the formula again with its permanent.
+- **The permanent is not the cost it looked.** Its terms are the absolute values of products the determinant already forms, so dropping it saves little. A bound that ignores how the entries combine certifies fewer of the calls that matter on `sphere`.
+- **No feature row follows** (Grill on #444). The pass after the insertion, P7-47 (#448), is next.
