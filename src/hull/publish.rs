@@ -1050,14 +1050,14 @@ fn publish(c: Classified<'_>) -> ConvexHull {
     // of the complex ([`ConvexHull::triangulation`]).
     let mut simplex_vertices = Vec::with_capacity(c.simplices.len() * d);
     let mut simplex_facets = Vec::with_capacity(c.simplices.len());
-    for s in &c.simplices {
+    for s in c.simplices.iter() {
         debug_assert_eq!(s.vertices.len(), d);
         let start = simplex_vertices.len();
-        simplex_vertices.extend_from_slice(&s.vertices);
+        simplex_vertices.extend_from_slice(s.vertices);
         simplex_vertices[start..].sort_unstable();
         let facet = s.face;
         if d >= 2 {
-            let odd = odd_permutation(&s.vertices);
+            let odd = odd_permutation(s.vertices);
             #[cfg(debug_assertions)]
             {
                 let inner = inner_reference(&c.vertices, facet_vertices.get(facet as usize));
@@ -1079,11 +1079,12 @@ fn publish(c: Classified<'_>) -> ConvexHull {
         simplex_facets.push(facet);
     }
 
-    let vertex_coordinates: Vec<f64> = c
-        .vertices
-        .iter()
-        .flat_map(|&v| c.input.point(v).iter().copied())
-        .collect();
+    // Sized up front: a `flat_map` gives no size hint, and the list grew by
+    // reallocation (#411).
+    let mut vertex_coordinates: Vec<f64> = Vec::with_capacity(c.vertices.len() * d);
+    for &v in &c.vertices {
+        vertex_coordinates.extend_from_slice(c.input.point(v));
+    }
     ConvexHull {
         dim: d,
         representative: c.input.representative.clone(),
