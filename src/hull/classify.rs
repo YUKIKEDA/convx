@@ -152,7 +152,31 @@ fn polygon_edge(
 /// Builds and classifies the hull of an accepted input.
 pub(crate) fn classify(input: Input<'_>) -> Result<Classified<'_>, ConvexHullError> {
     let built = SimplicialHull::build(input)?;
-    classify_built(built)
+    classify_built(built, &mut FoundFaces::default(), None)
+}
+
+/// The extreme points of the faces found so far in one build, each keyed by
+/// the face's candidates as ascending input indices (#394). The extreme
+/// points of a point set depend on the set alone, so a face that several
+/// facets share is found once, from whichever reaches it first, and a face
+/// reached with other candidates is only found again.
+#[derive(Default)]
+struct FoundFaces {
+    extremes: HashMap<Vec<u32>, Vec<u32>>,
+}
+
+/// The vertices of the hull of an accepted input, for a face one level
+/// down. `global` maps its
+/// indices to the input's.
+fn sub_vertices(
+    input: Input<'_>,
+    faces: &mut FoundFaces,
+    global: &[u32],
+) -> Result<Vec<u32>, ConvexHullError> {
+    #[cfg(test)]
+    tests::SUB_HULLS.with(|c| c.set(c.get() + 1));
+    let hull = SimplicialHull::build(input)?;
+    Ok(classify_built(hull, faces, Some(global))?.vertices)
 }
 
 /// Classifies a strict polygon from its extreme cycle.
@@ -250,14 +274,30 @@ fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
     })
 }
 
-/// Classifies a built simplicial hull. Its `proved_interior` points go to
-/// `interior_points` without a scan.
-fn classify_built(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHullError> {
-    if hull.strict_edges {
-        return classify_chain(hull);
-    }
-    let groups = merge(&hull)?;
-    let d = hull.input.dim();
+/// The vertices of a built simplicial hull that is not a strict polygon,
+/// with what classification reads on the way: the logical facets, the
+/// simplicial vertices, the other representatives and whether each is on
+/// the boundary, and each facet's extreme points (`None` when they are the
+/// facet's vertices).
+struct Found {
+    groups: LogicalFacets,
+    on_complex: Vec<bool>,
+    others: Vec<u32>,
+    on_boundary: Vec<bool>,
+    extremes: Vec<Option<Vec<u32>>>,
+    is_vertex: Vec<bool>,
+    vertices: Vec<u32>,
+}
+
+/// Finds the vertices of `hull`: the extreme points of each logical facet,
+/// through `faces`. `global` maps the hull's indices to the input's; `None`
+/// when they are the input's.
+fn found_vertices(
+    hull: &SimplicialHull<'_>,
+    faces: &mut FoundFaces,
+    global: Option<&[u32]>,
+) -> Result<Found, ConvexHullError> {
+    let groups = merge(hull)?;
     // A group's member simplices, in outward order.
     let members = |g: usize| {
         groups.groups[g]
@@ -295,7 +335,7 @@ fn classify_built(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
         .copied()
         .filter(|&p| !on_complex[p as usize] && !skipped[p as usize])
         .collect();
-    let (on_boundary, zero_points) = distance_zeros(&hull, &groups, &others)?;
+    let (on_boundary, zero_points) = distance_zeros(hull, &groups, &others)?;
 
     // Extreme points of each group; `None` when they are the group's
     // vertices, a single simplex with no other point on its plane.
@@ -310,7 +350,13 @@ fn classify_built(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
         candidates.sort_unstable();
         candidates.dedup();
         let plane = members(g).next().unwrap_or(&[]);
-        extremes.push(Some(face_extremes(&hull.input, plane, &candidates)?));
+        extremes.push(Some(face_extremes(
+            &hull.input,
+            plane,
+            &candidates,
+            faces,
+            global,
+        )?));
     }
 
     let mut is_vertex = vec![false; hull.input.representative.len()];
@@ -326,6 +372,37 @@ fn classify_built(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
         .copied()
         .filter(|&p| is_vertex[p as usize])
         .collect();
+    Ok(Found {
+        groups,
+        on_complex,
+        others,
+        on_boundary,
+        extremes,
+        is_vertex,
+        vertices,
+    })
+}
+
+/// Classifies a built simplicial hull. Its `proved_interior` points go to
+/// `interior_points` without a scan.
+fn classify_built<'a>(
+    hull: SimplicialHull<'a>,
+    faces: &mut FoundFaces,
+    global: Option<&[u32]>,
+) -> Result<Classified<'a>, ConvexHullError> {
+    if hull.strict_edges {
+        return classify_chain(hull);
+    }
+    let Found {
+        groups,
+        on_complex,
+        others,
+        on_boundary,
+        extremes,
+        is_vertex,
+        vertices,
+    } = found_vertices(&hull, faces, global)?;
+    let d = hull.input.dim();
     // Every representative is a vertex, on the complex, on the boundary
     // by the scan, or interior: either proved during construction or
     // scanned strictly inside. One pass over the ascending representatives
@@ -622,10 +699,33 @@ fn face_extremes(
     input: &Input<'_>,
     plane: &[u32],
     candidates: &[u32],
+    faces: &mut FoundFaces,
+    global: Option<&[u32]>,
 ) -> Result<Vec<u32>, ConvexHullError> {
     let d = input.dim();
     if d == 1 {
         return Ok(candidates.to_vec());
+    }
+    // The candidates as input indices. Each level's candidates ascend and
+    // map to ascending indices, so the key ascends too.
+    let key: Vec<u32> = match global {
+        Some(global) => candidates.iter().map(|&c| global[c as usize]).collect(),
+        None => candidates.to_vec(),
+    };
+    debug_assert!(key.is_sorted(), "a face's key ascends");
+    // Tests compare the published result with and without the memo.
+    #[cfg(test)]
+    let forget = !tests::FACES_REMEMBERED.with(core::cell::Cell::get);
+    #[cfg(not(test))]
+    let forget = false;
+    if !forget {
+        if let Some(found) = faces.extremes.get(&key) {
+            // Back to this level's indices, through the key's order.
+            return Ok(found
+                .iter()
+                .map(|v| candidates[key.binary_search(v).unwrap_or_default()])
+                .collect());
+        }
     }
     // An axis along which the hyperplane is not vertical: its cofactor is
     // nonzero, so dropping that coordinate is a bijection of the hyperplane.
@@ -656,12 +756,20 @@ fn face_extremes(
                 .map(|(_, &x)| x)
         })
         .collect();
-    let sub = classify(accept(d - 1, &projected)?)?;
-    Ok(sub
-        .vertices
-        .iter()
-        .map(|&i| candidates[i as usize])
-        .collect())
+    let sub = sub_vertices(accept(d - 1, &projected)?, faces, &key)?;
+    let extremes: Vec<u32> = sub.iter().map(|&i| candidates[i as usize]).collect();
+    faces.extremes.insert(
+        key,
+        sub.iter()
+            .map(|&i| global_of(global, candidates[i as usize]))
+            .collect(),
+    );
+    Ok(extremes)
+}
+
+/// The input index of `v`, an index of a level that `global` maps.
+fn global_of(global: Option<&[u32]>, v: u32) -> u32 {
+    global.map_or(v, |g| g[v as usize])
 }
 
 /// Placing triangulation of the extreme points `extreme` (ascending) of one
@@ -916,6 +1024,135 @@ fn link_neighbors(d: usize, simplices: &mut [ComplexSimplex], faces: &Faces) {
 pub(crate) mod tests {
     use super::*;
     use crate::hull::simplicial::tests::Rng;
+
+    thread_local! {
+        /// Whether `face_extremes` reads and keeps the faces it has found;
+        /// tests turn it off to compare the result without the memo.
+        pub(crate) static FACES_REMEMBERED: core::cell::Cell<bool> = const { core::cell::Cell::new(true) };
+        /// The hulls built one level down, counted.
+        pub(crate) static SUB_HULLS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    }
+
+    /// Every point of `{0..3}^k`, row-major.
+    fn cube_grid(k: usize) -> Vec<f64> {
+        let mut points = Vec::new();
+        for i in 0..4_usize.pow(k as u32) {
+            for a in 0..k {
+                points.push(((i / 4_usize.pow(a as u32)) % 4) as f64);
+            }
+        }
+        points
+    }
+
+    /// The hulls built one level down for the classification of `points`.
+    fn sub_hulls(k: usize, points: &[f64], remembered: bool) -> usize {
+        FACES_REMEMBERED.with(|c| c.set(remembered));
+        SUB_HULLS.with(|c| c.set(0));
+        let classified = classify(accept(k, points).unwrap()).unwrap();
+        FACES_REMEMBERED.with(|c| c.set(true));
+        assert_eq!(classified.vertices.len(), 1 << k, "the cube's vertices");
+        SUB_HULLS.with(core::cell::Cell::get)
+    }
+
+    #[test]
+    fn each_face_is_found_once_on_cube_grids() {
+        // The grid {0..3}^k is a k-cube with points on every face. Each of
+        // its faces of dimension 2 to k - 1, C(k, j) 2^(k - j) of them, is
+        // built once (#394). Without the memo, a face is built again from
+        // every facet above it.
+        let binomial = |n: usize, r: usize| (0..r).fold(1, |acc, i| acc * (n - i) / (i + 1));
+        for (k, without) in [(3, 6), (4, 56), (5, 570)] {
+            let points = cube_grid(k);
+            let faces: usize = (2..k).map(|j| binomial(k, j) << (k - j)).sum();
+            assert_eq!(sub_hulls(k, &points, true), faces, "k = {k}");
+            assert_eq!(
+                sub_hulls(k, &points, false),
+                without,
+                "k = {k}, without the memo"
+            );
+        }
+    }
+
+    #[test]
+    fn faces_once_publish_the_same_hull_and_diagram() {
+        // Degenerate inputs whose facets hold many points, D = 3 to 5: the
+        // hull and the Voronoi diagram published with the memo equal those
+        // published without it. D = 6 takes minutes per input in debug; the
+        // pull request compares it in release.
+        let mut rng = Rng(394);
+        let sphere = |k: usize| -> Vec<Vec<f64>> {
+            let radius2 = if k <= 3 { 9 } else { 4 };
+            let mut out = Vec::new();
+            let mut p = vec![-3_i64; k];
+            loop {
+                if p.iter().map(|x| x * x).sum::<i64>() == radius2 {
+                    out.push(p.iter().map(|&x| x as f64).collect());
+                }
+                let Some(a) = (0..k).rev().find(|&a| p[a] < 3) else {
+                    return out;
+                };
+                p[a] += 1;
+                for c in &mut p[a + 1..] {
+                    *c = -3;
+                }
+            }
+        };
+        let mut hulls = 0;
+        for k in 3..=5 {
+            let n = [0, 0, 0, 400, 300, 60][k];
+            let on_sphere = sphere(k);
+            for family in ["grid", "lattice", "cubesurf", "onsphere", "nearsphere"] {
+                let mut points = Vec::with_capacity(n * k);
+                for _ in 0..n {
+                    match family {
+                        "grid" => points.extend((0..k).map(|_| (rng.next() % 4) as f64)),
+                        "lattice" => points.extend((0..k).map(|_| (rng.next() % 5) as f64 - 2.0)),
+                        "cubesurf" => {
+                            let start = points.len();
+                            points.extend((0..k).map(|_| (rng.next() % 9) as f64 - 4.0));
+                            let axis = rng.next() as usize % k;
+                            points[start + axis] = if rng.next().is_multiple_of(2) {
+                                -4.0
+                            } else {
+                                4.0
+                            };
+                        }
+                        _ => {
+                            let p = &on_sphere[rng.next() as usize % on_sphere.len()];
+                            let step = if family == "nearsphere" {
+                                1.0 / 256.0
+                            } else {
+                                0.0
+                            };
+                            points.extend(
+                                p.iter()
+                                    .map(|&x| x + step * ((rng.next() % 3) as f64 - 1.0)),
+                            );
+                        }
+                    }
+                }
+                let hull = |remembered: bool| {
+                    FACES_REMEMBERED.with(|c| c.set(remembered));
+                    let hull = crate::ConvexHullBuilder::new(k, &points).build();
+                    FACES_REMEMBERED.with(|c| c.set(true));
+                    hull
+                };
+                let (with, without) = (hull(true).unwrap(), hull(false).unwrap());
+                assert!(with == without, "{family} D{k}: the hull");
+                hulls += 1;
+                if k <= 4 {
+                    let diagram = |remembered: bool| {
+                        FACES_REMEMBERED.with(|c| c.set(remembered));
+                        let diagram = crate::VoronoiBuilder::new(k, &points).build();
+                        FACES_REMEMBERED.with(|c| c.set(true));
+                        diagram
+                    };
+                    assert_eq!(diagram(true), diagram(false), "{family} D{k}: the diagram");
+                }
+            }
+        }
+        assert_eq!(hulls, 15);
+    }
 
     /// The placing triangulation before #393: the ridges of every simplex
     /// gathered again for each point, and both sides evaluated for each
@@ -1408,7 +1645,7 @@ pub(crate) mod tests {
             let mut proved = hull.proved_interior.clone();
             proved.sort_unstable();
             assert_eq!(proved, interior, "the points off the edges are discarded");
-            let c = classify_built(hull).unwrap();
+            let c = classify_built(hull, &mut FoundFaces::default(), None).unwrap();
             check(&c);
             assert_eq!(c.vertices, vertices);
             assert_eq!(c.coplanar_points, coplanar);
@@ -1426,7 +1663,7 @@ pub(crate) mod tests {
             let hull = SimplicialHull::build(accept(2, &points).unwrap()).unwrap();
             assert!(hull.strict_edges);
             assert!(hull.proved_interior.is_empty(), "no polygon, no discard");
-            let c = classify_built(hull).unwrap();
+            let c = classify_built(hull, &mut FoundFaces::default(), None).unwrap();
             check(&c);
             assert_eq!(c.vertices, vec![0, 2, 3]);
             assert_eq!(c.coplanar_points, vec![1]);
@@ -1473,7 +1710,7 @@ pub(crate) mod tests {
                 } else {
                     assert!(proved.is_empty(), "{inside} inside: none is discarded");
                 }
-                let c = classify_built(hull).unwrap();
+                let c = classify_built(hull, &mut FoundFaces::default(), None).unwrap();
                 // check is quadratic in the facets; the lists below are
                 // what the cutoff could change.
                 assert_eq!(c.vertices.len(), on_circle);
@@ -1500,7 +1737,7 @@ pub(crate) mod tests {
             let hull = SimplicialHull::build(accept(2, &points).unwrap()).unwrap();
             assert!(hull.strict_edges, "every D = 2 hull is the chain");
             assert!(hull.proved_interior.is_empty(), "no site is inside");
-            let c = classify_built(hull).unwrap();
+            let c = classify_built(hull, &mut FoundFaces::default(), None).unwrap();
             check(&c);
             assert_eq!(c.vertices, vertices);
             assert!(c.coplanar_points.is_empty());
@@ -1517,10 +1754,10 @@ pub(crate) mod tests {
         let mut proved = sequential.proved_interior.clone();
         proved.sort_unstable();
 
-        let reused = classify_built(sequential).unwrap();
+        let reused = classify_built(sequential, &mut FoundFaces::default(), None).unwrap();
         let mut reference = built();
         reference.proved_interior.clear();
-        let reference = classify_built(reference).unwrap();
+        let reference = classify_built(reference, &mut FoundFaces::default(), None).unwrap();
         check(&reused);
         assert_eq!(reused.vertices, reference.vertices);
         assert_eq!(reused.coplanar_points, reference.coplanar_points);
@@ -1570,7 +1807,9 @@ pub(crate) mod tests {
                 "{name}: insertion took no sign from a record"
             );
             let groups = merge(&recorded).unwrap();
-            let others: Vec<u32> = classify_built(built()).unwrap().coplanar_points;
+            let others: Vec<u32> = classify_built(built(), &mut FoundFaces::default(), None)
+                .unwrap()
+                .coplanar_points;
             let starts = recorded_groups(&recorded, &groups, &others);
             assert!(
                 starts.iter().any(Option::is_some),
@@ -1587,10 +1826,10 @@ pub(crate) mod tests {
                 sorted(distance_zeros(&cleared, &groups, &others).unwrap()),
                 "{name}"
             );
-            let with = classify_built(recorded).unwrap();
+            let with = classify_built(recorded, &mut FoundFaces::default(), None).unwrap();
             let mut reference = built();
             reference.records = Records::new(reference.input.representative.len());
-            let reference = classify_built(reference).unwrap();
+            let reference = classify_built(reference, &mut FoundFaces::default(), None).unwrap();
             check(&with);
             assert_eq!(with.vertices, reference.vertices, "{name}");
             assert_eq!(with.coplanar_points, reference.coplanar_points, "{name}");
