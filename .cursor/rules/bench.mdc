@@ -17,6 +17,8 @@ A speed PR reports the wall time on the exact input its Issue names, next to tha
 
 Build both sides of a comparison with the same profile and the same flags (debug info included). Pin them to one core and alternate them. A difference inside the spread of repeated runs is not a result.
 
+Before a pinned timing, list the processes of earlier experiments and stop them. Stopping a background task may leave its children running. A timing that overlapped one is discarded and run again. In #395 a comparison loop, stopped as a background task, kept launching unpinned builds through the first pair of timings.
+
 That holds for timings of test binaries too. In #356 the fixture binaries, run without pinning, read 1.82 on `delaunay_cases`; pinned to one core, with one test thread, they read 1.00.
 
 A set whose code did not change and that reads slower beyond the spread is first timed with one codegen unit on each side (`CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1`). A change elsewhere in the crate moves its partition into codegen units and the inlining of untouched code. In #365 hull `cubesurf` D3 10^5 read 1.11 to 1.14 after a change in `delaunay` only, and 1.00 with one codegen unit.
@@ -43,7 +45,7 @@ That build stores the state; it does not read it. A value that only one path rea
 
 Time the sets the Issue names. Before adding a larger set, estimate its time from a smaller one; a single run longer than a few minutes needs a reason in the PR. In #116, `main` took 32 minutes for one D = 7 run that no Issue asked for.
 
-A section of `docs/bench.md` measured on an open pull request names that pull request, not only its head: a squash merge removes the head's hash from `main`. Put the merge commit in the heading once it is known, keep the measured head in the method table, and say what changed in that pull request after the measurement. #260 keyed a section by `029eb3f`, the head of #259, which then gained a commit and merged as `430af36`.
+A section of `docs/bench.md` measured on an open pull request names that pull request, not only its head: a squash merge removes the head's hash from `main`. Put the merge commit in the heading once it is known, keep the measured head in the method table, and say what changed in that pull request after the measurement. #260 keyed a section by `029eb3f`, the head of #259, which then gained a commit and merged as `430af36`. A merge of `main` into the timed branch is such a change: the section names what the merge brought and whether it was timed again. #389 merged #380, #381, and #388 after its timing, and its section said so only after review.
 
 A pull request number written into a heading before the pull request exists is checked against the number it gets when it opens. In #356 the heading named #355, and an Issue took that number in between.
 
