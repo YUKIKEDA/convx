@@ -3733,3 +3733,74 @@ The second run of `cube` D3, 20 × 3: 10^4 1.02 and 10^5 1.01, inside the spread
 - **`cube` D3 does not gain.** It read 1.01 to 1.02 in two runs, and 1.00 with one codegen unit. Its tests of the faces left unknown were already on the fixed-size entry of P7-45, where an orientation of four sites costs about as much as reading them.
 - **D2 reads 0.99 to 1.02.** Its insertion by flips leaves few faces unknown.
 - **Nothing is slower beyond the spread.**
+
+## Delaunay D2 to D4 after P7-45 and P7-48: where the time goes, PR #459 (#454)
+
+The spike P7-49. A parity run of the head of P7-48 (`4813b67`, under WSL2, not recorded as a parity section) read Delaunay against CGAL:
+
+- D2 at 1.28 to 1.37, from 1.48 to 1.60 (#438);
+- `cube` D3 at 1.22 to 1.29, from 1.50 to 1.59;
+- `cube` D4 10^4 at 1.10, and `cube` D5 10^4 at 1.07.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `4813b67` under WSL2, `--release` with debug info, with the phase marks of the parity run |
+| Phases | `build()` split into construction, the pass after the insertion, publication, and what comes before the insertion, from that parity run; the pass after the insertion split further by marks in a scratch copy |
+| Instructions | callgrind, one build, aggregated by source file (inlined code keeps its file) |
+| CGAL with the same output | A scratch program (not committed): `Delaunay_triangulation_2/3` built from (point, input index) pairs, with a vertex base and a cell base with info. Each finite cell's vertices (input indices) and neighbors (cell numbers) are then written into flat arrays. Pinned, medians of 3 builds |
+
+### Construction alone is about CGAL's whole build
+
+| Set | `build()` / CGAL | Construction / CGAL | Pass after the insertion | Publication | Before the insertion |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `cube` D2 10^5 | 1.36 | 1.04 | 19.2% | 1.5% | 2.9% |
+| `sphere` D2 10^5 | 1.37 | 1.10 | 14.2% | 0.9% | 4.3% |
+| `cube` D2 10^6 | 1.29 | 0.96 | 18.3% | 1.3% | 5.9% |
+| `cube` D3 10^5 | 1.26 | 1.04 | 14.7% | 0.7% | 2.0% |
+| `cube` D3 10^6 | 1.29 | 1.03 | 18.2% | 0.6% | 1.0% |
+| `cube` D4 10^4 | 1.10 | 0.98 | 10.0% | 0.2% | 0.8% |
+| `cube` D5 10^4 | 1.07 | 0.95 | 11.3% | 0.1% | 0.0% |
+
+The pass after the insertion, in milliseconds of one build:
+
+| Set | Tests of the faces left unknown | Draft | `finish` and `publish` |
+| --- | ---: | ---: | ---: |
+| `cube` D2 10^5 | 6.3 | 3.9 | 1.2 |
+| `cube` D3 10^5 | 40 (49 before P7-48) | 14 | 4.2 |
+| `cube` D4 10^4 | 38 (70) | 28 | 2.2 |
+| `cube` D5 10^4 | 588 (760) | 245 | 12 |
+
+In `cube` D3 the tests take about 80 ns a face over 506,576 faces. That is reading the neighbor's vertices and the sites, not arithmetic.
+
+### CGAL with the same output
+
+ADR 0006 compares "with the same output". CGAL's reference times the construction from the points and produces no output.
+
+| Set | The reference: construction from the points | From (point, index) pairs | Writing the arrays | Same output | Increase |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `cube` D2 10^5 | 41.6 ms | 50.1 ms | 3.7 ms | 53.8 ms | +29% |
+| `sphere` D2 10^5 | 32.3 ms | 38.9 ms | 2.7 ms | 41.6 ms | +29% |
+| `cube` D2 10^6 | 481 ms | 651 ms | 45 ms | 696 ms | +45% |
+| `cube` D3 10^5 | 319 ms | 328 ms | 20.6 ms | 349 ms | +9% |
+| `cube` D3 10^6 | 3.21 s | 3.44 s | 250 ms | 3.69 s | +15% |
+
+What convx publishes beyond this is left out of it: each simplex's sites in ascending order, and the cospherical groups. Against it, convx's `build()` would read about 1.05 on `cube` D2 10^5, 1.06 on `sphere` D2 10^5, 0.89 on `cube` D2 10^6, 1.15 on `cube` D3 10^5, and 1.12 on `cube` D3 10^6.
+
+### Instructions by source file
+
+| Set | Predicate arithmetic (`semi_static.rs`) | Insertion (`insert.rs`) | Bounds checks of indexing |
+| --- | ---: | ---: | ---: |
+| `cube` D2 10^5 | 96 M (14%) | 168 M (25%) | 69 M (10%) |
+| `cube` D3 10^5 | 1,117 M (29%) | 1,014 M (26%) | 377 M (10%) |
+| `cube` D4 10^4 | 5,803 M (61%) | 1,012 M (11%) | 264 M (3%) |
+
+### Reading
+
+- **Construction is at CGAL's pace.** What remains of D2 and D3 is the pass after the insertion (14 to 19%), publication, and in D2 the work before the insertion.
+- **CGAL's Delaunay reference does less than the same output.** With input indices and the arrays written, it takes 9 to 45% longer. The Grill on #454 decided that the reference gives the same output: P7-50 (#455).
+- **The hull's references** are audited the same way after it: P7-51 (#456).
+- **Rows that follow either way**, each prototyped first:
+  - the pass after the insertion in one walk for D2 and D3: P7-52 (#457);
+  - fixed-size storage of cells and sites for D2 and D3, against the 10% of bounds checks: P7-53 (#458).
