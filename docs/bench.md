@@ -2981,3 +2981,30 @@ The first step of P7-37 (#421) profiled `link_by_keys` in a copy of `main` (`8e1
 `insert`'s own time fell to 14.3%. Within it, the cavity walk (marks, the stack, reading neighbors) is about 35%, the call into the conflict test 19%, and the search for the back link 13%.
 
 So the line of the call took time that is not `link_by_keys`' own while the function was inlined. Its share is about 9% of the build. A change would save part of that, within the spread of `cube` D3 10^5 (about ±5%), so no keep criterion can be named, and P7-37 is withdrawn (owner, 2026-10-10).
+
+## Predicates: a first stage bounded by the columns' largest entries, prototype (#422)
+
+P7-38's Grill (2026-10-10) asked for a prototype before the implementation. A copy of `main` (`8e1cbf0`) gave four formulas a first stage bounded by a constant times the product of the columns' largest absolute entries (CGAL's form), with the present stage after it: the orientation of k = 2 and 3, and the lifted orientation of D = 2 and 3. Its constants were generous, for timing only, not derived.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `8e1cbf0` against the copy. rustc 1.97.1, `--release` with debug info |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
+| Rounds | Alternated per round: 8 × 3 builds of the D2 sets, 6 × 1 of `cube` D3, 5 × 1 of hull `sphere` D3 |
+
+Every set published the same counts on both sides.
+
+| Set | `main` | Copy | Ratio |
+| --- | ---: | ---: | ---: |
+| Delaunay `cube` D2 10^5 | 82.5 ms (75.3–98.5) | 83.8 ms (77.6–92.1) | 1.02, inside the spread |
+| Delaunay `sphere` D2 10^5 | 67.6 ms (62.9–74.8) | 70.3 ms (65.4–76.1) | 1.04, inside the spread |
+| Delaunay `cube` D3 10^5 | 515 ms (502–533) | 483 ms (474–493) | 0.94, faster beyond the spread |
+| Hull `sphere` D3 10^5 | 294 ms (291–300) | 286 ms (285–301) | 0.97, inside the spread |
+
+### Reading
+
+- **D2 does not move.** The in-circle test's arithmetic, with its permanent, is about 9% of the build. Most of what the spikes P7-32 and P7-36 counted as the predicates is around the call: the wrapper `sphere_sign`, a `position` search for the infinite vertex in `conflict`, and reading the sites.
+- **D3 gains about 6%**, against new constants to derive and test and an ADR.
+- The keep criterion asked D2 and D3 to be faster. **P7-38 is withdrawn** (owner, 2026-10-10). The call paths get the spike P7-40 (#427).
