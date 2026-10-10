@@ -13,6 +13,8 @@ Before starting a speed row, profile the build it targets (instruction counts or
 
 The share of code the compiler inlined (a closure, a small helper) is read from line-level counts (`valgrind --tool=callgrind --dump-instr=yes`, then `callgrind_annotate --auto=yes`). A function total that contains it is not its share.
 
+A spike's statement about what the code does is read on the path the measured build takes: the concrete type of a generic, the arm of a `match` on the dimension. In #431 the wrappers were said to gather the lifted heights for every call, read from the generic `Sites::lifted`; D = 2 and 3 take the fixed shapes, which call the first stage first, and the row opened on it (P7-42, #430) was withdrawn.
+
 The line of a call to a function the compiler inlined is not that function's share: the line takes time from the code around it. Check such a share on a copy with `#[inline(never)]` on the function, timed against the original to show it is the same build. In #424 the call of `link_by_keys` read 60% of `insert`'s own time, about 21% of Delaunay `cube` D3 10^5; without inlining it was 8.4%, the time unchanged (#425), and the row it led to was withdrawn.
 
 A function's own share is broken down by line before choosing what to change in it (VTune: `-report hotspots -source-object function=<name>`). In #417 the first change removed a sort, a division, and a reallocation that the function profile suggested, and read 0.94; the lines then put 81% of `classify_chain`'s own time on building one record per simplex.
