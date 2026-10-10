@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-8 (#323): acceptance. P7-26 (#384) and P7-27 (#385): the degenerate hull sets. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+P7-8 (#323): acceptance. P7-27 (#385): the degenerate hull sets. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -200,7 +200,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-23 | Feat | Delaunay D2: insert by edge flips (ADR 0007)                                            | #372  | Done        |
 | P7-24 | Spike | Delaunay: one record per cell of the mesh                                              | #374  | Done        |
 | P7-25 | Spike | Hull `cubesurf` and `grid`: where the time goes against Qhull                          | #368  | Done        |
-| P7-26 | Feat | Predicates: a zero column of differences decides zero before the later stages           | #384  | Not started |
+| P7-26 | Feat | Predicates: a zero column of differences decides zero before the later stages           | #384  | Done        |
 | P7-27 | Spike | Hull: exact planes of integer inputs, side tests by a dot product                       | #385  | Not started |
 
 ## Intentionally out of scope

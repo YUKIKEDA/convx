@@ -2255,3 +2255,59 @@ With one codegen unit, `main`'s `cubesurf` D3 10^5 read 0.99 of the default buil
 | --- | --- | --- |
 | P7-26 (#384) | Feat | Predicates: a zero column of differences decides zero before the later stages |
 | P7-27 (#385) | Spike | Hull: exact planes of integer inputs, side tests by a dot product |
+
+## Predicates: a zero column decides zero, PR #389 (#384)
+
+P7-26. On the degenerate hull sets, most orientations that reach the later stages are exactly zero, with a coordinate column whose differences are all zero (P7-25, #386). A bound never certifies a zero, so each of them ran double-double, or the running filter at k = 6, and then the exact stage. `a - b` is zero in `f64` exactly when `a == b`, so such a column, with the direction row's entry zero too, makes the determinant exactly zero. The check runs after the first stage and before every later stage (design §1). A sign the first stage certifies costs nothing more.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `c8998c7` against the head `0cf94e9`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2) |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md`, with hull `grid` D6 10^4 |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about a second |
+
+Every set published the same counts on both sides.
+
+After this measurement, the branch merged `main` (`77fb3c2`), which brought #380 and #381 (the hull D2 chain and its discard) and #388 (a test). The shipped head `4ffb02c` was not timed again: the sets of the keep criterion are D3 and D6 and do not run the D2 code, and #388 changes a test only.
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.69 ms (0.61 ms–0.80 ms) | 0.70 ms (0.62 ms–2.00 ms) | 1.02, inside the spread |
+| Hull `cube` D2 10^5 | 6.23 ms (5.61 ms–7.01 ms) | 6.31 ms (5.76 ms–7.35 ms) | 1.01, inside the spread |
+| Hull `cube` D3 10^4 | 1.56 ms (1.35 ms–1.95 ms) | 1.59 ms (1.34 ms–2.26 ms) | 1.02, inside the spread |
+| Hull `cube` D3 10^5 | 12.3 ms (11.5 ms–14.9 ms) | 12.1 ms (11.2 ms–15.4 ms) | 0.98, inside the spread |
+| Hull `cube` D4 10^4 | 6.48 ms (6.23 ms–7.65 ms) | 6.70 ms (6.22 ms–7.51 ms) | 1.03, inside the spread |
+| Hull `cube` D4 10^5 | 34.9 ms (33.8 ms–39.3 ms) | 34.8 ms (33.9 ms–37.9 ms) | 1.00, inside the spread |
+| Hull `cube` D5 10^4 | 56.1 ms (54.5 ms–63.4 ms) | 57.7 ms (55.1 ms–63.0 ms) | 1.03, inside the spread |
+| Hull `cube` D6 10^4 | 574 ms (564 ms–605 ms) | 576 ms (564 ms–593 ms) | 1.00, inside the spread |
+| Hull `cubesurf` D3 10^5 | 106 ms (103 ms–112 ms) | 78.0 ms (76.9 ms–86.3 ms) | 0.73, faster beyond the spread |
+| Hull `grid` D6 10^4 | 2.25 s (2.25 s–2.26 s) | 1.94 s (1.94 s–1.97 s) | 0.86, faster beyond the spread |
+| Hull `sphere` D2 10^4 | 1.58 ms (1.52 ms–2.08 ms) | 1.69 ms (1.50 ms–2.30 ms) | 1.07, inside the spread |
+| Hull `sphere` D2 10^5 | 18.0 ms (16.9 ms–20.9 ms) | 17.6 ms (16.7 ms–21.9 ms) | 0.98, inside the spread |
+| Hull `sphere` D3 10^4 | 29.5 ms (27.5 ms–38.9 ms) | 29.6 ms (27.6 ms–44.1 ms) | 1.00, inside the spread |
+| Hull `sphere` D3 10^5 | 325 ms (315 ms–373 ms) | 332 ms (318 ms–374 ms) | 1.02, inside the spread |
+| Hull `sphere` D4 10^4 | 126 ms (123 ms–140 ms) | 127 ms (122 ms–138 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^5 | 1.76 s (1.73 s–1.91 s) | 1.73 s (1.69 s–1.82 s) | 0.98, inside the spread |
+| Hull `sphere` D5 10^4 | 827 ms (790 ms–855 ms) | 826 ms (794 ms–873 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^4 | 7.44 ms (7.15 ms–8.16 ms) | 7.43 ms (7.10 ms–8.08 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^5 | 73.9 ms (71.9 ms–78.8 ms) | 74.8 ms (72.4 ms–84.7 ms) | 1.01, inside the spread |
+| Delaunay `cube` D3 10^4 | 42.4 ms (41.3 ms–44.4 ms) | 42.4 ms (41.3 ms–47.1 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^5 | 454 ms (441 ms–476 ms) | 454 ms (442 ms–515 ms) | 1.00, inside the spread |
+| Delaunay `cube` D4 10^4 | 757 ms (657 ms–833 ms) | 802 ms (695 ms–1.01 s) | 1.06, inside the spread |
+| Delaunay `cube` D5 10^4 | 7.50 s (7.46 s–8.94 s) | 7.66 s (7.43 s–8.67 s) | 1.02, inside the spread |
+| Delaunay `sphere` D2 10^4 | 6.94 ms (6.74 ms–9.03 ms) | 7.00 ms (6.74 ms–7.88 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D2 10^5 | 58.7 ms (56.9 ms–67.8 ms) | 58.7 ms (57.8 ms–61.1 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^4 | 89.1 ms (87.4 ms–100 ms) | 89.0 ms (86.7 ms–98.8 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^5 | 981 ms (946 ms–1.08 s) | 971 ms (938 ms–1.05 s) | 0.99, inside the spread |
+
+### Reading
+
+- **The keep criterion is met.** Hull `cubesurf` D3 10^5 reads 0.73 and `grid` D6 10^4 0.86, both faster beyond the spread, as in the prototype of P7-25 (0.73 and 0.85).
+- **Nothing is slower beyond the spread.** Delaunay `cube` D4 10^4 reads 1.06 and hull `sphere` D2 10^4 1.07, each inside the spread, its range overlapping `main`'s. The other sets read 0.98 to 1.03.
+- **`grid`'s remaining gap** is the cost of a side test against Qhull's dot product, the spike P7-27 (#385).

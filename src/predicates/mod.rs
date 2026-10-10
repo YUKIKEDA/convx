@@ -16,6 +16,9 @@
 //!    [`double_double`]);
 //! 3. exactly.
 //!
+//! Before stage 2, and before the running bound wherever it runs, a matrix
+//! with a coordinate column of zeros decides zero ([`has_zero_column`]).
+//!
 //! Every other predicate, and every degree above 6, evaluates in `f64` with
 //! the running bound and then exactly. When a bound certifies the sign,
 //! that sign is returned. The exact sign is that of the same polynomial,
@@ -392,8 +395,15 @@ fn filtered(rows: Rows<'_>, start: Start) -> Option<Sign> {
                     "the caller's first stage left the sign open"
                 );
             }
-        } else if let Some(sign) = filtered_value(rows).and_then(|v| v.certified_sign()) {
-            return Some(sign);
+        }
+        if has_zero_column(rows) {
+            debug_assert_eq!(exact::sign_exact(rows), Ok(Sign::Zero), "a zero column");
+            return Some(Sign::Zero);
+        }
+        if k > FIRST_STAGE_UP_TO {
+            if let Some(sign) = filtered_value(rows).and_then(|v| v.certified_sign()) {
+                return Some(sign);
+            }
         }
         let sign = double_double::sign(rows.origin, rows.points, lifted)?;
         debug_assert_eq!(
@@ -403,7 +413,24 @@ fn filtered(rows: Rows<'_>, start: Start) -> Option<Sign> {
         );
         return Some(sign);
     }
+    if has_zero_column(rows) {
+        debug_assert_eq!(exact::sign_exact(rows), Ok(Sign::Zero), "a zero column");
+        return Some(Sign::Zero);
+    }
     filtered_value(rows)?.certified_sign()
+}
+
+/// Whether a coordinate column of the matrix is zero: every point has the
+/// origin's coordinate there, and a direction row, if any, is zero there.
+/// The determinant is then exactly zero. `a - b` is zero in `f64` exactly
+/// when `a == b` (`-0.0` and `+0.0` included), so the test is exact. On
+/// inputs on hyperplanes parallel to the axes, most zero signs are of this
+/// kind, and no bound can certify a zero (#368).
+fn has_zero_column(rows: Rows<'_>) -> bool {
+    (0..rows.origin.len()).any(|c| {
+        rows.points.iter().all(|p| p[c] == rows.origin[c])
+            && rows.direction.is_none_or(|d| d[c] == 0.0)
+    })
 }
 
 /// The filtered determinant with its error bound, for k >= 2.
@@ -1425,5 +1452,73 @@ mod tests {
             assert_eq!(lifted_of(&moved(&near)), lifted_of(&near), "t = {t}");
         }
         assert_eq!(lifted_of(&near), Sign::Negative);
+    }
+
+    /// The exact sign of `points` (k + 1 rows of dimension k, or k + 2 when
+    /// `lifted`), or of `points` followed by `direction`, from the exact
+    /// stage alone: the reference of the zero-column test.
+    fn exact_sign(points: &[Vec<f64>], lifted: bool, direction: Option<&[f64]>) -> Sign {
+        let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+        let heights: Vec<LiftedHeight> = refs.iter().map(|p| LiftedHeight::of(p)).collect();
+        exact::sign_exact(Rows {
+            origin: refs[0],
+            points: &refs[1..],
+            direction,
+            lifted: lifted.then_some(&heights[..]),
+        })
+        .unwrap()
+    }
+
+    /// A column of zero differences decides zero (#384), and a column one
+    /// ulp away from zero is left to the stages. Every size of the plain
+    /// orientation (k = 2 to 7), the lifted one (D = 2 to 5; at D = 1 a
+    /// shared column makes the points equal), and an orientation against a
+    /// direction, each column in turn.
+    #[test]
+    fn a_zero_column_is_zero_and_one_ulp_off_is_not() {
+        let mut rng = Rng(384);
+        for (dim, extra, direction) in (2..=7)
+            .map(|k| (k, 0, false))
+            .chain((2..=5).map(|d| (d, 1, false)))
+            .chain((2..=6).map(|k| (k, 0, true)))
+        {
+            let lifted = extra == 1;
+            let count = if direction { dim } else { dim + 1 + extra };
+            for column in 0..dim {
+                let shared = rng.unit();
+                let mut points: Vec<Vec<f64>> = (0..count)
+                    .map(|_| (0..dim).map(|_| rng.unit()).collect())
+                    .collect();
+                for p in &mut points {
+                    p[column] = shared;
+                }
+                let mut toward: Vec<f64> = (0..dim).map(|_| rng.unit()).collect();
+                toward[column] = 0.0;
+                let dir = direction.then_some(&toward[..]);
+                let sign = |points: &[Vec<f64>], dir: Option<&[f64]>| {
+                    let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+                    match (lifted, dir) {
+                        (true, _) => orient_lifted(&refs).unwrap(),
+                        (false, Some(d)) => orient_direction(&refs, d).unwrap(),
+                        (false, None) => orient(&refs).unwrap(),
+                    }
+                };
+                let what =
+                    format!("dim {dim}, lifted {lifted}, direction {direction}, column {column}");
+                assert_eq!(exact_sign(&points, lifted, dir), Sign::Zero, "{what}");
+                assert_eq!(sign(&points, dir), Sign::Zero, "{what}");
+                // One ulp off, at the last row: the column is no longer zero.
+                if direction {
+                    toward[column] = f64::from_bits(1);
+                } else {
+                    let last = points.len() - 1;
+                    points[last][column] = shared.next_up();
+                }
+                let dir = direction.then_some(&toward[..]);
+                let expected = exact_sign(&points, lifted, dir);
+                assert_ne!(expected, Sign::Zero, "{what}: one ulp off");
+                assert_eq!(sign(&points, dir), expected, "{what}: one ulp off");
+            }
+        }
     }
 }
