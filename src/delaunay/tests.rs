@@ -752,7 +752,8 @@ fn pulled_simplices_have_empty_circumspheres() {
 
 /// Every permutation of `k` distinct vertices, for k = 2 to 6: the sorted
 /// vertices ascend, each keeps its slot, and the parity is that of the
-/// permutation's inversions, counted pairwise here.
+/// permutation's inversions, counted pairwise here. Three and four vertices
+/// go through `ascending_fixed`, which the cells of D = 2 and 3 take.
 #[test]
 fn ascending_sorts_and_gives_the_parity_of_every_permutation() {
     fn permutations(k: usize) -> Vec<Vec<u32>> {
