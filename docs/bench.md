@@ -2272,6 +2272,8 @@ P7-26. On the degenerate hull sets, most orientations that reach the later stage
 
 Every set published the same counts on both sides.
 
+After this measurement, the branch merged `main` (`77fb3c2`), which brought #380 and #381 (the hull D2 chain and its discard) and #388 (a test). The shipped head `4ffb02c` was not timed again: the sets of the keep criterion are D3 and D6 and do not run the D2 code, and #388 changes a test only.
+
 ### Against `main`
 
 | Set | `main` | Head | Ratio |
