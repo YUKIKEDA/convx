@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Amended for D = 2 by ADR 0007 (2026-10-10): D = 2 inserts by edge flips, a second core.
+Accepted. Amended for D = 2 by ADR 0007 (2026-10-10): D = 2 inserts by edge flips, a second core. Amended by ADR 0008 (2026-10-10): D = 2 and D = 3 may have dedicated paths, so "one source" no longer holds for them.
 
 ## Date
 

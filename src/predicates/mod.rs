@@ -82,7 +82,7 @@ pub(crate) fn orient(points: &[&[f64]]) -> Result<Sign, ExactEvaluationExhausted
 pub(crate) enum Start {
     /// At the first stage, for the sizes it covers.
     FirstStage,
-    /// After it: the caller ran [`first_stage`] on the same rows, and it
+    /// After it: the caller ran [`first_stage_fixed`] on the same rows, and it
     /// left the sign open. Only for the sizes that stage covers.
     AfterFirstStage,
 }
@@ -104,15 +104,20 @@ pub(crate) fn orient_from(
     )
 }
 
-/// The first stage alone of [`orient`] (`lifted` false) or of the lifted
-/// orientation (`lifted` true) of `origin` followed by `points`: the sign
-/// when the semi-static bound certifies it, for the sizes that stage covers.
-/// `None` means the caller must use the full predicate, which returns the
-/// same sign whenever this does. For a caller that holds its rows in arrays
-/// of a fixed size and wants no gathering of rows on the way (#294).
+/// The first stage alone of [`orient`] (`R = D` rows) or of the lifted
+/// orientation (`R = D + 1` rows) of `origin` followed by `points`, on rows
+/// of a fixed size, D = 2 and D = 3: the sign when the semi-static bound
+/// certifies it. `None` means the caller must use the full predicate, which
+/// returns the same sign whenever this does; also `None` for any other size.
+/// For the dedicated Delaunay paths of D = 2 and D = 3, which hold their
+/// rows in arrays and want no gathering of rows on the way (#294, ADR 0008,
+/// #446).
 #[inline(always)]
-pub(crate) fn first_stage(origin: &[f64], points: &[&[f64]], lifted: bool) -> Option<Sign> {
-    semi_static::sign(origin, points, lifted)
+pub(crate) fn first_stage_fixed<const D: usize, const R: usize>(
+    origin: &[f64; D],
+    points: &[[f64; D]; R],
+) -> Option<Sign> {
+    semi_static::fixed_sign(origin, points)
 }
 
 /// The sign of the planar orientation of `a`, `b`, `c`, when Shewchuk's

@@ -55,8 +55,8 @@
 use crate::hull::input::Input;
 use crate::hull::ConvexHullError;
 use crate::predicates::{
-    first_stage, orient, orient_from, orient_lifted_from, orient_lifted_with, LiftedHeight, Sign,
-    Start,
+    first_stage_fixed, orient, orient_from, orient_lifted_from, orient_lifted_with, LiftedHeight,
+    Sign, Start,
 };
 use crate::small::Small;
 
@@ -85,13 +85,14 @@ pub(super) enum Across {
 }
 
 /// What the insertion needs to know of the dimension: the number of
-/// vertices of a simplex, and the two predicates on sites.
+/// vertices of a simplex, and the predicates on sites.
 ///
 /// [`Plane`] and [`Space`] make `k` a constant, so the loops over the
-/// vertices of a simplex have a fixed length, and call the first stage of a
-/// predicate on rows gathered into an array of that size. [`Any`] reads `k`
-/// from a field and uses the predicates of [`Sites`]. A predicate returns
-/// the same exact sign under every shape.
+/// vertices of a simplex have a fixed length. They read each site as an
+/// array of D coordinates and call the first stage of a predicate on those
+/// arrays, and build the ids of a predicate in arrays of a fixed size
+/// (ADR 0008, #446). [`Any`] reads `k` from a field and uses the predicates
+/// of [`Sites`]. A predicate returns the same exact sign under every shape.
 pub(super) trait Shape: Copy {
     /// Whether the insertion flips edges (D = 2, ADR 0007) rather than
     /// digging a cavity.
@@ -105,6 +106,20 @@ pub(super) trait Shape: Copy {
 
     /// Lifted orientation of the sites `ids` (D + 2 of them).
     fn lifted(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError>;
+
+    /// The lifted orientation of the simplex `vertices` (D + 1 sites)
+    /// followed by `q`.
+    fn sphere_sign(self, sites: &Sites, vertices: &[u32], q: u32) -> Result<Sign, ConvexHullError>;
+
+    /// The orientation of the simplex `vertices` with vertex `slot` replaced
+    /// by `q`.
+    fn replaced(
+        self,
+        sites: &Sites,
+        vertices: &[u32],
+        slot: usize,
+        q: u32,
+    ) -> Result<Sign, ConvexHullError>;
 }
 
 /// Any dimension: `k` is a value.
@@ -137,17 +152,52 @@ impl Shape for Any {
     fn lifted(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError> {
         sites.lifted(ids, Start::FirstStage)
     }
+
+    fn sphere_sign(self, sites: &Sites, vertices: &[u32], q: u32) -> Result<Sign, ConvexHullError> {
+        let k = self.k;
+        if k < INLINE {
+            let mut ids = [0_u32; INLINE];
+            ids[..k].copy_from_slice(vertices);
+            ids[k] = q;
+            self.lifted(sites, &ids[..=k])
+        } else {
+            let mut ids = vertices.to_vec();
+            ids.push(q);
+            self.lifted(sites, &ids)
+        }
+    }
+
+    fn replaced(
+        self,
+        sites: &Sites,
+        vertices: &[u32],
+        slot: usize,
+        q: u32,
+    ) -> Result<Sign, ConvexHullError> {
+        let k = self.k;
+        if k <= INLINE {
+            let mut ids = [0_u32; INLINE];
+            ids[..k].copy_from_slice(vertices);
+            ids[slot] = q;
+            self.orient(sites, &ids[..k])
+        } else {
+            let mut ids = vertices.to_vec();
+            ids[slot] = q;
+            self.orient(sites, &ids)
+        }
+    }
 }
 
-/// A shape of one dimension: `k` is the constant `$k`, and a predicate first
-/// tries the semi-static stage on `$k` (or `$k + 1`) rows in an array, with
-/// no cached height and no dispatch on the size. What that stage does not
-/// certify goes to the predicate of [`Sites`], which starts after that stage
+/// A shape of one dimension `$d`: `k` is the constant `$k = $d + 1`, and a
+/// predicate first tries the semi-static stage on its sites read as arrays
+/// of `$d` coordinates, with no cached height and no dispatch on the size
+/// ([`first_stage_fixed`]). What that stage does not certify goes to the
+/// predicate of [`Sites`], which starts after that stage
 /// ([`Start::AfterFirstStage`]), so the first stage runs once and the sign
 /// is the one [`Any`] returns; debug builds assert it, and that predicate
 /// checks its own certified signs against the exact one.
 macro_rules! fixed_shape {
-    ($(#[$doc:meta])* $name:ident, $k:literal, $lifted:literal, $flips:literal) => {
+    ($(#[$doc:meta])* $name:ident, $d:literal, $k:literal, $lifted:literal, $flips:literal) => {
         $(#[$doc])*
         #[derive(Clone, Copy)]
         pub(super) struct $name;
@@ -164,8 +214,9 @@ macro_rules! fixed_shape {
             fn orient(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError> {
                 debug_assert_eq!(ids.len(), $k);
                 debug_assert_eq!(sites.dim() + 1, $k);
-                let rows: [&[f64]; $k] = core::array::from_fn(|i| sites.point(ids[i]));
-                match first_stage(rows[0], &rows[1..], false) {
+                let origin: [f64; $d] = sites.fixed(ids[0]);
+                let rows: [[f64; $d]; $d] = core::array::from_fn(|i| sites.fixed(ids[i + 1]));
+                match first_stage_fixed(&origin, &rows) {
                     Some(sign) => {
                         debug_assert_eq!(Ok(sign), sites.orient(ids, Start::FirstStage));
                         Ok(sign)
@@ -178,14 +229,40 @@ macro_rules! fixed_shape {
             fn lifted(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError> {
                 debug_assert_eq!(ids.len(), $lifted);
                 debug_assert_eq!(sites.dim() + 2, $lifted);
-                let rows: [&[f64]; $lifted] = core::array::from_fn(|i| sites.point(ids[i]));
-                match first_stage(rows[0], &rows[1..], true) {
+                let origin: [f64; $d] = sites.fixed(ids[0]);
+                let rows: [[f64; $d]; $k] = core::array::from_fn(|i| sites.fixed(ids[i + 1]));
+                match first_stage_fixed(&origin, &rows) {
                     Some(sign) => {
                         debug_assert_eq!(Ok(sign), sites.lifted(ids, Start::FirstStage));
                         Ok(sign)
                     }
                     None => sites.lifted(ids, Start::AfterFirstStage),
                 }
+            }
+
+            #[inline(always)]
+            fn sphere_sign(
+                self,
+                sites: &Sites,
+                vertices: &[u32],
+                q: u32,
+            ) -> Result<Sign, ConvexHullError> {
+                let ids: [u32; $lifted] =
+                    core::array::from_fn(|i| if i < $k { vertices[i] } else { q });
+                self.lifted(sites, &ids)
+            }
+
+            #[inline(always)]
+            fn replaced(
+                self,
+                sites: &Sites,
+                vertices: &[u32],
+                slot: usize,
+                q: u32,
+            ) -> Result<Sign, ConvexHullError> {
+                let mut ids: [u32; $k] = core::array::from_fn(|i| vertices[i]);
+                ids[slot] = q;
+                self.orient(sites, &ids)
             }
         }
     };
@@ -194,6 +271,7 @@ macro_rules! fixed_shape {
 fixed_shape!(
     /// D = 2: triangles, inserted by edge flips (ADR 0007).
     Plane,
+    2,
     3,
     4,
     true
@@ -201,6 +279,7 @@ fixed_shape!(
 fixed_shape!(
     /// D = 3: tetrahedra.
     Space,
+    3,
     4,
     5,
     false
@@ -302,6 +381,16 @@ impl Sites {
         let stride = self.dim + 2;
         let start = index as usize * stride;
         &self.rows[start..start + stride]
+    }
+
+    /// The `D` coordinates of site `index` as an array, for the shapes of a
+    /// fixed dimension; `D` is the sites' dimension.
+    #[inline(always)]
+    fn fixed<const D: usize>(&self, index: u32) -> [f64; D] {
+        debug_assert_eq!(D, self.dim, "the shape is that of the sites' dimension");
+        let start = index as usize * (D + 2);
+        let row = &self.rows[start..start + D];
+        core::array::from_fn(|j| row[j])
     }
 
     /// The coordinates of site `index`, bit for bit the input's.
@@ -440,33 +529,13 @@ impl<'a, S: Shape> Mesh<'a, S> {
 
     /// The lifted orientation of finite simplex `c` followed by `q`.
     fn sphere_sign(&self, c: u32, q: u32) -> Result<Sign, ConvexHullError> {
-        let k = self.shape.k();
-        let sign = if k < INLINE {
-            let mut ids = [0_u32; INLINE];
-            ids[..k].copy_from_slice(self.vertices_of(c));
-            ids[k] = q;
-            self.lifted_ids(&ids[..=k])?
-        } else {
-            let mut ids = self.vertices_of(c).to_vec();
-            ids.push(q);
-            self.lifted_ids(&ids)?
-        };
-        Ok(sign)
+        self.shape.sphere_sign(self.sites, self.vertices_of(c), q)
     }
 
     /// The orientation of simplex `c` with vertex `slot` replaced by `q`.
     fn replaced(&self, c: u32, slot: usize, q: u32) -> Result<Sign, ConvexHullError> {
-        let k = self.shape.k();
-        if k <= INLINE {
-            let mut ids = [0_u32; INLINE];
-            ids[..k].copy_from_slice(self.vertices_of(c));
-            ids[slot] = q;
-            self.orient_ids(&ids[..k])
-        } else {
-            let mut ids = self.vertices_of(c).to_vec();
-            ids[slot] = q;
-            self.orient_ids(&ids)
-        }
+        self.shape
+            .replaced(self.sites, self.vertices_of(c), slot, q)
     }
 
     /// Whether simplex `c` conflicts with `q` (module docs).
@@ -824,6 +893,13 @@ impl<'a, S: Shape> Mesh<'a, S> {
     /// visibility walk from the last created simplex; the face to cross is
     /// tried from a position that depends on `q`, which keeps the walk from
     /// cycling.
+    ///
+    /// The face to the simplex the walk came from is not tested (ADR 0007).
+    /// From a finite simplex the walk crossed it because `q` is strictly
+    /// beyond it, and from a simplex at infinity because `q` is not strictly
+    /// beyond its hull facet; either way the orientation with `q` in place of
+    /// the vertex opposite that face is not negative, so the walk takes the
+    /// same steps and ends where it did.
     fn locate(&self, q: u32) -> Result<u32, ConvexHullError> {
         let k = self.shape.k();
         // Seeded by the input index, so that the walk, and with it the order
@@ -832,11 +908,13 @@ impl<'a, S: Shape> Mesh<'a, S> {
         let mut state =
             u64::from(self.sites.input_index(q)).wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
         let mut c = self.last;
+        let mut came_from = NONE;
         loop {
             if let Some(slot) = self.vertices_of(c).iter().position(|&v| v == INFINITE) {
                 if self.conflicts(c, q)? {
                     return Ok(c);
                 }
+                came_from = c;
                 c = self.neighbor(c, slot);
                 continue;
             }
@@ -847,13 +925,24 @@ impl<'a, S: Shape> Mesh<'a, S> {
             let mut next = None;
             for t in 0..k {
                 let slot = (t + offset) % k;
+                if self.neighbor(c, slot) == came_from {
+                    debug_assert_ne!(
+                        self.replaced(c, slot, q)?,
+                        Sign::Negative,
+                        "the face the walk came through is not negative"
+                    );
+                    continue;
+                }
                 if self.replaced(c, slot, q)? == Sign::Negative {
                     next = Some(self.neighbor(c, slot));
                     break;
                 }
             }
             match next {
-                Some(n) => c = n,
+                Some(n) => {
+                    came_from = c;
+                    c = n;
+                }
                 // q is in the closed simplex and is no vertex of it, so it
                 // is strictly inside the circumsphere.
                 None => return Ok(c),

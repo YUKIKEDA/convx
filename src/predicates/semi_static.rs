@@ -205,6 +205,30 @@ pub(super) fn sign(origin: &[f64], points: &[&[f64]], lifted: bool) -> Option<Si
     estimate(origin, points, lifted)?.sign()
 }
 
+/// [`sign`] on rows of a fixed size, for D = 2 and D = 3: `R = D` rows for
+/// the orientation and `R = D + 1` for the lifted orientation. The rows are
+/// differenced from `origin` as [`estimate`] does, and the same formula
+/// gives the same sign; the size is a constant, so nothing is chosen or
+/// bounds-checked per call (#446). `None` for any other size.
+#[inline(always)]
+pub(super) fn fixed_sign<const D: usize, const R: usize>(
+    origin: &[f64; D],
+    points: &[[f64; D]; R],
+) -> Option<Sign> {
+    let p: [[f64; D]; R] =
+        core::array::from_fn(|i| core::array::from_fn(|j| points[i][j] - origin[j]));
+    let two = |i: usize| [p[i][0], p[i][1]];
+    let three = |i: usize| [p[i][0], p[i][1], p[i][2]];
+    let estimate = match (D, R) {
+        (2, 2) => orient2(two(0), two(1)),
+        (2, 3) => lifted2(two(0), two(1), two(2)),
+        (3, 3) => orient3(three(0), three(1), three(2)),
+        (3, 4) => lifted3(three(0), three(1), three(2), three(3)),
+        _ => return None,
+    };
+    estimate.sign()
+}
+
 /// The determinant [`sign`] decides and its bound, or `None` when no formula
 /// here covers the size.
 #[inline(always)]
@@ -277,6 +301,7 @@ fn first3(row: [f64; 4]) -> [f64; 3] {
 
 /// Orientation, k = 2: `n = 4`. Each of the two products underflows by at
 /// most `η / 2`, so `X = 1`.
+#[inline(always)]
 fn orient2(a: [f64; 2], b: [f64; 2]) -> Estimate {
     let (det, permanent) = minor2(a, b);
     Estimate::new(det, relative(4), permanent, 1.0)
@@ -286,6 +311,7 @@ fn orient2(a: [f64; 2], b: [f64; 2]) -> Estimate {
 /// minors underflows by at most `η / 2`, scaled by the column-2 entry it is
 /// multiplied with; each of the three outer products by `η / 2`. So
 /// `X = |a2| + |b2| + |c2| + 2`.
+#[inline(always)]
 fn orient3(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Estimate {
     let (a2, b2, c2) = (first2(a), first2(b), first2(c));
     let (det, permanent) = minor3((a, b, c), (minor2(b2, c2), minor2(a2, c2), minor2(a2, b2)));
@@ -360,6 +386,7 @@ fn lifted1(a: f64, b: f64) -> Estimate {
 /// minor; a minor by `η`, scaled by its lifted entry; each outer product
 /// by `η / 2`. So `X` is the sum of the minors' permanents, of the lifted
 /// entries, and 2.
+#[inline(always)]
 fn lifted2(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> Estimate {
     let lift = |p: [f64; 2]| p[0] * p[0] + p[1] * p[1];
     let (la, lb, lc) = (lift(a), lift(b), lift(c));
@@ -377,6 +404,7 @@ fn lifted2(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> Estimate {
 /// as in [`orient4`], scaled by its lifted entry; each outer product by
 /// `η / 2`. So `X = 2 (sum of the minors' permanents) + (sum of the lifted
 /// entries) (Z + 2) + 2`.
+#[inline(always)]
 fn lifted3(a: [f64; 3], b: [f64; 3], c: [f64; 3], d: [f64; 3]) -> Estimate {
     let rows = [a, b, c, d];
     let lifts = rows.map(|p| (p[0] * p[0] + p[1] * p[1]) + p[2] * p[2]);
@@ -731,6 +759,122 @@ pub(super) mod tests {
                 tally.certified > 0 && tally.open > 0,
                 "dim {dim}, lifted {lifted}: {tally:?}"
             );
+        }
+    }
+
+    /// [`fixed_sign`] of `points` (D = 2 or 3; D + 1 points, or D + 2 when
+    /// `lifted`), through the arrays the Delaunay shapes pass.
+    fn fixed_of(points: &[Vec<f64>], lifted: bool) -> Option<Sign> {
+        fn rows<const D: usize, const R: usize>(points: &[Vec<f64>]) -> Option<Sign> {
+            let origin: [f64; D] = core::array::from_fn(|j| points[0][j]);
+            let rest: [[f64; D]; R] =
+                core::array::from_fn(|i| core::array::from_fn(|j| points[i + 1][j]));
+            fixed_sign(&origin, &rest)
+        }
+        match (points[0].len(), lifted) {
+            (2, false) => rows::<2, 2>(points),
+            (2, true) => rows::<2, 3>(points),
+            (3, false) => rows::<3, 3>(points),
+            (3, true) => rows::<3, 4>(points),
+            _ => unreachable!("D = 2 or 3"),
+        }
+    }
+
+    #[test]
+    fn fixed_rows_give_the_generic_sign() {
+        // D = 2 and 3, plain and lifted, over three families: random points;
+        // points of an exact zero (on a line, a plane, a circle, or a
+        // sphere) with the last coordinate moved one ulp either way; and
+        // random points scaled by powers of two from 2^-60 to 2^60. The
+        // fixed rows return what the generic entry returns, `None` included,
+        // and a certified sign is the exact one. Each family both certifies
+        // and leaves cases open where it should.
+        let mut rng = Rng(0x0446_0001);
+        let zero = |dim: usize, lifted: bool| -> Vec<Vec<f64>> {
+            match (dim, lifted) {
+                (2, false) => vec![vec![0.1, 0.1], vec![0.3, 0.3], vec![0.7, 0.7]],
+                (3, false) => vec![
+                    vec![1.0, 1.0, 1.0],
+                    vec![3.0, 0.0, 0.0],
+                    vec![0.0, 3.0, 0.0],
+                    vec![2.0, 2.0, -1.0],
+                ],
+                (2, true) => vec![
+                    vec![1.0, 0.0],
+                    vec![0.0, 1.0],
+                    vec![-1.0, 0.0],
+                    vec![0.0, -1.0],
+                ],
+                _ => vec![
+                    vec![1.0, 0.0, 0.0],
+                    vec![0.0, 1.0, 0.0],
+                    vec![-1.0, 0.0, 0.0],
+                    vec![0.0, -1.0, 0.0],
+                    vec![0.0, 0.0, 1.0],
+                ],
+            }
+        };
+        for (dim, lifted) in [(2, false), (2, true), (3, false), (3, true)] {
+            let n = count(dim, lifted);
+            let mut random = Vec::new();
+            let mut near = Vec::new();
+            let mut scaled = Vec::new();
+            for _ in 0..2000 {
+                random.push(
+                    (0..n)
+                        .map(|_| (0..dim).map(|_| rng.unit()).collect())
+                        .collect(),
+                );
+                let scale = 2_f64.powi(rng.below(121) as i32 - 60);
+                scaled.push(
+                    (0..n)
+                        .map(|_| (0..dim).map(|_| rng.unit() * scale).collect())
+                        .collect(),
+                );
+            }
+            for step in [-1.0, 0.0, 1.0] {
+                let mut points = zero(dim, lifted);
+                let last = &mut points[n - 1][dim - 1];
+                if step != 0.0 {
+                    *last = if step > 0.0 {
+                        last.next_up()
+                    } else {
+                        last.next_down()
+                    };
+                }
+                near.push(points);
+            }
+            for (family, cases) in [
+                ("random", &random),
+                ("near zero", &near),
+                ("scaled", &scaled),
+            ] {
+                let (mut certified, mut open) = (0, 0);
+                for points in cases.iter() {
+                    let fixed = fixed_of(points, lifted);
+                    assert_eq!(
+                        fixed,
+                        semi_of(points, lifted),
+                        "D = {dim}, lifted {lifted}, {family}: {points:?}"
+                    );
+                    match fixed {
+                        Some(sign) => {
+                            assert_eq!(sign, exact_of(points, lifted), "{family}: {points:?}");
+                            certified += 1;
+                        }
+                        None => open += 1,
+                    }
+                }
+                match family {
+                    // Random and scaled points are far from zero: every case
+                    // is certified.
+                    "random" | "scaled" => {
+                        assert_eq!(open, 0, "D = {dim}, lifted {lifted}, {family}")
+                    }
+                    // The exact zero is left open, as are both one-ulp moves.
+                    _ => assert_eq!((certified, open), (0, 3), "D = {dim}, lifted {lifted}"),
+                }
+            }
         }
     }
 
