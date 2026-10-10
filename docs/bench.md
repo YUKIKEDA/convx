@@ -3492,7 +3492,7 @@ In D4 and D5 those tests are about 10% of `build()`, about the whole gap to CGAL
   - The first stage's bound, the permanent, about as long as the determinant. P7-38 (#428) made the bound cheaper and read 1.00, but the entry still cost about 200 instructions a call then. The bound is now a larger share of a shorter call.
   - The pass after the insertion: 14 to 17% of `build()` in every dimension, most of it the tests of the faces left unknown.
   - In D2, accepting the input and making the sites: about 3 ms of 66.
-- **The rows that follow are set in the Grill on #444:**
-  - the fixed-size entry, with the wrappers and the walk of ADR 0007 (prototype 2);
-  - the first stage's bound, on top of it;
-  - the tests of the faces left unknown.
+- **The rows that follow, from the Grill on #444:**
+  - P7-45 (#446): the fixed-size entry, with the wrappers and the walk of ADR 0007 (prototype 2), and ADR 0008 for dedicated D = 2 and D = 3 paths;
+  - P7-46 (#447): the first stage's bound, prototyped on top of it;
+  - P7-47 (#448): a proof that decides the faces left unknown without a test, grilled before any row.
