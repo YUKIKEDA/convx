@@ -137,19 +137,45 @@ pub(crate) fn working_normal(
     outward: Sign,
     cofactors: Option<&[(f64, f64)]>,
 ) -> Result<Option<Direction>, ExactEvaluationExhausted> {
-    let Some((direction, _)) = cofactor_reference(facet, cofactors)? else {
+    Ok(certified_working_normal(facet, outward, cofactors)?.map(|(normal, _)| normal))
+}
+
+/// What certifies the working normal of a facet, and so its cull plane
+/// (design §1).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum NormalCertificate {
+    /// The filtered cofactors certified the direction. They certify the
+    /// cull plane too ([`crate::cull::CullPlane::with_cofactors`]).
+    Cofactors,
+    /// The direction was computed from the exact cofactors and rounded
+    /// once. It lies within `error` of the exact unit direction, which
+    /// bounds the cull plane ([`crate::cull::CullPlane::with_error`]).
+    Exact {
+        /// The Euclidean distance bound to the exact unit direction.
+        error: f64,
+    },
+}
+
+/// [`working_normal`] with what certifies it.
+pub(crate) fn certified_working_normal(
+    facet: &[&[f64]],
+    outward: Sign,
+    cofactors: Option<&[(f64, f64)]>,
+) -> Result<Option<(Direction, NormalCertificate)>, ExactEvaluationExhausted> {
+    let Some((direction, certificate)) = cofactor_reference(facet, cofactors)? else {
         return Ok(None);
     };
-    Ok(orient_by_proof(facet, direction, outward))
+    Ok(orient_by_proof(facet, direction, outward).map(|normal| (normal, certificate)))
 }
 
 /// The certified cofactor direction of `facet`, before it is oriented, with
-/// its error bound, which is below 1. `None` when every cofactor is zero.
-/// The facet is scaled only when the exact cofactors are needed.
+/// what certifies it. An exact direction's error is below 1. `None` when
+/// every cofactor is zero. The facet is scaled only when the exact
+/// cofactors are needed.
 fn cofactor_reference(
     facet: &[&[f64]],
     cofactors: Option<&[(f64, f64)]>,
-) -> Result<Option<(Direction, f64)>, ExactEvaluationExhausted> {
+) -> Result<Option<(Direction, NormalCertificate)>, ExactEvaluationExhausted> {
     let d = facet.len();
     debug_assert!(d >= 1, "a hyperplane needs at least one point");
     debug_assert!(
@@ -157,12 +183,20 @@ fn cofactor_reference(
         "facet needs D points of dimension D"
     );
     if d == 1 {
-        return Ok(Some(([1.0].as_slice().into(), 0.0)));
+        // The cofactor of one point is 1, which its filtered cofactors
+        // certify exactly.
+        return Ok(Some((
+            [1.0].as_slice().into(),
+            NormalCertificate::Cofactors,
+        )));
     }
-    if let Some(certified) = certified_cofactor_direction(d, cofactors) {
-        return Ok(Some(certified));
+    if let Some((direction, _)) = certified_cofactor_direction(d, cofactors) {
+        return Ok(Some((direction, NormalCertificate::Cofactors)));
     }
-    with_unit_scaling(facet, |points| cofactor_direction_from(points, None))
+    Ok(
+        with_unit_scaling(facet, |points| cofactor_direction_from(points, None))?
+            .map(|(direction, error)| (direction, NormalCertificate::Exact { error })),
+    )
 }
 
 /// `candidate`, which lies within distance 1 of the unit direction of the

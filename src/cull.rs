@@ -31,11 +31,16 @@
 //! culling less. Every bound is on an absolute value, so the same threshold
 //! proves `(x - o) . u* > 0` when `w` exceeds it.
 //!
-//! `tau` is certified once per facet from the cofactor vector `c` of the
-//! facet's edges (see [`crate::predicates::direction_cofactors`]): with
+//! `tau` is certified once per facet, as the working normal is
+//! ([`crate::normal::NormalCertificate`]). When the filtered cofactor vector
+//! `c` of the facet's edges certifies the normal (see
+//! [`crate::predicates::direction_cofactors`]), it certifies `tau` too: with
 //! computed `c^` and `|c - c^| <= E`, `|c/|c| - c^/|c^|| <= 2E / |c^|`, and
 //! `|n - c^/|c^||` is evaluated in `f64` with a margin for its own rounding.
-//! When the cofactors cannot be certified, no point is culled.
+//! When the normal is the exact cofactor direction rounded once, its error
+//! bound, `D 2^-49`, is `tau`. A facet whose filtered elimination cannot
+//! certify a pivot, as on integer edges with a pivot that is exactly zero,
+//! takes the exact direction and so has a cull plane too (#392).
 //!
 //! # Paths
 //!
@@ -49,6 +54,7 @@ use pulp::{Arch, Simd, WithSimd};
 
 #[cfg(test)]
 use crate::normal::facet_cofactors;
+use crate::normal::NormalCertificate;
 use crate::predicates::Sign;
 use crate::small::Small;
 
@@ -93,6 +99,26 @@ impl CullPlane {
     }
 
     /// Prepares `facet` (D points of dimension D) with its working unit
+    /// `normal` as `certificate` certifies it: from `cofactors`, the
+    /// [`crate::normal::facet_cofactors`] of `facet`, or from the error of
+    /// an exact direction. `normal` must satisfy
+    /// `orient_direction(facet, normal) == outward`. Returns `None` when the
+    /// plane error cannot be certified; the caller then culls nothing for
+    /// this facet.
+    pub(crate) fn certified(
+        facet: &[&[f64]],
+        normal: &[f64],
+        outward: Sign,
+        cofactors: Option<&[(f64, f64)]>,
+        certificate: NormalCertificate,
+    ) -> Option<Self> {
+        match certificate {
+            NormalCertificate::Cofactors => Self::with_cofactors(facet, normal, outward, cofactors),
+            NormalCertificate::Exact { error } => Self::with_error(facet, normal, error),
+        }
+    }
+
+    /// Prepares `facet` (D points of dimension D) with its working unit
     /// `normal`, which must satisfy `orient_direction(facet, normal) ==
     /// outward`, and `cofactors`, the [`crate::normal::facet_cofactors`] of
     /// `facet`. Returns `None` when the plane error cannot be certified; the
@@ -103,17 +129,24 @@ impl CullPlane {
         outward: Sign,
         cofactors: Option<&[(f64, f64)]>,
     ) -> Option<Self> {
-        let d = facet.len();
-        debug_assert!(
-            d >= 1 && normal.len() == d,
-            "facet needs D points of dimension D"
-        );
         let side = match outward {
             Sign::Positive => 1.0,
             Sign::Negative => -1.0,
             Sign::Zero => return None,
         };
         let tau = plane_error(cofactors?, normal, side)?;
+        Self::with_error(facet, normal, tau)
+    }
+
+    /// Prepares `facet` (D points of dimension D) with its working unit
+    /// `normal`, the outward one, which lies within `tau` of the exact
+    /// outward unit normal. Returns `None` when the threshold is not finite.
+    pub(crate) fn with_error(facet: &[&[f64]], normal: &[f64], tau: f64) -> Option<Self> {
+        let d = facet.len();
+        debug_assert!(
+            d >= 1 && normal.len() == d,
+            "facet needs D points of dimension D"
+        );
         let n = d as f64;
         let slope = (4.0 * (n + 1.0) * UNIT_ROUNDOFF + 2.0 * tau) * (1.0 + 4.0 * UNIT_ROUNDOFF);
         let floor = (n + 1.0) * ETA;
@@ -964,6 +997,200 @@ mod tests {
         ];
         let (outside, inside) = check_proved(&refs, outward, &plane, &points);
         assert_eq!((outside, inside), (1, 1), "only the far points are proved");
+    }
+
+    #[test]
+    fn a_normal_within_its_error_proves_neither_side_wrongly() {
+        // The tilted case above, bounded by an error instead of cofactors:
+        // the normal is 0.1 rad off the outward (0, 1), so it lies
+        // 2 sin(0.05) < 0.1 from it, and tau = 0.1 must keep the two near
+        // points from being proved on the side the tilt suggests.
+        let facet = [vec![0.0, 0.0], vec![1.0, 0.0]];
+        let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
+        let normal = [0.1_f64.sin(), 0.1_f64.cos()];
+        let outward = crate::predicates::orient_direction(&refs, &normal).unwrap();
+        let plane = CullPlane::with_error(&refs, &normal, 0.1).expect("a finite threshold");
+        let points = vec![
+            vec![-1.0, 0.01],
+            vec![1.0, -0.01],
+            vec![0.5, 10.0],
+            vec![0.5, -10.0],
+        ];
+        let (outside, inside) = check_proved(&refs, outward, &plane, &points);
+        assert_eq!((outside, inside), (1, 1), "only the far points are proved");
+    }
+
+    #[test]
+    fn a_certificate_picks_the_bound_of_its_normal() {
+        // Filtered cofactors bound the plane as `with_cofactors` does; an
+        // exact direction's error is the plane's tau, so the slope is at
+        // least twice that error.
+        let facet = [
+            vec![0.3, -0.2, 0.9],
+            vec![-0.7, 0.4, 0.1],
+            vec![0.2, 0.8, -0.5],
+        ];
+        let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
+        let cofactors = facet_cofactors(&refs);
+        let normal = unit_normal(&refs, Sign::Positive).unwrap().unwrap();
+        let filtered = CullPlane::certified(
+            &refs,
+            &normal,
+            Sign::Positive,
+            cofactors.as_deref(),
+            NormalCertificate::Cofactors,
+        )
+        .expect("certified");
+        let expected = CullPlane::new(&refs, &normal, Sign::Positive).expect("certified");
+        assert_eq!(filtered.slope().to_bits(), expected.slope().to_bits());
+        let error = 3.0 * 2f64.powi(-49);
+        let exact = CullPlane::certified(
+            &refs,
+            &normal,
+            Sign::Positive,
+            cofactors.as_deref(),
+            NormalCertificate::Exact { error },
+        )
+        .expect("certified");
+        assert!(exact.slope() >= 2.0 * error, "slope {}", exact.slope());
+        assert_eq!(exact.floor().to_bits(), expected.floor().to_bits());
+    }
+
+    #[test]
+    fn exact_directions_certify_cull_planes() {
+        // Facets whose working normal is the exact cofactor direction: integer
+        // facets of D = 5 to 7, where the filtered elimination meets a pivot
+        // that is exactly zero and certifies no cofactor (#392), and thin
+        // facets of D = 3 and 4, whose filtered cofactors exist but certify
+        // the direction only loosely. Each gets a cull plane from the exact
+        // direction's error; every side it proves, by the scan and alone, is
+        // the exact one, and both sides are proved.
+        let mut rng = Rng(392);
+        let integer = |rng: &mut Rng, d: usize, low: i64, high: i64| -> Vec<Vec<f64>> {
+            let span = (high - low + 1) as u64;
+            (0..d)
+                .map(|_| {
+                    (0..d)
+                        .map(|_| (low + (rng.next() % span) as i64) as f64)
+                        .collect()
+                })
+                .collect()
+        };
+        let thin = |rng: &mut Rng, d: usize| -> Vec<Vec<f64>> {
+            // Edges from the first point that are parallel but for one
+            // coordinate of size about 2^-40.
+            let base: Vec<f64> = (0..d).map(|_| rng.unit()).collect();
+            let edge: Vec<f64> = (0..d).map(|_| rng.unit()).collect();
+            let mut facet = vec![base.clone()];
+            for i in 1..d {
+                let mut p: Vec<f64> = base
+                    .iter()
+                    .zip(&edge)
+                    .map(|(b, e)| b + e * i as f64)
+                    .collect();
+                p[i - 1] += rng.unit() * 2f64.powi(-40);
+                facet.push(p);
+            }
+            facet
+        };
+        type Family = (&'static str, usize, i64, i64);
+        let families: [Family; 8] = [
+            ("grid", 5, 0, 3),
+            ("grid", 6, 0, 3),
+            ("grid", 7, 0, 3),
+            ("lattice", 5, -2, 2),
+            ("lattice", 6, -2, 2),
+            ("lattice", 7, -2, 2),
+            ("thin", 3, 0, 0),
+            ("thin", 4, 0, 0),
+        ];
+        for (name, d, low, high) in families {
+            let (mut facets, mut tried) = (0, 0);
+            let (mut outside, mut inside) = (0, 0);
+            while facets < 12 {
+                tried += 1;
+                assert!(
+                    tried < 20_000,
+                    "{name} D{d}: {facets} facets after {tried} tries"
+                );
+                let facet = if name == "thin" {
+                    thin(&mut rng, d)
+                } else {
+                    integer(&mut rng, d, low, high)
+                };
+                let refs: Vec<&[f64]> = facet.iter().map(Vec::as_slice).collect();
+                let cofactors = facet_cofactors(&refs);
+                // An integer facet is taken only when the filter certifies
+                // no cofactor; a thin one only when its cofactors exist.
+                if (name == "thin") != cofactors.is_some() {
+                    continue;
+                }
+                let Some((normal, certificate)) = crate::normal::certified_working_normal(
+                    &refs,
+                    Sign::Positive,
+                    cofactors.as_deref(),
+                )
+                .unwrap() else {
+                    continue;
+                };
+                if certificate == NormalCertificate::Cofactors {
+                    continue;
+                }
+                facets += 1;
+                let plane = CullPlane::certified(
+                    &refs,
+                    &normal,
+                    Sign::Positive,
+                    cofactors.as_deref(),
+                    certificate,
+                )
+                .unwrap_or_else(|| panic!("{name} D{d}: an exact direction without a plane"));
+                let mut points: Vec<Vec<f64>> = (0..60)
+                    .map(|_| (0..d).map(|_| rng.unit() * 8.0).collect())
+                    .collect();
+                // Points on the plane, with integer weights for an integer
+                // facet so that they are exactly on it, and their neighbors
+                // one ulp away in the last coordinate.
+                for _ in 0..20 {
+                    let weights: Vec<f64> = (0..d).map(|_| (rng.next() % 5) as f64 - 2.0).collect();
+                    let on: Vec<f64> = (0..d)
+                        .map(|j| {
+                            facet[0][j]
+                                + facet[1..]
+                                    .iter()
+                                    .zip(&weights)
+                                    .map(|(v, w)| (v[j] - facet[0][j]) * w)
+                                    .sum::<f64>()
+                        })
+                        .collect();
+                    for step in [0_i64, 1, -1] {
+                        let mut q = on.clone();
+                        let last = q[d - 1];
+                        q[d - 1] = if last == 0.0 {
+                            f64::from_bits(step.unsigned_abs()) * step.signum() as f64
+                        } else {
+                            f64::from_bits((last.to_bits() as i64 + step) as u64)
+                        };
+                        points.push(q);
+                    }
+                }
+                let (o, i) = check_proved(&refs, Sign::Positive, &plane, &points);
+                outside += o;
+                inside += i;
+                // The scan proves exactly what `proved_side` proves.
+                let rows: Vec<f64> = points.iter().flatten().copied().collect();
+                let indices: Vec<u32> = (0..points.len() as u32).collect();
+                let mut sides = vec![None; points.len()];
+                plane.mark_sides(&facet[0], &rows, d, &indices, &mut sides);
+                for (k, p) in points.iter().enumerate() {
+                    assert_eq!(sides[k], plane.proved_side(&facet[0], p), "{name} D{d}");
+                }
+            }
+            assert!(
+                outside > 100 && inside > 100,
+                "{name} D{d}: {outside} outside, {inside} inside proved"
+            );
+        }
     }
 
     #[test]
