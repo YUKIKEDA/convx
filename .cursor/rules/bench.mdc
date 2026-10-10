@@ -25,6 +25,8 @@ A prototype is compared only against a base timed in the same harness, and two r
 
 Work on a data layout starts from a profile that shows memory at that place. A general impression that memory dominates is not one. In #375 one record per cell of the Delaunay mesh read 0.99 to 1.02: its cells are allocated in insertion order, so each array is read near where it was last read.
 
+Before timing a prototype of a rule about a predicate's calls, count those calls by kind on the target sets: the sign, and the case the rule takes. In #386 the orientations of hull `cubesurf` D3 10^5 were 110,187, of which 100,308 were zero, every one with a column of zero differences; the prototype of that rule read 0.73, and the feature 0.73 (#389).
+
 A cheaper form of a costly expression keeps the slow form out of line, `#[cold]` and `#[inline(never)]`. A whole-build timing, or the assembly, then shows that the slow form is gone from the common path. In #318 the cheaper bound of the first stage was written as an `if` in place. The compiler evaluated both forms and selected one, and no build got faster, while the formula timed alone looked four times faster.
 
 After the first speed change, profile again before opening the PR: what remains may be a different cost (#99: allocation was half of what was left). Every count and time in the PR comes from a build of the head it ships (#92 once reported a count from an earlier commit).
