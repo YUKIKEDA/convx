@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-8 (#323): acceptance. P7-29 (#393) and P7-31 (#400): the degenerate hull sets; P7-30 (#394) after its Grill. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+P7-8 (#323): acceptance. P7-31 (#400) and P7-30 (#394), after its Grill: the degenerate hull sets. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -203,7 +203,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-26 | Feat | Predicates: a zero column of differences decides zero before the later stages           | #384  | Done        |
 | P7-27 | Spike | Hull: exact planes of integer inputs, side tests by a dot product                       | #385  | Done        |
 | P7-28 | Feat  | Hull: a cull plane from the exact direction when the filtered cofactors fail            | #392  | Done        |
-| P7-29 | Feat  | Hull: placing keeps the boundary ridges across points                                   | #393  | Not started |
+| P7-29 | Feat  | Hull: placing keeps the boundary ridges across points                                   | #393  | Done        |
 | P7-30 | Feat  | Hull: each face of the lattice classified once                                          | #394  | Set after Grill on #394 |
 | P7-31 | Feat  | Predicates: the exact direction's error bound from its derivation                       | #400  | Not started |
 
