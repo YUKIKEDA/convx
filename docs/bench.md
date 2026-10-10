@@ -2876,7 +2876,7 @@ The boundary complex is now `Complex`, flat lists of vertices, faces, and neighb
 
 | Item | Value |
 | --- | --- |
-| convx | The base is P7-33, the head of #416 (`57775e7`), against the head `66774a0`. rustc 1.97.1, `--release` with debug info, baseline target |
+| convx | The base is P7-33 (#416), timed on its head `57775e7`, whose code `main` has since `5ba92ef`, against this change timed as `66774a0`; after #416 merged, the branch moved onto `5ba92ef`, and the change is `59af24b` with the same code. rustc 1.97.1, `--release` with debug info, baseline target |
 | Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
 | Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
 | Sets | The shorter run of `docs/verification.md`, with hull `cube` and `sphere` D2 10^6, `grid` and `lattice` D5 and D6 |
