@@ -5298,7 +5298,7 @@ The three sets of Delaunay `cube` D3 are reported. Against the references from t
 | Delaunay `sphere` D2 10^4 | 1.12 against CGAL |
 | Delaunay `cube` D4 10^4 | 1.07 against CGAL |
 
-## Hull D2: the chain on the halves below and above the line through its ends (#515)
+## Hull D2: the chain on the halves below and above the line through its ends, PR #516 (#515)
 
 ### The change (P7-72)
 
