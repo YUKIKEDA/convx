@@ -4273,3 +4273,56 @@ The second run, 20 × 3: `cube` D2 10^5 0.95, `sphere` D2 10^5 0.98, `cube` D2 1
 - **The keep criterion asked for D2 10^5 faster beyond the spread, and it is not.** Two runs agree on the direction, and the sets of 10^6 are faster beyond the spread. Whether to keep the change on that is the owner's call (`bench.mdc`).
 - **Nothing else moved:** D3 to D5 and the hull read 0.99 to 1.03, inside the spread.
 - The tests were about 11% of `cube` D2 10^5 in the scratch marks of #459, which include the reads around them. Without those marks, the saving reads 2 to 5%.
+
+## Hull D2: the spike P7-57 and the chain's keys sorted by radix, prototype, PR #478 (#470, #477)
+
+### The spike P7-57 (#470)
+
+Hull `sphere` D2 10^4 and 10^5 read 1.37 and 1.12 against CGAL as input indices (#466). callgrind, `e42ca61` under WSL2, gave the own instructions of one build of `sphere` D2 10^5. One build is the difference between runs of 3 builds and 1, and `planes()`, which the harness times after `build()`, is left out.
+
+| Part | Instructions | Share of `build()` |
+| --- | ---: | ---: |
+| sorting the chain's keys, `(u64, u64, u32)` by comparison (`strict_cycle`) | about 37 M | about 23% |
+| `SimplicialHull::build`, the left turns, and `strict_cycle`'s own lines | about 52 M | about 32% |
+| publication (`ConvexHullBuilder::build`, inlined) | about 16 M | about 10% |
+| `classify_built` | about 16 M | about 10% |
+| `accept` | about 10 M | about 6% |
+
+Every point of `sphere` D2 is extreme and goes through the sort. The Grill on #470 named the sort as the row P7-59 (#477), prototyped first.
+
+### P7-59's prototype
+
+A copy of P7-58 (`3ad04bf`), not committed (its diff is on #477):
+
+- The keys were sorted by the x key in a least-significant-digit radix sort over its bytes, skipping a byte every key shares.
+- Each run of equal x keys was then sorted by `(y, index)`, which gives the same order as the comparison sort.
+- A test against `sort_unstable` passed, and failed when the runs were left unsorted. Every test passed.
+
+Timed against P7-58, pinned and alternated: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second. Every set published the same counts on both sides.
+
+| Set | P7-58 | Radix | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.53 ms (0.48 ms–3.77 ms) | 0.53 ms (0.47 ms–0.69 ms) | 1.00, inside the spread |
+| Hull `cube` D2 10^5 | 4.82 ms (4.45 ms–5.28 ms) | 4.86 ms (4.36 ms–9.05 ms) | 1.01, inside the spread |
+| Hull `cube` D2 10^6 | 52.1 ms (51.5 ms–56.0 ms) | 53.4 ms (51.2 ms–59.6 ms) | 1.02, inside the spread |
+| Hull `sphere` D2 10^4 | 1.17 ms (1.09 ms–1.80 ms) | 1.21 ms (1.13 ms–1.64 ms) | 1.03, inside the spread |
+| Hull `sphere` D2 10^5 | 12.0 ms (10.8 ms–13.0 ms) | 12.4 ms (11.3 ms–13.5 ms) | 1.03, inside the spread |
+| Hull `sphere` D2 10^6 | 127 ms (125 ms–133 ms) | 130 ms (127 ms–138 ms) | 1.02, inside the spread |
+| Hull `cube` D3 10^4 | 1.49 ms (1.25 ms–2.08 ms) | 1.46 ms (1.26 ms–3.73 ms) | 0.98, inside the spread |
+| Hull `cube` D3 10^5 | 11.7 ms (10.9 ms–16.2 ms) | 11.6 ms (11.0 ms–23.4 ms) | 0.99, inside the spread |
+| Hull `cubesurf` D3 10^5 | 46.8 ms (45.4 ms–65.9 ms) | 46.8 ms (45.8 ms–50.0 ms) | 1.00, inside the spread |
+| Hull `sphere` D3 10^4 | 20.6 ms (20.2 ms–22.4 ms) | 20.9 ms (20.1 ms–22.3 ms) | 1.02, inside the spread |
+| Hull `sphere` D3 10^5 | 246 ms (239 ms–258 ms) | 248 ms (241 ms–260 ms) | 1.01, inside the spread |
+| Hull `cube` D4 10^4 | 5.33 ms (5.20 ms–6.27 ms) | 5.39 ms (5.21 ms–6.26 ms) | 1.01, inside the spread |
+| Hull `cube` D4 10^5 | 32.2 ms (31.4 ms–35.3 ms) | 32.9 ms (31.9 ms–34.4 ms) | 1.02, inside the spread |
+| Hull `sphere` D4 10^4 | 89.6 ms (87.1 ms–98.2 ms) | 91.0 ms (88.6 ms–98.4 ms) | 1.02, inside the spread |
+| Hull `sphere` D4 10^5 | 1.15 s (1.13 s–1.23 s) | 1.16 s (1.13 s–1.18 s) | 1.01, inside the spread |
+| Hull `cube` D5 10^4 | 53.7 ms (52.6 ms–56.0 ms) | 53.8 ms (52.7 ms–58.1 ms) | 1.00, inside the spread |
+| Hull `sphere` D5 10^4 | 804 ms (788 ms–852 ms) | 807 ms (795 ms–836 ms) | 1.00, inside the spread |
+| Hull `cube` D6 10^4 | 567 ms (551 ms–613 ms) | 575 ms (559 ms–600 ms) | 1.01, inside the spread |
+
+### Reading
+
+- **The radix sort is not faster.** Hull `sphere` D2 reads 1.02 to 1.03, `cube` D2 1.00 to 1.02, inside the spread. Delaunay, which does not sort these keys, reads 0.98 to 1.01.
+- **Instructions are not time here.** Each radix pass moves every 20-byte key, and the comparison sort's instructions run at a high rate. The 23% share of instructions did not carry over to time, as with the merge of P7-34 (#471) and the estimate of P7-58 (#475).
+- **P7-59 is withdrawn after measurement.** A parity run follows, then the Grill on Delaunay D3's pass after the insertion.

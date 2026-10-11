@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-57 (#470), then a parity run, then a Grill on a pass after the Delaunay insertion dedicated to D3 (Grill on #469). P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+A parity run, then a Grill on a pass after the Delaunay insertion dedicated to D3 (Grill on #469 and #470). P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -231,8 +231,9 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-54 | Spike | Where the time goes on the 13 sets the parity run of #466 left                          | #467  | Done        |
 | P7-55 | Feat  | Hull: the recorded points of a face tested against its neighbors together               | #468  | Done        |
 | P7-56 | Feat  | Delaunay: decide the faces left unknown when the insertion links them                   | #469  | Withdrawn after measurement (#473) |
-| P7-57 | Spike | Hull sphere D2 10^4 and 10^5: acceptance, publication, and classification               | #470  | Not started |
+| P7-57 | Spike | Hull sphere D2 10^4 and 10^5: acceptance, publication, and classification               | #470  | Done        |
 | P7-58 | Feat  | Delaunay D2: a face left unknown needs no test                                          | #474  | Done        |
+| P7-59 | Feat  | Hull D2: the chain's keys sorted by radix                                               | #477  | Withdrawn after measurement (#478) |
 
 ## Intentionally out of scope
 
