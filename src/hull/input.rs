@@ -98,8 +98,35 @@ pub(crate) fn check_count(count: usize) -> Result<usize, ConvexHullError> {
     Ok(count)
 }
 
-/// Runs every input check of design §3 and returns the accepted input.
+/// Runs every input check of design §3 and returns the accepted input of a
+/// hull, with the D = 2 chain planned.
 pub(crate) fn accept(dim: usize, points: &[f64]) -> Result<Input<'_>, ConvexHullError> {
+    accept_by(dim, points, representatives_of_hull)
+}
+
+/// [`accept`] for Delaunay sites, which build no D = 2 chain: duplicates by
+/// hashing in every dimension.
+pub(crate) fn accept_sites(dim: usize, points: &[f64]) -> Result<Input<'_>, ConvexHullError> {
+    accept_by(dim, points, |dim, count, points| {
+        (representatives_of(count, rows(dim, points)), None)
+    })
+}
+
+/// The representatives of `count` points of dimension `dim`, row-major in
+/// `points`, and the plan of the D = 2 chain.
+type Representatives = fn(usize, usize, &[f64]) -> (Vec<u32>, Option<Chain>);
+
+/// Point `i` of the rows `points` of dimension `dim`.
+fn rows<'p>(dim: usize, points: &'p [f64]) -> impl Fn(u32) -> &'p [f64] {
+    move |i| &points[i as usize * dim..(i as usize + 1) * dim]
+}
+
+/// [`accept`] with the duplicates found by `representatives_by`.
+fn accept_by(
+    dim: usize,
+    points: &[f64],
+    representatives_by: Representatives,
+) -> Result<Input<'_>, ConvexHullError> {
     let count = check_shape(dim, points.len())?;
     // §3: non-finite coordinates are rejected first, then the count, before
     // duplicate removal.
@@ -110,29 +137,8 @@ pub(crate) fn accept(dim: usize, points: &[f64]) -> Result<Input<'_>, ConvexHull
         return Err(ConvexHullError::NonFiniteCoordinate { index });
     }
     let count = check_count(count)?;
-    let point = |i: u32| &points[i as usize * dim..(i as usize + 1) * dim];
-
-    // D = 2 decides first whether the chain reads every point. Where it
-    // does, the chain sorts every point by its coordinates, and equal
-    // points are then adjacent: one sort finds the duplicates and orders
-    // the chain. Where the polygon discards most points, hashing costs less
-    // than a sort of all of them (#496).
-    let (representative, chain) = if dim == 2 {
-        let rows = Rows(points);
-        match polygon::discard_edges(rows, 0..count as u32) {
-            Ok(None) => {
-                let (representative, sorted) = representatives_by_coordinates(count, point);
-                (representative, Some(Chain::Every(sorted)))
-            }
-            Ok(Some(edges)) => (
-                representatives_of(count, point),
-                Some(Chain::Discard(edges)),
-            ),
-            Err(ExactEvaluationExhausted) => (representatives_of(count, point), None),
-        }
-    } else {
-        (representatives_of(count, point), None)
-    };
+    let point = rows(dim, points);
+    let (representative, chain) = representatives_by(dim, count, points);
     let representatives: Vec<u32> = (0..count as u32)
         .filter(|&i| representative[i as usize] == i)
         .collect();
@@ -167,6 +173,32 @@ fn compare_points(a: &[f64], b: &[f64]) -> Ordering {
         .map(|(x, y)| x.partial_cmp(y).unwrap_or(Ordering::Equal))
         .find(|o| o.is_ne())
         .unwrap_or(Ordering::Equal)
+}
+
+/// The representatives of a hull's points, and for D = 2 the plan of the
+/// chain.
+///
+/// D = 2 decides first whether the chain reads every point. Where it does,
+/// the chain sorts every point by its coordinates, and equal points are
+/// then adjacent: one sort finds the duplicates and orders the chain. Where
+/// the polygon discards most points, hashing costs less than a sort of all
+/// of them (#496).
+fn representatives_of_hull(dim: usize, count: usize, points: &[f64]) -> (Vec<u32>, Option<Chain>) {
+    let point = rows(dim, points);
+    if dim != 2 {
+        return (representatives_of(count, point), None);
+    }
+    match polygon::discard_edges(Rows(points), 0..count as u32) {
+        Ok(None) => {
+            let (representative, sorted) = representatives_by_coordinates(count, point);
+            (representative, Some(Chain::Every(sorted)))
+        }
+        Ok(Some(edges)) => (
+            representatives_of(count, point),
+            Some(Chain::Discard(edges)),
+        ),
+        Err(ExactEvaluationExhausted) => (representatives_of(count, point), None),
+    }
 }
 
 /// For each index, the smallest index of a point that is `==` to it in every
@@ -411,7 +443,11 @@ mod tests {
             let points = duplicate_heavy(2, count, 0x4960 + count as u64);
             let point = |i: u32| &points[i as usize * 2..i as usize * 2 + 2];
             let (representative, sorted) = representatives_by_coordinates(count, point);
-            assert_eq!(representative, representatives_by_sort(count, point), "count {count}");
+            assert_eq!(
+                representative,
+                representatives_by_sort(count, point),
+                "count {count}"
+            );
             let mut expected: Vec<u32> = (0..count as u32)
                 .filter(|&i| representative[i as usize] == i)
                 .collect();
