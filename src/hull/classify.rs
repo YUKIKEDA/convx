@@ -568,7 +568,8 @@ fn classify_built<'a>(
                     .copied()
                     .find(|v| extreme.binary_search(v).is_err())
                     .unwrap_or(extreme[0]);
-                let (len, placed) = placing.run(d, |i| hull.input.point(i), extreme)?;
+                let (len, placed) =
+                    placing.run(d, Some(d - 1), |i| hull.input.point(i), extreme)?;
                 debug_assert_eq!(len, d, "a facet spans D - 1 dimensions");
                 for simplex in placed.chunks_exact(len) {
                     simplices.push(&oriented(&hull.input, simplex, q)?, g as u32, None);
@@ -1182,6 +1183,13 @@ pub(crate) struct Placing {
     /// The projected rows of one orientation; a `Vec` per row was most of
     /// the time left after the boundary was kept (#393).
     rows: Vec<f64>,
+    /// For points that span a plane ([`Self::in_a_plane`]): their two
+    /// coordinates, the chain that orders them around their polygon, and
+    /// each point's neighbors in that cycle.
+    plane: Vec<f64>,
+    chain: ChainWork,
+    before: Vec<u32>,
+    after: Vec<u32>,
 }
 
 impl Placing {
@@ -1189,7 +1197,122 @@ impl Placing {
     /// dimension `d` given by `point`: the number of vertices of a simplex,
     /// `r + 1` for the affine dimension `r` of the points, and the simplices
     /// one after another, each ascending, unoriented.
+    ///
+    /// `span` is the affine dimension of the points when the caller knows
+    /// it: a facet of a hull spans D - 1 dimensions, and a cospherical
+    /// group of Delaunay D. Points that span a plane take
+    /// [`Self::in_a_plane`], with the same simplices in the same order.
     pub(crate) fn run<'p>(
+        &mut self,
+        d: usize,
+        span: Option<usize>,
+        point: impl Fn(u32) -> &'p [f64],
+        extreme: &[u32],
+    ) -> Result<(usize, &[u32]), ConvexHullError> {
+        if span == Some(2) && extreme.len() > 3 && self.in_a_plane(d, &point, extreme)? {
+            // Debug builds compare a face of up to 64 points with the
+            // general method, which is quadratic in them.
+            #[cfg(debug_assertions)]
+            if extreme.len() <= 64 {
+                let fast = self.simplices.clone();
+                let (len, general) = self.general(d, &point, extreme)?;
+                debug_assert_eq!(
+                    (3, fast.as_slice()),
+                    (len, general),
+                    "the cyclic order gives the placing triangulation"
+                );
+                return Ok((len, general));
+            }
+            return Ok((3, &self.simplices));
+        }
+        self.general(d, point, extreme)
+    }
+
+    /// The placing triangulation of points that span a plane, read from
+    /// their cyclic order (#534). `false` when the points are not in
+    /// strictly convex position on the two coordinates found, and nothing
+    /// is decided: the caller takes [`Self::general`].
+    ///
+    /// The extreme points of a face are in strictly convex position. The
+    /// first three make the first triangle. A point placed after them is
+    /// outside the polygon of the points before it and removes none of
+    /// them, so it is beyond exactly one boundary ridge: the edge between
+    /// its two neighbors, in cyclic order, among the points before it. Its
+    /// one simplex is that edge and itself. Removing the points from the
+    /// cycle in descending order leaves, at each removal, those two
+    /// neighbors.
+    ///
+    /// The general method tests each point against every boundary ridge,
+    /// about k^2 / 2 orientations for k points: the hull of a prism over a
+    /// 2,048-gon took 138 ms, nearly all of it there (#533).
+    fn in_a_plane<'p>(
+        &mut self,
+        d: usize,
+        point: &impl Fn(u32) -> &'p [f64],
+        extreme: &[u32],
+    ) -> Result<bool, ConvexHullError> {
+        let m = extreme.len();
+        // Two coordinates on which the first three points are not on one
+        // line: dropping the others is then one to one on the plane.
+        let first = [point(extreme[0]), point(extreme[1]), point(extreme[2])];
+        let mut axes = None;
+        'pairs: for i in 0..d {
+            for j in i + 1..d {
+                let rows = first.map(|p| [p[i], p[j]]);
+                if orient(&[&rows[0][..], &rows[1][..], &rows[2][..]])? != Sign::Zero {
+                    axes = Some((i, j));
+                    break 'pairs;
+                }
+            }
+        }
+        let Some((i, j)) = axes else {
+            return Ok(false);
+        };
+        self.plane.clear();
+        self.plane.extend(extreme.iter().flat_map(|&v| {
+            let p = point(v);
+            [p[i], p[j]]
+        }));
+        // The points by their place in `extreme`, around their polygon.
+        let cycle = self.chain.strict_cycle(Rows(&self.plane), 0..m as u32)?;
+        if cycle.len() != m {
+            return Ok(false);
+        }
+        self.before.clear();
+        self.before.resize(m, 0);
+        self.after.clear();
+        self.after.resize(m, 0);
+        for (at, &v) in cycle.iter().enumerate() {
+            self.before[v as usize] = cycle[(at + m - 1) % m];
+            self.after[v as usize] = cycle[(at + 1) % m];
+        }
+        // Each point's two neighbors among the points before it, found by
+        // removing the points in descending order.
+        self.added.clear();
+        self.added.resize(2 * m, 0);
+        for v in (3..m).rev() {
+            let (a, b) = (self.before[v], self.after[v]);
+            self.added[2 * v] = a.min(b);
+            self.added[2 * v + 1] = a.max(b);
+            self.after[a as usize] = b;
+            self.before[b as usize] = a;
+        }
+        self.len = 3;
+        self.simplices.clear();
+        self.simplices.extend_from_slice(&extreme[..3]);
+        for v in 3..m {
+            self.simplices.extend([
+                extreme[self.added[2 * v] as usize],
+                extreme[self.added[2 * v + 1] as usize],
+                extreme[v],
+            ]);
+        }
+        Ok(true)
+    }
+
+    /// [`Self::run`] for any points: each point against every boundary
+    /// ridge of the complex built so far.
+    fn general<'p>(
         &mut self,
         d: usize,
         point: impl Fn(u32) -> &'p [f64],
@@ -1205,6 +1328,7 @@ impl Placing {
             axes,
             basis,
             rows,
+            ..
         } = self;
         simplices.clear();
         *len = 1;
@@ -1567,10 +1691,11 @@ pub(crate) mod tests {
     fn placed<'p>(
         workspace: &mut Placing,
         d: usize,
+        span: Option<usize>,
         point: impl Fn(u32) -> &'p [f64],
         extreme: &[u32],
     ) -> Vec<Vec<u32>> {
-        let (len, simplices) = workspace.run(d, point, extreme).unwrap();
+        let (len, simplices) = workspace.run(d, span, point, extreme).unwrap();
         simplices.chunks_exact(len).map(<[u32]>::to_vec).collect()
     }
 
@@ -1786,6 +1911,7 @@ pub(crate) mod tests {
         };
         let mut cases = 0;
         let mut beyond = 0;
+        let mut planar = 0;
         for k in 2..=6 {
             let families: [(&str, Vec<Vec<f64>>); 3] = [
                 ("cube", cube(k)),
@@ -1821,7 +1947,18 @@ pub(crate) mod tests {
                         let extreme: Vec<u32> = (0..rows.len() as u32).collect();
                         let point = |i: u32| rows[i as usize].as_slice();
                         let expected = placing_by_full_scan(d, point, &extreme).unwrap();
-                        let got = placed(&mut workspace, d, point, &extreme);
+                        let got = placed(&mut workspace, d, None, point, &extreme);
+                        // The families are in strictly convex position, so
+                        // three points or more of a family of the plane span
+                        // it, and take the path of #534.
+                        if k == 2 && rows.len() >= 3 {
+                            assert_eq!(
+                                placed(&mut workspace, d, Some(2), point, &extreme),
+                                expected,
+                                "{name} in a plane, lifted {lifted}, round {round}"
+                            );
+                            planar += 1;
+                        }
                         assert_eq!(
                             got, expected,
                             "{name} k = {k}, lifted {lifted}, round {round}"
@@ -1839,6 +1976,7 @@ pub(crate) mod tests {
             }
         }
         assert_eq!(cases, 180);
+        assert!(planar > 30, "{planar} cases placed in a plane");
         assert!(beyond > 150, "{beyond} cases place a point beyond a ridge");
 
         // The facets of hulls of degenerate inputs, each a face that is not
@@ -1879,7 +2017,7 @@ pub(crate) mod tests {
                 }
                 let expected = placing_by_full_scan(k, point, extreme).unwrap();
                 assert_eq!(
-                    placed(&mut workspace, k, point, extreme),
+                    placed(&mut workspace, k, Some(k - 1), point, extreme),
                     expected,
                     "{name} D{k}"
                 );
@@ -1889,6 +2027,54 @@ pub(crate) mod tests {
             faces += found;
         }
         assert!(faces > 30, "{faces} faces of real hulls");
+    }
+
+    /// Points that span a plane are placed from their cyclic order (#534),
+    /// with the simplices of the general method in its order: 300 points
+    /// of a parabola in shuffled index order, in the plane and in the plane
+    /// `z = 2 x` of D = 3, where every coordinate is exact. A set that is
+    /// not in strictly convex position, a square with the midpoint of an
+    /// edge, falls back to the general method.
+    #[test]
+    fn a_plane_places_as_the_general_method() {
+        let mut workspace = Placing::default();
+        let mut rng = Rng(534);
+        for round in 0..4 {
+            let mut ts: Vec<f64> = (0..300).map(|i| f64::from(i) - 150.0).collect();
+            for i in (1..ts.len()).rev() {
+                ts.swap(i, rng.next() as usize % (i + 1));
+            }
+            for d in [2, 3] {
+                let rows: Vec<Vec<f64>> = ts
+                    .iter()
+                    .map(|&t| {
+                        if d == 2 {
+                            vec![t, t * t]
+                        } else {
+                            vec![t, t * t, 2.0 * t]
+                        }
+                    })
+                    .collect();
+                let point = |i: u32| rows[i as usize].as_slice();
+                let extreme: Vec<u32> = (0..rows.len() as u32).collect();
+                let general = placed(&mut workspace, d, None, point, &extreme);
+                assert_eq!(general.len(), 298, "one triangle per point after two");
+                assert_eq!(
+                    placed(&mut workspace, d, Some(2), point, &extreme),
+                    general,
+                    "D = {d}, round {round}"
+                );
+            }
+        }
+        let square = [[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0], [1.0, 0.0]];
+        let point = |i: u32| square[i as usize].as_slice();
+        let extreme = [0, 1, 2, 3, 4];
+        assert!(!workspace.in_a_plane(2, &point, &extreme).unwrap());
+        assert_eq!(
+            placed(&mut workspace, 2, Some(2), point, &extreme),
+            placed(&mut workspace, 2, None, point, &extreme),
+            "a point on an edge falls back"
+        );
     }
 
     #[test]
