@@ -15,6 +15,8 @@ Do not postpone in a way that leaves one path optimized or supported and another
 
 Do not recommend a gap because the slice is smaller or easier.
 
+A pair that a pull request would leave is put to the owner before the pull request opens (Grill). An unchecked box in the checklist is not that question. When the owner accepts it, the Issue that owns the pair carries it in its Definition of done in the same turn; a comment on that Issue is not enough. #535 gave points that span a plane their own placing path, left points that span three dimensions or more on the quadratic method, and noted it on #531 in a comment. The review had to ask whether the owner had decided it.
+
 Do not grow **Intentionally out of scope** in the same change that notices a gap. Adding or removing a bullet is Grill → Issue. An ungrilled dump into that list is not a plan.
 
 If there is no row and the item is not in that list:
