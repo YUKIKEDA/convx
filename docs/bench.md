@@ -5169,3 +5169,41 @@ The chain needs every point sorted already, for the duplicates (P7-67), so Akl�
 The split adds a side test per point, so it would save at most about 5%: neither set would be met by it alone. P7-72 waits until it can be combined with another saving (Grill on #509).
 
 A first attempt removed the upper pass instead. The wrong hull made classification about three times slower, so it bounded nothing.
+
+## Delaunay: the pass after the insertion, P7-60 withdrawn, PR #513 (#483)
+
+The spike P7-71 (#509) put Delaunay `cube` D3's gap to CGAL in the pass after the insertion: 14 to 18% of `build()`. It joins cospherical simplices into groups.
+
+**The pass, stage by stage.** A scratch copy of `main` (`3a4d5ad`) with timers, Delaunay `cube` D3 10^5, three or four builds per variant. A variant reads its switch once per build. A first try that read it per face doubled the pass and was discarded.
+
+| Stage | Time |
+| --- | ---: |
+| the pass over faces | 38 to 49 ms |
+| the same, without the gate's orientation (cannot ship) | 28 to 39 ms |
+| the same, without any work on unknown faces (cannot ship) | 10 to 11 ms |
+| writing the draft | 14 to 16 ms |
+| `Draft::finish` | 2 to 3 ms |
+| renumbering, splitting merged groups | under 0.02 ms |
+
+506,576 faces were unknown. Each read its neighbor's vertices for the far vertex, about 34 ns: a cache miss on a cell stored anywhere in the mesh. Each also took one orientation of four sites, its gate. None needed the lifted test, and no group merged.
+
+**The prototype `185181e`** found the far vertex as the neighbor's vertex sum less the face's, in wrapping arithmetic, and the neighbor's finiteness from it, with one read. Against `main`, pinned and alternated, 20 rounds × 3 builds, 8 × 1 for the sets over half a second:
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Delaunay `cube` D2 10^4 | 5.65 ms (5.20 ms–9.69 ms) | 5.57 ms (5.20 ms–8.58 ms) | 0.99, inside the spread |
+| Delaunay `cube` D3 10^4 | 38.3 ms (35.9 ms–64.8 ms) | 37.6 ms (34.9 ms–47.1 ms) | 0.98, inside the spread |
+| Delaunay `cube` D3 10^5 | 428 ms (393 ms–456 ms) | 408 ms (381 ms–460 ms) | 0.96, inside the spread |
+| Delaunay `sphere` D3 10^4 | 83.4 ms (78.5 ms–94.9 ms) | 82.0 ms (78.8 ms–89.3 ms) | 0.98, inside the spread |
+| Delaunay `sphere` D3 10^5 | 790 ms (775 ms–841 ms) | 785 ms (774 ms–806 ms) | 0.99, inside the spread |
+| Delaunay `cube` D4 10^4 | 702 ms (692 ms–745 ms) | 671 ms (660 ms–703 ms) | 0.96, inside the spread |
+
+With the timers on the branch, the pass took 35 to 40 ms, against 38 to 42 on `main`: the prototype removed comparisons, not the read. P7-60 is withdrawn after measurement.
+
+**What is left.**
+
+- Storing each face's far vertex during the insertion would add a write to every link it makes, in the 81% of the build that is insertion.
+- A cheaper gate leaves at most its 9 ms.
+- Ordering the faces by neighbor costs a sort of about 500,000 entries.
+
+The Grill on #483 recorded the gap as the price of convx's unique output, and ADR 0006 now reports Delaunay `cube` D3 against CGAL without judging it (amendment of 2026-10-11).
