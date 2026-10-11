@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-A spike on hull construction's random reads at 10^6 (Grill on #484), then hull `cubesurf` and `sphere` D2 10^4, then P7-60 (#483) (Grill on #469). P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+Hull `cubesurf` and `sphere` D2 10^4, then P7-60 (#483) (Grill on #469 and #487). P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -237,6 +237,8 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-60 | Feat  | Delaunay: the pass after the insertion reads a finiteness flag, not the neighbor        | #483  | Not started |
 | P7-61 | Spike | Hull sphere D3 at 10^6: why the gap to Qhull opens                                      | #484  | Done        |
 | P7-62 | Feat  | Hull: the merge's groups of one simplex and its dense index, at less cost               | #485  | Done        |
+| P7-63 | Spike | Hull sphere D3: cache misses of construction against Qhull                              | #487  | Done        |
+| P7-64 | Feat  | Hull D3: construction on a copy of the points in Morton order                           | #489  | Done        |
 
 ## Intentionally out of scope
 

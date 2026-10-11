@@ -4490,3 +4490,111 @@ Every set published the same counts on both sides.
 - On the parity ratio of #479 that is about 1.15 against Qhull for `sphere` D3 10^6, from 1.22.
 - **Nothing is slower beyond the spread.** Delaunay, which does not merge, reads 0.99 to 1.01.
 - What remains of the gap at 10^6 is construction's random reads: the walk's side tests and the outside sets' scan. A spike on its cache misses follows (Grill on #484).
+
+## Hull D3 at 10^6: cache misses, and construction in space order, PR #490 (#487, #489)
+
+### The spike P7-63 (#487)
+
+Hull `sphere` D3 read 1.22 against Qhull at 10^6 (#479), about 1.15 after P7-62. The parts that grow with the input read memory at random (#484).
+
+**cachegrind, whole programs** (`110a208`, under WSL2, the LL cache as the host's 20 MiB L3; convx's harness also runs `planes()` after `build()`):
+
+| Run | Instructions | LL read misses | LL write misses |
+| --- | ---: | ---: | ---: |
+| convx `sphere` D3 10^5 | 3.22 G | 1.48 M | 1.73 M |
+| Qhull `sphere` D3 10^5 | 3.11 G | 4.01 M | 1.08 M |
+| convx `sphere` D3 10^6 | 34.3 G | 112.6 M | 32.3 M |
+| Qhull `sphere` D3 10^6 | 33.0 G | 75.9 M | 13.6 M |
+
+**callgrind with cache simulation, inside `ConvexHullBuilder::build` only, 10^6:** 96.5 M LL read misses and 30.0 M write misses.
+
+| Source | LL read misses | LL write misses |
+| --- | ---: | ---: |
+| the cull's SIMD scan of the outside sets (point coordinates read by index) | 14.5 M | – |
+| the side tests (each simplex's cull plane) | 16.6 M | – |
+| the facet store | 15.8 M | 2.3 M |
+| `memcpy`, many small copies | 7.4 M | 11.5 M |
+| the merge (before P7-62) | about 9.8 M | – |
+
+**Two prototypes**, against P7-62 (`ff29ae3`), pinned and alternated:
+
+- **The outside sets' compaction into a reused buffer** read 0.96 to 1.04 on hull D3 and D4, inside the spread.
+- **The points given in Morton order** (the harness sorted them before any timing; the copy's cost not counted) read:
+  - hull `sphere` and `cube` D3 10^6: 0.82;
+  - `cubesurf` D3 10^5: 0.84;
+  - the sets of 10^5: 0.95 to 1.02;
+  - D4: 0.98 to 1.01.
+
+The Grill on #487 decided construction on a copy in space order, with an ADR (P7-64).
+
+### The change (P7-64, #489)
+
+ADR 0009. For D = 3 and from 2^17 representatives:
+
+- construction runs on a copy of the representatives in Morton order, with consecutive labels;
+- the built hull is renamed back to the input's indices before classification (the simplices' vertices, the outside sets and their candidates, the points proved interior, and the records);
+- the order comes from a counting sort over a grid of about four points per cell; the points of a cell keep the order of their indices.
+
+`spread2` and `spread3` moved to `src/morton.rs`, shared with Delaunay's BRIO. `hpc.mdc` and both design files (§6) say the same.
+
+**On the way:**
+
+- A first version sorted a 128-bit key per point and started at 2^16. It read 0.85 on `sphere` D3 10^6, but 1.12 on `cube` D3 10^6 (slower beyond the spread) and 1.24 on `cube` D3 10^5: the sort cost more than it saved where most points are discarded early.
+- The counting sort read 0.97 on `cube` D3 10^6 and 1.08 on `cube` D3 10^5, so the threshold rose to 2^17.
+
+**Checks:**
+
+- A test publishes the same hull through the public API with and without the copy, on random points in a cube and near a sphere, integer grids with duplicates, points on the faces of a cube, and clusters of near-duplicates. A test-only switch lowers the threshold. It takes about 19 s in debug.
+- Leaving the points proved interior in the copy's labels makes it fail.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | P7-62 at `ff29ae3` against the head `9460825`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
+| Sets | The shorter run of `docs/verification.md`, with hull `sphere` and `cube` D3 10^6 |
+| Rounds | Alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second |
+
+Every set published the same counts on both sides.
+
+### Against P7-62
+
+| Set | P7-62 | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.55 ms (0.47 ms–0.80 ms) | 0.53 ms (0.47 ms–1.13 ms) | 0.97, inside the spread |
+| Hull `cube` D2 10^5 | 5.17 ms (4.41 ms–8.36 ms) | 5.12 ms (4.54 ms–8.98 ms) | 0.99, inside the spread |
+| Hull `sphere` D2 10^4 | 1.23 ms (1.14 ms–2.15 ms) | 1.25 ms (1.11 ms–2.11 ms) | 1.01, inside the spread |
+| Hull `sphere` D2 10^5 | 11.6 ms (10.6 ms–36.7 ms) | 12.1 ms (11.0 ms–21.9 ms) | 1.04, inside the spread |
+| Hull `cube` D3 10^4 | 1.39 ms (1.24 ms–1.63 ms) | 1.37 ms (1.23 ms–1.58 ms) | 0.98, inside the spread |
+| Hull `cube` D3 10^5 | 11.3 ms (10.8 ms–13.2 ms) | 11.1 ms (10.5 ms–12.0 ms) | 0.98, inside the spread |
+| Hull `cube` D3 10^6 | 133 ms (131 ms–137 ms) | 136 ms (131 ms–142 ms) | 1.02, inside the spread |
+| Hull `cubesurf` D3 10^5 | 48.6 ms (46.8 ms–50.0 ms) | 48.9 ms (47.3 ms–56.6 ms) | 1.01, inside the spread |
+| Hull `sphere` D3 10^4 | 20.3 ms (19.8 ms–22.4 ms) | 20.4 ms (19.8 ms–23.6 ms) | 1.01, inside the spread |
+| Hull `sphere` D3 10^5 | 244 ms (239 ms–265 ms) | 243 ms (238 ms–269 ms) | 1.00, inside the spread |
+| Hull `sphere` D3 10^6 | 3.73 s (3.70 s–3.74 s) | 3.27 s (3.23 s–3.27 s) | 0.88, faster beyond the spread |
+| Hull `cube` D4 10^4 | 5.47 ms (5.15 ms–6.06 ms) | 5.53 ms (5.21 ms–6.77 ms) | 1.01, inside the spread |
+| Hull `cube` D4 10^5 | 34.1 ms (32.5 ms–47.8 ms) | 33.3 ms (32.3 ms–37.4 ms) | 0.98, inside the spread |
+| Hull `sphere` D4 10^4 | 90.5 ms (89.3 ms–97.8 ms) | 91.5 ms (88.9 ms–97.6 ms) | 1.01, inside the spread |
+| Hull `sphere` D4 10^5 | 1.11 s (1.08 s–1.17 s) | 1.09 s (1.08 s–1.10 s) | 0.98, inside the spread |
+| Hull `cube` D5 10^4 | 54.3 ms (52.8 ms–57.1 ms) | 54.6 ms (53.1 ms–59.3 ms) | 1.00, inside the spread |
+| Hull `sphere` D5 10^4 | 796 ms (779 ms–828 ms) | 790 ms (777 ms–840 ms) | 0.99, inside the spread |
+| Hull `cube` D6 10^4 | 563 ms (555 ms–598 ms) | 566 ms (555 ms–610 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^4 | 5.42 ms (5.26 ms–6.27 ms) | 5.47 ms (5.17 ms–7.27 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^5 | 54.0 ms (52.3 ms–63.5 ms) | 54.1 ms (52.8 ms–58.4 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^6 | 560 ms (556 ms–573 ms) | 559 ms (556 ms–561 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^4 | 5.53 ms (5.34 ms–6.66 ms) | 5.55 ms (5.38 ms–17.2 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^5 | 43.7 ms (42.9 ms–47.0 ms) | 44.0 ms (42.8 ms–50.2 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D2 10^6 | 423 ms (420 ms–427 ms) | 423 ms (417 ms–426 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^4 | 37.3 ms (36.0 ms–40.0 ms) | 36.9 ms (35.6 ms–39.2 ms) | 0.99, inside the spread |
+| Delaunay `cube` D3 10^5 | 390 ms (384 ms–402 ms) | 389 ms (383 ms–414 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^4 | 79.8 ms (78.5 ms–88.1 ms) | 80.4 ms (78.4 ms–105 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D3 10^5 | 757 ms (755 ms–776 ms) | 761 ms (754 ms–768 ms) | 1.00, inside the spread |
+| Delaunay `cube` D4 10^4 | 650 ms (641 ms–681 ms) | 650 ms (640 ms–669 ms) | 1.00, inside the spread |
+| Delaunay `cube` D5 10^4 | 7.27 s (7.07 s–7.33 s) | 7.15 s (7.09 s–7.32 s) | 0.98, inside the spread |
+
+### Reading
+
+- **Hull `sphere` D3 10^6 reads 0.88, faster beyond the spread:** 3.73 s to 3.27 s. On the parity ratio, that is about 1.01 against Qhull, from about 1.15 after P7-62.
+- **Hull `cube` D3 10^6 reads 1.02, inside the spread.** The keep criterion asked it to be faster beyond the spread too, and it is not: what the order saves there, the copy and its counting sort spend. Whether to keep the change on `sphere` alone is the owner's call (`bench.mdc`).
+- **Nothing is slower beyond the spread.** The sets under 2^17 representatives do not take the copy, and read 0.97 to 1.04.
