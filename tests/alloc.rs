@@ -72,6 +72,11 @@ enum Points {
     /// A k-gon times the unit square in D = 4, `k` and `16 k`: k box facets
     /// and four prisms.
     Duoprism(usize),
+    /// The integer points of the sphere of a squared radius, small and
+    /// large, in D = 3: every site on one sphere, which Delaunay fills by
+    /// the pulling triangulation. 480 points at 1,001 and 6,630 at
+    /// 1,221,025.
+    Sphere(i64, i64),
 }
 
 impl Points {
@@ -81,6 +86,7 @@ impl Points {
             Self::Prism(k) => format!("prism k={k}"),
             Self::FullGrid(small, large) => format!("full grid D{dim} m={small},{large}"),
             Self::Duoprism(k) => format!("k-gon times a square k={k}"),
+            Self::Sphere(small, large) => format!("integer sphere r2={small},{large}"),
         }
     }
 
@@ -110,6 +116,25 @@ impl Points {
                     ]
                 })
                 .collect(),
+            Self::Sphere(small, big) => {
+                let squared = if large { big } else { small };
+                let r = (squared as f64).sqrt() as i64 + 1;
+                let mut points = Vec::new();
+                for x in -r..=r {
+                    for y in -r..=r {
+                        let rest = squared - x * x - y * y;
+                        let z = (rest.max(0) as f64).sqrt().round() as i64;
+                        if rest < 0 || z * z != rest {
+                            continue;
+                        }
+                        points.extend([x as f64, y as f64, z as f64]);
+                        if z != 0 {
+                            points.extend([x as f64, y as f64, -z as f64]);
+                        }
+                    }
+                }
+                points
+            }
         }
     }
 }
@@ -193,6 +218,8 @@ const CASES: &[Case] = &[
     Case { kind: Kind::Delaunay, points: Points::FullGrid(4, 10), dim: 3, small: (392, 112), large: (392, 182), grows: None },
     Case { kind: Kind::Voronoi, points: Points::FullGrid(8, 32), dim: 2, small: (262, 151), large: (262, 249), grows: None },
     Case { kind: Kind::Voronoi, points: Points::FullGrid(4, 10), dim: 3, small: (660, 337), large: (660, 525), grows: None },
+    Case { kind: Kind::Hull, points: Points::Sphere(1001, 1_221_025), dim: 3, small: (214, 351), large: (290, 696), grows: None },
+    Case { kind: Kind::Delaunay, points: Points::Sphere(1001, 1_221_025), dim: 3, small: (186, 348), large: (262, 678), grows: None },
     Case { kind: Kind::Hull, points: Points::Duoprism(8), dim: 4, small: (1305, 979), large: (13177, 7449), grows: Some(531) },
 ];
 

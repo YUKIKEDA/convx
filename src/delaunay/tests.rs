@@ -825,6 +825,152 @@ fn pulled_simplices_have_empty_circumspheres() {
     assert_eq!(t.simplices().len(), 4);
 }
 
+/// The pulling triangulation as its rule reads (design §7), with every
+/// face intersected with every facet of the hull: the cells in the order
+/// the faces leave the stack.
+fn pulled_by_every_facet<'p>(
+    d: usize,
+    sites: &[u32],
+    facets: &Lists<u32>,
+    point: impl Fn(u32) -> &'p [f64] + Copy,
+) -> Vec<Vec<u32>> {
+    let mut rows = Vec::new();
+    let mut stack: Vec<(Vec<u32>, usize, Vec<u32>)> = vec![(sites.to_vec(), d, Vec::new())];
+    let mut cells = Vec::new();
+    while let Some((face, k, pulled)) = stack.pop() {
+        if face.len() == k + 1 {
+            let mut cell = pulled;
+            cell.extend(face);
+            cell.sort_unstable();
+            cells.push(cell);
+            continue;
+        }
+        let v = face[0];
+        let mut sub: Vec<Vec<u32>> = Vec::new();
+        for facet in facets.iter() {
+            let meet: Vec<u32> = face
+                .iter()
+                .copied()
+                .filter(|x| facet.binary_search(x).is_ok())
+                .collect();
+            if meet.len() < k || meet.contains(&v) || sub.contains(&meet) {
+                continue;
+            }
+            let basis = minimum_basis_with(d, &meet, point, &mut rows).unwrap();
+            if basis.len() == k {
+                sub.push(meet);
+            }
+        }
+        for facet in sub {
+            let mut next = pulled.clone();
+            next.push(v);
+            stack.push((facet, k - 1, next));
+        }
+    }
+    cells
+}
+
+/// [`pulled_cells`] finds the facets of a face from the facets at its
+/// vertices (#539). It gives the cells of the rule read with every facet,
+/// in the same order, on sets whose faces are not simplices at one level
+/// or at several: the corners of a cube of D = 2 to 5, the integer points
+/// of spheres in D = 2 to 4 (those of squared radius 4 in D = 4 are the
+/// 24-cell, with octahedra for facets), each in shuffled index orders.
+///
+/// The last set is 28 of the 40 integer points of squared radius 2 in
+/// D = 5, from the review of #542. Two facets of its hull meet a face of
+/// dimension k in k points that span less than k - 1 dimensions, which the
+/// other sets do not have: keeping such a meet changes the cells.
+#[test]
+fn pulled_cells_are_those_of_the_rule_read_with_every_facet() {
+    fn sphere(d: usize, squared: i64) -> Vec<Vec<f64>> {
+        let r = (squared as f64).sqrt() as i64 + 1;
+        let mut found = Vec::new();
+        let mut x = vec![-r; d];
+        loop {
+            if x.iter().map(|c| c * c).sum::<i64>() == squared {
+                found.push(x.iter().map(|&c| c as f64).collect());
+            }
+            let Some(axis) = (0..d).find(|&a| x[a] < r) else {
+                return found;
+            };
+            x[..axis].fill(-r);
+            x[axis] += 1;
+        }
+    }
+    let mut sets: Vec<(usize, Vec<Vec<f64>>)> = Vec::new();
+    for d in 2..=5 {
+        let corners = (0..1_u32 << d)
+            .map(|i| (0..d).map(|a| f64::from((i >> a) & 1) * 2.0).collect())
+            .collect();
+        sets.push((d, corners));
+    }
+    for (d, squared) in [
+        (2, 25),
+        (2, 325),
+        (3, 9),
+        (3, 26),
+        (3, 41),
+        (3, 101),
+        (4, 4),
+        (4, 10),
+    ] {
+        sets.push((d, sphere(d, squared)));
+    }
+    #[rustfmt::skip]
+    let subset: [[i8; 5]; 28] = [
+        [0, -1, -1, 0, 0], [0, 0, 1, 0, -1], [0, 1, 0, -1, 0], [0, -1, 0, -1, 0],
+        [-1, 0, 1, 0, 0], [-1, 0, 0, 0, -1], [0, 1, 0, 0, 1], [-1, 0, -1, 0, 0],
+        [-1, 0, 0, -1, 0], [0, -1, 0, 0, 1], [-1, -1, 0, 0, 0], [0, 0, -1, 1, 0],
+        [0, 0, 1, -1, 0], [0, 0, -1, 0, -1], [1, 0, 0, -1, 0], [1, 0, 0, 0, 1],
+        [0, 1, 0, 0, -1], [0, -1, 0, 1, 0], [1, -1, 0, 0, 0], [0, 0, 0, 1, 1],
+        [0, 0, -1, 0, 1], [-1, 0, 0, 1, 0], [0, -1, 1, 0, 0], [1, 0, -1, 0, 0],
+        [-1, 0, 0, 0, 1], [0, 0, 1, 1, 0], [0, 0, 0, 1, -1], [0, 1, -1, 0, 0],
+    ];
+    let subset = subset
+        .iter()
+        .map(|row| row.iter().map(|&c| f64::from(c)).collect())
+        .collect();
+    sets.push((5, subset));
+    let mut state = 539_u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let (mut not_simplices, mut deep) = (0, 0);
+    for (d, mut rows) in sets {
+        for round in 0..3 {
+            if round > 0 {
+                for i in (1..rows.len()).rev() {
+                    rows.swap(i, next() as usize % (i + 1));
+                }
+            }
+            let flat: Vec<f64> = rows.iter().flatten().copied().collect();
+            let hull = SimplicialHull::build(accept_sites(d, &flat).unwrap()).unwrap();
+            let facets = merge(&hull).unwrap().vertices;
+            let input = &hull.input;
+            let point = |i: u32| input.point(i);
+            let sites = &input.representatives;
+            assert_eq!(sites.len(), rows.len(), "every site is its own");
+            let expected = pulled_by_every_facet(d, sites, &facets, point);
+            let got = pulled_cells(d, sites, &facets, point).unwrap();
+            let got: Vec<Vec<u32>> = got.chunks_exact(d + 1).map(<[u32]>::to_vec).collect();
+            assert_eq!(
+                got,
+                expected,
+                "D = {d}, {} sites, round {round}",
+                rows.len()
+            );
+            not_simplices += facets.iter().filter(|f| f.len() > d).count();
+            deep += usize::from(d >= 4 && facets.iter().any(|f| f.len() > d));
+        }
+    }
+    assert!(not_simplices > 100, "facets that are not simplices");
+    assert!(deep >= 9, "faces split at two levels or more");
+}
+
 /// Every permutation of `k` distinct vertices, for k = 2 to 6: the sorted
 /// vertices ascend, each keeps its slot, and the parity is that of the
 /// permutation's inversions, counted pairwise here. Three and four vertices
