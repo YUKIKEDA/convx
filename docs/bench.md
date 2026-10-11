@@ -4694,7 +4694,7 @@ The Grill on #493 chose P7-66 (below), then P7-67: hull D2's duplicates found fr
 - **`#[cold]` on the underflow path stays.**
 - P7-67 follows, then a parity run.
 
-## Hull D2: the duplicates found from the chain's sort, where the chain reads every point (#496)
+## Hull D2: the duplicates found from the chain's sort, where the chain reads every point, PR #498 (#496)
 
 The spike P7-65 (#493) put hull `sphere` D2 10^4 at 1.26 against CGAL as input indices, with acceptance's hashing at 14.0% of the build and the chain's sort at 22.3%. The chain sorts every representative by (x, y, index), which puts equal points next to each other.
 
