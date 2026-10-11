@@ -4889,7 +4889,7 @@ Against the references from the points instead, 24 sets would be met at 1.05 and
 | Hull `sphere` D3 10^4 | 1 | 1.06 against Qhull |
 | Hull `cubesurf` D3 10^5 | 1 | 1.61 against Qhull |
 
-## Hull `cubesurf` D3: the spike P7-68, and classification's shortcut inside a facet (#503, #504)
+## Hull `cubesurf` D3: the spike P7-68, and classification's shortcut inside a facet, PR #505 (#503, #504)
 
 ### The spike P7-68 (#503)
 
