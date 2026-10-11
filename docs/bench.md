@@ -5208,7 +5208,7 @@ With the timers on the branch, the pass took 35 to 40 ms, against 38 to 42 on `m
 
 The Grill on #483 recorded the gap as the price of convx's unique output, and ADR 0006 now reports Delaunay `cube` D3 against CGAL without judging it (amendment of 2026-10-11).
 
-## The P7 parity run after P7-69 and P7-70 (#512)
+## The P7 parity run after P7-69 and P7-70, PR #514 (#512)
 
 Due after P7-69 (#505) and P7-70 (#507). Delaunay `cube` D3 is reported, not judged, by the amendment of ADR 0006 in #513.
 
