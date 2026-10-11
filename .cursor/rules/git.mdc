@@ -21,6 +21,8 @@ Treat as a question. Reply only. Do not `reset`, `rebase`, `push --force`, `--fo
 
 Deleting a branch whose pull request has already merged is required above. This list does not apply to that deletion.
 
+A withdrawn prototype's local branch is not a merged branch. Post its diff on the Issue, and leave the branch until the owner gives an imperative that names it. In #478 the branches of two withdrawn prototypes were deleted without one (`feat/410-merge-singletons`, `docs/410-merge-prototype`).
+
 The reply must include, then wait for a later message:
 
 1. Current `HEAD` SHA (restore point)
