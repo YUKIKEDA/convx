@@ -5380,7 +5380,7 @@ The interquartile ranges of `main` and the head are apart on both sets.
 - **Hull `cube` D2 reads 0.98 to 1.02.** There the discard polygon leaves few points for the chain.
 - **Nothing is slower beyond the spread.** Hull `cube` D3 10^6, `sphere` D3 10^4, `sphere` D5 10^4, and Delaunay `sphere` D3 10^5 read 1.04 to 1.06 inside the spread. The change reaches only the D = 2 chain.
 
-## The final P7 parity run, and the phase marks taken out of the judged time (#518)
+## The final P7 parity run, and the phase marks taken out of the judged time, PR #522 (#518)
 
 P7 closes with this run (Grill on #512). Delaunay `cube` D3 is reported, not judged (ADR 0006, amendment of #513).
 
