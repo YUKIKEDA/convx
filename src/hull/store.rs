@@ -153,6 +153,26 @@ impl FacetStore {
         slot
     }
 
+    /// Renames every point the store holds, `p` to `label[p]`: the vertices
+    /// of each simplex, the outside sets, and their candidates (ADR 0009,
+    /// #489). Simplex slots and links are unchanged.
+    pub(crate) fn relabel(&mut self, label: &[u32]) {
+        let d = self.dim;
+        for row in self.rows.chunks_exact_mut(d + self.links) {
+            for v in &mut row[..d] {
+                *v = label[*v as usize];
+            }
+        }
+        for (point, _) in &mut self.candidates {
+            if *point != NO_POINT {
+                *point = label[*point as usize];
+            }
+        }
+        for point in &mut self.pool {
+            *point = label[*point as usize];
+        }
+    }
+
     /// Removes the facet in `slot`. Its id stops resolving.
     pub(crate) fn remove(&mut self, slot: u32) {
         let s = slot as usize;

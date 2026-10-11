@@ -36,6 +36,27 @@ impl Records {
         }
     }
 
+    /// The record with each point `p` renamed `label[p]`, over `points`
+    /// points (ADR 0009, #489).
+    pub(crate) fn relabeled(self, label: &[u32], points: usize) -> Self {
+        if self.starts.is_empty() {
+            return Self {
+                starts: Vec::new(),
+                entries: self.entries,
+                points,
+            };
+        }
+        let mut starts = vec![NONE; points];
+        for (local, &start) in self.starts.iter().enumerate() {
+            starts[label[local] as usize] = start;
+        }
+        Self {
+            starts,
+            entries: self.entries,
+            points,
+        }
+    }
+
     /// Whether no point has a record.
     pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()
