@@ -116,6 +116,12 @@
 //!   exact), so its rounding is at least `s (1 + 2^-50)(1 - 2^-53)`, and
 //!   `(1 + 2^-50)(1 - 2^-53) - (1 + 2^-51)(1 + 2^-53) > 2^-53 > 0`.
 //!
+//! A determinant that is exactly zero is never certified: the bound is
+//! never negative, so neither `det > bound` nor `-det > bound` holds. Its
+//! bound is not computed. Points exactly on a common plane give a zero
+//! permanent, and so the second form, on every such test: on hull
+//! `cubesurf` D3 10^5 that product was 7.8% of the build (#503, #506).
+//!
 //! A NaN `s` or `X` fails the condition and takes the second form, as
 //! before. The second form is out of line and marked cold: written in
 //! place, the compiler evaluated both forms and selected one, and the
@@ -144,11 +150,14 @@ const fn relative(n: u32) -> f64 {
     (n + 1) as f64 * U
 }
 
-/// A determinant evaluated in `f64` and the bound on its error.
+/// A determinant evaluated in `f64`, and what its error bound is computed
+/// from.
 #[derive(Clone, Copy)]
 struct Estimate {
     det: f64,
-    bound: f64,
+    relative: f64,
+    permanent: f64,
+    x: f64,
 }
 
 /// The bound `relative * permanent + 4 η x`, computed as the module docs
@@ -176,17 +185,30 @@ impl Estimate {
     fn new(det: f64, relative: f64, permanent: f64, x: f64) -> Self {
         Self {
             det,
-            bound: bound(relative, permanent, x),
+            relative,
+            permanent,
+            x,
         }
     }
 
+    /// The bound on the error of `det`.
+    #[inline(always)]
+    fn bound(self) -> f64 {
+        bound(self.relative, self.permanent, self.x)
+    }
+
     /// The sign of the determinant when its absolute value exceeds the
-    /// bound.
+    /// bound. A determinant that is exactly zero is never certified, and
+    /// its bound is not computed (module docs).
     #[inline(always)]
     fn sign(self) -> Option<Sign> {
-        if self.det > self.bound {
+        if self.det == 0.0 {
+            return None;
+        }
+        let bound = self.bound();
+        if self.det > bound {
             Some(Sign::Positive)
-        } else if -self.det > self.bound {
+        } else if -self.det > bound {
             Some(Sign::Negative)
         } else {
             None
@@ -1090,7 +1112,8 @@ pub(super) mod tests {
     /// column, expanded over integers here.
     fn error_and_bound(points: &[Vec<f64>], lifted: bool) -> (BigInt, BigInt) {
         let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
-        let Estimate { det, bound } = estimate(refs[0], &refs[1..], lifted).unwrap();
+        let estimate = estimate(refs[0], &refs[1..], lifted).unwrap();
+        let (det, bound) = (estimate.det, estimate.bound());
         assert!(det.is_finite() && bound.is_finite(), "{points:?}");
         // Every coordinate is a multiple of 2^-shift.
         let base = points
