@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-A parity run with the references of P7-50 and P7-51, once the stacked pull requests merge (Grill on #456). P7-8 (#323): acceptance. P7-34 (#410) after its Grill. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+The rows after the parity run of #463 (13 sets not met) are set with the owner. P7-8 (#323): acceptance. P7-34 (#410) after its Grill. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
