@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Amended on 2026-10-10: a set is met within 5% of each judged reference. Amended on 2026-10-11: CGAL's Delaunay reference, and its D = 2 hull reference, give the same output as convx (Amendments below).
+Accepted. Amended on 2026-10-10: a set is met within 5% of each judged reference. Amended on 2026-10-11: CGAL's Delaunay reference, and its D = 2 hull reference, give the same output as convx (Amendments below). Amended again on 2026-10-11: Delaunay `cube` D3 is reported against CGAL, not judged, for the price of the cospherical groups.
 
 ## Date
 
@@ -139,3 +139,18 @@ Issue: #456, the spike P7-51. Decided by the owner on 2026-10-11, in the Grill o
 | `sphere` D2 10^6 | 93 ms | 157 ms |
 
 **What is reported.** As for Delaunay, each parity section also gives the ratio to the D = 2 reference from the points.
+
+## Amendment of 2026-10-11: Delaunay `cube` D3 and the cospherical groups
+
+Issue: #483 (P7-60), from the spike P7-71 (#509). Decided by the owner on 2026-10-11, in the Grill on #483.
+
+**What changes.** Delaunay `cube` D3 at 10^4, 10^5, and 10^6 sites is reported against CGAL, not judged. Each parity section keeps the ratio of `build()` in its table, marked as reported. It also gives the ratio of convx's construction, from the phase timers of the parity run, beside it. P7 holds no further row for these three sets for this reason alone.
+
+**Why.** The gap is the price of an output CGAL's reference does not give. convx merges the finite simplices that share a face and are cospherical into one group, and splits each group by placing. So the triangulation does not depend on the order of insertion, and the Voronoi diagram has one vertex per group (design §7, §8). The amendment of #455 already left the cospherical groups out of CGAL's reference. Measured (`docs/bench.md`):
+
+- **convx's construction alone is about CGAL's whole time, CGAL's output included.** The phase timers of the parity run of #499 read 31.8 ms against 33.0 ms at 10^4, 337 ms against 357 ms at 10^5, and 3.55 s against 4.17 s at 10^6.
+- **The pass after the insertion is the gap: 14 to 18% of `build()`.** On `cube` D3 10^5 it decides 506,576 faces the insertion left unknown, to find that no group merged.
+- **Making it cheaper has a bound.** Of the pass over faces (about 38 ms at 10^5), about 17 ms is the read of each unknown face's neighbor, a cache miss on a cell stored anywhere in the mesh, and about 9 ms its orientation. Halving the pass and the draft would save about 6%, and 1.14 would become about 1.07. The prototype of P7-60, which removed the comparisons but not the read, read inside the spread.
+- **The cavity work is CGAL's.** The in-sphere tests per site agree within 4%, and no predicate leaves the first stage.
+
+**What it does not change.** Every other set, the method, the references, and the judgement at 1.05 and at 1.00. Delaunay D2 10^4 and the other D3 sets stay judged.
