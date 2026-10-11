@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-55 (#468), then P7-56 (#469), then P7-57 (#470) (Grill on #467). P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+P7-56 (#469), then P7-57 (#470) (Grill on #467). P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -229,7 +229,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-52 | Feat  | Delaunay D2 and D3: the pass after the insertion in one walk                            | #457  | Withdrawn after measurement (#462) |
 | P7-53 | Feat  | Delaunay D2 and D3: cells and sites in fixed-size arrays                                | #458  | Withdrawn after measurement (#462) |
 | P7-54 | Spike | Where the time goes on the 13 sets the parity run of #466 left                          | #467  | Done        |
-| P7-55 | Feat  | Hull: the extreme points of large coplanar facets at less cost                          | #468  | Not started |
+| P7-55 | Feat  | Hull: the recorded points of a face tested against its neighbors together               | #468  | Done        |
 | P7-56 | Feat  | Delaunay: decide the faces left unknown when the insertion links them                   | #469  | Not started |
 | P7-57 | Spike | Hull sphere D2 10^4 and 10^5: acceptance, publication, and classification               | #470  | Not started |
 
