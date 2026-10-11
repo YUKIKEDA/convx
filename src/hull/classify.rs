@@ -652,63 +652,136 @@ fn distance_zeros(
     }
     // A recorded point is on its start group's plane. The groups at
     // distance zero from it are connected through neighbors, and every
-    // other group is strictly negative (design §3).
+    // other group is strictly negative (design §3). The points are taken by
+    // start group, and each group's points are tested against each of its
+    // neighbors together, through that neighbor's cull plane, as the scan
+    // above does; only what the plane does not prove is evaluated. One
+    // point at a time, that walk was most of classifying a hull whose
+    // points lie on its faces (#468). A point found on a neighbor's plane
+    // walks on from there as before.
+    let side_of = |g: u32, p: u32| -> Result<Sign, ConvexHullError> {
+        match groups.groups[g as usize]
+            .simplices
+            .first()
+            .and_then(|id| hull.facets.get(*id))
+        {
+            Some(simplex) => hull.side(simplex, p),
+            None => {
+                debug_assert!(false, "a group has a live simplex");
+                Ok(Sign::Negative)
+            }
+        }
+    };
+    let mut by_start: Vec<Vec<u32>> = vec![Vec::new(); groups.groups.len()];
+    for (k, start) in starts.iter().enumerate() {
+        if let Some(start) = *start {
+            by_start[start as usize].push(k as u32);
+        }
+    }
+    let (rows, stride) = hull.input.rows();
     let mut tested = vec![usize::MAX; groups.groups.len()];
     let mut stack: Vec<u32> = Vec::new();
-    for (k, (&p, start)) in others.iter().zip(&starts).enumerate() {
-        let Some(start) = *start else {
+    let mut points: Vec<u32> = Vec::new();
+    let mut sides: Vec<Option<Sign>> = Vec::new();
+    // Per point of the start group (by its place in `points`), a neighbor
+    // whose plane holds it.
+    let mut zeros: Vec<(u32, u32)> = Vec::new();
+    for (start, ks) in by_start.iter().enumerate() {
+        if ks.is_empty() {
             continue;
-        };
-        let side_of = |g: u32| -> Result<Sign, ConvexHullError> {
-            match groups.groups[g as usize]
+        }
+        let start = start as u32;
+        points.clear();
+        points.extend(ks.iter().map(|&k| others[k as usize]));
+        zeros.clear();
+        for &n in groups.neighbors.get(start as usize) {
+            let Some(simplex) = groups.groups[n as usize]
                 .simplices
                 .first()
                 .and_then(|id| hull.facets.get(*id))
-            {
-                Some(simplex) => hull.side(simplex, p),
-                None => {
-                    debug_assert!(false, "a group has a live simplex");
-                    Ok(Sign::Negative)
-                }
+            else {
+                debug_assert!(false, "a group has a live simplex");
+                continue;
+            };
+            sides.clear();
+            sides.resize(points.len(), None);
+            if let Some(cull) = simplex.cull() {
+                let origin = hull.input.point(simplex.vertices()[0]);
+                cull.mark_sides(origin, rows, stride, &points, &mut sides);
             }
-        };
-        #[cfg(debug_assertions)]
-        debug_assert_eq!(
-            side_of(start)?,
-            Sign::Zero,
-            "point {p} is recorded on a plane it is off"
-        );
-        on_boundary[k] = true;
-        zero_points[start as usize].push(p);
-        tested[start as usize] = k;
-        stack.clear();
-        stack.push(start);
-        while let Some(g) = stack.pop() {
-            for &n in groups.neighbors.get(g as usize) {
-                if tested[n as usize] == k {
-                    continue;
-                }
-                tested[n as usize] = k;
-                let side = side_of(n)?;
+            for (i, &p) in points.iter().enumerate() {
+                let side = match sides[i] {
+                    Some(proved) => {
+                        #[cfg(debug_assertions)]
+                        debug_assert_eq!(
+                            hull.side(simplex, p)?,
+                            proved,
+                            "the scan proved the wrong side of point {p}"
+                        );
+                        proved
+                    }
+                    None => hull.side(simplex, p)?,
+                };
                 debug_assert!(
                     side != Sign::Positive,
                     "a point is outside the finished hull"
                 );
                 if side == Sign::Zero {
-                    zero_points[n as usize].push(p);
-                    stack.push(n);
+                    zeros.push((i as u32, n));
                 }
             }
         }
-        // Debug builds check the walk against every group.
-        #[cfg(debug_assertions)]
-        for g in 0..groups.groups.len() as u32 {
-            if tested[g as usize] != k {
-                debug_assert_eq!(
-                    side_of(g)?,
-                    Sign::Negative,
-                    "the walk from a record missed a facet through point {p}"
-                );
+        zeros.sort_unstable();
+        let mut next_zero = 0;
+        for (i, &k) in ks.iter().enumerate() {
+            let k = k as usize;
+            let p = points[i];
+            #[cfg(debug_assertions)]
+            debug_assert_eq!(
+                side_of(start, p)?,
+                Sign::Zero,
+                "point {p} is recorded on a plane it is off"
+            );
+            on_boundary[k] = true;
+            zero_points[start as usize].push(p);
+            tested[start as usize] = k;
+            for &n in groups.neighbors.get(start as usize) {
+                tested[n as usize] = k;
+            }
+            stack.clear();
+            while next_zero < zeros.len() && zeros[next_zero].0 == i as u32 {
+                let n = zeros[next_zero].1;
+                zero_points[n as usize].push(p);
+                stack.push(n);
+                next_zero += 1;
+            }
+            while let Some(g) = stack.pop() {
+                for &n in groups.neighbors.get(g as usize) {
+                    if tested[n as usize] == k {
+                        continue;
+                    }
+                    tested[n as usize] = k;
+                    let side = side_of(n, p)?;
+                    debug_assert!(
+                        side != Sign::Positive,
+                        "a point is outside the finished hull"
+                    );
+                    if side == Sign::Zero {
+                        zero_points[n as usize].push(p);
+                        stack.push(n);
+                    }
+                }
+            }
+            // Debug builds check the walk against every group.
+            #[cfg(debug_assertions)]
+            for g in 0..groups.groups.len() as u32 {
+                if tested[g as usize] != k {
+                    debug_assert_eq!(
+                        side_of(g, p)?,
+                        Sign::Negative,
+                        "the walk from a record missed a facet through point {p}"
+                    );
+                }
             }
         }
     }
