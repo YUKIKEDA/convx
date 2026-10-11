@@ -4796,3 +4796,95 @@ Every set published the same counts on both sides.
 - **Delaunay D2 reads 0.99 to 1.00 since `d2ba949`.** The full shorter run's Delaunay rows were timed before that commit.
 - **Nothing else is slower beyond the spread.**
 - **The keep criterion** asked hull `sphere` D2 10^4 and 10^5 to be faster beyond the spread. By the rule on repeated runs (`bench.mdc`), 10^5 meets it; 10^4 agrees in direction but not beyond its spread. Whether to keep the change is the owner's call.
+
+## The P7 parity run after P7-62, P7-64, and P7-67, PR #500 (#499)
+
+Due after P7-62 (#486), P7-64 (#490), and P7-67 (#498), under the same-output references of ADR 0006 (amendments of 2026-10-11).
+
+### Method
+
+As in the run of #479: `--release` with debug info, the parity run of `docs/verification.md` under WSL2 on the Intel Core i5-13400F, against Qhull and CGAL on the same machine. convx is the head of #498 at `3bf1812`, whose code is that of `main` at `dc6523f`. "(ref.)" marks a reference that is not judged (ADR 0006). "/ CGAL" is against the reference with the same output; "/ CGAL from the points" is against the construction from the points.
+
+The machine ran slower on this day than in the run of #479. On the sets no row of this period touched (hull `cube` and `sphere` D5 and D6), against the run of #479:
+
+- convx's `build()` read 1.02 to 1.06;
+- CGAL read 1.01 to 1.07;
+- Qhull read 1.04 to 1.10.
+
+The ratios between them moved by a few percent at most.
+
+### P7 judgement
+
+| Threshold | Met | Hull | Delaunay | In the run of #479 |
+| --- | ---: | ---: | ---: | ---: |
+| 1.05 | 32 of 41 | 21 | 11 | 30 |
+| 1.00 | 26 of 41 | 19 | 7 | 24 |
+
+Against the references from the points instead, 24 sets would be met at 1.05 and 22 at 1.00.
+
+| Set | convx `build()` | / CGAL | / CGAL from the points | / Qhull | At 1.05 | At 1.00 |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| Hull `cube` D2 10^4 | 0.47 ms | 0.79 | 0.95 | 0.82 | met | met |
+| Hull `cube` D2 10^5 | 4.55 ms | 0.80 | 1.00 | 0.81 | met | met |
+| Hull `cube` D2 10^6 | 56.4 ms | 0.79 | 1.22 | 0.97 | met | met |
+| Hull `cube` D3 10^4 | 1.26 ms | 0.55 | – | 0.80 | met | met |
+| Hull `cube` D3 10^5 | 10.7 ms | 0.41 | – | 0.88 | met | met |
+| Hull `cube` D3 10^6 | 143 ms | 0.23 | – | 0.95 | met | met |
+| Hull `cube` D4 10^4 | 5.70 ms | 0.12 | – | 0.77 | met | met |
+| Hull `cube` D4 10^5 | 32.9 ms | 0.06 | – | 0.95 | met | met |
+| Hull `cube` D5 10^4 | 55.4 ms | 0.24 | – | 0.74 | met | met |
+| Hull `cube` D5 10^5 | 216 ms | 0.12 | – | 0.65 | met | met |
+| Hull `cube` D6 10^4 | 587 ms | 0.28 | – | 0.44 | met | met |
+| Hull `cube` D6 10^5 | 2.54 s | 0.23 | – | 0.38 | met | met |
+| Hull `sphere` D2 10^4 | 0.97 ms | 1.29 | 1.42 | 0.14 (ref.) | not met | not met |
+| Hull `sphere` D2 10^5 | 10.9 ms | 1.11 | 1.40 | 0.10 (ref.) | not met | not met |
+| Hull `sphere` D2 10^6 | 110 ms | 0.69 | 1.25 | 0.06 (ref.) | met | met |
+| Hull `sphere` D3 10^4 | 19.7 ms | 0.87 | – | 1.06 | not met | not met |
+| Hull `sphere` D3 10^5 | 260 ms | 0.61 | – | 1.02 | met | not met |
+| Hull `sphere` D3 10^6 | 3.47 s | 0.42 | – | 1.03 | met | not met |
+| Hull `sphere` D4 10^4 | 87.6 ms | 0.72 | – | 0.95 | met | met |
+| Hull `sphere` D4 10^5 | 1.15 s | 0.93 | – | 0.87 | met | met |
+| Hull `sphere` D5 10^4 | 808 ms | 0.83 | – | 0.97 | met | met |
+| Hull `sphere` D5 10^5 | 9.96 s | 0.93 | – | 0.93 | met | met |
+| Hull `sphere` D6 10^4 | 6.66 s | 0.70 | – | 0.78 | met | met |
+| Hull `cubesurf` D3 10^5 | 46.4 ms | 1.19 | – | 1.61 | not met | not met |
+| Hull `grid` D6 10^4 | 242 ms | 0.96 (ref.) | – | 0.70 | met | met |
+| Delaunay `cube` D2 10^4 | 5.28 ms | 1.11 | 1.32 | 0.28 | not met | not met |
+| Delaunay `cube` D2 10^5 | 55.0 ms | 1.01 | 1.32 | 0.23 | met | not met |
+| Delaunay `cube` D2 10^6 | 566 ms | 0.82 | 1.26 | 0.17 | met | met |
+| Delaunay `sphere` D2 10^4 | 4.89 ms | 1.08 | 1.23 | 0.21 (ref.) | not met | not met |
+| Delaunay `sphere` D2 10^5 | 42.7 ms | 1.01 | 1.32 | 0.11 (ref.) | met | not met |
+| Delaunay `sphere` D2 10^6 | 416 ms | 0.80 | 1.41 | 0.03 (ref.) | met | met |
+| Delaunay `cube` D3 10^4 | 37.6 ms | 1.14 | 1.22 | 0.40 | not met | not met |
+| Delaunay `cube` D3 10^5 | 408 ms | 1.14 | 1.27 | 0.31 | not met | not met |
+| Delaunay `cube` D3 10^6 | 4.43 s | 1.06 | 1.26 | 0.27 | not met | not met |
+| Delaunay `sphere` D3 10^4 | 67.4 ms | 0.52 | 0.51 | 0.57 (ref.) | met | met |
+| Delaunay `sphere` D3 10^5 | 658 ms | 0.68 | 0.70 | 0.34 (ref.) | met | met |
+| Delaunay `sphere` D3 10^6 | 5.69 s | 0.82 | 0.84 | 0.31 (ref.) | met | met |
+| Delaunay `cube` D4 10^4 | 700 ms | 1.04 | 1.09 | 0.84 | met | not met |
+| Delaunay `sphere` D4 10^4 | 880 ms | 0.34 | 0.35 | 0.67 (ref.) | met | met |
+| Delaunay `cube` D5 10^4 | 7.61 s | 1.03 | 1.07 | 0.89 | met | not met |
+| Delaunay `sphere` D5 10^4 | 11.24 s | 0.31 | 0.32 | 0.74 (ref.) | met | met |
+
+### What moved
+
+- **Hull `sphere` D3 10^6** reads 1.03 against Qhull, from 1.22, and is now met. `build()` took 0.88 of the run of #479, from P7-62 and P7-64.
+- **Hull `sphere` D2:** `build()` took 0.90 of the run of #479 at 10^6, and 1.02 at 10^4 and 10^5, against a machine about 5% slower.
+  - 10^5 reads 1.11 against CGAL, from 1.13, and 10^4 reads 1.29, from 1.26. Neither is met.
+  - Under WSL, P7-67 saved less than the 0.87 to 0.94 it read on Windows (#498).
+  - The phase timer "construct" is not comparable with the run of #479 for D = 2: the sort moved from construction into acceptance.
+- **Delaunay `sphere` D2 10^5** reads 1.01, from 1.06, and is now met. No row changed Delaunay D2 in this period, so this is within the run-to-run difference.
+- **Hull `cube` D2 10^6** reads 0.97 against Qhull, from 1.00, and is now met at 1.00.
+- **Hull `cube` D3 10^6** reads 0.95 against Qhull, still met. P7-64's copy did not make it slower here.
+
+### What is not met
+
+9 sets:
+
+| Group | Sets | Worst ratio |
+| --- | ---: | --- |
+| Delaunay `cube` D3 | 3 | 1.06 to 1.14 against CGAL |
+| Delaunay D2 10^4 | 2 | 1.11 (`cube`) and 1.08 (`sphere`) against CGAL |
+| Hull `sphere` D2 10^4 and 10^5 | 2 | 1.29 and 1.11 against CGAL |
+| Hull `sphere` D3 10^4 | 1 | 1.06 against Qhull |
+| Hull `cubesurf` D3 10^5 | 1 | 1.61 against Qhull |
