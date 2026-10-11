@@ -23,7 +23,7 @@
 
 use std::collections::VecDeque;
 
-use super::input::Input;
+use super::input::{total_key, Input};
 use super::records::Records;
 use super::ridge::{fingerprint, pair_equal_keys_into};
 use super::store::{Facet, FacetStore};
@@ -450,11 +450,13 @@ impl<'a> SimplicialHull<'a> {
         self.strict_edges = true;
         let discard = self.discard_polygon()?;
         let edges = self.edges_of(&discard);
+        // The representatives come sorted by their coordinates from
+        // acceptance, and a subsequence of them stays sorted.
         let mut kept = Vec::new();
         if discard.is_empty() || !self.discarding_pays(&edges) {
-            kept.clone_from(&self.input.representatives);
+            kept.clone_from(&self.input.by_coordinates);
         } else {
-            for &r in &self.input.representatives {
+            for &r in &self.input.by_coordinates {
                 if clearly_inside(&edges, self.input.point(r)) {
                     self.proved_interior.push(r);
                 } else {
@@ -462,7 +464,7 @@ impl<'a> SimplicialHull<'a> {
                 }
             }
         }
-        let cycle = self.strict_cycle(kept)?;
+        let cycle = self.strict_cycle_of_sorted(kept)?;
         debug_assert!(
             cycle.len() >= 3,
             "a full-dimensional set has at least three extremes"
@@ -492,6 +494,12 @@ impl<'a> SimplicialHull<'a> {
         keyed.sort_unstable();
         let sorted: Vec<u32> = keyed.iter().map(|&(_, _, i)| i).collect();
         drop(keyed);
+        self.strict_cycle_of_sorted(sorted)
+    }
+
+    /// [`Self::strict_cycle`] of points already sorted by x, then y, then
+    /// index.
+    fn strict_cycle_of_sorted(&self, sorted: Vec<u32>) -> Result<Vec<u32>, ConvexHullError> {
         let xy: Vec<[f64; 2]> = sorted
             .iter()
             .map(|&i| {
@@ -1586,15 +1594,6 @@ fn space_order(input: &Input<'_>) -> Vec<u32> {
         at[code as usize] += 1;
     }
     order
-}
-
-fn total_key(x: f64) -> u64 {
-    let bits = x.to_bits();
-    if bits >> 63 == 1 {
-        !bits
-    } else {
-        bits | 1 << 63
-    }
 }
 
 #[cfg(test)]

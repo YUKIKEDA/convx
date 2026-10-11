@@ -15,6 +15,9 @@ pub(crate) struct Input<'a> {
     pub(crate) representative: Vec<u32>,
     /// The representatives, ascending.
     pub(crate) representatives: Vec<u32>,
+    /// D = 2: the representatives by x, then y, then index, as the chain
+    /// reads them (design §6). Empty for any other D.
+    pub(crate) by_coordinates: Vec<u32>,
     /// The lexicographically minimum affine basis: D + 1 representatives.
     pub(crate) spanning_points: Vec<u32>,
 }
@@ -31,6 +34,7 @@ impl<'a> Input<'a> {
             points,
             representative: ids.clone(),
             representatives: ids,
+            by_coordinates: Vec::new(),
             spanning_points,
         }
     }
@@ -106,7 +110,14 @@ pub(crate) fn accept(dim: usize, points: &[f64]) -> Result<Input<'_>, ConvexHull
     let count = check_count(count)?;
     let point = |i: u32| &points[i as usize * dim..(i as usize + 1) * dim];
 
-    let representative = representatives_of(count, point);
+    // D = 2 sorts every point once by its coordinates: equal points are
+    // then adjacent, and the chain reads the representatives in that order
+    // (#496).
+    let (representative, by_coordinates) = if dim == 2 {
+        representatives_by_coordinates(count, point)
+    } else {
+        (representatives_of(count, point), Vec::new())
+    };
     let representatives: Vec<u32> = (0..count as u32)
         .filter(|&i| representative[i as usize] == i)
         .collect();
@@ -128,6 +139,7 @@ pub(crate) fn accept(dim: usize, points: &[f64]) -> Result<Input<'_>, ConvexHull
         points,
         representative,
         representatives,
+        by_coordinates,
         spanning_points,
     })
 }
@@ -153,6 +165,48 @@ fn compare_points(a: &[f64], b: &[f64]) -> Ordering {
 /// built to collide costs O(n log n), not O(n^2).
 fn representatives_of<'p>(count: usize, point: impl Fn(u32) -> &'p [f64]) -> Vec<u32> {
     representatives_by_hash(count, &point).unwrap_or_else(|| representatives_by_sort(count, point))
+}
+
+/// [`representatives_of`] for D = 2, with the representatives sorted by
+/// x, then y, then index. Each coordinate is ordered by [`f64::total_cmp`]
+/// after adding `+0.0`, so `-0.0` and `+0.0` are one value, and a class's
+/// smallest index comes first among its equal points.
+fn representatives_by_coordinates<'p>(
+    count: usize,
+    point: impl Fn(u32) -> &'p [f64],
+) -> (Vec<u32>, Vec<u32>) {
+    let mut keyed: Vec<(u64, u64, u32)> = (0..count as u32)
+        .map(|i| {
+            let p = point(i);
+            (total_key(p[0] + 0.0), total_key(p[1] + 0.0), i)
+        })
+        .collect();
+    keyed.sort_unstable();
+    let mut representative = vec![0_u32; count];
+    let mut sorted = Vec::new();
+    let mut current: Option<(u64, u64, u32)> = None;
+    for &(x, y, i) in &keyed {
+        let rep = match current {
+            Some((cx, cy, r)) if (cx, cy) == (x, y) => r,
+            _ => {
+                current = Some((x, y, i));
+                sorted.push(i);
+                i
+            }
+        };
+        representative[i as usize] = rep;
+    }
+    (representative, sorted)
+}
+
+/// The bits of `x` as a `u64` whose order is [`f64::total_cmp`]'s.
+pub(crate) fn total_key(x: f64) -> u64 {
+    let bits = x.to_bits();
+    if bits >> 63 == 1 {
+        !bits
+    } else {
+        bits | 1 << 63
+    }
 }
 
 /// Longest probe sequence of [`representatives_by_hash`] before it gives up.
