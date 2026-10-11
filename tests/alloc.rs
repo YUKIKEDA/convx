@@ -12,10 +12,10 @@
 //!   seed, and a few counts move by one between runs. A count may fall, and
 //!   the record is then lowered; raising one needs an Issue.
 //! - **The growth.** At `16 n` the allocations stay below twice those at
-//!   `n`, so they cannot be per point. Two exceptions name the Issue that
-//!   removes them: Voronoi allocates per site (#523), and the hull's
-//!   classification builds a sub-hull per face with its own buffers (#524),
-//!   which grows on `cubesurf` D4.
+//!   `n`, so they cannot be per point. One exception names the Issue that
+//!   removes it: the hull's classification builds a sub-hull per face with
+//!   its own buffers (#524), which grows on `cubesurf` D4. Voronoi allocated
+//!   per site until #523.
 //!
 //! Debug builds run invariant checks inside every build, and those allocate
 //! freely, so the counts hold for release builds only. `just test` runs this
@@ -110,12 +110,12 @@ const CASES: &[Case] = &[
     Case { kind: Kind::Delaunay, family: Family::NearSphere, dim: 2, n: 1000, small: (1553, 457), large: (1553, 457), grows: None },
     Case { kind: Kind::Delaunay, family: Family::NearSphere, dim: 3, n: 1000, small: (23779, 6370), large: (39739, 10900), grows: None },
     Case { kind: Kind::Delaunay, family: Family::Cube, dim: 4, n: 500, small: (825, 78), large: (825, 99), grows: None },
-    Case { kind: Kind::Voronoi, family: Family::Cube, dim: 2, n: 250, small: (10293, 82), large: (165617, 117), grows: Some(523) },
-    Case { kind: Kind::Voronoi, family: Family::Cube, dim: 3, n: 250, small: (35260, 1322), large: (615500, 20289), grows: Some(523) },
-    Case { kind: Kind::Voronoi, family: Family::Sphere, dim: 2, n: 250, small: (6916, 94), large: (107913, 146), grows: Some(523) },
-    Case { kind: Kind::Voronoi, family: Family::Sphere, dim: 3, n: 250, small: (20383, 673), large: (336031, 6560), grows: Some(523) },
-    Case { kind: Kind::Voronoi, family: Family::Lattice, dim: 2, n: 250, small: (1064, 184), large: (1064, 184), grows: Some(523) },
-    Case { kind: Kind::Voronoi, family: Family::Lattice, dim: 3, n: 250, small: (8710, 1477), large: (8600, 1493), grows: Some(523) },
+    Case { kind: Kind::Voronoi, family: Family::Cube, dim: 2, n: 250, small: (257, 118), large: (257, 165), grows: None },
+    Case { kind: Kind::Voronoi, family: Family::Cube, dim: 3, n: 250, small: (576, 305), large: (593, 424), grows: None },
+    Case { kind: Kind::Voronoi, family: Family::Sphere, dim: 2, n: 250, small: (253, 133), large: (253, 205), grows: None },
+    Case { kind: Kind::Voronoi, family: Family::Sphere, dim: 3, n: 250, small: (588, 381), large: (617, 731), grows: None },
+    Case { kind: Kind::Voronoi, family: Family::Lattice, dim: 2, n: 250, small: (600, 209), large: (600, 209), grows: None },
+    Case { kind: Kind::Voronoi, family: Family::Lattice, dim: 3, n: 250, small: (4451, 1434), large: (4463, 1471), grows: None },
 ];
 
 #[test]

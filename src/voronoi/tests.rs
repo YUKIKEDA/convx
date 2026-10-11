@@ -346,8 +346,11 @@ fn a_cospherical_vertex_takes_the_minimum_cells_circumcenter() {
             .collect();
         cells.sort();
         assert_eq!(cells.len(), 2);
-        let first = circumcenter(2, &point, &cells[0]).unwrap();
-        let second = circumcenter(2, &point, &cells[1]).unwrap();
+        let mut circumcenters = Circumcenters::new(2);
+        assert!(circumcenters.compute(&point, &cells[0]));
+        let first = circumcenters.center.clone();
+        assert!(circumcenters.compute(&point, &cells[1]));
+        let second = circumcenters.center.clone();
         assert_ne!(first, second, "the two cells round differently");
         let v = diagram(2, &points);
         assert_eq!(v.vertices().len(), 1, "one cocircular group");
@@ -357,4 +360,80 @@ fn a_cospherical_vertex_takes_the_minimum_cells_circumcenter() {
             first.iter().map(|x| x.to_bits()).collect::<Vec<_>>()
         );
     }
+}
+
+/// The circumcenter as `Mat::qr` and its `solve_in_place` give it, the
+/// computation before #523, as an independent reference.
+fn reference_circumcenter<'p>(
+    d: usize,
+    point: &impl Fn(u32) -> &'p [f64],
+    cell: &[u32],
+) -> Option<Vec<f64>> {
+    use faer::linalg::solvers::Solve;
+    let origin = point(cell[0]);
+    let edges: Vec<Vec<f64>> = cell[1..]
+        .iter()
+        .map(|&v| point(v).iter().zip(origin).map(|(x, o)| x - o).collect())
+        .collect();
+    let width = edges
+        .iter()
+        .flatten()
+        .map(|x| x.abs())
+        .fold(0.0_f64, f64::max);
+    if !width.is_finite() || width == 0.0 {
+        return None;
+    }
+    let shift = -binary_exponent(width);
+    let scaled: Vec<Vec<f64>> = edges
+        .iter()
+        .map(|e| e.iter().map(|&x| scale_by_power_of_two(x, shift)).collect())
+        .collect();
+    let a = Mat::from_fn(d, d, |i, j| 2.0 * scaled[i][j]);
+    let mut rhs = Mat::from_fn(d, 1, |i, _| scaled[i].iter().map(|x| x * x).sum::<f64>());
+    a.qr().solve_in_place(&mut rhs);
+    let center: Vec<f64> = (0..d)
+        .map(|i| origin[i] + scale_by_power_of_two(rhs[(i, 0)], -shift))
+        .collect();
+    center.iter().all(|x| x.is_finite()).then_some(center)
+}
+
+/// The reused workspace gives the circumcenter of `Mat::qr`, bit for bit,
+/// on random cells of D = 2 to 5 at scales from 1e-300 to 1e300, one
+/// workspace per dimension reused across every cell (#523).
+#[test]
+fn reused_circumcenters_keep_the_bits_of_mat_qr() {
+    let mut state = 523_u64;
+    let mut next = || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        (state >> 11) as f64 / (1_u64 << 53) as f64 * 2.0 - 1.0
+    };
+    let mut compared = 0;
+    for d in 2..=5 {
+        let mut circumcenters = Circumcenters::new(d);
+        for scale in [1e-300, 1e-8, 1.0, 1e8, 1e300] {
+            for _ in 0..200 {
+                let points: Vec<f64> = (0..(d + 1) * d).map(|_| next() * scale).collect();
+                let point = |i: u32| &points[i as usize * d..(i as usize + 1) * d];
+                let cell: Vec<u32> = (0..=d as u32).collect();
+                let expected = reference_circumcenter(d, &point, &cell);
+                let found = circumcenters.compute(&point, &cell);
+                assert_eq!(found, expected.is_some(), "D = {d}, scale {scale:e}");
+                if let Some(expected) = expected {
+                    assert_eq!(
+                        circumcenters
+                            .center
+                            .iter()
+                            .map(|x| x.to_bits())
+                            .collect::<Vec<_>>(),
+                        expected.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+                        "D = {d}, scale {scale:e}"
+                    );
+                    compared += 1;
+                }
+            }
+        }
+    }
+    assert!(compared > 3000, "{compared} cells compared");
 }
