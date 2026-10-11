@@ -35,6 +35,7 @@ The current row's ID lives only in [docs/roadmap.md](docs/roadmap.md).
 | `.cursor/rules/no-dead-code.mdc`         | A removed path takes its functions, parameters, flags, tests, and docs with it                 |
 | `.cursor/rules/bench.mdc`                | Measure before speeding up. No speedup target before Qhull                                     |
 | `.cursor/rules/hpc.mdc`                  | Row-major points and column-major `faer`. A kernel does not invent a second layout             |
+| `.cursor/rules/perf.mdc`                 | A build's allocations do not grow with the points; `tests/alloc.rs` keeps the counts           |
 | `.cursor/rules/rust.mdc`                 | Safety, Clippy, floats, no `unsafe` in this crate                                              |
 | `.cursor/rules/rust-api.mdc`             | English identifiers, API Guidelines naming                                                     |
 | `.cursor/rules/rust-docs.mdc`            | English rustdoc                                                                                |

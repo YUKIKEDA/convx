@@ -9,6 +9,8 @@ Do not write a speedup target before the sequential core exists and Qhull has be
 
 Do not start speed work without a measurement. A phase-wide optimization that the design already places after a correct sequential result stays on its roadmap row (`.cursor/rules/defer.mdc`). It is not a reason to tune one path early.
 
+Count allocations from the start, not only when a profile shows the heap. `tests/alloc.rs` (`.cursor/rules/perf.mdc`) runs in `just test` with `--release` and holds every builder's counts to their records. convx took its rules from gprx without gprx's allocation rules, and allocation was then cut row by row: #80, #146, #224, and #99, where it was half of what was left. #521 first counted Voronoi at 41 to 675 allocations per site.
+
 Before starting a speed row, profile the build it targets (instruction counts or samples) and record in its Issue where the time goes. The row order follows that profile, not the roadmap's numbering.
 
 The share of code the compiler inlined (a closure, a small helper) is read from line-level counts (`valgrind --tool=callgrind --dump-instr=yes`, then `callgrind_annotate --auto=yes`). A function total that contains it is not its share.

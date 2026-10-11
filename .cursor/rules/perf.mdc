@@ -1,0 +1,34 @@
+---
+description: Hot-path rules for a build: allocation, reuse, naming, and claims
+alwaysApply: true
+---
+
+# Performance rules
+
+The hot path is a build: `ConvexHullBuilder::build`, `DelaunayBuilder::build`, `VoronoiBuilder::build`, and everything they call. The memory layout is `.cursor/rules/hpc.mdc`; how speed is measured and claimed is `.cursor/rules/bench.mdc`.
+
+## Allocation
+
+- A build allocates a number of times that does not grow with the number of points (design, #521). No `Vec::new`, `vec![]`, `clone`, `to_owned`, `collect`, `Box`, or `String` per point, per facet, per insertion, per plan, or per face. A buffer lives in the builder's state, sized once or grown, and is cleared and reused, as `take_outside`'s lists and the insertion's `stack` and `cavity` are.
+- A list built per item on the stack uses `Small` or a fixed array, not a `Vec`.
+- Debug checks may allocate. They are behind `debug_assertions`, and the contract holds for release builds.
+- `tests/alloc.rs` counts every builder on the generator's families at `n` and `16 n`. A count stays at or below its record; a count that falls lowers the record in the same change; raising one needs an Issue. An exception names the Issue that removes it (#523, #524).
+- A function that allocates its result is named `to_*` or returns an owned value, and is not called per item on the hot path.
+
+## Before claiming
+
+A speed or memory improvement is claimed with numbers against a named baseline (`.cursor/rules/bench.mdc`), not with an instruction count or a hunch. A change that removes allocations shows the counts of `tests/alloc.rs` before and after.
+
+```rust
+// BAD — a list per point in the scan
+for &p in remaining {
+    let ids: Vec<u32> = facet.vertices.iter().copied().chain([p]).collect();
+    sign(&ids)?;
+}
+
+// GOOD — the list on the stack, as `oriented_side` builds it
+for &p in remaining {
+    let ids: Small<u32, 10> = facet.vertices.iter().copied().chain([p]).collect();
+    sign(&ids)?;
+}
+```
