@@ -3858,3 +3858,68 @@ The index form of `convex_hull_3` in this CGAL takes no traits adapter, so D = 3
   - `sphere` D2 10^6 from 1.43 to about 0.85.
 - **CGAL's D >= 3 hull references stand:** no set of P7 not met has CGAL as its larger ratio there.
 - The next parity run uses both amendments and reports the ratios to the references from the points beside them.
+
+## Delaunay D2 and D3: one walk after the insertion, and bounds checks, prototypes, PR #462 (#457, #458)
+
+P7-52 and P7-53, from the Grill on #454. Each was to become a feature row only if its prototype gained. The spike P7-49 (#459) had found:
+
+- construction at CGAL's pace;
+- the pass after the insertion at 14 to 19% of `build()`, its tests of the faces left unknown at about 80 ns a face in `cube` D3;
+- bounds checks of indexing at about 10% of the instructions.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | The head of P7-48 (`4813b67`) against each copy, not committed. rustc 1.97.1, `--release` with debug info |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
+| Rounds | Alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second |
+
+Every set published the same counts on both sides, and every test passed on each copy.
+
+### P7-52: the pass after the insertion in one walk
+
+For D = 2 and 3, the copy numbers the finite simplices first. It then writes the draft in the same walk that tests the faces, as if no group merged, and writes it again as before only when a group did.
+
+| Set | Base | One walk | Ratio |
+| --- | ---: | ---: | ---: |
+| Delaunay `cube` D2 10^4 | 6.08 ms (5.53 ms–7.39 ms) | 6.13 ms (5.52 ms–6.77 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^5 | 58.2 ms (54.4 ms–73.5 ms) | 58.0 ms (54.8 ms–76.6 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^6 | 591 ms (590 ms–616 ms) | 598 ms (597 ms–599 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D2 10^4 | 5.58 ms (5.38 ms–6.08 ms) | 5.55 ms (5.40 ms–5.85 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^5 | 45.1 ms (43.4 ms–64.0 ms) | 45.0 ms (43.9 ms–58.8 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^6 | 438 ms (435 ms–453 ms) | 438 ms (438 ms–466 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^4 | 36.7 ms (35.7 ms–39.9 ms) | 36.8 ms (35.0 ms–41.4 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^5 | 390 ms (377 ms–409 ms) | 389 ms (378 ms–410 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^6 | 4.19 s (4.17 s–4.24 s) | 4.19 s (4.18 s–4.23 s) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^4 | 80.5 ms (78.6 ms–92.0 ms) | 80.2 ms (78.4 ms–90.3 ms) | 1.00, inside the spread |
+| Delaunay `cube` D4 10^4 | 651 ms (637 ms–666 ms) | 645 ms (634 ms–661 ms) | 0.99, inside the spread |
+
+Every set reads 0.99 to 1.01. The second walk was not the cost: the tests read each neighbor's vertices and four sites at random, in either order.
+
+### P7-53: how much the bounds checks can cost
+
+Fixed-size storage would keep one check per cell or site. To bound what any such storage could save, a copy removed the checks entirely from the hot accessors: `Sites::fixed`, `Mesh::vertices_of`, `Mesh::neighbor`, and `Mesh::set_neighbor`. This used `unsafe` unchecked reads, allowed in that copy only; convx forbids `unsafe`, so the copy measures a ceiling, not a change.
+
+| Set | Base | Unchecked | Ratio |
+| --- | ---: | ---: | ---: |
+| Delaunay `cube` D2 10^4 | 6.19 ms (5.58 ms–7.03 ms) | 5.94 ms (5.36 ms–6.74 ms) | 0.96, inside the spread |
+| Delaunay `cube` D2 10^5 | 61.2 ms (57.3 ms–67.1 ms) | 60.7 ms (55.5 ms–72.5 ms) | 0.99, inside the spread |
+| Delaunay `cube` D2 10^6 | 646 ms (643 ms–661 ms) | 630 ms (609 ms–635 ms) | 0.98, faster beyond the spread |
+| Delaunay `sphere` D2 10^4 | 5.89 ms (5.47 ms–6.73 ms) | 5.83 ms (5.41 ms–6.62 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D2 10^5 | 49.1 ms (45.9 ms–63.9 ms) | 46.8 ms (44.1 ms–62.3 ms) | 0.95, inside the spread |
+| Delaunay `sphere` D2 10^6 | 470 ms (467 ms–475 ms) | 451 ms (449 ms–463 ms) | 0.96, faster beyond the spread |
+| Delaunay `cube` D3 10^4 | 40.3 ms (38.3 ms–44.1 ms) | 38.6 ms (36.9 ms–43.5 ms) | 0.96, inside the spread |
+| Delaunay `cube` D3 10^5 | 437 ms (423 ms–499 ms) | 415 ms (397 ms–465 ms) | 0.95, inside the spread |
+| Delaunay `cube` D3 10^6 | 4.84 s (4.62 s–4.87 s) | 4.69 s (4.42 s–4.78 s) | 0.97, inside the spread |
+| Delaunay `sphere` D3 10^4 | 85.2 ms (81.2 ms–99.4 ms) | 85.0 ms (80.9 ms–93.9 ms) | 1.00, inside the spread |
+| Delaunay `cube` D4 10^4 | 692 ms (674 ms–824 ms) | 697 ms (677 ms–735 ms) | 1.01, inside the spread |
+
+Removing every check of those accessors reads 0.95 to 0.99 on D2 and 0.95 to 0.97 on `cube` D3. Only the D2 sets of 10^6 are faster beyond the spread. Fixed-size arrays would keep part of the checks, so they would save less than this ceiling.
+
+### Reading
+
+- **No feature row follows either prototype** (Grill on #454).
+  - One walk saves nothing.
+  - Removing the checks entirely would save at most 1 to 5%, within the spread of most sets, and a safe storage would save less.
+- **What remains of D2 and D3 after construction** is reading memory at random in the pass after the insertion. The next parity run, with the references of P7-50 and P7-51, places the sets again.
