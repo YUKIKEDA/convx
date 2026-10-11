@@ -59,6 +59,10 @@ A pull request number written into a heading before the pull request exists is c
 
 A speed PR also times an input that takes the path it does not change, and reports it. In #265 the `cube` and `sphere` sets were 0.60 to 0.84 of the base, and two full grids, where every simplex is in a merged cospherical group, were inside the spread and 0.92.
 
+The sets of a first timing come from the callers of every changed function, found by search, not from the row's target alone. `accept` is also Delaunay's acceptance. #498's first timing covered hull D2 only, and only the full shorter run caught Delaunay `sphere` D2 10^6 at 1.07.
+
+A row aimed at a set of the parity run times that set under WSL, as the parity run does, before it reports a parity gain. P7-67 read 0.87 to 0.94 on hull `sphere` D2 10^5 on Windows. In the parity run of #499 its `build()` took about 0.97 of the previous run, after allowing for the slower day, and the set stayed outside 1.05.
+
 A measurement that an ADR, a code comment, or a PR cites is recorded in `docs/bench.md`, and the citation points to that section. A comment on an Issue is not the repository's record (ADR 0004, #270; the spike behind the bucket queue, #290 and #292). A claim of speed in an ADR names its measurement, or says that the gain is expected and which row measures it (ADR 0005, #296).
 
 Assign a row of a profile to a phase from its callers in the call tree, not from the function's name or from where the cost was expected. In #289 a stable sort was listed under publication; its caller was the chain of construction.
