@@ -5016,7 +5016,7 @@ For D = 3, classification builds a polygon per start group, from the group's ver
 - **Nothing else is slower beyond the spread.** Hull `cube` D2 reads 1.04 to 1.05, inside the spread. The change does not reach D = 2, and P7-67's runs put that set at 0.99 to 1.02.
 - **The next rows of the Grill on #503** address construction: the zero tests (15.3% of the build before this change) and the sort of `u32` lists (7.5%).
 
-## Predicates: the first stage skips its bound for an exactly zero determinant (#506)
+## Predicates: the first stage skips its bound for an exactly zero determinant, PR #507 (#506)
 
 ### The change (P7-70)
 
