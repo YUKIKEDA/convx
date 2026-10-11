@@ -5,16 +5,31 @@
 //! allocated once and reused, not per point, per facet, per insertion, or
 //! per face. Its reallocations grow only as buffers grow.
 //!
-//! Each case is counted at `n` points and at `16 n`:
+//! Each case is counted at a small size and at about 16 times it:
 //!
 //! - **The ratchet.** Both counts stay at or below the recorded ones, within
 //!   1% and 2 more ([`allowed`]): classification's hash maps take a random
 //!   seed, and a few counts move by one between runs. A count may fall, and
 //!   the record is then lowered; raising one needs an Issue.
-//! - **The growth.** At `16 n` the allocations stay below twice those at
-//!   `n`, so they cannot be per point. Two growths were found by the first
-//!   count and removed: Voronoi allocated per site (#523), and the placing
-//!   triangulation per simplex (#524).
+//! - **The growth.** At the large size the allocations stay below twice
+//!   those at the small one, so they cannot be per item. An exception names
+//!   the Issue that removes it, and fails once it no longer grows.
+//!
+//! The generator's degenerate families (`grid`, `lattice`, `cluster`) keep
+//! a fixed number of distinct points however many are drawn. Their faces
+//! and cospherical groups do not grow, so an allocation per face shows
+//! there as a fixed count. Three inputs grow in structure instead (#530):
+//!
+//! - a prism over a k-gon: k faces that are not simplices;
+//! - the full grid of side m: every unit cell is a cospherical group, and a
+//!   whole side or face of points comes before the first affinely
+//!   independent ones;
+//! - a k-gon times a square in D = 4: k faces whose sub-hull has D = 3.
+//!
+//! Growths found and removed: Voronoi per site (#523), the placing
+//! triangulation per simplex (#524), and per face of a hull of D = 3 and
+//! per point of a collinear prefix (#530). One is left: the sub-hull of a
+//! face in D >= 4 is built from nothing (#531).
 //!
 //! Debug builds run invariant checks inside every build, and those allocate
 //! freely, so the counts hold for release builds only. `just test` runs this
@@ -42,15 +57,73 @@ enum Kind {
     Voronoi,
 }
 
+/// The points of a case, at its small and its large size.
+#[derive(Clone, Copy)]
+enum Points {
+    /// A family of the generator, `n` and `16 n` points.
+    Drawn(Family, usize),
+    /// A prism over a k-gon in D = 3, `k` and `16 k`: the points
+    /// `(cos t, sin t, 0)` and `(cos t, sin t, 1)`. Each side face is a
+    /// rectangle, exactly: its four points share `x` and `y` in pairs.
+    Prism(usize),
+    /// Every point of the integer grid of two sides, about 16 times apart
+    /// in the number of points.
+    FullGrid(usize, usize),
+    /// A k-gon times the unit square in D = 4, `k` and `16 k`: k box facets
+    /// and four prisms.
+    Duoprism(usize),
+}
+
+impl Points {
+    fn name(self, dim: usize) -> String {
+        match self {
+            Self::Drawn(family, n) => format!("{} D{dim} n={n}", family.name()),
+            Self::Prism(k) => format!("prism k={k}"),
+            Self::FullGrid(small, large) => format!("full grid D{dim} m={small},{large}"),
+            Self::Duoprism(k) => format!("k-gon times a square k={k}"),
+        }
+    }
+
+    fn at(self, dim: usize, large: bool) -> Vec<f64> {
+        let times = if large { 16 } else { 1 };
+        let circle = |k: usize| {
+            (0..k).map(move |i| {
+                let t = i as f64 / k as f64 * core::f64::consts::TAU;
+                (t.cos(), t.sin())
+            })
+        };
+        match self {
+            Self::Drawn(family, n) => family.points(dim, times * n, 521),
+            Self::Prism(k) => circle(times * k)
+                .flat_map(|(x, y)| [x, y, 0.0, x, y, 1.0])
+                .collect(),
+            Self::FullGrid(small, big) => {
+                let m = if large { big } else { small };
+                (0..m.pow(dim as u32))
+                    .flat_map(|i| (0..dim).map(move |a| ((i / m.pow(a as u32)) % m) as f64))
+                    .collect()
+            }
+            Self::Duoprism(k) => circle(times * k)
+                .flat_map(|(x, y)| {
+                    [
+                        x, y, 0.0, 0.0, x, y, 1.0, 0.0, x, y, 0.0, 1.0, x, y, 1.0, 1.0,
+                    ]
+                })
+                .collect(),
+        }
+    }
+}
+
 /// One case: what is built, on which points, and the counts recorded at
-/// `n` and at `16 n` as `(allocations, reallocations)`.
+/// the small and the large size as `(allocations, reallocations)`. `grows`
+/// names the Issue that removes allocations which still grow.
 struct Case {
     kind: Kind,
-    family: Family,
+    points: Points,
     dim: usize,
-    n: usize,
     small: (usize, usize),
     large: (usize, usize),
+    grows: Option<u32>,
 }
 
 /// The allocations and reallocations of `f`.
@@ -82,37 +155,45 @@ fn build(kind: Kind, dim: usize, points: &[f64]) -> (usize, usize) {
 
 #[rustfmt::skip]
 const CASES: &[Case] = &[
-    Case { kind: Kind::Hull, family: Family::Cube, dim: 2, n: 1000, small: (47, 23), large: (47, 33) },
-    Case { kind: Kind::Hull, family: Family::Cube, dim: 3, n: 1000, small: (152, 197), large: (166, 261) },
-    Case { kind: Kind::Hull, family: Family::Cube, dim: 4, n: 1000, small: (171, 337), large: (187, 489) },
-    Case { kind: Kind::Hull, family: Family::Sphere, dim: 2, n: 1000, small: (43, 19), large: (43, 27) },
-    Case { kind: Kind::Hull, family: Family::Sphere, dim: 3, n: 1000, small: (162, 339), large: (201, 687) },
-    Case { kind: Kind::Hull, family: Family::Sphere, dim: 4, n: 1000, small: (172, 435), large: (202, 781) },
-    Case { kind: Kind::Hull, family: Family::Grid, dim: 2, n: 1000, small: (48, 7), large: (48, 7) },
-    Case { kind: Kind::Hull, family: Family::Grid, dim: 3, n: 1000, small: (474, 196), large: (474, 196) },
-    Case { kind: Kind::Hull, family: Family::Grid, dim: 4, n: 1000, small: (3127, 1638), large: (3127, 1643) },
-    Case { kind: Kind::Hull, family: Family::CubeSurf, dim: 3, n: 1000, small: (502, 372), large: (501, 484) },
-    Case { kind: Kind::Hull, family: Family::CubeSurf, dim: 4, n: 1000, small: (1231, 1678), large: (1423, 2410) },
-    Case { kind: Kind::Hull, family: Family::Cluster, dim: 2, n: 1000, small: (48, 18), large: (48, 18) },
-    Case { kind: Kind::Hull, family: Family::Cluster, dim: 3, n: 1000, small: (1363, 415), large: (1322, 406) },
-    Case { kind: Kind::Hull, family: Family::Cluster, dim: 4, n: 1000, small: (26131, 7833), large: (23286, 8853) },
-    Case { kind: Kind::Delaunay, family: Family::Cube, dim: 2, n: 1000, small: (162, 38), large: (162, 55) },
-    Case { kind: Kind::Delaunay, family: Family::Cube, dim: 3, n: 1000, small: (389, 72), large: (389, 92) },
-    Case { kind: Kind::Delaunay, family: Family::Sphere, dim: 2, n: 1000, small: (162, 39), large: (162, 56) },
-    Case { kind: Kind::Delaunay, family: Family::Sphere, dim: 3, n: 1000, small: (389, 75), large: (389, 96) },
-    Case { kind: Kind::Delaunay, family: Family::Grid, dim: 2, n: 1000, small: (177, 49), large: (177, 49) },
-    Case { kind: Kind::Delaunay, family: Family::Grid, dim: 3, n: 1000, small: (415, 112), large: (415, 112) },
-    Case { kind: Kind::Delaunay, family: Family::Lattice, dim: 2, n: 1000, small: (177, 57), large: (177, 57) },
-    Case { kind: Kind::Delaunay, family: Family::Lattice, dim: 3, n: 1000, small: (408, 131), large: (408, 131) },
-    Case { kind: Kind::Delaunay, family: Family::NearSphere, dim: 2, n: 1000, small: (178, 66), large: (178, 66) },
-    Case { kind: Kind::Delaunay, family: Family::NearSphere, dim: 3, n: 1000, small: (409, 129), large: (410, 146) },
-    Case { kind: Kind::Delaunay, family: Family::Cube, dim: 4, n: 500, small: (825, 78), large: (825, 99) },
-    Case { kind: Kind::Voronoi, family: Family::Cube, dim: 2, n: 250, small: (257, 118), large: (257, 165) },
-    Case { kind: Kind::Voronoi, family: Family::Cube, dim: 3, n: 250, small: (576, 305), large: (593, 424) },
-    Case { kind: Kind::Voronoi, family: Family::Sphere, dim: 2, n: 250, small: (253, 133), large: (253, 205) },
-    Case { kind: Kind::Voronoi, family: Family::Sphere, dim: 3, n: 250, small: (588, 381), large: (617, 731) },
-    Case { kind: Kind::Voronoi, family: Family::Lattice, dim: 2, n: 250, small: (274, 116), large: (274, 116) },
-    Case { kind: Kind::Voronoi, family: Family::Lattice, dim: 3, n: 250, small: (1081, 471), large: (1047, 480) },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::Cube, 1000), dim: 2, small: (39, 22), large: (39, 32), grows: None },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::Cube, 1000), dim: 3, small: (140, 196), large: (154, 260), grows: None },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::Cube, 1000), dim: 4, small: (153, 335), large: (169, 487), grows: None },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::Sphere, 1000), dim: 2, small: (35, 18), large: (35, 26), grows: None },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::Sphere, 1000), dim: 3, small: (150, 338), large: (189, 686), grows: None },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::Sphere, 1000), dim: 4, small: (154, 433), large: (184, 779), grows: None },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::Grid, 1000), dim: 2, small: (40, 6), large: (40, 6), grows: None },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::Grid, 1000), dim: 3, small: (218, 145), large: (218, 145), grows: None },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::Grid, 1000), dim: 4, small: (1700, 1271), large: (1700, 1272), grows: None },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::CubeSurf, 1000), dim: 3, small: (257, 308), large: (262, 382), grows: None },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::CubeSurf, 1000), dim: 4, small: (1065, 1587), large: (1257, 2263), grows: None },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::Cluster, 1000), dim: 2, small: (40, 17), large: (40, 17), grows: None },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::Cluster, 1000), dim: 3, small: (473, 263), large: (432, 246), grows: None },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::Cluster, 1000), dim: 4, small: (16345, 6521), large: (13884, 6877), grows: None },
+    Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Cube, 1000), dim: 2, small: (154, 37), large: (154, 54), grows: None },
+    Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Cube, 1000), dim: 3, small: (376, 71), large: (376, 91), grows: None },
+    Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Sphere, 1000), dim: 2, small: (154, 38), large: (154, 55), grows: None },
+    Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Sphere, 1000), dim: 3, small: (376, 74), large: (376, 95), grows: None },
+    Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Grid, 1000), dim: 2, small: (169, 48), large: (169, 48), grows: None },
+    Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Grid, 1000), dim: 3, small: (392, 111), large: (392, 111), grows: None },
+    Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Lattice, 1000), dim: 2, small: (169, 56), large: (169, 56), grows: None },
+    Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Lattice, 1000), dim: 3, small: (392, 130), large: (392, 130), grows: None },
+    Case { kind: Kind::Delaunay, points: Points::Drawn(Family::NearSphere, 1000), dim: 2, small: (170, 65), large: (170, 65), grows: None },
+    Case { kind: Kind::Delaunay, points: Points::Drawn(Family::NearSphere, 1000), dim: 3, small: (393, 128), large: (394, 145), grows: None },
+    Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Cube, 500), dim: 4, small: (806, 76), large: (806, 97), grows: None },
+    Case { kind: Kind::Voronoi, points: Points::Drawn(Family::Cube, 250), dim: 2, small: (241, 116), large: (241, 163), grows: None },
+    Case { kind: Kind::Voronoi, points: Points::Drawn(Family::Cube, 250), dim: 3, small: (551, 303), large: (568, 422), grows: None },
+    Case { kind: Kind::Voronoi, points: Points::Drawn(Family::Sphere, 250), dim: 2, small: (237, 131), large: (237, 203), grows: None },
+    Case { kind: Kind::Voronoi, points: Points::Drawn(Family::Sphere, 250), dim: 3, small: (563, 379), large: (592, 729), grows: None },
+    Case { kind: Kind::Voronoi, points: Points::Drawn(Family::Lattice, 250), dim: 2, small: (258, 114), large: (258, 114), grows: None },
+    Case { kind: Kind::Voronoi, points: Points::Drawn(Family::Lattice, 250), dim: 3, small: (669, 393), large: (662, 410), grows: None },
+    Case { kind: Kind::Hull, points: Points::Prism(64), dim: 3, small: (141, 214), large: (174, 371), grows: None },
+    Case { kind: Kind::Hull, points: Points::FullGrid(8, 32), dim: 2, small: (40, 15), large: (40, 27), grows: None },
+    Case { kind: Kind::Hull, points: Points::FullGrid(4, 10), dim: 3, small: (214, 146), large: (214, 222), grows: None },
+    Case { kind: Kind::Delaunay, points: Points::FullGrid(8, 32), dim: 2, small: (169, 78), large: (169, 130), grows: None },
+    Case { kind: Kind::Delaunay, points: Points::FullGrid(4, 10), dim: 3, small: (392, 112), large: (392, 182), grows: None },
+    Case { kind: Kind::Voronoi, points: Points::FullGrid(8, 32), dim: 2, small: (258, 152), large: (258, 250), grows: None },
+    Case { kind: Kind::Voronoi, points: Points::FullGrid(4, 10), dim: 3, small: (656, 339), large: (656, 527), grows: None },
+    Case { kind: Kind::Hull, points: Points::Duoprism(8), dim: 4, small: (1305, 979), large: (13177, 7449), grows: Some(531) },
 ];
 
 #[test]
@@ -130,41 +211,34 @@ fn builds_keep_the_allocation_contract() {
     let record = std::env::var_os("CONVX_ALLOC_RECORD").is_some();
     let mut failures = Vec::new();
     for case in CASES {
-        let name = format!(
-            "{:?} {} D{} n={}",
-            case.kind,
-            case.family.name(),
-            case.dim,
-            case.n
-        );
-        let small = build(
-            case.kind,
-            case.dim,
-            &case.family.points(case.dim, case.n, 521),
-        );
-        let large = build(
-            case.kind,
-            case.dim,
-            &case.family.points(case.dim, 16 * case.n, 521),
-        );
+        let name = format!("{:?} {}", case.kind, case.points.name(case.dim));
+        let small = build(case.kind, case.dim, &case.points.at(case.dim, false));
+        let large = build(case.kind, case.dim, &case.points.at(case.dim, true));
         if record {
             println!("{name}: small {small:?} large {large:?}");
             continue;
         }
         if small.0 > allowed(case.small.0) || small.1 > allowed(case.small.1) {
-            failures.push(format!("{name}: {small:?} at n, recorded {:?}", case.small));
+            failures.push(format!(
+                "{name}: {small:?} at the small size, recorded {:?}",
+                case.small
+            ));
         }
         if large.0 > allowed(case.large.0) || large.1 > allowed(case.large.1) {
             failures.push(format!(
-                "{name}: {large:?} at 16 n, recorded {:?}",
+                "{name}: {large:?} at the large size, recorded {:?}",
                 case.large
             ));
         }
-        if large.0 >= 2 * small.0 {
-            failures.push(format!(
-                "{name}: {} allocations at 16 n against {} at n",
+        match case.grows {
+            None if large.0 >= 2 * small.0 => failures.push(format!(
+                "{name}: {} allocations at the large size against {} at the small",
                 large.0, small.0
-            ));
+            )),
+            Some(issue) if large.0 < 2 * small.0 => failures.push(format!(
+                "{name}: no longer grows; drop its exception (#{issue})"
+            )),
+            _ => {}
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));

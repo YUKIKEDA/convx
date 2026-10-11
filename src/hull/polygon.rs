@@ -158,16 +158,10 @@ pub(crate) fn coordinate_key(p: &[f64]) -> (u64, u64) {
 /// `points` sorted by [`coordinate_key`], then index: one key per point,
 /// read once, instead of two reads of the input per comparison (#322).
 pub(crate) fn sorted_by_coordinates(rows: Rows<'_>, points: Vec<u32>) -> Vec<u32> {
-    let mut keyed: Vec<(u64, u64, u32)> = points
-        .iter()
-        .map(|&i| {
-            let (x, y) = coordinate_key(rows.point(i));
-            (x, y, i)
-        })
-        .collect();
+    let mut work = ChainWork::default();
+    work.sort(rows, points.iter().copied());
     drop(points);
-    keyed.sort_unstable();
-    keyed.into_iter().map(|(_, _, i)| i).collect()
+    work.sorted
 }
 
 /// The cycle of strict left turns of `sorted`, counterclockwise: the lower
@@ -175,72 +169,142 @@ pub(crate) fn sorted_by_coordinates(rows: Rows<'_>, points: Vec<u32>) -> Vec<u32
 /// already lists. `sorted` is distinct points sorted as
 /// [`sorted_by_coordinates`] sorts them. Fewer than three points come back
 /// as they are.
-///
-/// The chains read the sorted coordinates in order.
 pub(crate) fn strict_cycle_of_sorted(
     rows: Rows<'_>,
     sorted: Vec<u32>,
 ) -> Result<Vec<u32>, ExactEvaluationExhausted> {
-    let xy: Vec<[f64; 2]> = sorted
-        .iter()
-        .map(|&i| {
+    let mut work = ChainWork {
+        sorted,
+        ..ChainWork::default()
+    };
+    work.cycle_of_sorted(rows)?;
+    Ok(work.cycle)
+}
+
+/// The buffers of a chain of D = 2, kept from one run to the next (#530):
+/// classification runs one chain per face of a hull of D = 3 that is not a
+/// simplex, and a run on a kept workspace allocates nothing.
+#[derive(Default)]
+pub(crate) struct ChainWork {
+    keyed: Vec<(u64, u64, u32)>,
+    /// The points in the chain's order.
+    sorted: Vec<u32>,
+    /// The coordinates of `sorted`, which the chains read in order.
+    xy: Vec<[f64; 2]>,
+    below: Vec<u32>,
+    above: Vec<u32>,
+    lower: Vec<u32>,
+    upper: Vec<u32>,
+    cycle: Vec<u32>,
+}
+
+impl ChainWork {
+    /// The cycle of strict left turns of the distinct `points` of `rows`,
+    /// counterclockwise from the first in the chain's order.
+    pub(crate) fn strict_cycle(
+        &mut self,
+        rows: Rows<'_>,
+        points: impl Iterator<Item = u32>,
+    ) -> Result<&[u32], ExactEvaluationExhausted> {
+        self.sort(rows, points);
+        self.cycle_of_sorted(rows)?;
+        Ok(&self.cycle)
+    }
+
+    /// `points` into `self.sorted`, by [`coordinate_key`], then index.
+    fn sort(&mut self, rows: Rows<'_>, points: impl Iterator<Item = u32>) {
+        self.keyed.clear();
+        self.keyed.extend(points.map(|i| {
+            let (x, y) = coordinate_key(rows.point(i));
+            (x, y, i)
+        }));
+        self.keyed.sort_unstable();
+        self.sorted.clear();
+        self.sorted.extend(self.keyed.iter().map(|&(_, _, i)| i));
+    }
+
+    /// [`strict_cycle_of_sorted`] of `self.sorted`, into `self.cycle`.
+    ///
+    /// The chains read the sorted coordinates in order.
+    fn cycle_of_sorted(&mut self, rows: Rows<'_>) -> Result<(), ExactEvaluationExhausted> {
+        let Self {
+            sorted,
+            xy,
+            below,
+            above,
+            lower,
+            upper,
+            cycle,
+            ..
+        } = self;
+        cycle.clear();
+        let n = sorted.len();
+        if n < 3 {
+            cycle.extend_from_slice(sorted);
+            return Ok(());
+        }
+        xy.clear();
+        xy.extend(sorted.iter().map(|&i| {
             let p = rows.point(i);
             [p[0], p[1]]
-        })
-        .collect();
-    let n = sorted.len();
-    if n < 3 {
-        return Ok(sorted);
-    }
-    // As Akl–Toussaint's algorithm does, the points strictly below the line
-    // from the first point to the last go to the lower chain, those strictly
-    // above to the upper chain, and those on it to neither: a point on that
-    // segment is no strict extreme. Each point is scanned once, where a
-    // chain over every point scanned each twice (#515).
-    let last = n as u32 - 1;
-    let mut below: Vec<u32> = Vec::with_capacity(n / 2 + 2);
-    let mut above: Vec<u32> = Vec::with_capacity(n / 2 + 2);
-    below.push(0);
-    above.push(last);
-    for at in 1..last {
-        let (a, b, c) = (0, last as usize, at as usize);
-        let sign = match orient2_filter(&xy[a], &xy[b], &xy[c]) {
-            Some(sign) => {
-                #[cfg(debug_assertions)]
-                debug_assert_eq!(sign, rows.orient([sorted[a], sorted[b], sorted[c]])?);
-                sign
+        }));
+        // As Akl–Toussaint's algorithm does, the points strictly below the
+        // line from the first point to the last go to the lower chain, those
+        // strictly above to the upper chain, and those on it to neither: a
+        // point on that segment is no strict extreme. Each point is scanned
+        // once, where a chain over every point scanned each twice (#515).
+        let last = n as u32 - 1;
+        below.clear();
+        above.clear();
+        below.reserve(n / 2 + 2);
+        above.reserve(n / 2 + 2);
+        below.push(0);
+        above.push(last);
+        for at in 1..last {
+            let (a, b, c) = (0, last as usize, at as usize);
+            let sign = match orient2_filter(&xy[a], &xy[b], &xy[c]) {
+                Some(sign) => {
+                    #[cfg(debug_assertions)]
+                    debug_assert_eq!(sign, rows.orient([sorted[a], sorted[b], sorted[c]])?);
+                    sign
+                }
+                None => rows.orient([sorted[a], sorted[b], sorted[c]])?,
+            };
+            match sign {
+                Sign::Negative => below.push(at),
+                Sign::Positive => above.push(at),
+                Sign::Zero => {}
             }
-            None => rows.orient([sorted[a], sorted[b], sorted[c]])?,
-        };
-        match sign {
-            Sign::Negative => below.push(at),
-            Sign::Positive => above.push(at),
-            Sign::Zero => {}
         }
+        below.push(last);
+        above.push(0);
+        // The chains hold positions in `sorted`; the upper one runs from the
+        // last point back to the first.
+        lower.clear();
+        lower.reserve(below.len());
+        for &at in below.iter() {
+            pop_until_left(rows, sorted, xy, lower, at)?;
+            lower.push(at);
+        }
+        upper.clear();
+        upper.reserve(above.len());
+        upper.push(last);
+        for &at in above[1..above.len() - 1].iter().rev() {
+            pop_until_left(rows, sorted, xy, upper, at)?;
+            upper.push(at);
+        }
+        pop_until_left(rows, sorted, xy, upper, 0)?;
+        upper.push(0);
+        let upper_middle = upper.len().saturating_sub(2);
+        cycle.reserve(lower.len() + upper_middle);
+        cycle.extend(
+            lower
+                .iter()
+                .chain(upper.iter().skip(1).take(upper_middle))
+                .map(|&at| sorted[at as usize]),
+        );
+        Ok(())
     }
-    below.push(last);
-    above.push(0);
-    // The chains hold positions in `sorted`; the upper one runs from the
-    // last point back to the first.
-    let mut lower: Vec<u32> = Vec::with_capacity(below.len());
-    for &at in &below {
-        pop_until_left(rows, &sorted, &xy, &mut lower, at)?;
-        lower.push(at);
-    }
-    let mut upper: Vec<u32> = Vec::with_capacity(above.len());
-    upper.push(last);
-    for &at in above[1..above.len() - 1].iter().rev() {
-        pop_until_left(rows, &sorted, &xy, &mut upper, at)?;
-        upper.push(at);
-    }
-    pop_until_left(rows, &sorted, &xy, &mut upper, 0)?;
-    upper.push(0);
-    let upper_middle = upper.len().saturating_sub(2);
-    Ok(lower
-        .into_iter()
-        .chain(upper.into_iter().skip(1).take(upper_middle))
-        .map(|at| sorted[at as usize])
-        .collect())
 }
 
 /// Drops the tail of `chain` while the point at position `at` is not a
