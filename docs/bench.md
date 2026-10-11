@@ -4888,3 +4888,130 @@ Against the references from the points instead, 24 sets would be met at 1.05 and
 | Hull `sphere` D2 10^4 and 10^5 | 2 | 1.29 and 1.11 against CGAL |
 | Hull `sphere` D3 10^4 | 1 | 1.06 against Qhull |
 | Hull `cubesurf` D3 10^5 | 1 | 1.61 against Qhull |
+
+## Hull `cubesurf` D3: the spike P7-68, and classification's shortcut inside a facet (#503, #504)
+
+### The spike P7-68 (#503)
+
+#### Counts, one build of `ConvexHullBuilder::build`
+
+`main` at `839505b` with scratch counters (not committed), on the files of the parity run.
+
+| Count | `cubesurf` D3 10^5 | `sphere` D3 10^5 | `cube` D3 10^5 |
+| --- | ---: | ---: | ---: |
+| plans (points inserted) | 163 | 99,996 | 193 |
+| simplices allocated | 633 | 517,421 | 886 |
+| points scanned by `take_outside` | 1,849,741 | 4,769,551 | 863,842 |
+| of which proved by the cull plane's scan | 1,669,120 | 4,769,551 | 863,842 |
+| of which zero by a record (no evaluation) | 80,698 | 0 | 0 |
+| of which zero by `side` (evaluated) | 99,923 | 0 | 0 |
+| orientations in construction | 99,999 | 7 | 7 |
+| orientations that reached the exact stage | 0 | 0 | 0 |
+| classification: points scanned in the walk (start group × neighbors) | 2,578,023 | 0 | 0 |
+| classification: `side` calls | 495 | 299,994 | 519 |
+| hull: vertices / facets / coplanar points | 155 / 169 / 99,845 | 100,000 / 199,996 / 0 | 175 / 346 / 0 |
+
+#### Qhull on the same files (`qconvex s Ts`, under WSL, pinned)
+
+| Count | `cubesurf` D3 10^5 | `sphere` D3 10^5 | `cube` D3 10^5 |
+| --- | ---: | ---: | ---: |
+| points processed | 168 | 100,000 | 205 |
+| hyperplanes created | 501 | 565,222 | 952 |
+| distance tests for partitioning | 2,046,860 | 3,335,261 | 983,234 |
+| total distance tests | 5,028,602 | 8,340,842 | 1,288,155 |
+| coplanar points found while partitioning | 99,832 | – | – |
+| facets merged into a coplanar horizon | 163 | – | – |
+| time, `i s` | 31 to 34 ms | 254 to 283 ms | 12.5 to 21.7 ms |
+| time, `i s Qc` | 31 to 32 ms | 239 to 270 ms | 11.3 to 12.5 ms |
+| time, `i s Qc Qi` | 31 to 32 ms | 228 to 235 ms | 51.9 to 56.3 ms |
+
+On `cubesurf`, Qhull finds the coplanar points while it partitions, and keeping them (`Qc`) costs nothing.
+
+#### Time, VTune on Windows
+
+`main` (`839505b` code), 100 builds of `cubesurf` D3 10^5, software sampling. Inclusive shares of `ConvexHullBuilder::build`:
+
+| Part | Share |
+| --- | ---: |
+| construction | 51.5% |
+| of which `take_outside` | 36.2% |
+| of which `side` (the zero tests, through the first stage) | 15.3% |
+| of which the first stage's underflow path | 7.8% |
+| of which the cull plane's scan | 8.4% |
+| of which sorting `u32` lists | 7.5% |
+| classification (`found_vertices`) | 41.1% |
+| of which the walk's cull plane scan (2.58 M pairs) | 18.8% |
+| of which the 2D hulls of each face's points (`accept` and `build` of D = 2) | 10.2% |
+| acceptance | 5.5% |
+
+#### Reading
+
+- **Construction does about the work Qhull does:** 163 insertions against 168, 633 simplices against 501 hyperplanes, 1.85 M scanned points against 2.05 M partitioning tests. It is not more insertions or more side tests, and no test reached the exact stage.
+- **What convx does and Qhull does not is classification, 41% of the build.** Every point on a face is scanned against each neighbor group of its start group, about 26 on average. Each face's points are then hulled in 2D to decide which are extreme. The gap to Qhull (1.61) is about this share.
+- **Each zero test in construction costs about 70 ns:** 99,923 of them are 15.3% of the build, half of it the first stage's underflow path. Every point on a face is evaluated once against its own plane before a record covers it.
+
+The Grill on #503 chose classification's shortcut first (P7-69), then a cheaper certificate of a zero side in construction, then what construction's sort of `u32` lists orders.
+
+### The change (P7-69, #504)
+
+For D = 3, classification builds a polygon per start group, from the group's vertices projected to a coordinate plane: the farthest vertex in each of eight directions, as D = 2's discard polygon (`polygon::extremes_polygon`). A recorded point strictly inside that polygon is in the facet's relative interior. It lies on no other facet's plane and is not extreme, so it is marked on the boundary. It skips the walk over neighbors, and it is not a candidate of the facet's extremes. The proof is in design §3, in both languages.
+
+**Checks:**
+
+- Debug builds test every point the shortcut decides against every group: zero on its own, negative on the others.
+- `recorded_planes_change_no_partition` now checks:
+  - every point left out of a facet's zero points is inside that facet's polygon;
+  - the shortcut decides some points on the cube surface.
+- A polygon that contains every point fails five tests, and turning the shortcut off fails the updated test.
+- Every test passes in debug, in release, and under WSL.
+
+### Against `main`
+
+`main` at `839505b` against the head `b9dfca3`, pinned and alternated, the shorter run of `docs/verification.md` with hull `sphere` and `cube` D3 10^6: 10 rounds × 3 builds, 5 × 1 for the sets over about half a second. Every set published the same counts on both sides.
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.54 ms (0.47 ms–1.23 ms) | 0.57 ms (0.48 ms–0.93 ms) | 1.05, inside the spread |
+| Hull `cube` D2 10^5 | 5.02 ms (4.34 ms–6.18 ms) | 5.24 ms (4.63 ms–9.02 ms) | 1.04, inside the spread |
+| Hull `sphere` D2 10^4 | 1.11 ms (1.02 ms–1.50 ms) | 1.14 ms (1.01 ms–3.92 ms) | 1.02, inside the spread |
+| Hull `sphere` D2 10^5 | 11.0 ms (9.88 ms–21.2 ms) | 11.2 ms (10.1 ms–17.7 ms) | 1.01, inside the spread |
+| Hull `cube` D3 10^4 | 1.48 ms (1.24 ms–2.09 ms) | 1.44 ms (1.29 ms–1.97 ms) | 0.97, inside the spread |
+| Hull `cube` D3 10^5 | 11.6 ms (10.8 ms–14.8 ms) | 12.2 ms (10.9 ms–20.9 ms) | 1.05, inside the spread |
+| Hull `cube` D3 10^6 | 151 ms (149 ms–153 ms) | 153 ms (149 ms–160 ms) | 1.02, inside the spread |
+| Hull `cubesurf` D3 10^5 | 48.5 ms (47.1 ms–59.5 ms) | 33.8 ms (32.6 ms–39.4 ms) | 0.70, faster beyond the spread |
+| Hull `sphere` D3 10^4 | 22.2 ms (20.4 ms–27.7 ms) | 21.9 ms (20.1 ms–34.9 ms) | 0.99, inside the spread |
+| Hull `sphere` D3 10^5 | 269 ms (250 ms–336 ms) | 267 ms (252 ms–316 ms) | 0.99, inside the spread |
+| Hull `sphere` D3 10^6 | 3.69 s (3.29 s–3.85 s) | 3.71 s (3.28 s–3.76 s) | 1.00, inside the spread |
+| Hull `cube` D4 10^4 | 5.72 ms (5.23 ms–6.92 ms) | 5.80 ms (5.25 ms–7.11 ms) | 1.01, inside the spread |
+| Hull `cube` D4 10^5 | 33.4 ms (32.2 ms–43.8 ms) | 33.7 ms (32.4 ms–48.3 ms) | 1.01, inside the spread |
+| Hull `sphere` D4 10^4 | 88.5 ms (86.9 ms–92.8 ms) | 89.1 ms (87.7 ms–100 ms) | 1.01, inside the spread |
+| Hull `sphere` D4 10^5 | 1.23 s (1.21 s–1.25 s) | 1.23 s (1.23 s–1.25 s) | 1.00, inside the spread |
+| Hull `cube` D5 10^4 | 54.6 ms (53.0 ms–56.4 ms) | 54.6 ms (52.9 ms–58.5 ms) | 1.00, inside the spread |
+| Hull `sphere` D5 10^4 | 818 ms (772 ms–862 ms) | 827 ms (768 ms–886 ms) | 1.01, inside the spread |
+| Hull `cube` D6 10^4 | 559 ms (536 ms–636 ms) | 562 ms (545 ms–626 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^4 | 5.46 ms (5.24 ms–6.39 ms) | 5.45 ms (5.31 ms–6.34 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^5 | 57.1 ms (52.4 ms–63.6 ms) | 56.7 ms (52.5 ms–64.7 ms) | 0.99, inside the spread |
+| Delaunay `cube` D2 10^6 | 625 ms (607 ms–630 ms) | 618 ms (610 ms–630 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D2 10^4 | 5.99 ms (5.33 ms–7.73 ms) | 5.71 ms (5.39 ms–6.96 ms) | 0.95, inside the spread |
+| Delaunay `sphere` D2 10^5 | 47.5 ms (44.9 ms–52.7 ms) | 47.7 ms (45.2 ms–60.2 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D2 10^6 | 473 ms (467 ms–480 ms) | 464 ms (458 ms–475 ms) | 0.98, inside the spread |
+| Delaunay `cube` D3 10^4 | 39.6 ms (38.2 ms–53.2 ms) | 39.7 ms (37.7 ms–43.3 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^5 | 432 ms (416 ms–450 ms) | 433 ms (388 ms–522 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^4 | 80.6 ms (78.3 ms–91.1 ms) | 79.8 ms (78.1 ms–92.3 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D3 10^5 | 858 ms (833 ms–867 ms) | 873 ms (835 ms–886 ms) | 1.02, inside the spread |
+| Delaunay `cube` D4 10^4 | 645 ms (632 ms–688 ms) | 646 ms (632 ms–724 ms) | 1.00, inside the spread |
+| Delaunay `cube` D5 10^4 | 8.47 s (8.25 s–9.07 s) | 8.36 s (8.29 s–8.66 s) | 0.99, inside the spread |
+
+**Under WSL** (as in the parity run), 10 rounds × 3 builds, alternated with Qhull (`qconvex i s`) on the parity run's file:
+
+| `cubesurf` D3 10^5 | Median | Range |
+| --- | ---: | --- |
+| convx `main` | 47.2 ms | 43.9 to 53.6 ms |
+| convx head | 33.0 ms | 30.5 to 44.8 ms |
+| Qhull | 31.2 ms | 29.8 to 32.1 ms |
+
+### Reading
+
+- **Hull `cubesurf` D3 10^5 reads 0.70, faster beyond the spread,** on Windows and under WSL alike. Against Qhull it goes from 1.51 to 1.06 under WSL, just outside 1.05. Against CGAL (1.19 in the parity run of #499), it would be about 0.84.
+- **Nothing else is slower beyond the spread.** Hull `cube` D2 reads 1.04 to 1.05, inside the spread. The change does not reach D = 2, and P7-67's runs put that set at 0.99 to 1.02.
+- **The next rows of the Grill on #503** address construction: the zero tests (15.3% of the build before this change) and the sort of `u32` lists (7.5%).
