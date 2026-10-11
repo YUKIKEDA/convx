@@ -517,9 +517,12 @@ fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> 
     let mut tile_hull: Vec<bool> = Vec::new();
     let mut tile_list: Vec<usize> = Vec::new();
     let mut facets = GroupFacets::default();
-    let mut facet: Vec<u32> = Vec::new();
     let mut group_rays: Vec<(usize, usize)> = Vec::new();
-    let mut meet: Vec<u32> = Vec::new();
+    let mut work = GroupWork::default();
+    // Per facet of the group, its ray's number, or `u32::MAX`.
+    let mut ray_of: Vec<u32> = Vec::new();
+    // Per site, its place in its group's sites; read for those sites only.
+    let mut local = vec![0_u32; complex.representative.len()];
     for (apex, &g) in groups.iter().enumerate() {
         let apex = apex as u32;
         let sites = group_sites.get(g as usize);
@@ -535,49 +538,48 @@ fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> 
         // Facets of the group's polytope: each face of a cell whose cell
         // across is in another group, or on the site hull, tiles one; the
         // facet is every site of the group on that face's hyperplane.
-        tile_keys.clear();
-        tile_hull.clear();
-        for &c in cells {
-            for skip in 0..k {
-                let across = complex.neighbors[c as usize * k + skip];
-                if across != NO_NEIGHBOR && complex.group[across as usize] == g {
-                    continue;
-                }
-                tile_keys.extend(
-                    row(c)
-                        .iter()
-                        .enumerate()
-                        .filter(|&(i, _)| i != skip)
-                        .map(|(_, &v)| v),
+        boundary_tiles(
+            &complex,
+            g,
+            cells,
+            &mut tile_keys,
+            &mut tile_hull,
+            &mut tile_list,
+        );
+        let simplex = sites.len() == d + 1;
+        if simplex {
+            // A simplex has no site on the hyperplane of a face but the
+            // face's: each tile is a facet.
+            facets.sites.clear();
+            facets.on_hull.clear();
+            for &i in &tile_list {
+                facets.sites.push(&tile_keys[i * d..(i + 1) * d]);
+                facets.on_hull.push(tile_hull[i]);
+            }
+        } else {
+            facets_of_tiles(
+                d,
+                (&tile_keys, &tile_hull, &tile_list),
+                &orient_of,
+                &mut work,
+                &mut facets,
+            )?;
+            // Debug builds compare a group of up to 64 sites with the test
+            // of every tile against every site, which is quadratic.
+            #[cfg(debug_assertions)]
+            if sites.len() <= 64 {
+                let expected = facets_by_every_site(
+                    d,
+                    sites,
+                    (&tile_keys, &tile_hull, &tile_list),
+                    &orient_of,
+                )?;
+                debug_assert!(
+                    facets.sites.iter().eq(expected.sites.iter())
+                        && facets.on_hull == expected.on_hull,
+                    "the tiles joined across their ridges are the facets"
                 );
-                tile_hull.push(across == NO_NEIGHBOR);
             }
-        }
-        let key = |i: usize| &tile_keys[i * d..(i + 1) * d];
-        tile_list.clear();
-        tile_list.extend(0..tile_hull.len());
-        tile_list.sort_unstable_by(|&a, &b| key(a).cmp(key(b)));
-        facets.sites.clear();
-        facets.on_hull.clear();
-        for &i in &tile_list {
-            let tile = key(i);
-            // A simplex has no site on the hyperplane of a face but the face's.
-            facet.clear();
-            if cells.len() == 1 {
-                facet.extend_from_slice(tile);
-            } else {
-                for &s in sites {
-                    let set: Small<u32, 11> = tile.iter().copied().chain([s]).collect();
-                    if tile.contains(&s) || on_hyperplane(&orient_of, &set)? {
-                        facet.push(s);
-                    }
-                }
-            }
-            if facets.sites.iter().any(|f| f == facet.as_slice()) {
-                continue;
-            }
-            facets.sites.push(&facet);
-            facets.on_hull.push(tile_hull[i]);
         }
 
         // One ray per boundary facet, along the site-hull facet it lies in.
@@ -631,20 +633,74 @@ fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> 
             ray_faces.push(facets.sites.get(j));
         }
 
-        // Interfaces: the edges of the group's polytope.
-        for (i, &a) in sites.iter().enumerate() {
-            for &b in &sites[i + 1..] {
-                if !is_edge(d, sites.len(), &facets.sites, a, b, &mut meet) {
-                    continue;
-                }
-                interface_apexes.push(([a, b], apex));
-                for number in first_ray..ray_apexes.len() as u32 {
-                    let face = ray_faces.get(number as usize);
-                    if face.contains(&a) && face.contains(&b) {
-                        interface_ray_entries.push(([a, b], number));
+        // Interfaces: the edges of the group's polytope, each with the
+        // rays whose faces hold it, in number order.
+        if simplex {
+            // Every pair of the sites of a simplex is an edge.
+            for (i, &a) in sites.iter().enumerate() {
+                for &b in &sites[i + 1..] {
+                    interface_apexes.push(([a, b], apex));
+                    for number in first_ray..ray_apexes.len() as u32 {
+                        let face = ray_faces.get(number as usize);
+                        if face.contains(&a) && face.contains(&b) {
+                            interface_ray_entries.push(([a, b], number));
+                        }
                     }
                 }
             }
+            continue;
+        }
+        ray_of.clear();
+        ray_of.resize(facets.sites.len(), u32::MAX);
+        for (at, &(_, j)) in group_rays.iter().enumerate() {
+            ray_of[j] = first_ray + at as u32;
+        }
+        #[cfg(debug_assertions)]
+        let (first_apex, first_entry) = (interface_apexes.len(), interface_ray_entries.len());
+        edges_of_facets(
+            d,
+            sites,
+            &tile_keys,
+            &facets.sites,
+            &mut work,
+            &mut local,
+            |a, b, holding| {
+                interface_apexes.push(([a, b], apex));
+                let from = interface_ray_entries.len();
+                interface_ray_entries.extend(
+                    holding
+                        .iter()
+                        .map(|&f| ([a, b], ray_of[f as usize]))
+                        .filter(|&(_, number)| number != u32::MAX),
+                );
+                interface_ray_entries[from..].sort_unstable();
+            },
+        );
+        // Debug builds compare a group of up to 64 sites with the test of
+        // every pair of its sites, which is cubic.
+        #[cfg(debug_assertions)]
+        if sites.len() <= 64 {
+            let mut meet = Vec::new();
+            let (mut edges, mut entries) = (Vec::new(), Vec::new());
+            for (i, &a) in sites.iter().enumerate() {
+                for &b in &sites[i + 1..] {
+                    if !is_edge(&facets.sites, a, b, &mut meet) {
+                        continue;
+                    }
+                    edges.push(([a, b], apex));
+                    for number in first_ray..ray_apexes.len() as u32 {
+                        let face = ray_faces.get(number as usize);
+                        if face.contains(&a) && face.contains(&b) {
+                            entries.push(([a, b], number));
+                        }
+                    }
+                }
+            }
+            debug_assert!(
+                interface_apexes[first_apex..] == edges[..]
+                    && interface_ray_entries[first_entry..] == entries[..],
+                "the edges of the tiles that are edges of the polytope"
+            );
         }
     }
 
@@ -741,21 +797,304 @@ fn on_hyperplane(
     Ok(orient_of(set)? == Sign::Zero)
 }
 
-/// Whether sites `a` and `b` span an edge of the polytope whose facets are
-/// `facets` and which has `count` sites: in a simplex every pair does;
-/// otherwise the intersection of the facets holding both is exactly the
-/// pair. `meet` is scratch, reused from one call to the next.
-fn is_edge(
-    d: usize,
-    count: usize,
-    facets: &Lists<u32>,
-    a: u32,
-    b: u32,
-    meet: &mut Vec<u32>,
-) -> bool {
-    if count == d + 1 {
-        return true;
+/// Scratch of one group's facets and edges, reused from one group to the
+/// next.
+#[derive(Default)]
+struct GroupWork {
+    /// The ridges of the tiles, `tile * D + skipped place`, by vertex set,
+    /// and a number made of each ridge's vertices: equal sets have equal
+    /// numbers, so the sort compares the sets only on a tie.
+    order: Vec<u32>,
+    mixed: Vec<u64>,
+    /// Per tile, a tile of its facet nearer the root.
+    parent: Vec<u32>,
+    /// Per root tile, the number of its facet.
+    facet_of: Vec<u32>,
+    /// (facet, site) pairs, sorted into the facets' lists.
+    entries: Vec<(u32, u32)>,
+    /// The edges of the tiles.
+    pairs: Vec<[u32; 2]>,
+    /// The facets at each site of the group: `at[start[i]..start[i + 1]]`
+    /// for the site at place `i`.
+    start: Vec<u32>,
+    at: Vec<u32>,
+    /// The facets that hold both sites of one pair.
+    holding: Vec<u32>,
+}
+
+/// The boundary tiles of group `g`, whose cells are `cells`: each face of a
+/// cell whose cell across is in another group, or on the site hull. `keys`
+/// takes the D sites of each, ascending; `on_hull` whether it is on the
+/// site hull; `list` the tiles in the order of their sites.
+fn boundary_tiles(
+    complex: &crate::delaunay::Complex,
+    g: u32,
+    cells: &[u32],
+    keys: &mut Vec<u32>,
+    on_hull: &mut Vec<bool>,
+    list: &mut Vec<usize>,
+) {
+    let d = complex.dim;
+    let k = d + 1;
+    keys.clear();
+    on_hull.clear();
+    for &c in cells {
+        let row = &complex.cells[c as usize * k..(c as usize + 1) * k];
+        for skip in 0..k {
+            let across = complex.neighbors[c as usize * k + skip];
+            if across != NO_NEIGHBOR && complex.group[across as usize] == g {
+                continue;
+            }
+            keys.extend(
+                row.iter()
+                    .enumerate()
+                    .filter(|&(i, _)| i != skip)
+                    .map(|(_, &v)| v),
+            );
+            on_hull.push(across == NO_NEIGHBOR);
+        }
     }
+    let key = |i: usize| &keys[i * d..(i + 1) * d];
+    list.clear();
+    list.extend(0..on_hull.len());
+    list.sort_unstable_by(|&a, &b| key(a).cmp(key(b)));
+}
+
+/// The root of `x` in `parent`, with the path halved.
+fn root(parent: &mut [u32], mut x: usize) -> usize {
+    while parent[x] as usize != x {
+        parent[x] = parent[parent[x] as usize];
+        x = parent[x] as usize;
+    }
+    x
+}
+
+/// The facets of a group's polytope from its boundary tiles
+/// (`(keys, on_hull, list)` of [`boundary_tiles`]): each facet's sites,
+/// ascending, in the order of the first tile of each in `list`, and whether
+/// it lies on the site hull.
+///
+/// A facet is every site of the group on the hyperplane of a tile. The
+/// tiles on one hyperplane triangulate the facet, so they are joined
+/// through the ridges they share, and every site of the facet is a vertex
+/// of one of them: the sites of a group are all vertices of its polytope.
+/// Two tiles that share a ridge are in one facet when the vertex of one
+/// that is not in the ridge lies on the hyperplane of the other. That is
+/// one orientation per ridge; a test of every tile against every site of
+/// the group is quadratic in the sites (#541).
+fn facets_of_tiles(
+    d: usize,
+    (keys, on_hull, list): (&[u32], &[bool], &[usize]),
+    orient_of: &impl Fn(&[u32]) -> Result<Sign, ConvexHullError>,
+    work: &mut GroupWork,
+    facets: &mut GroupFacets,
+) -> Result<(), ConvexHullError> {
+    let GroupWork {
+        order,
+        mixed,
+        parent,
+        facet_of,
+        entries,
+        ..
+    } = work;
+    let tiles = on_hull.len();
+    let key = |i: usize| &keys[i * d..(i + 1) * d];
+    let ridge = |r: u32| {
+        let skip = r as usize % d;
+        key(r as usize / d)
+            .iter()
+            .enumerate()
+            .filter(move |&(i, _)| i != skip)
+            .map(|(_, &v)| v)
+    };
+    order.clear();
+    order.extend(0..(tiles * d) as u32);
+    mixed.clear();
+    mixed.extend(order.iter().map(|&r| {
+        ridge(r).fold(0_u64, |h, v| {
+            (h ^ u64::from(v))
+                .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+                .rotate_left(29)
+        })
+    }));
+    order.sort_unstable_by(|&a, &b| {
+        mixed[a as usize]
+            .cmp(&mixed[b as usize])
+            .then_with(|| ridge(a).cmp(ridge(b)))
+    });
+    parent.clear();
+    parent.extend(0..tiles as u32);
+    // A ridge of the boundary is in two tiles, next to each other here.
+    for pair in order.windows(2) {
+        if !ridge(pair[0]).eq(ridge(pair[1])) {
+            continue;
+        }
+        let (a, b) = (pair[0] as usize / d, pair[1] as usize / d);
+        let (ra, rb) = (root(parent, a), root(parent, b));
+        if ra == rb {
+            continue;
+        }
+        let opposite = key(b)[pair[1] as usize % d];
+        let set: Small<u32, 11> = key(a).iter().copied().chain([opposite]).collect();
+        if on_hyperplane(orient_of, &set)? {
+            parent[ra.max(rb)] = ra.min(rb) as u32;
+        }
+    }
+    facets.sites.clear();
+    facets.on_hull.clear();
+    facet_of.clear();
+    facet_of.resize(tiles, u32::MAX);
+    entries.clear();
+    for &i in list {
+        let r = root(parent, i);
+        if facet_of[r] == u32::MAX {
+            facet_of[r] = facets.on_hull.len() as u32;
+            facets.on_hull.push(on_hull[i]);
+        }
+        entries.extend(key(i).iter().map(|&s| (facet_of[r], s)));
+    }
+    entries.sort_unstable();
+    entries.dedup();
+    for run in entries.chunk_by(|x, y| x.0 == y.0) {
+        facets.sites.push_iter(run.iter().map(|&(_, s)| s));
+    }
+    Ok(())
+}
+
+/// [`facets_of_tiles`] as the rule reads: every site of the group on the
+/// hyperplane of each tile, a facet found again dropped. The reference of
+/// the debug comparison and of the tests.
+#[cfg(any(test, debug_assertions))]
+fn facets_by_every_site(
+    d: usize,
+    sites: &[u32],
+    (keys, on_hull, list): (&[u32], &[bool], &[usize]),
+    orient_of: &impl Fn(&[u32]) -> Result<Sign, ConvexHullError>,
+) -> Result<GroupFacets, ConvexHullError> {
+    let mut facets = GroupFacets::default();
+    let mut facet: Vec<u32> = Vec::new();
+    for &i in list {
+        let tile = &keys[i * d..(i + 1) * d];
+        facet.clear();
+        for &s in sites {
+            let set: Small<u32, 11> = tile.iter().copied().chain([s]).collect();
+            if tile.contains(&s) || on_hyperplane(orient_of, &set)? {
+                facet.push(s);
+            }
+        }
+        if facets.sites.iter().any(|f| f == facet.as_slice()) {
+            continue;
+        }
+        facets.sites.push(&facet);
+        facets.on_hull.push(on_hull[i]);
+    }
+    Ok(facets)
+}
+
+/// The edges of the polytope of a group that is not a simplex, with sites
+/// `sites` (ascending), boundary tiles `keys`, and facets `facets`: `edge`
+/// is called with each edge's two sites, in ascending order of the pairs,
+/// and the facets that hold both, ascending.
+///
+/// Two sites span an edge when the intersection of the facets holding both
+/// is exactly the pair. The tiles triangulate the boundary, so an edge of
+/// the polytope is an edge of a tile, and only those pairs are asked. The
+/// facets holding a pair are read from the facets at each of its sites.
+/// Asking every pair of the group's sites against every facet is cubic in
+/// the sites: 17.6 s for 1,920 sites on one sphere in D = 3 (#541).
+fn edges_of_facets(
+    d: usize,
+    sites: &[u32],
+    keys: &[u32],
+    facets: &Lists<u32>,
+    work: &mut GroupWork,
+    local: &mut [u32],
+    mut edge: impl FnMut(u32, u32, &[u32]),
+) {
+    let GroupWork {
+        pairs,
+        start,
+        at,
+        holding,
+        ..
+    } = work;
+    pairs.clear();
+    for tile in keys.chunks_exact(d) {
+        for (i, &a) in tile.iter().enumerate() {
+            pairs.extend(tile[i + 1..].iter().map(|&b| [a, b]));
+        }
+    }
+    pairs.sort_unstable();
+    pairs.dedup();
+    for (i, &s) in sites.iter().enumerate() {
+        local[s as usize] = i as u32;
+    }
+    start.clear();
+    start.resize(sites.len() + 2, 0);
+    let mut total = 0;
+    for facet in facets.iter() {
+        for &s in facet {
+            start[local[s as usize] as usize + 2] += 1;
+        }
+        total += facet.len();
+    }
+    for i in 2..start.len() {
+        start[i] += start[i - 1];
+    }
+    at.clear();
+    at.resize(total, 0);
+    for (f, facet) in facets.iter().enumerate() {
+        for &s in facet {
+            let slot = &mut start[local[s as usize] as usize + 1];
+            at[*slot as usize] = f as u32;
+            *slot += 1;
+        }
+    }
+    let facets_at = |s: u32| {
+        let i = local[s as usize] as usize;
+        &at[start[i] as usize..start[i + 1] as usize]
+    };
+    for &[a, b] in pairs.iter() {
+        // Both lists ascend: the facets were written in their order.
+        holding.clear();
+        let (mut left, mut right) = (facets_at(a), facets_at(b));
+        while let (Some(&x), Some(&y)) = (left.first(), right.first()) {
+            if x == y {
+                holding.push(x);
+            }
+            if x <= y {
+                left = &left[1..];
+            }
+            if y <= x {
+                right = &right[1..];
+            }
+        }
+        // No third site in all of them: read from the shortest.
+        let Some(&shortest) = holding
+            .iter()
+            .min_by_key(|&&f| facets.get(f as usize).len())
+        else {
+            continue;
+        };
+        let alone = facets.get(shortest as usize).iter().all(|&c| {
+            c == a
+                || c == b
+                || holding
+                    .iter()
+                    .any(|&f| facets.get(f as usize).binary_search(&c).is_err())
+        });
+        if alone {
+            edge(a, b, holding);
+        }
+    }
+}
+
+/// Whether sites `a` and `b` span an edge of the polytope whose facets are
+/// `facets`: the intersection of the facets holding both is exactly the
+/// pair. `meet` is scratch. The rule as it reads, for the debug comparison
+/// and the tests; [`edges_of_facets`] finds the edges.
+#[cfg(any(test, debug_assertions))]
+fn is_edge(facets: &Lists<u32>, a: u32, b: u32, meet: &mut Vec<u32>) -> bool {
     let mut first = true;
     meet.clear();
     for facet in facets.iter() {

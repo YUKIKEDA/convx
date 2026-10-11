@@ -437,3 +437,126 @@ fn reused_circumcenters_keep_the_bits_of_mat_qr() {
     }
     assert!(compared > 3000, "{compared} cells compared");
 }
+
+/// The integer points of the sphere of squared radius `squared` in
+/// dimension `d`.
+fn integer_sphere(d: usize, squared: i64) -> Vec<Vec<f64>> {
+    let r = (squared as f64).sqrt() as i64 + 1;
+    let mut found = Vec::new();
+    let mut x = vec![-r; d];
+    loop {
+        if x.iter().map(|c| c * c).sum::<i64>() == squared {
+            found.push(x.iter().map(|&c| c as f64).collect());
+        }
+        let Some(axis) = (0..d).find(|&a| x[a] < r) else {
+            return found;
+        };
+        x[..axis].fill(-r);
+        x[axis] += 1;
+    }
+}
+
+/// The facets of a group come from its tiles joined across their ridges,
+/// and its edges from the edges of its tiles (#541). On groups of up to
+/// 168 sites they are those of the rule as it reads: every site on the
+/// hyperplane of each tile, and every pair of sites whose facets meet in
+/// the pair alone. The sets are the integer points of spheres in D = 2 to
+/// 4 (the 24-cell among them, with octahedra for facets), alone and with
+/// a site outside, which puts other cells across the group's tiles, and
+/// the corners of cubes.
+#[test]
+fn groups_keep_the_facets_and_edges_of_the_rule_read_with_every_site() {
+    let mut sets: Vec<(usize, Vec<Vec<f64>>)> = Vec::new();
+    for (d, squared) in [
+        (2, 25),
+        (2, 325),
+        (3, 9),
+        (3, 26),
+        (3, 101),
+        (4, 4),
+        (4, 10),
+    ] {
+        let sphere = integer_sphere(d, squared);
+        let mut with_outside = sphere.clone();
+        let mut far = vec![0.0; d];
+        far[0] = 3.0 * (squared as f64).sqrt().ceil();
+        with_outside.push(far);
+        sets.push((d, sphere));
+        sets.push((d, with_outside));
+    }
+    for d in 2..=4 {
+        let corners = (0..1_u32 << d)
+            .map(|i| (0..d).map(|a| f64::from((i >> a) & 1) * 2.0).collect())
+            .collect();
+        sets.push((d, corners));
+    }
+    let (mut groups, mut joined, mut largest) = (0, 0, 0);
+    for (d, rows) in sets {
+        let flat: Vec<f64> = rows.iter().flatten().copied().collect();
+        let complex = complex(d, &flat).unwrap();
+        let point = |i: u32| &flat[i as usize * d..(i as usize + 1) * d];
+        let orient_of = |set: &[u32]| -> Result<Sign, ConvexHullError> {
+            let refs: Small<&[f64], 11> = set.iter().map(|&v| point(v)).collect();
+            Ok(orient(&refs)?)
+        };
+        let mut work = GroupWork::default();
+        let mut local = vec![0_u32; rows.len()];
+        for (g, sites) in complex.sites.iter().enumerate() {
+            if sites.len() == d + 1 {
+                continue;
+            }
+            let cells: Vec<u32> = (0..complex.group.len() as u32)
+                .filter(|&c| complex.group[c as usize] == g as u32)
+                .collect();
+            let (mut keys, mut on_hull, mut list) = (Vec::new(), Vec::new(), Vec::new());
+            boundary_tiles(
+                &complex,
+                g as u32,
+                &cells,
+                &mut keys,
+                &mut on_hull,
+                &mut list,
+            );
+            let tiles = (&keys[..], &on_hull[..], &list[..]);
+            let expected = facets_by_every_site(d, sites, tiles, &orient_of).unwrap();
+            let mut facets = GroupFacets::default();
+            facets_of_tiles(d, tiles, &orient_of, &mut work, &mut facets).unwrap();
+            let name = format!("D = {d}, {} sites, group of {}", rows.len(), sites.len());
+            assert!(facets.sites.iter().eq(expected.sites.iter()), "{name}");
+            assert_eq!(facets.on_hull, expected.on_hull, "{name}");
+
+            let mut meet = Vec::new();
+            let mut expected_edges = Vec::new();
+            for (i, &a) in sites.iter().enumerate() {
+                for &b in &sites[i + 1..] {
+                    if is_edge(&facets.sites, a, b, &mut meet) {
+                        let holding: Vec<u32> = (0..facets.sites.len() as u32)
+                            .filter(|&f| {
+                                let facet = facets.sites.get(f as usize);
+                                facet.contains(&a) && facet.contains(&b)
+                            })
+                            .collect();
+                        expected_edges.push((a, b, holding));
+                    }
+                }
+            }
+            let mut edges = Vec::new();
+            edges_of_facets(
+                d,
+                sites,
+                &keys,
+                &facets.sites,
+                &mut work,
+                &mut local,
+                |a, b, holding| edges.push((a, b, holding.to_vec())),
+            );
+            assert_eq!(edges, expected_edges, "{name}");
+            groups += 1;
+            joined += usize::from(facets.on_hull.len() < on_hull.len());
+            largest = largest.max(sites.len());
+        }
+    }
+    assert!(groups >= 17, "one group that is not a simplex per set");
+    assert!(joined >= 8, "groups with a facet of several tiles");
+    assert_eq!(largest, 168);
+}
