@@ -3357,3 +3357,142 @@ The 1.04 follows how the crate is split into codegen units, not the code of Dela
 - **Hull `cube` D2 10^5 reads 0.91 and 0.89 in two runs**, and 0.93 with one codegen unit. Its ranges overlap by more than single builds: 15 of the head's 30 builds in the first run are slower than the fastest of `main`. The keep criterion asks it to be faster beyond the spread, and it is not, though three runs agree on the difference. Whether to keep the change on that is the owner's call (`bench.mdc`). `cube` D2 10^4 reads 0.88.
 - **`sphere` D2 reads 0.98 and 1.00.** Its points are on the cycle, where nothing changed.
 - **Nothing is slower beyond the spread.** Delaunay `cube` D4 10^4 reads 1.04 inside the spread; it is the code layout above. The other sets read 0.98 to 1.02.
+
+## Delaunay D2 and D3 against CGAL, per operation, PR #445 (#444)
+
+The spike P7-44. The parity run of #438 leaves 13 Delaunay sets unmet. Earlier work had already ruled out the obvious D2 causes:
+
+- convx already ran CGAL's in-circle tests and flips in D2 (#367);
+- three prototypes each read 1.00: one array for vertices and neighbors, a walk that skips its entry face, and a static filter (#428).
+
+This spike measures CGAL at the grain of convx's profiles (Grill of 2026-10-10).
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `3a59a89` under WSL2 (the build of the parity run of #438), and `03d7247` on Windows for the prototypes. rustc 1.97.1, `--release` with debug info |
+| CGAL | The build of the parity run, `Delaunay_triangulation_2` and `_3` over `Epick`. A scratch program (not committed) counts the predicate calls through a kernel derived from `Epick`, and times `spatial_sort` and the insertions of the sorted points apart |
+| Instructions and caches | valgrind 3.18.1 (cachegrind and callgrind) under WSL2, the LL cache simulated from the host's L3. One build is the difference between runs of 3 builds and of 1, which removes reading the file |
+| Timing | On Windows, pinned (logical processor 2), alternated per round, 10 rounds × 3 builds; 5 × 1 for the sets over about half a second |
+| The pass after the insertion | Phase marks inside `inserted` in a scratch copy of `main`, under WSL2, pinned; the second and third of 3 builds |
+
+### CGAL's work and time
+
+| Set | In-circle or in-sphere tests, CGAL / convx | Orientations, CGAL / convx | CGAL's spatial sort | CGAL's insertions |
+| --- | ---: | ---: | ---: | ---: |
+| `cube` D2 10^5 | 910,699 / 903,364 | 664,425 / 1,444,781 | 12 ms | 29 ms |
+| `cube` D3 10^5 | 4,427,975 / 4,590,425 | 1,235,764 / 2,020,271 | 13 ms | 300 ms |
+| `cube` D2 10^6 | 9,140,926 | 6,680,110 | 146 ms | 305 to 357 ms |
+| `cube` D3 10^6 | 44,810,945 | 12,291,134 | 165 ms | 3.14 to 3.37 s |
+
+convx's counts are those of #413. The tests that decide the triangulation match within 4%. convx's walk makes 1.6 to 2.2 times CGAL's orientations.
+
+### Instructions and cache misses of one build
+
+| Set | Instructions, convx / CGAL | Data reads | D1 read misses | LL read misses |
+| --- | ---: | ---: | ---: | ---: |
+| `cube` D2 10^5 | 866 M / 315 M (2.75) | 213 M / 71 M | 1.80 M / 0.87 M | 31 k / under 1 k |
+| `cube` D3 10^5 | 5,402 M / 2,552 M (2.12) | 1,361 M / 589 M | 11.9 M / 6.2 M | 1.64 M / 1.61 M |
+
+The two builds cover different steps:
+
+- convx's `build()` includes accepting the input, the order, the pass after the insertion, and publication;
+- CGAL's includes its spatial sort.
+
+The LL misses are the same in D3. **The gap is the instructions convx runs, not memory.** Its time ratio (1.5 to 1.6) is below its instruction ratio because the extra instructions are arithmetic and run at a higher rate.
+
+### Where the instructions go (callgrind, own instructions)
+
+| `cube` D2 10^5 | Instructions | Per call |
+| --- | ---: | ---: |
+| `semi_static::sign`, the generic first stage, for the orientations | 183 M | about 127 |
+| `Mesh::replaced`, the orientation's wrapper | 104 M | about 72 |
+| `semi_static::lifted2`, the in-circle formula | 78 M | about 87 |
+| `Mesh::sphere_sign`, the in-circle's wrapper | 72 M | about 80 |
+| `Mesh::conflict` | 42 M | |
+| `Mesh::build`: the walk and the flips, inlined | 180 M | |
+| `complex` and `Draft::finish`: the pass after the insertion | 85 M | |
+| The BRIO order | about 42 M | |
+
+CGAL's own counts:
+
+- Its statically filtered `Orientation_2` takes 12 M instructions for 664,425 calls, about 18 each.
+- Its whole triangulation code (`Triangulation_2`, its data structure, and `Delaunay_triangulation_2`, with the in-circle test inlined) takes about 220 M. That is about what convx's walk and flips take without the predicates.
+
+In D3 the predicates and their wrappers are 3.3 G of 5.4 G. The rest of the insertion (1.5 G) is less than CGAL's whole insertion with its predicates (about 2.2 G).
+
+The cause is the entry:
+
+- The fixed shapes `Plane` and `Space` (ADR 0005) pass their rows as slices to the generic `semi_static::sign`.
+  - It is not inlined.
+  - It chooses its formula by a `match` on the dimension.
+  - It checks the bounds of every index and takes the differences through closures.
+- The wrappers copy the vertex ids into an array of 18 entries, which is zeroed on every call.
+
+The code also departs from two ADRs:
+
+- ADR 0005 has the fixed shapes "call the predicate formulas directly"; they reach them only through this entry.
+- ADR 0007 has the D = 2 walk skip the face it came through; `locate` tests every face.
+
+### Prototypes
+
+Two copies of `main` (`03d7247`), not committed:
+
+1. **Fixed-size entry:** `Plane` and `Space` read each site as an array of D coordinates and call `orient2`, `lifted2`, `orient3`, or `lifted3` through an inlined entry on arrays.
+2. **Arrays in the wrappers, and the walk of ADR 0007:** prototype 1, plus:
+   - `sphere_sign` and `replaced` build arrays of 3, 4, or 5 ids;
+   - `locate` skips the face to the simplex it came from. That face's orientation is positive, so the walk and its result are the same.
+
+Both publish the same counts. Every test passes on the second, and debug builds compare each fixed-size sign with the generic one.
+
+| Set | `main` | Prototype 1 | Prototype 2 |
+| --- | ---: | ---: | ---: |
+| Delaunay `cube` D2 10^4 | 7.09 ms (6.40 ms–10.0 ms) | 0.92 | 0.89, inside the spread |
+| Delaunay `cube` D2 10^5 | 71.7 ms (67.4 ms–87.6 ms) | 0.90 | 0.89, inside the spread |
+| Delaunay `sphere` D2 10^5 | 57.7 ms (52.7 ms–75.6 ms) | 0.90 | 0.88, inside the spread |
+| Delaunay `cube` D2 10^6 | 721 ms (721 ms–742 ms) | 0.90, faster beyond the spread | 0.90, faster beyond the spread |
+| Delaunay `sphere` D2 10^6 | 546 ms (537 ms–564 ms) | 0.91 | 0.89, faster beyond the spread |
+| Delaunay `cube` D3 10^4 | 43.5 ms (40.2 ms–48.9 ms) | 0.95 | 0.91, inside the spread |
+| Delaunay `cube` D3 10^5 | 467 ms (456 ms–483 ms) | 0.96 | 0.92, faster beyond the spread |
+| Delaunay `sphere` D3 10^4 | 94.0 ms (89.6 ms–99.5 ms) | 0.98 | 0.97, inside the spread |
+| Delaunay `cube` D4 10^4 | 754 ms (720 ms–805 ms) | 0.98 | 0.96, inside the spread |
+
+The three were alternated in one run.
+
+- A first run of prototype 1 alone read the same: D2 0.89 to 0.94, `cube` D3 0.95 to 0.96, and hull `cube` and `sphere` D3 0.99 and 1.04, inside the spread.
+- D4 does not take these paths; its 0.96 is inside the spread.
+
+After prototype 2, `cube` D2 10^5 runs about 640 M instructions and `cube` D3 10^5 about 4.0 G.
+
+- The in-circle test still costs about 137 instructions a call, and the in-sphere test about 307.
+- In each, the first stage computes the permanent for its bound: a second sum of absolute products, as long as the determinant.
+
+### The pass after the insertion
+
+Milliseconds of one build, under WSL2:
+
+| Set | Tests of the faces the insertion left unknown | The draft: rows sorted, links | `finish` and `publish` | Share of `build()` |
+| --- | ---: | ---: | ---: | ---: |
+| `cube` D2 10^5 | 6.4 | 3.8 | 1.2 | 17% |
+| `sphere` D2 10^5 | 4.2 | 2.6 | 0.7 | 14% |
+| `cube` D3 10^5 | 49 | 14 | 4.5 | 14% |
+| `cube` D4 10^4 | 70 | 29 | 2.2 | 14% |
+| `cube` D5 10^4 | 760 | 252 | 12.5 | 14% |
+
+The faces the insertion leaves unknown lie between two new simplices whose boundary faces lie in different cavity simplices (module docs of `insert`). The pass tests each with a lifted orientation.
+
+In D4 and D5 those tests are about 10% of `build()`, about the whole gap to CGAL (1.13 and 1.11). Construction alone is 0.97 and 0.96 of CGAL's whole build (#438).
+
+### Reading
+
+- **The gap is instructions, in the predicates' entry.** convx does CGAL's tests and misses the cache as often, but runs 2.1 to 2.75 times the instructions. Most of the excess is the generic entry that the fixed shapes go through.
+- **Prototype 2 gains 11% on D2 and 8% on `cube` D3.** It is faster beyond the spread on the D2 sets of 10^6 and on `cube` D3 10^5. On the parity ratios of #438 that is about 1.39 for `cube` D2 10^5 and 1.38 for `cube` D3 10^5: not parity by itself.
+- **What remains after it:**
+  - The first stage's bound, the permanent, about as long as the determinant. P7-38 (#428) made the bound cheaper and read 1.00, but the entry still cost about 200 instructions a call then. The bound is now a larger share of a shorter call.
+  - The pass after the insertion: 14 to 17% of `build()` in every dimension, most of it the tests of the faces left unknown.
+  - In D2, accepting the input and making the sites: about 3 ms of 66.
+- **The rows that follow, from the Grill on #444:**
+  - P7-45 (#446): the fixed-size entry, with the wrappers and the walk of ADR 0007 (prototype 2), and ADR 0008 for dedicated D = 2 and D = 3 paths;
+  - P7-46 (#447): the first stage's bound, prototyped on top of it;
+  - P7-47 (#448): a proof that decides the faces left unknown without a test, grilled before any row.

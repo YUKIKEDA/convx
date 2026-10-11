@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-8 (#323): acceptance. P7-34 (#410) after its Grill. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+P7-45 (#446), then P7-46 (#447), then P7-47 (#448), then a parity run (Grill on #444). P7-8 (#323): acceptance. P7-34 (#410) after its Grill. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -218,6 +218,10 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-41 | Feat  | Delaunay: the passes after insertion at less cost                                       | #429  | Done        |
 | P7-42 | Feat  | Delaunay: the predicates' wrappers gather only what the first stage reads               | #430  | Withdrawn after review (#431) |
 | P7-43 | Feat  | Hull D2: the points off the polygon in one pass, without regrowth                       | #440  | Done        |
+| P7-44 | Spike | Delaunay D2 and D3 against CGAL, per operation and per cache miss                       | #444  | Done        |
+| P7-45 | Feat  | Delaunay D2 and D3: the predicates on fixed-size rows, and ADR 0007's walk              | #446  | Not started |
+| P7-46 | Spike | Delaunay D2 and D3: the first stage's bound on fixed rows, after P7-45                  | #447  | Not started |
+| P7-47 | Spike | Delaunay: decide the faces the insertion leaves unknown without a test                  | #448  | Set after Grill on #448 |
 
 ## Intentionally out of scope
 
