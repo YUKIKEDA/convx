@@ -4008,3 +4008,88 @@ Met at 1.05: 28 of 41 (hull 20, Delaunay 8); 23 in the run of #438. Met at 1.00:
 | Hull `sphere` D2 10^4 and 10^5 | 2 | 1.37 and 1.12 against CGAL |
 | Hull `sphere` D3 10^4 and 10^6 | 2 | 1.06 and 1.22 against Qhull |
 | Hull `cubesurf` D3 10^5 | 1 | 1.94 against Qhull, 1.48 against CGAL |
+
+## Where the time goes on the 13 sets left, PR #471 (#467)
+
+The spike P7-54. The parity run of #466 left 13 sets not met. As P7-32 (#413) did for the run of #404, it reads their phases and their instructions, and names the rows that follow.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `e42ca61` (phases, from the parity run) and `2d2ee4f` (callgrind, counters), under WSL2, `--release` with debug info |
+| Instructions | callgrind, one build each, inclusive by function |
+| Merge counters | A scratch copy that prints, per merge, whether `Records` is empty, the ridges joined, and the simplices that inherited a plane number. The inputs are every family of `tests/common/generator.rs`, D = 3 to 6, 30, 200, and 2,000 points, seeds 1 to 5: 480 builds and 241,132 sub-hulls inside them |
+
+### Phases of `build()`
+
+| Set | Ratio | Construction | Pass after it | Publication | Before it |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Delaunay `cube` D2 10^4 | 1.18 | 77.8% | 16.5% | 1.7% | 4.1% |
+| Delaunay `cube` D2 10^5 | 1.07 | 76.9% | 18.2% | 1.4% | 3.5% |
+| Delaunay `sphere` D2 10^4 | 1.15 | 84.8% | 10.4% | 1.2% | 3.7% |
+| Delaunay `sphere` D2 10^5 | 1.09 | 79.8% | 13.6% | 0.9% | 5.7% |
+| Delaunay `cube` D3 10^4 | 1.11 | 84.1% | 14.2% | 0.8% | 1.0% |
+| Delaunay `cube` D3 10^5 | 1.13 | 84.3% | 14.2% | 0.8% | 0.7% |
+| Delaunay `cube` D3 10^6 | 1.12 | 79.8% | 18.6% | 0.6% | 1.0% |
+| Delaunay `cube` D4 10^4 | 1.05 | 89.3% | 10.1% | 0.2% | 0.4% |
+| Hull `sphere` D2 10^4 | 1.37 | 59.0% | 10.8% | 16.2% | 14.1% |
+| Hull `sphere` D2 10^5 | 1.12 | 59.1% | 11.3% | 15.9% | 13.7% |
+| Hull `sphere` D3 10^4 | 1.06 | 80.0% | 16.7% | 2.3% | 1.0% |
+| Hull `sphere` D3 10^6 | 1.22 | 77.7% | 20.5% | 1.1% | 0.7% |
+| Hull `cubesurf` D3 10^5 | 1.94 | 45.3% | 51.7% | 0.1% | 2.9% |
+
+### The hull, by function
+
+| Set | Part | Share of the program |
+| --- | --- | ---: |
+| `sphere` D3 10^5 | `classify_built` | 12.6% |
+| | of which the coplanar merge (`merge`) | 8.2% |
+| | of which `found_vertices` | 9.3% |
+| `cubesurf` D3 10^5 | `found_vertices` | 60.2% |
+| | its own lines | 19.0% (own) |
+| | the side tests of points against faces (`side`, own, from `found_vertices` and construction) | 27.0% (own) |
+| | sorting `u32` lists, everywhere in the build | about 6% (own) |
+| `sphere` D2 10^5 | `accept` | 4.5% |
+| | `classify_built` | 5.6% |
+
+`cubesurf` D3 10^5 has about 16,000 points on each face of the cube. In `distance_zeros`, a point with no record is tested against every group, and a point on a face has distance zero, which the cull cannot prove and the exact sign must. The sort's share was first read from the inclusive cost of the recursive `quicksort` (23%), which counts the recursion again at each level; its own cost is about 6% (#468).
+
+### The coplanar merge (P7-34, #410)
+
+- **Skipping it on a condition does not hold.**
+  - 12 of the 480 builds joined ridges while `Records` was empty: `Records` holds the zero signs of outside points, not those of the visibility walk.
+  - None of the 480 joined a ridge while no simplex had inherited a plane number, but 10 of the sub-hulls did.
+  - As in the lemma of #448, two adjacent coplanar simplices of one insertion force a zero sign in the walk only when their D sites other than the apex are affinely independent.
+- **Most of its instructions build each group's lists:** about 5 to 6% of the program, against about 1.5% for the ridge tests, while every group is one simplex.
+
+The Grill on #410 asked for a prototype of a path that writes the groups of one simplex each straight into presized lists, with debug builds comparing it with the general path on every merge. It is not committed. Against `main` (`2d2ee4f`), pinned and alternated, 10 rounds × 3 builds; 5 × 1 over about half a second:
+
+| Set | `main` | Fast path | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.55 ms (0.48 ms–0.82 ms) | 0.54 ms (0.48 ms–0.70 ms) | 0.98, inside the spread |
+| Hull `cube` D2 10^5 | 4.89 ms (4.38 ms–5.80 ms) | 4.92 ms (4.55 ms–5.88 ms) | 1.00, inside the spread |
+| Hull `sphere` D2 10^4 | 1.18 ms (1.07 ms–1.34 ms) | 1.20 ms (1.10 ms–1.52 ms) | 1.02, inside the spread |
+| Hull `sphere` D2 10^5 | 12.2 ms (11.1 ms–13.3 ms) | 12.1 ms (11.0 ms–15.3 ms) | 0.99, inside the spread |
+| Hull `cube` D3 10^4 | 1.50 ms (1.26 ms–1.81 ms) | 1.47 ms (1.26 ms–2.29 ms) | 0.98, inside the spread |
+| Hull `cube` D3 10^5 | 11.7 ms (10.7 ms–13.5 ms) | 11.7 ms (10.6 ms–22.3 ms) | 1.00, inside the spread |
+| Hull `cubesurf` D3 10^5 | 58.5 ms (56.5 ms–64.0 ms) | 59.4 ms (57.4 ms–71.0 ms) | 1.01, inside the spread |
+| Hull `sphere` D3 10^4 | 20.8 ms (20.2 ms–21.8 ms) | 20.5 ms (19.6 ms–24.0 ms) | 0.99, inside the spread |
+| Hull `sphere` D3 10^5 | 251 ms (243 ms–310 ms) | 246 ms (238 ms–258 ms) | 0.98, inside the spread |
+| Hull `cube` D4 10^4 | 5.50 ms (5.22 ms–6.62 ms) | 5.50 ms (5.20 ms–6.63 ms) | 1.00, inside the spread |
+| Hull `cube` D4 10^5 | 33.0 ms (31.9 ms–34.6 ms) | 33.2 ms (31.7 ms–35.2 ms) | 1.01, inside the spread |
+| Hull `sphere` D4 10^4 | 91.2 ms (88.6 ms–101 ms) | 89.6 ms (87.0 ms–105 ms) | 0.98, inside the spread |
+| Hull `sphere` D4 10^5 | 1.10 s (1.09 s–1.13 s) | 1.09 s (1.07 s–1.10 s) | 0.99, inside the spread |
+| Hull `cube` D5 10^4 | 54.6 ms (53.6 ms–57.4 ms) | 54.3 ms (52.8 ms–57.2 ms) | 0.99, inside the spread |
+| Hull `cube` D5 10^5 | 214 ms (210 ms–224 ms) | 213 ms (209 ms–222 ms) | 1.00, inside the spread |
+| Hull `sphere` D5 10^4 | 801 ms (785 ms–820 ms) | 799 ms (778 ms–826 ms) | 1.00, inside the spread |
+| Hull `cube` D6 10^4 | 569 ms (558 ms–595 ms) | 566 ms (557 ms–624 ms) | 0.99, inside the spread |
+
+The prototype reads 0.98 to 0.99 on hull `sphere` D3 and D4, inside the spread. The instructions it removes run fast, and the time they took was smaller than their share of the instructions. P7-34 is withdrawn after measurement.
+
+### Reading
+
+- **Delaunay:** the pass after the insertion (10 to 19%) is about each set's gap (5 to 18%). P7-56 (#469) prototypes deciding the faces left unknown when the insertion links them.
+- **Hull `cubesurf`:** `found_vertices` is about two thirds of `build()`, most of it the exact side tests of points on the faces against every group, and its own lines. P7-55 (#468) starts from that: how many points are scanned without a record, how many groups each meets, and the cost of a zero sign.
+- **Hull `sphere` D3:** the merge's list building gives 1 to 2%, inside the spread; P7-34 is withdrawn. What is left there is construction itself (78 to 80%).
+- **Hull `sphere` D2 10^4 and 10^5:** acceptance, publication, and classification share the time. The spike P7-57 (#470) follows.
