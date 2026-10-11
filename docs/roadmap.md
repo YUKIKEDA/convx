@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-The rows after the parity run of #463 (13 sets not met) are set with the owner. P7-8 (#323): acceptance. P7-34 (#410) after its Grill. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+P7-55 (#468), then P7-56 (#469), then P7-57 (#470) (Grill on #467). P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -208,7 +208,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-31 | Feat  | Predicates: the exact direction's error bound from its derivation                       | #400  | Not started |
 | P7-32 | Spike | Where the time goes on the general sets left: Delaunay D2 and D3, hull sphere D2 to D4  | #408  | Done        |
 | P7-33 | Feat  | Hull: planes of D = 3 and 4 by a fixed-size path                                        | #409  | Done        |
-| P7-34 | Feat  | Hull: the coplanar merge on an input with no zero sign recorded                         | #410  | Set after Grill on #410 |
+| P7-34 | Feat  | Hull: the coplanar merge on an input with no zero sign recorded                         | #410  | Withdrawn after measurement (#471) |
 | P7-35 | Feat  | Hull D2: classify and publish a strict polygon without sorts or regrowth                | #411  | Done        |
 | P7-36 | Spike | Delaunay D2 and D3: where the insertion's own time goes, line by line                   | #412  | Done        |
 | P7-37 | Feat  | Delaunay D3: pair the new tetrahedra's faces at less cost                               | #421  | Withdrawn after measurement (#425) |
@@ -228,6 +228,10 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-51 | Spike | Parity: do the hull's references produce the same output?                               | #456  | Done        |
 | P7-52 | Feat  | Delaunay D2 and D3: the pass after the insertion in one walk                            | #457  | Withdrawn after measurement (#462) |
 | P7-53 | Feat  | Delaunay D2 and D3: cells and sites in fixed-size arrays                                | #458  | Withdrawn after measurement (#462) |
+| P7-54 | Spike | Where the time goes on the 13 sets the parity run of #466 left                          | #467  | Done        |
+| P7-55 | Feat  | Hull: the extreme points of large coplanar facets at less cost                          | #468  | Not started |
+| P7-56 | Feat  | Delaunay: decide the faces left unknown when the insertion links them                   | #469  | Not started |
+| P7-57 | Spike | Hull sphere D2 10^4 and 10^5: acceptance, publication, and classification               | #470  | Not started |
 
 ## Intentionally out of scope
 
