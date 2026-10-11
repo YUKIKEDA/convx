@@ -5297,3 +5297,85 @@ The three sets of Delaunay `cube` D3 are reported. Against the references from t
 | Hull `sphere` D3 10^4 | 1.07 against Qhull |
 | Delaunay `sphere` D2 10^4 | 1.12 against CGAL |
 | Delaunay `cube` D4 10^4 | 1.07 against CGAL |
+
+## Hull D2: the chain on the halves below and above the line through its ends (#515)
+
+### The change (P7-72)
+
+Hull `sphere` D2 read 1.23 at 10^4 and 1.07 at 10^5 against CGAL in the parity run of #512. The chain scanned every point twice, once for the lower chain and once for the upper. One upper pass was 8.9 to 9.9% of the build (#509).
+
+As Akl–Toussaint's algorithm does, the sorted points are now split by the line through the first and the last:
+
+- those strictly below make the lower chain with the two ends;
+- those strictly above make the upper chain;
+- those on the line go to neither, since a point on that segment is no strict extreme.
+
+Each point is scanned once, and the cycle is the same. Design §6 says so in both languages.
+
+**Checks:**
+
+- A test compares the cycle with the two-pass chain on random points, small grids (many collinear points), points on a circle, and points on one line. Sending the points below and above to the wrong chains fails it.
+- Every test passes in debug, in release, and under WSL.
+
+The second part of the row, a cheaper pass over the discard polygon's extremes, was not needed: the split alone brings both sets within 1.05 under WSL. It is taken up again if a parity run puts them back outside.
+
+### Against `main`
+
+`main` at `3a4d5ad` against the head `80515e9`, pinned and alternated, 30 rounds × 3 builds:
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.58 ms (0.50 ms–1.00 ms) | 0.57 ms (0.49 ms–4.73 ms) | 0.98, inside the spread |
+| Hull `cube` D2 10^5 | 5.21 ms (4.83 ms–7.96 ms) | 5.23 ms (4.78 ms–7.00 ms) | 1.00, inside the spread |
+| Hull `sphere` D2 10^4 | 1.20 ms (1.02 ms–9.01 ms) | 1.07 ms (0.89 ms–2.52 ms) | 0.89, inside the spread |
+| Hull `sphere` D2 10^5 | 10.8 ms (9.95 ms–19.5 ms) | 9.87 ms (8.94 ms–13.1 ms) | 0.91, inside the spread |
+
+**Under WSL**, on the parity run's files, 10 rounds of 200 builds (10^4) and 20 builds (10^5), alternated with CGAL's reference (`convex_hull_2` on input indices):
+
+| Set | convx `main` | convx head | CGAL | `main` / CGAL | head / CGAL |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| hull `sphere` D2 10^4 | 0.839 ms | 0.722 ms | 0.732 ms | 1.15 | 0.99 |
+| hull `sphere` D2 10^5 | 10.40 ms | 9.20 ms | 9.71 ms | 1.07 | 0.95 |
+
+The interquartile ranges of `main` and the head are apart on both sets.
+
+**The shorter run**, 10 rounds × 3 builds, 5 × 1 for the sets over about half a second. Every set published the same counts on both sides:
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.60 ms (0.55 ms–0.90 ms) | 0.60 ms (0.55 ms–1.02 ms) | 1.01, inside the spread |
+| Hull `cube` D2 10^5 | 5.44 ms (4.82 ms–9.27 ms) | 5.55 ms (4.82 ms–9.76 ms) | 1.02, inside the spread |
+| Hull `sphere` D2 10^4 | 1.15 ms (1.03 ms–1.30 ms) | 1.04 ms (0.89 ms–2.52 ms) | 0.90, inside the spread |
+| Hull `sphere` D2 10^5 | 11.8 ms (11.1 ms–17.8 ms) | 10.6 ms (9.93 ms–22.0 ms) | 0.89, inside the spread |
+| Hull `cube` D3 10^4 | 1.64 ms (1.38 ms–2.42 ms) | 1.56 ms (1.37 ms–3.23 ms) | 0.95, inside the spread |
+| Hull `cube` D3 10^5 | 12.9 ms (10.9 ms–23.6 ms) | 13.1 ms (12.1 ms–22.6 ms) | 1.01, inside the spread |
+| Hull `cube` D3 10^6 | 144 ms (136 ms–157 ms) | 150 ms (140 ms–172 ms) | 1.04, inside the spread |
+| Hull `cubesurf` D3 10^5 | 29.5 ms (28.6 ms–34.1 ms) | 29.5 ms (28.5 ms–36.0 ms) | 1.00, inside the spread |
+| Hull `sphere` D3 10^4 | 22.6 ms (20.6 ms–36.7 ms) | 23.8 ms (20.3 ms–38.4 ms) | 1.05, inside the spread |
+| Hull `sphere` D3 10^5 | 248 ms (239 ms–313 ms) | 249 ms (241 ms–276 ms) | 1.00, inside the spread |
+| Hull `sphere` D3 10^6 | 3.47 s (3.34 s–3.67 s) | 3.52 s (3.30 s–3.88 s) | 1.01, inside the spread |
+| Hull `cube` D4 10^4 | 5.48 ms (5.20 ms–5.99 ms) | 5.49 ms (5.24 ms–6.22 ms) | 1.00, inside the spread |
+| Hull `cube` D4 10^5 | 33.7 ms (32.8 ms–39.1 ms) | 33.4 ms (32.3 ms–41.5 ms) | 0.99, inside the spread |
+| Hull `sphere` D4 10^4 | 93.6 ms (89.1 ms–104 ms) | 91.8 ms (88.5 ms–131 ms) | 0.98, inside the spread |
+| Hull `sphere` D4 10^5 | 1.33 s (1.11 s–1.38 s) | 1.22 s (1.09 s–1.30 s) | 0.92, inside the spread |
+| Hull `cube` D5 10^4 | 60.3 ms (54.5 ms–70.6 ms) | 57.7 ms (54.0 ms–70.5 ms) | 0.96, inside the spread |
+| Hull `sphere` D5 10^4 | 804 ms (779 ms–938 ms) | 833 ms (783 ms–1.02 s) | 1.04, inside the spread |
+| Hull `cube` D6 10^4 | 568 ms (549 ms–650 ms) | 564 ms (550 ms–655 ms) | 0.99, inside the spread |
+| Delaunay `cube` D2 10^4 | 5.37 ms (5.20 ms–6.29 ms) | 5.38 ms (5.13 ms–8.31 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^5 | 55.4 ms (51.8 ms–83.0 ms) | 55.6 ms (52.4 ms–74.4 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^6 | 599 ms (578 ms–625 ms) | 612 ms (594 ms–669 ms) | 1.02, inside the spread |
+| Delaunay `sphere` D2 10^4 | 5.83 ms (5.33 ms–10.2 ms) | 5.93 ms (5.40 ms–7.71 ms) | 1.02, inside the spread |
+| Delaunay `sphere` D2 10^5 | 45.2 ms (42.8 ms–69.7 ms) | 45.9 ms (42.9 ms–50.0 ms) | 1.02, inside the spread |
+| Delaunay `sphere` D2 10^6 | 470 ms (438 ms–512 ms) | 464 ms (457 ms–476 ms) | 0.99, inside the spread |
+| Delaunay `cube` D3 10^4 | 36.4 ms (35.7 ms–41.5 ms) | 36.4 ms (35.7 ms–39.4 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^5 | 391 ms (379 ms–471 ms) | 391 ms (379 ms–447 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^4 | 85.7 ms (77.8 ms–134 ms) | 82.8 ms (78.2 ms–120 ms) | 0.97, inside the spread |
+| Delaunay `sphere` D3 10^5 | 779 ms (763 ms–882 ms) | 826 ms (790 ms–863 ms) | 1.06, inside the spread |
+| Delaunay `cube` D4 10^4 | 688 ms (662 ms–793 ms) | 693 ms (666 ms–848 ms) | 1.01, inside the spread |
+| Delaunay `cube` D5 10^4 | 8.22 s (7.93 s–8.52 s) | 8.00 s (7.78 s–8.54 s) | 0.97, inside the spread |
+
+### Reading
+
+- **Hull `sphere` D2 reads 0.86 to 0.91 against `main`,** on Windows and under WSL, more than the bound of one pass suggested (#509). Under WSL it reads 0.99 and 0.95 against CGAL, within 1.05.
+- **Hull `cube` D2 reads 0.98 to 1.02.** There the discard polygon leaves few points for the chain.
+- **Nothing is slower beyond the spread.** Hull `cube` D3 10^6, `sphere` D3 10^4, `sphere` D5 10^4, and Delaunay `sphere` D3 10^5 read 1.04 to 1.06 inside the spread. The change reaches only the D = 2 chain.

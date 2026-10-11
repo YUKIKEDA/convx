@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-A Grill on the 5 judged sets the parity run of #512 left (Grill on #483). Hull `cubesurf` D3's sort of `u32` lists (Grill on #503) and Delaunay D2's walk in plain doubles (Grill on #509) wait for it. P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+Delaunay `sphere` D2 10^4 from a profile; hull `sphere` D3 10^4 and Delaunay `cube` D4 10^4 timed several times before any row (Grill on #512). Hull `cubesurf` D3's sort of `u32` lists (Grill on #503) and Delaunay D2's walk in plain doubles (Grill on #509) wait for it. P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -246,7 +246,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-69 | Feat  | Hull D3: classification's shortcut for points inside a facet                          | #504  | Done        |
 | P7-70 | Feat  | Predicates: the first stage skips its bound for an exactly zero determinant          | #506  | Done        |
 | P7-71 | Spike | Delaunay `cube` D3 and hull `sphere` D2 under WSL: where the time goes against CGAL   | #509  | Done        |
-| P7-72 | Feat  | Hull D2: Akl–Toussaint's split into four regions                                      | –     | Waiting: at most about 5% alone (#509) |
+| P7-72 | Feat  | Hull D2: the chain on the halves below and above the line through its ends             | #515  | Done        |
 | P7-73 | Feat  | Delaunay D2 and D3: insertion along a Hilbert curve                                    | #510  | Withdrawn after measurement (#511) |
 
 ## Intentionally out of scope
