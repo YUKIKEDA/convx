@@ -12,7 +12,7 @@ The hot path is a build: `ConvexHullBuilder::build`, `DelaunayBuilder::build`, `
 - A build allocates a number of times that does not grow with the number of points (design, #521). No `Vec::new`, `vec![]`, `clone`, `to_owned`, `collect`, `Box`, or `String` per point, per facet, per insertion, per plan, or per face. A buffer lives in the builder's state, sized once or grown, and is cleared and reused, as `take_outside`'s lists and the insertion's `stack` and `cavity` are.
 - A list built per item on the stack uses `Small` or a fixed array, not a `Vec`.
 - Debug checks may allocate. They are behind `debug_assertions`, and the contract holds for release builds.
-- `tests/alloc.rs` counts every builder on the generator's families at `n` and `16 n`. A count stays at or below its record; a count that falls lowers the record in the same change; raising one needs an Issue. An exception names the Issue that removes it (#524). #523 removed Voronoi's: from 41 to 675 allocations per site, to a fixed count.
+- `tests/alloc.rs` counts every builder on the generator's families at `n` and `16 n`. A count stays at or below its record; a count that falls lowers the record in the same change; raising one needs an Issue. An exception, if one is ever needed, names the Issue that removes it. The first count found two growths, both removed: Voronoi allocated 41 to 675 times per site (#523), and the placing triangulation once per simplex and per ridge (#524).
 - A function that allocates its result is named `to_*` or returns an owned value, and is not called per item on the hot path.
 
 ## Before claiming

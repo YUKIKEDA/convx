@@ -516,6 +516,8 @@ fn classify_built<'a>(
     };
     // Simplices kept as built, by their index here and their construction id.
     let mut kept: Vec<(u32, FacetId)> = Vec::with_capacity(extremes.len());
+    // One workspace for the placing triangulation of every face (#524).
+    let mut placing = Placing::default();
     for (g, extreme) in extremes.into_iter().enumerate() {
         let group = &groups.groups[g];
         let group_vertices = groups.vertices.get(g);
@@ -531,8 +533,10 @@ fn classify_built<'a>(
                     .copied()
                     .find(|v| extreme.binary_search(v).is_err())
                     .unwrap_or(extreme[0]);
-                for members in place(&hull.input, &extreme, q)? {
-                    simplices.push(&members, g as u32, None);
+                let (len, placed) = placing.run(d, |i| hull.input.point(i), &extreme)?;
+                debug_assert_eq!(len, d, "a facet spans D - 1 dimensions");
+                for simplex in placed.chunks_exact(len) {
+                    simplices.push(&oriented(&hull.input, simplex, q)?, g as u32, None);
                 }
                 faces.vertices.push(&extreme);
             }
@@ -1020,8 +1024,29 @@ fn global_of(global: Option<&[u32]>, v: u32) -> u32 {
     global.map_or(v, |g| g[v as usize])
 }
 
-/// Placing triangulation of the extreme points `extreme` (ascending) of one
-/// facet, oriented so that `q`, a hull vertex off the facet, is inside.
+/// One simplex of the placing triangulation of the extreme points of a
+/// facet, ordered so that `q`, a hull vertex off the facet, is on the
+/// negative side.
+fn oriented(input: &Input<'_>, simplex: &[u32], q: u32) -> Result<Small<u32, 11>, ConvexHullError> {
+    let mut vertices: Small<u32, 11> = simplex.iter().copied().collect();
+    let points: Small<&[f64], 12> = vertices
+        .iter()
+        .map(|&v| input.point(v))
+        .chain([input.point(q)])
+        .collect();
+    if orient(&points)? == Sign::Positive && vertices.len() >= 2 {
+        vertices.swap(0, 1);
+    }
+    Ok(vertices)
+}
+
+/// A boundary ridge of a placing triangulation, ascending: the key of
+/// [`Placing`]'s boundary, on the stack for D up to 11.
+type Ridge = Small<u32, 11>;
+
+/// The placing triangulation of the extreme points of one facet or one
+/// cospherical group, with its buffers kept from one run to the next
+/// (#524): a run allocates nothing per simplex, per ridge, or per point.
 ///
 /// Points are placed one at a time in index order. A point that raises the
 /// affine dimension of the points placed so far is joined to every current
@@ -1033,22 +1058,6 @@ fn global_of(global: Option<&[u32]>, v: u32) -> u32 {
 /// The placing triangulation restricts to the placing triangulation of each
 /// face in the same order, so two facets that share a lower face split it
 /// the same way, and the boundary complex closes up.
-fn place(input: &Input<'_>, extreme: &[u32], q: u32) -> Result<Vec<Vec<u32>>, ConvexHullError> {
-    let d = input.dim();
-    let simplices = placing(d, |i| input.point(i), extreme)?;
-    debug_assert!(
-        simplices.iter().all(|s| s.len() == d),
-        "a facet spans D - 1 dimensions"
-    );
-    simplices
-        .into_iter()
-        .map(|s| oriented(input, s, q))
-        .collect()
-}
-
-/// The placing triangulation of `points` (ascending), coordinates of
-/// dimension `d` given by `point`: simplices of `r + 1` vertices for the
-/// affine dimension `r` of the points, unoriented. See [`place`].
 ///
 /// The boundary ridges of the current complex are kept from one point to
 /// the next (#393). A point that does not raise the dimension adds a simplex
@@ -1058,140 +1067,156 @@ fn place(input: &Input<'_>, extreme: &[u32], q: u32) -> Result<Vec<Vec<u32>>, Co
 /// raises the dimension cones every simplex, and the boundary is gathered
 /// again. Each boundary ridge keeps the side of its opposite vertex, which
 /// does not change until the dimension does.
-pub(crate) fn placing<'p>(
-    d: usize,
-    point: impl Fn(u32) -> &'p [f64],
-    extreme: &[u32],
-) -> Result<Vec<Vec<u32>>, ConvexHullError> {
-    let Some((&first, rest)) = extreme.split_first() else {
-        return Ok(Vec::new());
-    };
-    let mut simplices: Vec<Vec<u32>> = vec![vec![first]];
-    // Coordinates on which the points placed so far project to an affinely
-    // independent basis; their count is the current affine dimension.
-    let mut axes: Vec<usize> = Vec::with_capacity(d);
-    let mut basis: Vec<u32> = vec![first];
-    // The orientation of `vertices` projected onto `axes`. The projected
-    // rows go into one buffer reused across calls; a `Vec` per row was most
-    // of the time left after the boundary was kept (#393).
-    let mut rows: Vec<f64> = Vec::new();
-    let mut projected_sign = |vertices: &mut dyn Iterator<Item = u32>,
-                              axes: &[usize]|
-     -> Result<Sign, ConvexHullError> {
-        rows.clear();
-        for v in vertices {
-            let x = point(v);
-            rows.extend(axes.iter().map(|&a| x[a]));
-        }
-        let refs: Small<&[f64], 11> = rows.chunks_exact(axes.len()).collect();
-        Ok(orient(&refs)?)
-    };
-    let mut boundary = Boundary::of(&simplices);
-    for &p in rest {
-        // Does p raise the affine dimension?
-        let mut raised = None;
-        for j in (0..d).filter(|j| !axes.contains(j)) {
-            let with_j: Small<usize, 11> = axes.iter().copied().chain([j]).collect();
-            let mut vertices = basis.iter().copied().chain([p]);
-            if projected_sign(&mut vertices, &with_j)? != Sign::Zero {
-                raised = Some(j);
-                break;
+#[derive(Default)]
+pub(crate) struct Placing {
+    /// The simplices, `len` vertices each, one after another.
+    simplices: Vec<u32>,
+    len: usize,
+    /// Where the simplices are written when the dimension is raised.
+    raised: Vec<u32>,
+    /// Each boundary ridge, with the vertex opposite it in its one simplex
+    /// and, once evaluated, that vertex's side of the ridge.
+    boundary: HashMap<Ridge, (u32, Option<Sign>)>,
+    /// The simplices one point adds, `len` vertices each, and their order.
+    added: Vec<u32>,
+    order: Vec<u32>,
+    /// Coordinates on which the points placed so far project to an affinely
+    /// independent basis; their count is the current affine dimension.
+    axes: Vec<usize>,
+    basis: Vec<u32>,
+    /// The projected rows of one orientation; a `Vec` per row was most of
+    /// the time left after the boundary was kept (#393).
+    rows: Vec<f64>,
+}
+
+impl Placing {
+    /// The placing triangulation of `extreme` (ascending), coordinates of
+    /// dimension `d` given by `point`: the number of vertices of a simplex,
+    /// `r + 1` for the affine dimension `r` of the points, and the simplices
+    /// one after another, each ascending, unoriented.
+    pub(crate) fn run<'p>(
+        &mut self,
+        d: usize,
+        point: impl Fn(u32) -> &'p [f64],
+        extreme: &[u32],
+    ) -> Result<(usize, &[u32]), ConvexHullError> {
+        let Self {
+            simplices,
+            len,
+            raised,
+            boundary,
+            added,
+            order,
+            axes,
+            basis,
+            rows,
+        } = self;
+        simplices.clear();
+        *len = 1;
+        axes.clear();
+        basis.clear();
+        boundary.clear();
+        let Some((&first, rest)) = extreme.split_first() else {
+            return Ok((1, &simplices[..]));
+        };
+        simplices.push(first);
+        basis.push(first);
+        // The orientation of `vertices` projected onto `axes`.
+        let mut projected_sign = |vertices: &mut dyn Iterator<Item = u32>,
+                                  axes: &[usize]|
+         -> Result<Sign, ConvexHullError> {
+            rows.clear();
+            for v in vertices {
+                let x = point(v);
+                rows.extend(axes.iter().map(|&a| x[a]));
             }
-        }
-        if let Some(j) = raised {
-            axes.push(j);
-            basis.push(p);
-            for simplex in &mut simplices {
-                simplex.push(p);
+            let refs: Small<&[f64], 11> = rows.chunks_exact(axes.len()).collect();
+            Ok(orient(&refs)?)
+        };
+        toggle(boundary, simplices);
+        for &p in rest {
+            // Does p raise the affine dimension?
+            let mut raise = None;
+            for j in (0..d).filter(|j| !axes.contains(j)) {
+                let with_j: Small<usize, 11> = axes.iter().copied().chain([j]).collect();
+                let mut vertices = basis.iter().copied().chain([p]);
+                if projected_sign(&mut vertices, &with_j)? != Sign::Zero {
+                    raise = Some(j);
+                    break;
+                }
             }
-            boundary = Boundary::of(&simplices);
-            continue;
-        }
-        // Beyond which boundary ridges of the current complex is p?
-        let mut added = Vec::new();
-        for (ridge, (opposite, known)) in &mut boundary.ridges {
-            let sp = projected_sign(&mut ridge.iter().copied().chain([p]), &axes)?;
-            if sp == Sign::Zero {
+            if let Some(j) = raise {
+                axes.push(j);
+                basis.push(p);
+                raised.clear();
+                for simplex in simplices.chunks_exact(*len) {
+                    raised.extend_from_slice(simplex);
+                    raised.push(p);
+                }
+                core::mem::swap(simplices, raised);
+                *len += 1;
+                boundary.clear();
+                for simplex in simplices.chunks_exact(*len) {
+                    toggle(boundary, simplex);
+                }
                 continue;
             }
-            let sa = match *known {
-                Some(sign) => sign,
-                None => {
-                    let sign =
-                        projected_sign(&mut ridge.iter().copied().chain([*opposite]), &axes)?;
-                    *known = Some(sign);
-                    sign
+            // Beyond which boundary ridges of the current complex is p?
+            added.clear();
+            for (ridge, (opposite, known)) in boundary.iter_mut() {
+                let sp = projected_sign(&mut ridge.iter().copied().chain([p]), axes)?;
+                if sp == Sign::Zero {
+                    continue;
                 }
-            };
-            if sa != Sign::Zero && sp != sa {
-                let mut vertices = ridge.clone();
-                vertices.push(p);
-                added.push(vertices);
+                let sa = match *known {
+                    Some(sign) => sign,
+                    None => {
+                        let sign =
+                            projected_sign(&mut ridge.iter().copied().chain([*opposite]), axes)?;
+                        *known = Some(sign);
+                        sign
+                    }
+                };
+                if sa != Sign::Zero && sp != sa {
+                    added.extend_from_slice(ridge);
+                    added.push(p);
+                }
+            }
+            // The added simplices in lexicographic order, as a sort of a
+            // list of them gave.
+            let simplex = |i: u32| &added[i as usize * *len..(i as usize + 1) * *len];
+            order.clear();
+            order.extend(0..(added.len() / *len) as u32);
+            order.sort_unstable_by(|&a, &b| simplex(a).cmp(simplex(b)));
+            for &i in order.iter() {
+                toggle(boundary, simplex(i));
+                simplices.extend_from_slice(simplex(i));
             }
         }
-        added.sort_unstable();
-        for simplex in &added {
-            boundary.toggle(simplex);
-        }
-        simplices.extend(added);
+        Ok((*len, &simplices[..]))
     }
-    Ok(simplices)
 }
 
-/// The boundary ridges of a placing triangulation: each ridge (ascending)
-/// that lies on one simplex, with that simplex's vertex opposite it and,
-/// once evaluated, that vertex's side of the ridge.
-struct Boundary {
-    ridges: HashMap<Vec<u32>, (u32, Option<Sign>)>,
-}
-
-impl Boundary {
-    /// The boundary of `simplices`.
-    fn of(simplices: &[Vec<u32>]) -> Self {
-        let mut boundary = Self {
-            ridges: HashMap::new(),
-        };
-        for simplex in simplices {
-            boundary.toggle(simplex);
-        }
-        boundary
-    }
-
-    /// Adds `simplex`: each of its ridges leaves the boundary when it was
-    /// on it (it now lies on two simplices), and joins it otherwise.
-    fn toggle(&mut self, simplex: &[u32]) {
-        for slot in 0..simplex.len() {
-            let mut ridge: Vec<u32> = simplex
-                .iter()
-                .enumerate()
-                .filter(|&(i, _)| i != slot)
-                .map(|(_, &v)| v)
-                .collect();
-            ridge.sort_unstable();
-            match self.ridges.entry(ridge) {
-                std::collections::hash_map::Entry::Occupied(on_one) => {
-                    on_one.remove();
-                }
-                std::collections::hash_map::Entry::Vacant(free) => {
-                    free.insert((simplex[slot], None));
-                }
+/// Adds `simplex` to `boundary`: each of its ridges leaves the boundary
+/// when it was on it (it now lies on two simplices), and joins it otherwise.
+fn toggle(boundary: &mut HashMap<Ridge, (u32, Option<Sign>)>, simplex: &[u32]) {
+    for slot in 0..simplex.len() {
+        let mut ridge: Ridge = simplex
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| i != slot)
+            .map(|(_, &v)| v)
+            .collect();
+        ridge.sort_unstable();
+        match boundary.entry(ridge) {
+            std::collections::hash_map::Entry::Occupied(on_one) => {
+                on_one.remove();
+            }
+            std::collections::hash_map::Entry::Vacant(free) => {
+                free.insert((simplex[slot], None));
             }
         }
     }
-}
-
-/// Orders `vertices` so that `q` is on the negative side.
-fn oriented(
-    input: &Input<'_>,
-    mut vertices: Vec<u32>,
-    q: u32,
-) -> Result<Vec<u32>, ConvexHullError> {
-    let mut points: Vec<&[f64]> = vertices.iter().map(|&v| input.point(v)).collect();
-    points.push(input.point(q));
-    if orient(&points)? == Sign::Positive && vertices.len() >= 2 {
-        vertices.swap(0, 1);
-    }
-    Ok(vertices)
 }
 
 /// A neighbor slot of a [`ComplexSimplex`] not linked yet.
@@ -1443,9 +1468,20 @@ pub(crate) mod tests {
         assert_eq!(hulls, 15);
     }
 
+    /// [`Placing::run`] on `workspace`, as a list of simplices.
+    fn placed<'p>(
+        workspace: &mut Placing,
+        d: usize,
+        point: impl Fn(u32) -> &'p [f64],
+        extreme: &[u32],
+    ) -> Vec<Vec<u32>> {
+        let (len, simplices) = workspace.run(d, point, extreme).unwrap();
+        simplices.chunks_exact(len).map(<[u32]>::to_vec).collect()
+    }
+
     /// The placing triangulation before #393: the ridges of every simplex
     /// gathered again for each point, and both sides evaluated for each
-    /// boundary ridge. The reference of [`placing`]'s tests.
+    /// boundary ridge. The reference of [`Placing`]'s tests.
     fn placing_by_full_scan<'p>(
         d: usize,
         point: impl Fn(u32) -> &'p [f64],
@@ -1609,6 +1645,9 @@ pub(crate) mod tests {
 
     #[test]
     fn placing_keeps_the_triangulation_of_the_full_scan() {
+        // One workspace for every case, of every dimension: what a run
+        // leaves behind must not reach the next (#524).
+        let mut workspace = Placing::default();
         // Points in convex position within their span, as `placing` takes
         // them: the vertices of a cube (the extreme points of a grid's
         // faces), integer points on a sphere (a cospherical group of
@@ -1687,7 +1726,7 @@ pub(crate) mod tests {
                         let extreme: Vec<u32> = (0..rows.len() as u32).collect();
                         let point = |i: u32| rows[i as usize].as_slice();
                         let expected = placing_by_full_scan(d, point, &extreme).unwrap();
-                        let got = placing(d, point, &extreme).unwrap();
+                        let got = placed(&mut workspace, d, point, &extreme);
                         assert_eq!(
                             got, expected,
                             "{name} k = {k}, lifted {lifted}, round {round}"
@@ -1744,7 +1783,11 @@ pub(crate) mod tests {
                     continue;
                 }
                 let expected = placing_by_full_scan(k, point, extreme).unwrap();
-                assert_eq!(placing(k, point, extreme).unwrap(), expected, "{name} D{k}");
+                assert_eq!(
+                    placed(&mut workspace, k, point, extreme),
+                    expected,
+                    "{name} D{k}"
+                );
                 found += 1;
             }
             assert!(found > 0, "{name} D{k}: no facet that is not a simplex");
