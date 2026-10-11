@@ -876,6 +876,11 @@ fn pulled_by_every_facet<'p>(
 /// or at several: the corners of a cube of D = 2 to 5, the integer points
 /// of spheres in D = 2 to 4 (those of squared radius 4 in D = 4 are the
 /// 24-cell, with octahedra for facets), each in shuffled index orders.
+///
+/// The last set is 28 of the 40 integer points of squared radius 2 in
+/// D = 5, from the review of #542. Two facets of its hull meet a face of
+/// dimension k in k points that span less than k - 1 dimensions, which the
+/// other sets do not have: keeping such a meet changes the cells.
 #[test]
 fn pulled_cells_are_those_of_the_rule_read_with_every_facet() {
     fn sphere(d: usize, squared: i64) -> Vec<Vec<f64>> {
@@ -912,6 +917,21 @@ fn pulled_cells_are_those_of_the_rule_read_with_every_facet() {
     ] {
         sets.push((d, sphere(d, squared)));
     }
+    #[rustfmt::skip]
+    let subset: [[i8; 5]; 28] = [
+        [0, -1, -1, 0, 0], [0, 0, 1, 0, -1], [0, 1, 0, -1, 0], [0, -1, 0, -1, 0],
+        [-1, 0, 1, 0, 0], [-1, 0, 0, 0, -1], [0, 1, 0, 0, 1], [-1, 0, -1, 0, 0],
+        [-1, 0, 0, -1, 0], [0, -1, 0, 0, 1], [-1, -1, 0, 0, 0], [0, 0, -1, 1, 0],
+        [0, 0, 1, -1, 0], [0, 0, -1, 0, -1], [1, 0, 0, -1, 0], [1, 0, 0, 0, 1],
+        [0, 1, 0, 0, -1], [0, -1, 0, 1, 0], [1, -1, 0, 0, 0], [0, 0, 0, 1, 1],
+        [0, 0, -1, 0, 1], [-1, 0, 0, 1, 0], [0, -1, 1, 0, 0], [1, 0, -1, 0, 0],
+        [-1, 0, 0, 0, 1], [0, 0, 1, 1, 0], [0, 0, 0, 1, -1], [0, 1, -1, 0, 0],
+    ];
+    let subset = subset
+        .iter()
+        .map(|row| row.iter().map(|&c| f64::from(c)).collect())
+        .collect();
+    sets.push((5, subset));
     let mut state = 539_u64;
     let mut next = move || {
         state ^= state << 13;
