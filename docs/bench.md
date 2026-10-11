@@ -5095,3 +5095,77 @@ The spike P7-68 (#503) found the zero side tests of hull `cubesurf` D3 10^5 at 1
 - **With P7-69 (#505), `cubesurf` reads 0.95 against Qhull under WSL,** from 1.57: within 1.05 and 1.00.
 - **Delaunay `cube` D4 10^4** read 1.03 and 1.04 in the separate builds. With one codegen unit on both sides it reads 0.97, so the difference was the partition into codegen units, not the change (`bench.mdc`).
 - **Nothing else is slower beyond the spread.**
+
+## Delaunay `cube` D3 and hull `sphere` D2 under WSL: the spike P7-71, the Hilbert order withdrawn, and P7-72's bound (#509, #510)
+
+### The spike P7-71 (#509)
+
+The parity run of #499 left these sets outside 1.05 against CGAL:
+
+- Delaunay `cube` D3 at 1.06 to 1.14;
+- Delaunay D2 10^4 at 1.08 and 1.11;
+- hull `sphere` D2 at 1.29 and 1.11.
+
+**perf under WSL** (software clock, no inlined frames) on the parity run's builds:
+
+- **Hull `sphere` D2 10^5.** convx's `build()`: sorting the chain's keys about 25%, the left turns about 21%, the discard polygon about 11%, publication about 10%, classification about 9%. CGAL's `ch_akl_toussaint` splits the points into four regions by their extremes, and sorts and scans each region once. Its sort is about 55% of its time.
+- **Delaunay `cube` D3.** Insertion took almost all of convx's time, inlined into two functions, so it could not be set beside CGAL function by function.
+
+**Counts per site** (scratch counters in convx, not committed; callgrind call counts in CGAL):
+
+| Per site | convx `cube` D3 10^4 | CGAL `cube` D3 10^4 | convx `cube` D2 10^4 | CGAL `cube` D2 10^4 |
+| --- | ---: | ---: | ---: | ---: |
+| in-sphere or in-circle tests | 44.4 | 42.8 | 8.9 | 9.0 |
+| orientations | 16.8 | 4.4 | 11.8 | 3.0 |
+
+The orientations were first read as a walk four times CGAL's. **That reading was wrong.** CGAL walks in plain doubles (`inexact_locate`, inlined), then calls `exact_locate` once per site. Its counted orientations are only the exact steps at the end.
+
+**Where the gap is.** The parity run's phase timers already split convx into construction and the pass after the insertion:
+
+| Delaunay `cube` D3 | convx construction | convx pass after the insertion | CGAL, whole |
+| --- | ---: | ---: | ---: |
+| 10^4 | 31.8 ms | 5.3 ms | 33.0 ms |
+| 10^5 | 337 ms | 61 ms | 357 ms |
+| 10^6 | 3,547 ms | 809 ms | 4,169 ms |
+
+convx's construction alone is about CGAL's whole time, its output included. The gap is the pass after the insertion, as #469 found, and P7-60 (#483) addresses it.
+
+### The Hilbert order (P7-73, #510), withdrawn
+
+`3cc7a82` ordered the rounds of Delaunay D2 and D3 along a Hilbert curve (Skilling's transform on a grid of a few cells per site), in place of Morton order. A test checked that consecutive cells of the curve share a face on full grids. The walk shortened little: on `cube` D3 10^4, 7.6 simplices and 14.9 orientations per site, from 8.9 and 16.8. Against `main` (`839505b`), pinned and alternated, 15 rounds × 3 builds, 6 × 1 for 10^6:
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Delaunay `cube` D2 10^4 | 5.69 ms (5.30 ms–8.92 ms) | 5.98 ms (5.45 ms–7.94 ms) | 1.05, inside the spread |
+| Delaunay `cube` D2 10^5 | 56.2 ms (52.7 ms–74.9 ms) | 58.0 ms (55.0 ms–63.2 ms) | 1.03, inside the spread |
+| Delaunay `cube` D2 10^6 | 582 ms (550 ms–609 ms) | 671 ms (585 ms–700 ms) | 1.15, inside the spread |
+| Delaunay `sphere` D2 10^4 | 5.62 ms (5.38 ms–6.55 ms) | 6.37 ms (6.16 ms–7.26 ms) | 1.13, inside the spread |
+| Delaunay `sphere` D2 10^5 | 44.1 ms (42.6 ms–55.5 ms) | 55.9 ms (53.6 ms–62.1 ms) | 1.27, inside the spread |
+| Delaunay `sphere` D2 10^6 | 460 ms (441 ms–470 ms) | 684 ms (651 ms–728 ms) | 1.49, slower beyond the spread |
+| Delaunay `cube` D3 10^4 | 36.3 ms (35.1 ms–41.5 ms) | 36.8 ms (35.7 ms–41.4 ms) | 1.01, inside the spread |
+| Delaunay `cube` D3 10^5 | 401 ms (381 ms–522 ms) | 404 ms (380 ms–469 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D3 10^4 | 82.8 ms (77.8 ms–111 ms) | 82.3 ms (77.8 ms–123 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D3 10^5 | 799 ms (790 ms–807 ms) | 804 ms (777 ms–861 ms) | 1.01, inside the spread |
+
+**A bound that cannot ship.** A scratch copy's walk used plain-double orientations with no exact check. It was timed against the same copy without the change, 15 rounds:
+
+| Set | Ratio |
+| --- | ---: |
+| Delaunay `cube` D3 10^4 | 1.00 |
+| Delaunay `cube` D3 10^5 | 1.00 |
+| Delaunay `cube` D2 10^4 | 0.94 |
+
+The walk's predicates are not where Delaunay `cube` D3 loses. P7-73 is withdrawn after measurement.
+
+### P7-72's bound
+
+The chain needs every point sorted already, for the duplicates (P7-67), so Akl–Toussaint's split would save mainly the second scan. That scan's cost was measured on a scratch copy: the upper pass run once more, its result dropped, against the same binary, 15 rounds.
+
+| Set | One upper pass |
+| --- | ---: |
+| hull `sphere` D2 10^4 | 8.9% of the build |
+| hull `sphere` D2 10^5 | 9.9% of the build |
+
+The split adds a side test per point, so it would save at most about 5%: neither set would be met by it alone. P7-72 waits until it can be combined with another saving (Grill on #509).
+
+A first attempt removed the upper pass instead. The wrong hull made classification about three times slower, so it bounded nothing.
