@@ -71,6 +71,12 @@ A comparison across thread counts pins every configuration to the same kind of c
 
 A set the row does not aim at that reads slower in the row's own timing, on the same side of 1.00 as an earlier run, is profiled before the PR merges. "Inside the spread" does not close it. #417 read hull `cube` D2 10^5 at 1.06 against its base; the parity run of #438 then put the set outside 1.05, and #439 found a cost P7-35 had removed from `sphere` D2 and left on `cube` D2, the other half of the pair.
 
+Before a row chases a gap to a reference, check that the reference's timed section produces what convx's `build()` publishes (ADR 0006: "the same output"). From #215 to #455, CGAL's Delaunay reference timed the construction from the points and wrote nothing. Producing convx's output took it 9 to 45% longer (#459), and part of the gap several rows chased was the reference's.
+
+A spike on a path an ADR specializes first reads the code against that ADR's decisions. In #445 the fixed shapes of ADR 0005 reached the formulas through the generic entry, and the walk of ADR 0007 tested its entry face. Both decisions said otherwise, and earlier spikes had read times, not the code.
+
+Before a refactor whose only aim is speed, a copy that can never ship bounds what it could save, and is never committed. Examples are a copy with unchecked reads (`unsafe`, which convx forbids) or with a stage removed. In #462 removing every bounds check of the hot accessors read 0.95 to 0.99, so fixed-size storage, which keeps part of the checks, was not written.
+
 A set on a path the change does not reach that reads moved in two runs is timed again with both sides built with one codegen unit (`CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1`), and `main` against itself in the same harness. In #441 Delaunay `cube` D4 10^4 read 1.04 twice, every build of the head slower than the fastest of `main`; `main` against itself read 1.00, and one codegen unit read 1.00. That is code layout, and is reported as such.
 
 A change after review that touches the timed path makes a new head. Time the base and that head again, both on one machine. A table of the base against the earlier head from one machine, next to the earlier head against the new head from another, is not the base against the shipped head (#259).

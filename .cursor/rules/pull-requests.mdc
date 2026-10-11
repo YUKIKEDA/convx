@@ -32,5 +32,6 @@ Follow `.github/pull_request_template.md`. Same section headings, in this order:
 - Do not invent alternate section names.
 - Read the body again when its base merges and when a commit lands after it was written. A "Stacked on #N (base `branch`)" line is rewritten once #N merges and the base is `main`, and the Summary names every commit the head carries (#261, #265, #268).
 - Edit a body from a file: write the current body to a UTF-8 file, change it, check that it is not empty, send it with `--body-file`, and read it back. A body sent through a pipe was emptied by a failed step in #263 and had a character damaged in #262.
+- A statement that the output is unchanged names its grain: bit for bit, the same numbering, or the same as sets. In #452 the body said the published simplices were "the same as before"; they were the same as sets, and their numbering changed on 48 of 294 inputs of the review, `cluster` and `nearsphere` D3 among them.
 
 Agents do not merge. A human squash-merges.
