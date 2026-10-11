@@ -1524,7 +1524,7 @@ fn clearly_inside(edges: &[[[f64; 2]; 2]], point: &[f64]) -> bool {
 /// order of the signed integer `total_cmp` compares, shifted to unsigned.
 /// From this many representatives, D = 3 builds on a copy in space order
 /// (ADR 0009, #489).
-const SPACE_ORDER_FROM: usize = 1 << 16;
+const SPACE_ORDER_FROM: usize = 1 << 17;
 
 /// [`SPACE_ORDER_FROM`], or a test's override on this thread.
 fn space_order_from() -> usize {
@@ -1538,18 +1538,24 @@ fn space_order_from() -> usize {
     }
 }
 
-/// The representatives of `input` (D = 3) in Morton order of a grid of 21
-/// bits per coordinate over their bounding box, ties by index.
+/// The representatives of `input` (D = 3) in Morton order of a coarse grid
+/// over their bounding box, by a counting sort: a cell holds a few points
+/// on average, and the points of a cell keep the order of their indices. A
+/// sort of a key per point cost more than it saved on inputs whose points
+/// are mostly discarded early (#489).
 fn space_order(input: &Input<'_>) -> Vec<u32> {
+    let reps = &input.representatives;
     let mut low = [f64::INFINITY; 3];
     let mut high = [f64::NEG_INFINITY; 3];
-    for &p in &input.representatives {
+    for &p in reps {
         for (j, &x) in input.point(p).iter().enumerate() {
             low[j] = low[j].min(x);
             high[j] = high[j].max(x);
         }
     }
-    let scale = ((1_u64 << 21) - 1) as f64;
+    // About four points a cell: 3 bits of the code per eight points.
+    let bits = (reps.len().max(2).ilog2() / 3).clamp(1, 7);
+    let scale = ((1_u64 << bits) - 1) as f64;
     let cell = |x: f64, j: usize| -> u64 {
         let width = high[j] - low[j];
         if width > 0.0 {
@@ -1558,18 +1564,28 @@ fn space_order(input: &Input<'_>) -> Vec<u32> {
             0
         }
     };
-    let mut keys: Vec<u128> = input
-        .representatives
+    let codes: Vec<u32> = reps
         .iter()
         .map(|&p| {
             let x = input.point(p);
-            let code =
-                spread3(cell(x[0], 0)) << 2 | spread3(cell(x[1], 1)) << 1 | spread3(cell(x[2], 2));
-            u128::from(code) << 32 | u128::from(p)
+            (spread3(cell(x[0], 0)) << 2 | spread3(cell(x[1], 1)) << 1 | spread3(cell(x[2], 2)))
+                as u32
         })
         .collect();
-    keys.sort_unstable();
-    keys.into_iter().map(|key| key as u32).collect()
+    let mut at = vec![0_u32; 1 << (3 * bits)];
+    for &code in &codes {
+        at[code as usize] += 1;
+    }
+    let mut sum = 0;
+    for slot in &mut at {
+        (*slot, sum) = (sum, sum + *slot);
+    }
+    let mut order = vec![0_u32; reps.len()];
+    for (&p, &code) in reps.iter().zip(&codes) {
+        order[at[code as usize] as usize] = p;
+        at[code as usize] += 1;
+    }
+    order
 }
 
 fn total_key(x: f64) -> u64 {
