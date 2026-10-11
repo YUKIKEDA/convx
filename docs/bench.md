@@ -4797,7 +4797,7 @@ Every set published the same counts on both sides.
 - **Nothing else is slower beyond the spread.**
 - **The keep criterion** asked hull `sphere` D2 10^4 and 10^5 to be faster beyond the spread. By the rule on repeated runs (`bench.mdc`), 10^5 meets it; 10^4 agrees in direction but not beyond its spread. Whether to keep the change is the owner's call.
 
-## The P7 parity run after P7-62, P7-64, and P7-67 (#499)
+## The P7 parity run after P7-62, P7-64, and P7-67, PR #500 (#499)
 
 Due after P7-62 (#486), P7-64 (#490), and P7-67 (#498), under the same-output references of ADR 0006 (amendments of 2026-10-11).
 
