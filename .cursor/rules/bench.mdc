@@ -15,6 +15,12 @@ The share of code the compiler inlined (a closure, a small helper) is read from 
 
 A spike's statement about what the code does is read on the path the measured build takes: the concrete type of a generic, the arm of a `match` on the dimension. In #431 the wrappers were said to gather the lifted heights for every call, read from the generic `Sites::lifted`; D = 2 and 3 take the fixed shapes, which call the first stage first, and the row opened on it (P7-42, #430) was withdrawn.
 
+A count of a reference's calls covers only the functions it does not inline. Read the reference's code path before setting its counts beside convx's. In #509 CGAL's calls of `Orientation_3` read 4.4 per site against convx's 16.8, and the walk was read as four times shorter. CGAL walks in plain doubles inside the inlined `inexact_locate` and calls `exact_locate` once per site, so only its last exact steps were counted. A Hilbert order built on that reading was withdrawn (#510).
+
+A spike on a set first searches the roadmap and the Issues for earlier findings on that set. #469 had put Delaunay `cube` D3's gap in the pass after the insertion, and P7-60 was queued for it. The spike P7-71 found it again after a withdrawn prototype (#511).
+
+On an input that is degenerate by construction, count how often each step runs, against the reference's statistics where it has them (Qhull's `Ts`), before making a step cheaper. P7-66 made each exact test of hull `cubesurf` D3 cheaper and read inside the spread (#495). The counts of P7-68 then showed construction doing Qhull's work, and classification doing work Qhull does not, and the shortcut there read 0.70 (#503, #505).
+
 The line of a call to a function the compiler inlined is not that function's share: the line takes time from the code around it. Check such a share on a copy with `#[inline(never)]` on the function, timed against the original to show it is the same build. In #424 the call of `link_by_keys` read 60% of `insert`'s own time, about 21% of Delaunay `cube` D3 10^5; without inlining it was 8.4%, the time unchanged (#425), and the row it led to was withdrawn.
 
 A function's own share is broken down by line before choosing what to change in it (VTune: `-report hotspots -source-object function=<name>`). In #417 the first change removed a sort, a division, and a reallocation that the function profile suggested, and read 0.94; the lines then put 81% of `classify_chain`'s own time on building one record per simplex.
@@ -90,6 +96,12 @@ Before a row chases a gap to a reference, check that the reference's timed secti
 A spike on a path an ADR specializes first reads the code against that ADR's decisions. In #445 the fixed shapes of ADR 0005 reached the formulas through the generic entry, and the walk of ADR 0007 tested its entry face. Both decisions said otherwise, and earlier spikes had read times, not the code.
 
 Before a refactor whose only aim is speed, a copy that can never ship bounds what it could save, and is never committed. Examples are a copy with unchecked reads (`unsafe`, which convx forbids) or with a stage removed. In #462 removing every bounds check of the hot accessors read 0.95 to 0.99, so fixed-size storage, which keeps part of the checks, was not written.
+
+A bound removes a part without changing the work after it. When removing the part changes what follows, run the part a second time and drop its result instead. In #509 dropping the D = 2 upper chain made the hull wrong, and classification took three times as long. Running the upper pass twice priced it at 8.9 to 9.9% of the build.
+
+A switch that selects a variant for timing is read once per build, outside the loop it changes. In #483 an environment variable read for each face doubled the pass it was meant to measure, from about 40 ms to 86 ms.
+
+Under WSL, `perf report` runs with `--no-inline`. Without it, `perf` resolved inlined frames by starting `addr2line` once per address, and one report of Delaunay `cube` D3 10^4 ran for over 20 minutes; with it, 7 seconds (#509).
 
 A set on a path the change does not reach that reads moved in two runs is timed again with both sides built with one codegen unit (`CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1`), and `main` against itself in the same harness. In #441 Delaunay `cube` D4 10^4 read 1.04 twice, every build of the head slower than the fastest of `main`; `main` against itself read 1.00, and one codegen unit read 1.00. That is code layout, and is reported as such.
 
