@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-51 (#456), then P7-52 (#457), then P7-53 (#458) (Grill on #454). P7-8 (#323): acceptance. P7-34 (#410) after its Grill. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+P7-52 (#457), then P7-53 (#458) (Grill on #454). P7-8 (#323): acceptance. P7-34 (#410) after its Grill. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -225,7 +225,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-48 | Feat  | Delaunay: a face left unknown by an orientation, lifted only when dependent             | #451  | Done        |
 | P7-49 | Spike | Delaunay D2 to D4 after P7-45 and P7-48: where the time goes                            | #454  | Done        |
 | P7-50 | Docs  | Parity: CGAL's Delaunay reference with the same output                                  | #455  | Done        |
-| P7-51 | Spike | Parity: do the hull's references produce the same output?                               | #456  | Not started |
+| P7-51 | Spike | Parity: do the hull's references produce the same output?                               | #456  | Done        |
 | P7-52 | Feat  | Delaunay D2 and D3: the pass after the insertion in one walk                            | #457  | Not started |
 | P7-53 | Feat  | Delaunay D2 and D3: cells and sites in fixed-size arrays                                | #458  | Not started |
 

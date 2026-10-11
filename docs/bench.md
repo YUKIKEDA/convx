@@ -3804,3 +3804,57 @@ What convx publishes beyond this is left out of it: each simplex's sites in asce
 - **Rows that follow either way**, each prototyped first:
   - the pass after the insertion in one walk for D2 and D3: P7-52 (#457);
   - fixed-size storage of cells and sites for D2 and D3, against the 10% of bounds checks: P7-53 (#458).
+
+## Parity: do the hull's references produce the same output? PR #461 (#456)
+
+The spike P7-51. After P7-50 (#455) made CGAL's Delaunay reference give convx's output, the Grill on #454 asked the same of the hull's references.
+
+### What each produces
+
+| Reference | What its timed section produces | Against convx's `build()` |
+| --- | --- | --- |
+| Qhull (`qconvex`, compute) | The merged facets, their vertices and neighbors, the coplanar points | Lacks the interior list (one pass over the points) and the triangulation of non-simplicial facets |
+| CGAL D = 2 (`convex_hull_2`) | The extreme points as copies, in order | Lacks indices, and the coplanar and interior lists |
+| CGAL D = 3 (`convex_hull_3` into a `Surface_mesh`) | A triangulated surface of point copies, with its connectivity | Lacks merged facets, indices, and the two lists |
+| CGAL D >= 4 (`CGAL::Triangulation`) | The full cells around the infinite vertex | Likewise |
+
+convx's `build()` publishes the representatives, the vertices, the coplanar and interior points, the logical facets with their extreme points and neighbors, and the boundary simplices. The planes, and the public numbering for D >= 3, are computed on first use.
+
+### Qhull's options
+
+Pinned, medians of 3, under WSL2, Qhull's compute time:
+
+| Set | Default | `Qc` | `Qc Qi` |
+| --- | ---: | ---: | ---: |
+| `sphere` D3 10^4 | 22.8 ms | 22.1 ms | 20.4 ms |
+| `sphere` D3 10^5 | 266 ms | 273 ms | 230 ms |
+| `sphere` D3 10^6 | 3.50 s | 3.53 s | 3.33 s |
+| `cubesurf` D3 10^5 | 31.6 ms | 28.8 ms | 28.4 ms |
+| `cube` D2 10^6 | 55.1 ms | 56.6 ms | 270 ms |
+| `cube` D4 10^5 | 37.2 ms | 37.0 ms | 246 ms |
+| `sphere` D5 10^5 | 11.16 s | 10.98 s | 10.39 s |
+
+Keeping the coplanar points (`Qc`) reads as the default. `Qi` assigns each interior point to its nearest facet, more than convx does.
+
+### CGAL's D = 2 hull as input indices
+
+| Set | From the points | As input indices (`Convex_hull_traits_adapter_2`) |
+| --- | ---: | ---: |
+| `cube` D2 10^5 | 4.5 ms | 5.6 ms |
+| `cube` D2 10^6 | 43 ms | 68 ms |
+| `sphere` D2 10^4 | 0.69 ms | 0.77 ms |
+| `sphere` D2 10^5 | 8.0 ms | 10.1 ms |
+| `sphere` D2 10^6 | 93 ms | 157 ms |
+
+The index form of `convex_hull_3` in this CGAL takes no traits adapter, so D = 3 was not measured as indices.
+
+### Reading
+
+- **Qhull stands:** its compute holds what convx publishes but the interior list.
+- **CGAL's D = 2 hull** is judged as input indices, an amendment of ADR 0006 (Grill on #456). On the parity run of `4813b67` that would move:
+  - hull `cube` D2 10^6 from 1.17 to about 0.74;
+  - `sphere` D2 10^4 from 1.44 to about 1.29;
+  - `sphere` D2 10^5 from 1.43 to about 1.13;
+  - `sphere` D2 10^6 from 1.43 to about 0.85.
+- **CGAL's D >= 3 hull references stand:** no set of P7 not met has CGAL as its larger ratio there.
+- The next parity run uses both amendments and reports the ratios to the references from the points beside them.
