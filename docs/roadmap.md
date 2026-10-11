@@ -247,7 +247,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-70 | Feat  | Predicates: the first stage skips its bound for an exactly zero determinant          | #506  | Done        |
 | P7-71 | Spike | Delaunay `cube` D3 and hull `sphere` D2 under WSL: where the time goes against CGAL   | #509  | Done        |
 | P7-72 | Feat  | Hull D2: Akl–Toussaint's split into four regions                                      | –     | Waiting: at most about 5% alone (#509) |
-| P7-73 | Feat  | Delaunay D2 and D3: insertion along a Hilbert curve                                    | #510  | Withdrawn after measurement |
+| P7-73 | Feat  | Delaunay D2 and D3: insertion along a Hilbert curve                                    | #510  | Withdrawn after measurement (#511) |
 
 ## Intentionally out of scope
 

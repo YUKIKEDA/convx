@@ -5096,7 +5096,7 @@ The spike P7-68 (#503) found the zero side tests of hull `cubesurf` D3 10^5 at 1
 - **Delaunay `cube` D4 10^4** read 1.03 and 1.04 in the separate builds. With one codegen unit on both sides it reads 0.97, so the difference was the partition into codegen units, not the change (`bench.mdc`).
 - **Nothing else is slower beyond the spread.**
 
-## Delaunay `cube` D3 and hull `sphere` D2 under WSL: the spike P7-71, the Hilbert order withdrawn, and P7-72's bound (#509, #510)
+## Delaunay `cube` D3 and hull `sphere` D2 under WSL: the spike P7-71, the Hilbert order withdrawn, and P7-72's bound, PR #511 (#509, #510)
 
 ### The spike P7-71 (#509)
 
