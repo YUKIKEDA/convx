@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-60 (#483): the pass after the Delaunay insertion, split into its parts first (Grill on #509). Then hull `cubesurf` D3's sort of `u32` lists (Grill on #503), and Delaunay D2's walk in plain doubles (Grill on #509). P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+The parity run of #512, then a Grill on the sets left (Grill on #483). Hull `cubesurf` D3's sort of `u32` lists (Grill on #503) and Delaunay D2's walk in plain doubles (Grill on #509) wait for it. P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -234,7 +234,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-57 | Spike | Hull sphere D2 10^4 and 10^5: acceptance, publication, and classification               | #470  | Done        |
 | P7-58 | Feat  | Delaunay D2: a face left unknown needs no test                                          | #474  | Done        |
 | P7-59 | Feat  | Hull D2: the chain's keys sorted by radix                                               | #477  | Withdrawn after measurement (#478) |
-| P7-60 | Feat  | Delaunay: the pass after the insertion reads a finiteness flag, not the neighbor        | #483  | Not started |
+| P7-60 | Feat  | Delaunay: the pass after the insertion reads a finiteness flag, not the neighbor        | #483  | Withdrawn after measurement |
 | P7-61 | Spike | Hull sphere D3 at 10^6: why the gap to Qhull opens                                      | #484  | Done        |
 | P7-62 | Feat  | Hull: the merge's groups of one simplex and its dense index, at less cost               | #485  | Done        |
 | P7-63 | Spike | Hull sphere D3: cache misses of construction against Qhull                              | #487  | Done        |
