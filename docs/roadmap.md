@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-The parity run of #512, then a Grill on the sets left (Grill on #483). Hull `cubesurf` D3's sort of `u32` lists (Grill on #503) and Delaunay D2's walk in plain doubles (Grill on #509) wait for it. P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+A Grill on the 5 judged sets the parity run of #512 left (Grill on #483). Hull `cubesurf` D3's sort of `u32` lists (Grill on #503) and Delaunay D2's walk in plain doubles (Grill on #509) wait for it. P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
