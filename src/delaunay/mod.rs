@@ -906,6 +906,9 @@ fn pulled_cells<'p>(
         for &g in &touched {
             let count = core::mem::take(&mut shared[g as usize]) as usize;
             let facet = facets.get(g as usize);
+            // Fewer than k points span less than k - 1 dimensions, which
+            // the test of the dimension below rejects too: this only
+            // saves reading the meet.
             if count < k || facet.binary_search(&v).is_ok() {
                 continue;
             }
