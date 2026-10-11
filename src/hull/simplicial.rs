@@ -30,6 +30,7 @@ use super::store::{Facet, FacetStore};
 use super::ConvexHullError;
 use crate::arena::FacetId;
 use crate::cull::CullPlane;
+use crate::morton::spread3;
 use crate::normal::{
     certified_working_normal, facet_cofactors, facet_cofactors_in_lanes, fixed_plane,
     working_normal,
@@ -124,6 +125,55 @@ impl Planes {
 impl<'a> SimplicialHull<'a> {
     /// Builds the simplicial hull of an accepted input.
     pub(crate) fn build(input: Input<'a>) -> Result<Self, ConvexHullError> {
+        if input.dim() == 3 && input.representatives.len() >= space_order_from() {
+            return Self::build_in_space_order(input);
+        }
+        Self::build_in_input_order(input)
+    }
+
+    /// [`Self::build`] of D = 3 on a copy of the representatives in Morton
+    /// order (ADR 0009, #488). In the input's order, a large input's outside
+    /// sets read coordinates scattered over the whole input, and construction
+    /// waited on memory. The copy's points carry consecutive labels; the
+    /// built hull is renamed back to the input's indices, so classification
+    /// and publication read the input as before. The published hull does not
+    /// depend on the order of construction.
+    fn build_in_space_order(input: Input<'a>) -> Result<Self, ConvexHullError> {
+        let order = space_order(&input);
+        let mut copy: Vec<f64> = Vec::with_capacity(order.len() * 3);
+        let mut local_of = vec![u32::MAX; input.representative.len()];
+        for (local, &p) in order.iter().enumerate() {
+            copy.extend_from_slice(input.point(p));
+            local_of[p as usize] = local as u32;
+        }
+        let spanning = input
+            .spanning_points
+            .iter()
+            .map(|&p| local_of[p as usize])
+            .collect();
+        let built = SimplicialHull::build_in_input_order(Input::relabeled(3, &copy, spanning))?;
+        let SimplicialHull {
+            mut facets,
+            proved_interior,
+            strict_edges,
+            polygon,
+            records,
+            ..
+        } = built;
+        facets.relabel(&order);
+        let proved_interior = proved_interior.iter().map(|&l| order[l as usize]).collect();
+        let records = records.relabeled(&order, input.representative.len());
+        Ok(Self {
+            input,
+            facets,
+            proved_interior,
+            strict_edges,
+            polygon,
+            records,
+        })
+    }
+
+    fn build_in_input_order(input: Input<'a>) -> Result<Self, ConvexHullError> {
         let dim = input.dim();
         let records = Records::new(input.representative.len());
         let mut hull = Self {
@@ -1472,6 +1522,56 @@ fn clearly_inside(edges: &[[[f64; 2]; 2]], point: &[f64]) -> bool {
 /// A key that orders `x` as [`f64::total_cmp`] does: for a negative sign
 /// every bit is flipped, otherwise only the sign bit. The two give the
 /// order of the signed integer `total_cmp` compares, shifted to unsigned.
+/// From this many representatives, D = 3 builds on a copy in space order
+/// (ADR 0009, #488).
+const SPACE_ORDER_FROM: usize = 1 << 16;
+
+/// [`SPACE_ORDER_FROM`], or a test's override on this thread.
+fn space_order_from() -> usize {
+    #[cfg(test)]
+    {
+        tests::SPACE_ORDER_FROM.with(core::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        SPACE_ORDER_FROM
+    }
+}
+
+/// The representatives of `input` (D = 3) in Morton order of a grid of 21
+/// bits per coordinate over their bounding box, ties by index.
+fn space_order(input: &Input<'_>) -> Vec<u32> {
+    let mut low = [f64::INFINITY; 3];
+    let mut high = [f64::NEG_INFINITY; 3];
+    for &p in &input.representatives {
+        for (j, &x) in input.point(p).iter().enumerate() {
+            low[j] = low[j].min(x);
+            high[j] = high[j].max(x);
+        }
+    }
+    let scale = ((1_u64 << 21) - 1) as f64;
+    let cell = |x: f64, j: usize| -> u64 {
+        let width = high[j] - low[j];
+        if width > 0.0 {
+            ((x - low[j]) / width * scale) as u64
+        } else {
+            0
+        }
+    };
+    let mut keys: Vec<u128> = input
+        .representatives
+        .iter()
+        .map(|&p| {
+            let x = input.point(p);
+            let code =
+                spread3(cell(x[0], 0)) << 2 | spread3(cell(x[1], 1)) << 1 | spread3(cell(x[2], 2));
+            u128::from(code) << 32 | u128::from(p)
+        })
+        .collect();
+    keys.sort_unstable();
+    keys.into_iter().map(|key| key as u32).collect()
+}
+
 fn total_key(x: f64) -> u64 {
     let bits = x.to_bits();
     if bits >> 63 == 1 {
@@ -1486,6 +1586,94 @@ pub(crate) mod tests {
     use super::*;
     use crate::hull::input::accept;
     use crate::predicates::orient;
+
+    thread_local! {
+        /// Overrides [`super::SPACE_ORDER_FROM`] on this thread, to build
+        /// small inputs in space order and in the input's order.
+        pub(crate) static SPACE_ORDER_FROM: core::cell::Cell<usize> =
+            const { core::cell::Cell::new(super::SPACE_ORDER_FROM) };
+    }
+
+    /// What the hull publishes, read through the public API: vertices,
+    /// coplanar and interior points, the facets in public numbering with
+    /// their neighbors, the boundary simplices in public order, and the
+    /// volume's bits.
+    type Published = (
+        Vec<u32>,
+        Vec<u32>,
+        Vec<u32>,
+        Vec<(Vec<u32>, Vec<u32>)>,
+        Vec<(Vec<u32>, u32)>,
+        u64,
+    );
+
+    fn published_from(points: &[f64], from: usize) -> Published {
+        SPACE_ORDER_FROM.with(|c| c.set(from));
+        let hull = crate::ConvexHullBuilder::new(3, points).build();
+        SPACE_ORDER_FROM.with(|c| c.set(super::SPACE_ORDER_FROM));
+        let hull = hull.unwrap();
+        (
+            hull.vertices().to_vec(),
+            hull.coplanar_points().to_vec(),
+            hull.interior_points().to_vec(),
+            hull.facets()
+                .iter()
+                .map(|f| (f.vertices().to_vec(), f.neighbors().to_vec()))
+                .collect(),
+            hull.triangulation()
+                .iter()
+                .map(|s| (s.vertices.to_vec(), s.facet))
+                .collect(),
+            hull.volume().to_bits(),
+        )
+    }
+
+    /// Construction on a copy in space order publishes what construction in
+    /// the input's order does (ADR 0009, #488), on general and degenerate
+    /// inputs of D = 3: random points in a cube and near a sphere, integer
+    /// grids with duplicates, points on the faces of a cube, and two
+    /// clusters of near-duplicates.
+    #[test]
+    fn space_order_publishes_what_input_order_does() {
+        let mut state = 0x0488_0001_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let mut unit = move || (next() >> 11) as f64 / (1_u64 << 53) as f64 * 2.0 - 1.0;
+        let mut cases = 0;
+        for family in ["cube", "sphere", "grid", "cube faces", "clusters"] {
+            for count in [30_usize, 300, 800] {
+                let mut points = Vec::with_capacity(3 * count);
+                for i in 0..count {
+                    let mut v = [unit(), unit(), unit()];
+                    match family {
+                        "sphere" => {
+                            let norm = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+                            v.iter_mut().for_each(|x| *x /= norm);
+                        }
+                        "grid" => v.iter_mut().for_each(|x| *x = (*x * 2.0).round()),
+                        "cube faces" => v[i % 3] = if unit() < 0.0 { -1.0 } else { 1.0 },
+                        "clusters" => {
+                            let center = if i % 2 == 0 { 0.5 } else { -0.5 };
+                            v.iter_mut().for_each(|x| *x = center + *x * 1e-9);
+                        }
+                        _ => {}
+                    }
+                    points.extend(v);
+                }
+                assert_eq!(
+                    published_from(&points, 0),
+                    published_from(&points, usize::MAX),
+                    "{family}, {count} points"
+                );
+                cases += 1;
+            }
+        }
+        assert_eq!(cases, 15);
+    }
 
     /// `total_key` orders values as `f64::total_cmp` does, the order the
     /// chain's sort keeps (#322): signed zeros, subnormals, the ends of the
