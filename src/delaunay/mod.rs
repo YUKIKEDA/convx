@@ -29,7 +29,7 @@
 mod insert;
 
 use crate::hull::classify::Placing;
-use crate::hull::input::{accept_sites, minimum_basis, Input};
+use crate::hull::input::{accept_sites, minimum_basis_with, Input};
 use crate::hull::merge::merge;
 use crate::hull::ridge::{fingerprint, pair_equal_keys_with_border};
 use crate::hull::simplicial::SimplicialHull;
@@ -264,16 +264,6 @@ impl Draft {
 
     fn row(&self, c: usize) -> &[u32] {
         &self.rows[c * self.k..(c + 1) * self.k]
-    }
-
-    /// Adds a group of the cells `cells` (ascending vertex lists, each with
-    /// whether that order is negative), every face to be paired by its
-    /// vertex set.
-    fn push_group(&mut self, sites: &[u32], cells: &[(Vec<u32>, bool)]) {
-        let group = self.begin_group(sites);
-        for (row, negative) in cells {
-            self.push_cell(group, row, *negative);
-        }
     }
 
     /// Starts a group of the sites `sites` and returns its number; its cells
@@ -769,25 +759,6 @@ fn inserted<S: insert::Shape>(
     Ok(draft.finish(d, input.representative.clone()))
 }
 
-/// The cells `split`, each as its ascending vertex list and whether that
-/// order has negative orientation.
-fn oriented<'p>(
-    d: usize,
-    point: impl Fn(u32) -> &'p [f64],
-    split: Vec<Vec<u32>>,
-) -> Result<Vec<(Vec<u32>, bool)>, ConvexHullError> {
-    debug_assert!(split.iter().all(|s| s.len() == d + 1), "D + 1 sites a cell");
-    split
-        .into_iter()
-        .map(|mut cell| {
-            cell.sort_unstable();
-            let points: Small<&[f64], 11> = cell.iter().map(|&v| point(v)).collect();
-            let negative = orient(&points)? == Sign::Negative;
-            Ok((cell, negative))
-        })
-        .collect()
-}
-
 /// The triangulation of `complex`: its cells in their order, with the last
 /// two vertices of a negative cell swapped, and its neighbors moved with
 /// them (design §7).
@@ -827,53 +798,165 @@ fn publish(complex: Complex) -> DelaunayTriangulation {
 fn pull(sites: Input<'_>) -> Result<Complex, ConvexHullError> {
     let d = sites.dim();
     let hull = SimplicialHull::build(sites)?;
-    let facets: Vec<Vec<u32>> = merge(&hull)?.vertices.iter().map(<[u32]>::to_vec).collect();
+    let facets = merge(&hull)?.vertices;
     let input = &hull.input;
     let point = |i: u32| input.point(i);
-    let affine_dim = |set: &[u32]| -> Result<usize, ConvexHullError> {
-        Ok(minimum_basis(d, set, point)?.len().saturating_sub(1))
-    };
+    let cells = pulled_cells(d, &input.representatives, &facets, point)?;
+    // One lower facet: the whole site set is one Voronoi vertex (§8).
+    let mut draft = Draft::new(d + 1, cells.len() / (d + 1));
+    let group = draft.begin_group(&input.representatives);
+    for cell in cells.chunks_exact(d + 1) {
+        let points: Small<&[f64], 11> = cell.iter().map(|&v| point(v)).collect();
+        draft.push_cell(group, cell, orient(&points)? == Sign::Negative);
+    }
+    Ok(draft.finish(d, input.representative.clone()))
+}
 
-    // (face, its affine dimension, the sites pulled so far)
-    let mut stack: Vec<(Vec<u32>, usize, Vec<u32>)> =
-        vec![(input.representatives.clone(), d, Vec::new())];
-    let mut cells = Vec::new();
-    while let Some((face, k, pulled)) = stack.pop() {
-        if face.len() == k + 1 {
-            let mut cell = pulled;
-            cell.extend(face);
-            cell.sort_unstable();
-            cells.push(cell);
-            continue;
-        }
-        let v = face[0];
-        // The facets of a face of dimension k are its intersections of
-        // dimension k - 1 with the facets of the site hull.
-        let mut sub: Vec<Vec<u32>> = Vec::new();
-        for facet in &facets {
-            let meet: Vec<u32> = face
-                .iter()
-                .copied()
-                .filter(|x| facet.binary_search(x).is_ok())
-                .collect();
-            if meet.len() < k || meet.contains(&v) || sub.contains(&meet) {
-                continue;
-            }
-            if affine_dim(&meet)? == k - 1 {
-                sub.push(meet);
-            }
-        }
-        for facet in sub {
-            let mut next = pulled.clone();
-            next.push(v);
-            stack.push((facet, k - 1, next));
+/// A face on the stack of [`pulled_cells`]: its vertices, as a range of the
+/// arena, its affine dimension, and the sites pulled on the way to it.
+struct Pulled {
+    face: core::ops::Range<usize>,
+    k: usize,
+    pulled: Small<u32, 11>,
+}
+
+/// The cells of the pulling triangulation of `sites` (ascending, all of
+/// them vertices of their hull), whose hull has the facets `facets` (each
+/// ascending): rows of D + 1 sites, each ascending, in the order the faces
+/// leave the stack (design §7).
+///
+/// A face that is not a simplex is split from its smallest vertex `v`: `v`
+/// joins the cells of each facet of the face that does not contain `v`. The
+/// facets of a face of dimension k are its intersections of dimension
+/// k - 1 with the facets of the hull, taken in the order of those facets,
+/// each once.
+///
+/// Only the facets of the hull that share k vertices with the face can
+/// give one, and they are found from the facets at each vertex of the
+/// face. Intersecting every face with every facet of the hull, by a search
+/// per vertex of the face, was quadratic in the sites: 411 ms for 6,630
+/// integer points of a sphere in D = 3, with a list allocated per facet
+/// (#539).
+fn pulled_cells<'p>(
+    d: usize,
+    sites: &[u32],
+    facets: &Lists<u32>,
+    point: impl Fn(u32) -> &'p [f64] + Copy,
+) -> Result<Vec<u32>, ConvexHullError> {
+    let ids = sites.last().map_or(0, |&last| last as usize + 1);
+    // The facets at each vertex: `at[start[x]..start[x + 1]]`.
+    let mut start = vec![0_u32; ids + 2];
+    for facet in facets.iter() {
+        for &x in facet {
+            start[x as usize + 2] += 1;
         }
     }
-    // One lower facet: the whole site set is one Voronoi vertex (§8).
-    let cells = oriented(d, point, cells)?;
-    let mut draft = Draft::new(d + 1, cells.len());
-    draft.push_group(&input.representatives, &cells);
-    Ok(draft.finish(d, input.representative.clone()))
+    for x in 2..start.len() {
+        start[x] += start[x - 1];
+    }
+    let mut at = vec![0_u32; start[ids + 1] as usize];
+    for (g, facet) in facets.iter().enumerate() {
+        for &x in facet {
+            let slot = &mut start[x as usize + 1];
+            at[*slot as usize] = g as u32;
+            *slot += 1;
+        }
+    }
+    // Per face: which sites are its vertices, how many of them each facet
+    // of the hull holds, and the facets that hold any.
+    let mut member = vec![false; ids];
+    let mut shared = vec![0_u32; facets.len()];
+    let mut touched: Vec<u32> = Vec::new();
+    // The candidate facets of one face, as ranges of the arena; their
+    // order by content, to find the repeated ones; and the marks of those.
+    let mut meets: Vec<core::ops::Range<usize>> = Vec::new();
+    let mut order: Vec<u32> = Vec::new();
+    let mut repeated: Vec<bool> = Vec::new();
+    let mut rows: Vec<f64> = Vec::new();
+
+    let mut arena: Vec<u32> = sites.to_vec();
+    let mut stack = vec![Pulled {
+        face: 0..sites.len(),
+        k: d,
+        pulled: Small::new(),
+    }];
+    let mut cells: Vec<u32> = Vec::new();
+    while let Some(Pulled { face, k, pulled }) = stack.pop() {
+        if face.len() == k + 1 {
+            let from = cells.len();
+            cells.extend(pulled.iter().copied());
+            cells.extend_from_slice(&arena[face]);
+            cells[from..].sort_unstable();
+            continue;
+        }
+        let v = arena[face.start];
+        touched.clear();
+        for i in face.clone() {
+            let x = arena[i] as usize;
+            member[x] = true;
+            for &g in &at[start[x] as usize..start[x + 1] as usize] {
+                if shared[g as usize] == 0 {
+                    touched.push(g);
+                }
+                shared[g as usize] += 1;
+            }
+        }
+        touched.sort_unstable();
+        meets.clear();
+        for &g in &touched {
+            let count = core::mem::take(&mut shared[g as usize]) as usize;
+            let facet = facets.get(g as usize);
+            if count < k || facet.binary_search(&v).is_ok() {
+                continue;
+            }
+            // The meet, ascending as both lists are, read from the shorter.
+            let from = arena.len();
+            if facet.len() <= face.len() {
+                arena.extend(facet.iter().copied().filter(|&x| member[x as usize]));
+            } else {
+                for i in face.clone() {
+                    let x = arena[i];
+                    if facet.binary_search(&x).is_ok() {
+                        arena.push(x);
+                    }
+                }
+            }
+            meets.push(from..arena.len());
+        }
+        for i in face.clone() {
+            member[arena[i] as usize] = false;
+        }
+        // Two facets of the hull may meet the face in one set: the first
+        // in their order keeps it.
+        let meet = |i: u32| &arena[meets[i as usize].clone()];
+        order.clear();
+        order.extend(0..meets.len() as u32);
+        order.sort_unstable_by(|&a, &b| meet(a).cmp(meet(b)).then(a.cmp(&b)));
+        repeated.clear();
+        repeated.resize(meets.len(), false);
+        for pair in order.windows(2) {
+            if meet(pair[0]) == meet(pair[1]) {
+                repeated[pair[1] as usize] = true;
+            }
+        }
+        let mut next = pulled;
+        next.push(v);
+        for (i, range) in meets.iter().enumerate() {
+            if repeated[i] {
+                continue;
+            }
+            // k affinely independent points: dimension k - 1.
+            let basis = minimum_basis_with(d, &arena[range.clone()], point, &mut rows)?;
+            if basis.len() == k {
+                stack.push(Pulled {
+                    face: range.clone(),
+                    k: k - 1,
+                    pulled: next.clone(),
+                });
+            }
+        }
+    }
+    Ok(cells)
 }
 
 #[cfg(test)]
