@@ -38,7 +38,7 @@ use std::collections::HashMap;
 
 use super::input::{accept, Input};
 use super::merge::{merge, LogicalFacets};
-use super::polygon::{self, clearly_inside, Edge, Rows};
+use super::polygon::{self, clearly_inside, ChainWork, Edge, Rows};
 use super::ridge::{fingerprint, pair_equal_keys};
 use super::simplicial::SimplicialHull;
 use super::ConvexHullError;
@@ -229,6 +229,33 @@ pub(crate) fn classify(input: Input<'_>) -> Result<Classified<'_>, ConvexHullErr
 #[derive(Default)]
 struct FoundFaces {
     extremes: HashMap<Vec<u32>, Vec<u32>>,
+    /// The buffers of one face, kept from one face to the next, so that a
+    /// face of a hull of D = 3 allocates nothing (#530): its projected
+    /// candidates, the chain that finds their extreme points, those points
+    /// as places among the candidates, and the lists [`found_vertices`]
+    /// fills per facet.
+    projected: Vec<f64>,
+    chain: ChainWork,
+    places: Vec<u32>,
+    candidates: Vec<u32>,
+    found: Vec<u32>,
+}
+
+/// Each facet's extreme points, when they are not the facet's vertices: a
+/// single simplex with no other point on its plane has none of its own.
+struct Extremes {
+    lists: Lists<u32>,
+    own: Vec<bool>,
+}
+
+impl Extremes {
+    fn len(&self) -> usize {
+        self.own.len()
+    }
+
+    fn get(&self, g: usize) -> Option<&[u32]> {
+        self.own[g].then(|| self.lists.get(g))
+    }
 }
 
 /// The vertices of the hull of an accepted input, for a face one level
@@ -357,7 +384,7 @@ struct Found {
     on_complex: Vec<bool>,
     others: Vec<u32>,
     on_boundary: Vec<bool>,
-    extremes: Vec<Option<Vec<u32>>>,
+    extremes: Extremes,
     is_vertex: Vec<bool>,
     vertices: Vec<u32>,
 }
@@ -412,29 +439,36 @@ fn found_vertices(
 
     // Extreme points of each group; `None` when they are the group's
     // vertices, a single simplex with no other point on its plane.
-    let mut extremes: Vec<Option<Vec<u32>>> = Vec::with_capacity(groups.groups.len());
+    let count = groups.groups.len();
+    let mut extremes = Extremes {
+        lists: Lists::with_capacity(count, 0),
+        own: Vec::with_capacity(count),
+    };
+    // One list of candidates and one of extreme points for every facet.
+    let mut candidates = core::mem::take(&mut faces.candidates);
+    let mut found = core::mem::take(&mut faces.found);
     for (g, group) in groups.groups.iter().enumerate() {
-        if group.simplices.len() == 1 && zero_points[g].is_empty() {
-            extremes.push(None);
+        if group.simplices.len() == 1 && zero_points.get(g).is_empty() {
+            extremes.lists.push(&[]);
+            extremes.own.push(false);
             continue;
         }
-        let mut candidates = groups.vertices.get(g).to_vec();
-        candidates.extend_from_slice(&zero_points[g]);
+        candidates.clear();
+        candidates.extend_from_slice(groups.vertices.get(g));
+        candidates.extend_from_slice(zero_points.get(g));
         candidates.sort_unstable();
         candidates.dedup();
         let plane = members(g).next().unwrap_or(&[]);
-        extremes.push(Some(face_extremes(
-            &hull.input,
-            plane,
-            &candidates,
-            faces,
-            global,
-        )?));
+        face_extremes(&hull.input, plane, &candidates, faces, global, &mut found)?;
+        extremes.lists.push(&found);
+        extremes.own.push(true);
     }
+    faces.candidates = candidates;
+    faces.found = found;
 
     let mut is_vertex = vec![false; hull.input.representative.len()];
-    for (g, e) in extremes.iter().enumerate() {
-        for &v in e.as_deref().unwrap_or(groups.vertices.get(g)) {
+    for g in 0..count {
+        for &v in extremes.get(g).unwrap_or(groups.vertices.get(g)) {
             is_vertex[v as usize] = true;
         }
     }
@@ -518,7 +552,8 @@ fn classify_built<'a>(
     let mut kept: Vec<(u32, FacetId)> = Vec::with_capacity(extremes.len());
     // One workspace for the placing triangulation of every face (#524).
     let mut placing = Placing::default();
-    for (g, extreme) in extremes.into_iter().enumerate() {
+    for g in 0..extremes.len() {
+        let extreme = extremes.get(g);
         let group = &groups.groups[g];
         let group_vertices = groups.vertices.get(g);
         let first = simplices.len() as u32;
@@ -533,12 +568,12 @@ fn classify_built<'a>(
                     .copied()
                     .find(|v| extreme.binary_search(v).is_err())
                     .unwrap_or(extreme[0]);
-                let (len, placed) = placing.run(d, |i| hull.input.point(i), &extreme)?;
+                let (len, placed) = placing.run(d, |i| hull.input.point(i), extreme)?;
                 debug_assert_eq!(len, d, "a facet spans D - 1 dimensions");
                 for simplex in placed.chunks_exact(len) {
                     simplices.push(&oriented(&hull.input, simplex, q)?, g as u32, None);
                 }
-                faces.vertices.push(&extreme);
+                faces.vertices.push(extreme);
             }
             _ => {
                 if let Some(&id) = group.simplices.first() {
@@ -593,9 +628,9 @@ fn classify_built<'a>(
 }
 
 /// Per point, whether some group's distance is zero, and per group its
-/// points at distance zero, each list unordered. A point strictly inside
-/// its facet's polygon (D = 3) is on the boundary and in no list (#504).
-type Zeros = (Vec<bool>, Vec<Vec<u32>>);
+/// points at distance zero, ascending. A point strictly inside its facet's
+/// polygon (D = 3) is on the boundary and in no list (#504).
+type Zeros = (Vec<bool>, Lists<u32>);
 
 /// The exact distance-zero signs of `others` against every group. Points
 /// construction proved strictly inside are not among `others`.
@@ -605,7 +640,9 @@ fn distance_zeros(
     others: &[u32],
 ) -> Result<Zeros, ConvexHullError> {
     let mut on_boundary = vec![false; others.len()];
-    let mut zero_points: Vec<Vec<u32>> = vec![Vec::new(); groups.groups.len()];
+    // (group, point) for each zero, sorted into one list per group at the
+    // end: a list per group allocated per facet with a point on it (#530).
+    let mut zero_pairs: Vec<(u32, u32)> = Vec::new();
     // The group of a recorded number of each other point, if a simplex of
     // the final complex carries one, and the points with none, which are
     // scanned against every group.
@@ -651,7 +688,7 @@ fn distance_zeros(
                 );
                 if side == Sign::Zero {
                     on_boundary[scanned_at[k]] = true;
-                    zero_points[g].push(p);
+                    zero_pairs.push((g as u32, p));
                 }
             }
         }
@@ -783,7 +820,7 @@ fn distance_zeros(
                 "point {p} is recorded on a plane it is off"
             );
             on_boundary[k] = true;
-            zero_points[start as usize].push(p);
+            zero_pairs.push((start, p));
             tested[start as usize] = k;
             for &n in groups.neighbors.get(start as usize) {
                 tested[n as usize] = k;
@@ -791,7 +828,7 @@ fn distance_zeros(
             stack.clear();
             while next_zero < zeros.len() && zeros[next_zero].0 == i as u32 {
                 let n = zeros[next_zero].1;
-                zero_points[n as usize].push(p);
+                zero_pairs.push((n, p));
                 stack.push(n);
                 next_zero += 1;
             }
@@ -807,7 +844,7 @@ fn distance_zeros(
                         "a point is outside the finished hull"
                     );
                     if side == Sign::Zero {
-                        zero_points[n as usize].push(p);
+                        zero_pairs.push((n, p));
                         stack.push(n);
                     }
                 }
@@ -824,6 +861,14 @@ fn distance_zeros(
                 }
             }
         }
+    }
+    zero_pairs.sort_unstable();
+    let mut zero_points = Lists::with_capacity(groups.groups.len(), zero_pairs.len());
+    let mut rest = &zero_pairs[..];
+    for g in 0..groups.groups.len() as u32 {
+        let take = rest.iter().take_while(|&&(group, _)| group == g).count();
+        zero_points.push_iter(rest[..take].iter().map(|&(_, p)| p));
+        rest = &rest[take..];
     }
     Ok((on_boundary, zero_points))
 }
@@ -946,16 +991,23 @@ fn face_extremes(
     candidates: &[u32],
     faces: &mut FoundFaces,
     global: Option<&[u32]>,
-) -> Result<Vec<u32>, ConvexHullError> {
+    extremes: &mut Vec<u32>,
+) -> Result<(), ConvexHullError> {
     let d = input.dim();
+    extremes.clear();
     if d == 1 {
-        return Ok(candidates.to_vec());
+        extremes.extend_from_slice(candidates);
+        return Ok(());
     }
     // The candidates as input indices. Each level's candidates ascend and
-    // map to ascending indices, so the key ascends too.
+    // map to ascending indices, so the key ascends too. A face of the top
+    // level is reached once, from its own facet, so only the faces below it
+    // are remembered, and only a level whose sub-hull classifies faces of
+    // its own (D - 1 >= 3) needs the key as its map to the input.
     let key: Vec<u32> = match global {
         Some(global) => candidates.iter().map(|&c| global[c as usize]).collect(),
-        None => candidates.to_vec(),
+        None if d >= 4 => candidates.to_vec(),
+        None => Vec::new(),
     };
     debug_assert!(key.is_sorted(), "a face's key ascends");
     // Tests compare the published result with and without the memo.
@@ -963,26 +1015,25 @@ fn face_extremes(
     let forget = !tests::FACES_REMEMBERED.with(core::cell::Cell::get);
     #[cfg(not(test))]
     let forget = false;
-    if !forget {
+    let remember = global.is_some() && !forget;
+    if remember {
         if let Some(found) = faces.extremes.get(&key) {
             // Back to this level's indices, through the key's order.
-            return Ok(found
-                .iter()
-                .map(|v| {
-                    let at = key.binary_search(v);
-                    debug_assert!(
-                        at.is_ok(),
-                        "a face's extreme points are among its candidates"
-                    );
-                    candidates[at.unwrap_or_default()]
-                })
-                .collect());
+            extremes.extend(found.iter().map(|v| {
+                let at = key.binary_search(v);
+                debug_assert!(
+                    at.is_ok(),
+                    "a face's extreme points are among its candidates"
+                );
+                candidates[at.unwrap_or_default()]
+            }));
+            return Ok(());
         }
     }
     // An axis along which the hyperplane is not vertical: its cofactor is
     // nonzero, so dropping that coordinate is a bijection of the hyperplane.
-    let plane_points: Vec<&[f64]> = plane.iter().map(|&v| input.point(v)).collect();
-    let mut unit = vec![0.0; d];
+    let plane_points: Small<&[f64], 11> = plane.iter().map(|&v| input.point(v)).collect();
+    let mut unit: Small<f64, 11> = core::iter::repeat_n(0.0, d).collect();
     let mut axis = None;
     for j in 0..d {
         unit[j] = 1.0;
@@ -995,28 +1046,72 @@ fn face_extremes(
     }
     let Some(axis) = axis else {
         debug_assert!(false, "a hyperplane has a nonzero cofactor");
-        return Ok(candidates.to_vec());
+        extremes.extend_from_slice(candidates);
+        return Ok(());
     };
-    let projected: Vec<f64> = candidates
-        .iter()
-        .flat_map(|&p| {
-            input
-                .point(p)
-                .iter()
-                .enumerate()
-                .filter(|&(j, _)| j != axis)
-                .map(|(_, &x)| x)
-        })
-        .collect();
-    let sub = sub_vertices(accept(d - 1, &projected)?, faces, &key)?;
-    let extremes: Vec<u32> = sub.iter().map(|&i| candidates[i as usize]).collect();
-    faces.extremes.insert(
-        key,
-        sub.iter()
-            .map(|&i| global_of(global, candidates[i as usize]))
-            .collect(),
-    );
-    Ok(extremes)
+    let mut projected = core::mem::take(&mut faces.projected);
+    projected.clear();
+    projected.extend(candidates.iter().flat_map(|&p| {
+        input
+            .point(p)
+            .iter()
+            .enumerate()
+            .filter(|&(j, _)| j != axis)
+            .map(|(_, &x)| x)
+    }));
+    let placed = sub_extremes(d - 1, &projected, faces, &key)
+        .map(|places| extremes.extend(places.iter().map(|&i| candidates[i as usize])));
+    faces.projected = projected;
+    placed?;
+    if remember {
+        faces.extremes.insert(
+            key,
+            extremes.iter().map(|&v| global_of(global, v)).collect(),
+        );
+    }
+    Ok(())
+}
+
+/// The extreme points of the candidates of one face, projected to
+/// `projected` (dimension `d`), as places among the candidates, ascending.
+///
+/// For `d == 2` the chain of strict left turns finds them on the projected
+/// candidates as they are, through buffers kept from one face to the next
+/// (#530). A whole hull of D = 2 gave the same points and allocated for
+/// each face. Its acceptance has nothing to find here: the projection is
+/// one to one on the face's plane, so the candidates stay distinct, and
+/// the face's basis keeps them from one line.
+fn sub_extremes<'f>(
+    d: usize,
+    projected: &[f64],
+    faces: &'f mut FoundFaces,
+    key: &[u32],
+) -> Result<&'f [u32], ConvexHullError> {
+    if d == 2 {
+        #[cfg(test)]
+        tests::SUB_HULLS.with(|c| c.set(c.get() + 1));
+        let count = (projected.len() / 2) as u32;
+        let cycle = faces.chain.strict_cycle(Rows(projected), 0..count)?;
+        debug_assert!(cycle.len() >= 3, "a face spans its plane");
+        faces.places.clear();
+        faces.places.extend_from_slice(cycle);
+        faces.places.sort_unstable();
+        #[cfg(debug_assertions)]
+        {
+            let hull = SimplicialHull::build(accept(2, projected)?)?;
+            let mut polygon = hull.polygon.clone();
+            polygon.sort_unstable();
+            debug_assert_eq!(
+                faces.places, polygon,
+                "the chain gives the sub-hull's vertices"
+            );
+        }
+    } else {
+        let sub = sub_vertices(accept(d, projected)?, faces, key)?;
+        faces.places.clear();
+        faces.places.extend_from_slice(&sub);
+    }
+    Ok(&faces.places)
 }
 
 /// The input index of `v`, an index of a level that `global` maps.
@@ -2149,20 +2244,18 @@ pub(crate) mod tests {
             );
             let mut cleared = built();
             cleared.records = Records::new(cleared.input.representative.len());
-            let sorted = |(on, mut zeros): Zeros| {
-                zeros.iter_mut().for_each(|z| z.sort_unstable());
-                (on, zeros)
-            };
             // A point the record starts inside its facet's polygon is
             // left out of the facet's zero points (#504); every other one
             // is listed as without records.
-            let (on_with, zeros_with) =
-                sorted(distance_zeros(&recorded, &groups, &others).unwrap());
-            let (on_without, zeros_without) =
-                sorted(distance_zeros(&cleared, &groups, &others).unwrap());
+            let (on_with, zeros_with) = distance_zeros(&recorded, &groups, &others).unwrap();
+            let (on_without, zeros_without) = distance_zeros(&cleared, &groups, &others).unwrap();
+            assert!(
+                zeros_with.iter().all(<[u32]>::is_sorted),
+                "{name}: a facet's zero points ascend"
+            );
             assert_eq!(on_with, on_without, "{name}");
             let mut left_out = 0;
-            for (g, (with, without)) in zeros_with.iter().zip(&zeros_without).enumerate() {
+            for (g, (with, without)) in zeros_with.iter().zip(zeros_without.iter()).enumerate() {
                 let polygon = if *dim == 3 {
                     facet_polygon(&recorded, &groups, g as u32).unwrap()
                 } else {

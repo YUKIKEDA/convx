@@ -6,6 +6,7 @@ use core::cmp::Ordering;
 use super::polygon::{self, Chain, Rows};
 use super::ConvexHullError;
 use crate::predicates::{orient, ExactEvaluationExhausted, Sign};
+use crate::small::Small;
 
 /// Validated input. Past this point, code trusts that every coordinate is
 /// finite and that there are at most `u32::MAX` points.
@@ -328,26 +329,41 @@ pub(crate) fn minimum_basis<'p>(
     representatives: &[u32],
     point: impl Fn(u32) -> &'p [f64],
 ) -> Result<Vec<u32>, ConvexHullError> {
+    let mut rows = Vec::new();
+    Ok(minimum_basis_with(dim, representatives, point, &mut rows)?.to_vec())
+}
+
+/// [`minimum_basis`] with `rows` as its scratch: the projected rows of one
+/// orientation go into that one buffer, so a caller that asks per facet
+/// allocates nothing per facet, and no point tested costs an allocation. A
+/// list per projected point grew with every point of a collinear or
+/// coplanar prefix, a side's or a face's worth on a grid (#530).
+pub(crate) fn minimum_basis_with<'p>(
+    dim: usize,
+    representatives: &[u32],
+    point: impl Fn(u32) -> &'p [f64],
+    rows: &mut Vec<f64>,
+) -> Result<Small<u32, 11>, ConvexHullError> {
+    let mut basis: Small<u32, 11> = Small::new();
     let Some((&first, rest)) = representatives.split_first() else {
-        return Ok(Vec::new());
+        return Ok(basis);
     };
-    let mut basis = vec![first];
-    let mut axes: Vec<usize> = Vec::with_capacity(dim);
-    let mut projected: Vec<Vec<f64>> = Vec::with_capacity(dim + 2);
+    basis.push(first);
+    // The largest orientation: D + 1 points of D coordinates.
+    rows.clear();
+    rows.reserve((dim + 1) * dim);
+    let mut axes: Small<usize, 11> = Small::new();
     for &p in rest {
         if basis.len() == dim + 1 {
             break;
         }
         for j in (0..dim).filter(|j| !axes.contains(j)) {
-            projected.clear();
-            projected.extend(basis.iter().chain(core::iter::once(&p)).map(|&q| {
+            rows.clear();
+            for &q in basis.iter().chain(core::iter::once(&p)) {
                 let q = point(q);
-                axes.iter()
-                    .map(|&a| q[a])
-                    .chain(core::iter::once(q[j]))
-                    .collect()
-            }));
-            let refs: Vec<&[f64]> = projected.iter().map(Vec::as_slice).collect();
+                rows.extend(axes.iter().map(|&a| q[a]).chain(core::iter::once(q[j])));
+            }
+            let refs: Small<&[f64], 12> = rows.chunks_exact(axes.len() + 1).collect();
             if orient(&refs)? != Sign::Zero {
                 axes.push(j);
                 basis.push(p);

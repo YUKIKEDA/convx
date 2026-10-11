@@ -4,7 +4,7 @@ use core::cmp::Ordering;
 use std::sync::OnceLock;
 
 use super::classify::{classify, Classified, FaceOrder, Faces};
-use super::input::{accept, minimum_basis, Input};
+use super::input::{accept, minimum_basis, minimum_basis_with, Input};
 use super::ConvexHullError;
 use crate::lists::Lists;
 use crate::normal::{certified_side, facet_cofactors, facet_cofactors_in_lanes, working_normal};
@@ -909,9 +909,10 @@ fn edge_normals(
     facets: &[(&[u32], u32)],
     mut f: impl FnMut(&[u32], &[f64]) -> Result<(), ConvexHullError>,
 ) -> Result<(), ConvexHullError> {
+    let mut rows = Vec::new();
     for &(vertices, inner) in facets {
         let Some(normal) = edge_unit_normal(input, vertices, inner) else {
-            let basis = facet_basis(input, vertices)?;
+            let basis = facet_basis(input, vertices, &mut rows)?;
             let points: BasisPoints<'_> = basis.iter().map(|&v| input.point(v)).collect();
             let cofactors = facet_cofactors(&points);
             let normal = oriented_normal(input, &points, inner, cofactors.as_deref())?;
@@ -940,10 +941,11 @@ pub(crate) fn for_each_facet_normal(
         return edge_normals(input, facets, f);
     }
     let point = |i: u32| input.point(i);
+    let mut rows = Vec::new();
     for chunk in facets.chunks(COFACTOR_LANES) {
         let bases: [Result<Basis, ConvexHullError>; COFACTOR_LANES] =
             core::array::from_fn(|lane| match chunk.get(lane) {
-                Some(&(vertices, _)) => facet_basis(input, vertices),
+                Some(&(vertices, _)) => facet_basis(input, vertices, &mut rows),
                 None => Ok(Basis::new()),
             });
         let points: [BasisPoints<'_>; COFACTOR_LANES] =
@@ -978,8 +980,13 @@ type Basis = Small<u32, 10>;
 type BasisPoints<'a> = Small<&'a [f64], 11>;
 
 /// The first D affinely independent vertices of a facet in lexicographic
-/// order.
-fn facet_basis(input: &impl Points, facet_vertices: &[u32]) -> Result<Basis, ConvexHullError> {
+/// order. `rows` is the scratch of [`minimum_basis_with`], kept by the
+/// caller from one facet to the next.
+fn facet_basis(
+    input: &impl Points,
+    facet_vertices: &[u32],
+    rows: &mut Vec<f64>,
+) -> Result<Basis, ConvexHullError> {
     let d = input.dim();
     let point = |i: u32| input.point(i);
     // A facet with exactly D vertices spans its (D - 1)-flat, so they are
@@ -988,8 +995,9 @@ fn facet_basis(input: &impl Points, facet_vertices: &[u32]) -> Result<Basis, Con
         debug_assert_eq!(minimum_basis(d, facet_vertices, point)?, facet_vertices);
         Basis::from(facet_vertices)
     } else {
-        minimum_basis(d, facet_vertices, point)?
-            .into_iter()
+        minimum_basis_with(d, facet_vertices, point, rows)?
+            .iter()
+            .copied()
             .take(d)
             .collect()
     })
