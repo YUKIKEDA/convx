@@ -81,6 +81,19 @@ pub(crate) fn discard_edges(
     Ok((inside * DISCARD_ONE_IN >= seen).then_some(edges))
 }
 
+/// The edges of the polygon of the farthest of the `count` points of
+/// `rows` in each of eight directions, as [`discard_edges`] builds it,
+/// counterclockwise; `None` when it has fewer than three vertices.
+/// Classification of D = 3 builds it inside a facet, on the facet's
+/// vertices projected to a coordinate plane (#504).
+pub(crate) fn extremes_polygon(
+    rows: Rows<'_>,
+    count: u32,
+) -> Result<Option<Vec<Edge>>, ExactEvaluationExhausted> {
+    let cycle = discard_polygon(rows, 0..count)?;
+    Ok((!cycle.is_empty()).then(|| edges_of(rows, &cycle)))
+}
+
 /// The polygon of [`discard_edges`]. Fewer than three vertices mean no
 /// polygon, and the list is empty.
 ///
