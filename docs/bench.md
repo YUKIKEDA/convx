@@ -4047,12 +4047,13 @@ The spike P7-54. The parity run of #466 left 13 sets not met. As P7-32 (#413) di
 | | of which the coplanar merge (`merge`) | 8.2% |
 | | of which `found_vertices` | 9.3% |
 | `cubesurf` D3 10^5 | `found_vertices` | 60.2% |
-| | of which sorting `u32` lists | 23.3% |
-| | of which sub-hull construction and its side tests | about 32% |
+| | its own lines | 19.0% (own) |
+| | the side tests of points against faces (`side`, own, from `found_vertices` and construction) | 27.0% (own) |
+| | sorting `u32` lists, everywhere in the build | about 6% (own) |
 | `sphere` D2 10^5 | `accept` | 4.5% |
 | | `classify_built` | 5.6% |
 
-`cubesurf` D3 10^5 has about 16,000 points on each face of the cube. Each face's extreme points come from a general sub-hull, and its candidates are sorted as the key of the faces found once (P7-30).
+`cubesurf` D3 10^5 has about 16,000 points on each face of the cube. In `distance_zeros`, a point with no record is tested against every group, and a point on a face has distance zero, which the cull cannot prove and the exact sign must. The sort's share was first read from the inclusive cost of the recursive `quicksort` (23%), which counts the recursion again at each level; its own cost is about 6% (#468).
 
 ### The coplanar merge (P7-34, #410)
 
@@ -4089,6 +4090,6 @@ The prototype reads 0.98 to 0.99 on hull `sphere` D3 and D4, inside the spread. 
 ### Reading
 
 - **Delaunay:** the pass after the insertion (10 to 19%) is about each set's gap (5 to 18%). P7-56 (#469) prototypes deciding the faces left unknown when the insertion links them.
-- **Hull `cubesurf`:** `found_vertices` is about two thirds of `build()`. P7-55 (#468) prototypes a key of the faces found once without the sort, and the D = 2 chain for the extreme points of a facet of D = 3.
+- **Hull `cubesurf`:** `found_vertices` is about two thirds of `build()`, most of it the exact side tests of points on the faces against every group, and its own lines. P7-55 (#468) starts from that: how many points are scanned without a record, how many groups each meets, and the cost of a zero sign.
 - **Hull `sphere` D3:** the merge's list building gives 1 to 2%, inside the spread; P7-34 is withdrawn. What is left there is construction itself (78 to 80%).
 - **Hull `sphere` D2 10^4 and 10^5:** acceptance, publication, and classification share the time. The spike P7-57 (#470) follows.
