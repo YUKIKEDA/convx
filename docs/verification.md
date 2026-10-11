@@ -184,10 +184,12 @@ The run that judges a set against ADR 0006. It times convx, CGAL, and Qhull on e
   - for Delaunay, around `insert::brio` and `insert::Mesh::build`, and around `publish`.
 
   Construction, the pass after it, and publication come from those marks. A sub-hull of a coplanar face marks again, and the first marks of a build are the outer build's. Neither the example nor the marks are committed (`.cursor/rules/bench.mdc`). Their code is on the Issue that ran them (#275, #310).
+
+  The judged `build()` comes from a second copy of the measured commit, with the same example and without the marks. Each mark writes a line to standard error inside `build()`: on hull `sphere` D2 10^4 the marks were 7% of the build, and 1 to 2% on the other sets of 10^4 (#518). In each round the plain copy runs first and the marked copy right after it, for the phases only.
 - **CGAL.** The program of #215, with the Delaunay reference of #455 and the D = 2 hull of #456, built as above.
 - **Qhull.** `qconvex` or `qdelaunay` `i s TI <file> TO <out>`, its compute time and work counters read from the summary, and the whole process timed.
 - **Runner.**
   - Per set, one unrecorded convx build first.
-  - Then per round: convx, then CGAL, then Qhull, each pinned with `taskset -c 2`.
+  - Then per round: convx (the plain copy, then the marked copy), then CGAL, then Qhull, each pinned with `taskset -c 2`.
   - 5 rounds of 3 builds when that first build took under 1.5 s, otherwise 3 rounds of 1.
 - **Report.** Per set: the median and the min–max of each tool, the phase shares of `build()`, the ratio to each reference, whether each ratio is judged or a reference value, and whether the set is met: within 1.05 of each judged reference, and, counted apart, at most 1.00 (ADR 0006, amendment of 2026-10-10). The counts of the three tools are compared, and a disagreement is reported next to the set.
