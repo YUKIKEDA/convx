@@ -22,6 +22,8 @@ pulp = { version = "0.22", features = ["x86-v4"] }
 thiserror = "2"
 
 [dev-dependencies]
+# Counts the allocations of a build in `tests/alloc.rs` (#521).
+stats_alloc = "0.1.10"
 # The fixture test runs its records on rayon's pool; the library has no
 # parallel path (design §6).
 rayon = "1"

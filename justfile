@@ -6,3 +6,5 @@ lint:
 
 test:
     cargo test
+    # The allocation contract holds for release builds (tests/alloc.rs, #521).
+    cargo test --release --test alloc
