@@ -4599,7 +4599,7 @@ Every set published the same counts on both sides.
 - **Hull `cube` D3 10^6 reads 1.02, inside the spread.** The keep criterion asked it to be faster beyond the spread too, and it is not: what the order saves there, the copy and its counting sort spend. Whether to keep the change on `sphere` alone is the owner's call (`bench.mdc`).
 - **Nothing is slower beyond the spread.** The sets under 2^17 representatives do not take the copy, and read 0.97 to 1.04.
 
-## Hull: the spike P7-65, and the exact side tests through the fixed-size first stage, prototype (#493, #494)
+## Hull: the spike P7-65, and the exact side tests through the fixed-size first stage, prototype, PR #495 (#493, #494)
 
 ### The spike P7-65 (#493)
 

@@ -240,7 +240,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-63 | Spike | Hull sphere D3: cache misses of construction against Qhull                              | #487  | Done        |
 | P7-64 | Feat  | Hull D3: construction on a copy of the points in Morton order                           | #489  | Done        |
 | P7-65 | Spike | Hull `cubesurf` D3 and `sphere` D2 10^4: where the time goes                            | #493  | Done        |
-| P7-66 | Feat  | Hull D2 and D3: exact side tests through the fixed-size first stage                     | #494  | Withdrawn after measurement |
+| P7-66 | Feat  | Hull D2 and D3: exact side tests through the fixed-size first stage                     | #494  | Withdrawn after measurement (#495) |
 
 ## Intentionally out of scope
 
