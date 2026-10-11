@@ -4405,3 +4405,88 @@ Met at 1.05: 30 of 41 (hull 20, Delaunay 10); 28 in the run of #466. Met at 1.00
 | Hull `sphere` D2 10^4 and 10^5 | 2 | 1.26 and 1.13 against CGAL |
 | Hull `sphere` D3 10^4 and 10^6 | 2 | 1.06 and 1.22 against Qhull |
 | Hull `cubesurf` D3 10^5 | 1 | 1.55 against Qhull |
+
+## Hull `sphere` D3 at 10^6, and the merge at less cost, PR #486 (#484, #485)
+
+### The spike P7-61 (#484)
+
+Hull `sphere` D3 reads 1.06, 1.04, and 1.22 against Qhull at 10^4, 10^5, and 10^6 (#479). VTune, `main` at `110a208` on Windows, pinned, software sampling, 40 builds of 10^5 and 3 of 10^6, gave these inclusive shares of `ConvexHullBuilder::build`:
+
+| Part | 10^5 | 10^6 |
+| --- | ---: | ---: |
+| construction (`SimplicialHull::build`) | 79.4% | 78.1% |
+| of which outside sets (`take_outside`, the cull's SIMD scan) | 17.5% | 20.1% |
+| of which planes of new simplices | 11.9% | 10.1% |
+| of which `walk_region` (side tests of the visible region) | 12.6% | 16.7% |
+| of which `commit` | 11.2% | 9.8% |
+| classification (`classify_built`) | 17.9% | 20.2% |
+| of which the coplanar merge (`merge_except`) | 11.6% | 15.3% |
+
+Within the merge at 10^6:
+
+- the ridge tests (`side`, reading each simplex's cull plane): 31.5% of it;
+- building each group's neighbor list (iterators, `SlotMarks::get`): 28.5%;
+- `dense.get` in the ridge loop: about 11%.
+
+The parts that grow with the input are those that read memory at random. The list building that P7-34's prototype removed read 1 to 2% at 10^5 (#471); by time it is about 4.4% of `build()` at 10^6. The Grill on #484 brought it back as P7-62, with the ridge loop's lookup by slot, and set a spike on construction's random reads after it.
+
+### The change (P7-62, #485)
+
+- When no ridge joins two simplices, each group of one simplex has its vertices and neighbors written straight into presized lists, without the per-group gathering, sort, and dedup. Debug builds compare the result with the general path on every merge.
+- The ridge loop looks up each neighbor's dense index in an array by slot, in place of `SlotMarks`. The neighbors of a live simplex are live, and debug builds check it.
+- Removing a sort in the fast path makes the debug check fire in three tests.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `110a208` against the head `ff29ae3`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
+| Sets | The shorter run of `docs/verification.md`, with hull `sphere` D3 10^6, `sphere` D4 10^4, and `cube` D5 10^5 |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second |
+
+Every set published the same counts on both sides.
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.56 ms (0.47 ms–0.73 ms) | 0.56 ms (0.47 ms–1.28 ms) | 1.00, inside the spread |
+| Hull `cube` D2 10^5 | 5.14 ms (4.49 ms–6.19 ms) | 5.17 ms (4.63 ms–7.46 ms) | 1.01, inside the spread |
+| Hull `sphere` D2 10^4 | 1.23 ms (1.13 ms–2.07 ms) | 1.20 ms (1.12 ms–1.68 ms) | 0.98, inside the spread |
+| Hull `sphere` D2 10^5 | 12.8 ms (11.1 ms–15.4 ms) | 12.8 ms (11.6 ms–26.2 ms) | 1.00, inside the spread |
+| Hull `cube` D3 10^4 | 1.52 ms (1.28 ms–3.51 ms) | 1.50 ms (1.33 ms–1.89 ms) | 0.99, inside the spread |
+| Hull `cube` D3 10^5 | 13.1 ms (11.7 ms–17.3 ms) | 12.8 ms (11.7 ms–25.1 ms) | 0.98, inside the spread |
+| Hull `cubesurf` D3 10^5 | 48.2 ms (47.0 ms–53.4 ms) | 48.2 ms (46.6 ms–50.3 ms) | 1.00, inside the spread |
+| Hull `sphere` D3 10^4 | 21.5 ms (20.9 ms–25.5 ms) | 20.8 ms (20.1 ms–23.8 ms) | 0.97, inside the spread |
+| Hull `sphere` D3 10^5 | 260 ms (255 ms–285 ms) | 255 ms (245 ms–277 ms) | 0.98, inside the spread |
+| Hull `sphere` D3 10^6 | 4.39 s (4.34 s–4.43 s) | 4.12 s (4.09 s–4.15 s) | 0.94, faster beyond the spread |
+| Hull `cube` D4 10^4 | 5.68 ms (5.25 ms–6.94 ms) | 5.61 ms (5.20 ms–6.10 ms) | 0.99, inside the spread |
+| Hull `cube` D4 10^5 | 33.6 ms (31.7 ms–36.7 ms) | 33.7 ms (32.1 ms–37.2 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^4 | 93.3 ms (90.1 ms–106 ms) | 90.6 ms (88.0 ms–95.6 ms) | 0.97, inside the spread |
+| Hull `sphere` D4 10^5 | 1.20 s (1.19 s–1.21 s) | 1.18 s (1.15 s–1.19 s) | 0.98, faster beyond the spread |
+| Hull `cube` D5 10^4 | 55.5 ms (53.4 ms–60.2 ms) | 54.6 ms (53.5 ms–62.5 ms) | 0.98, inside the spread |
+| Hull `cube` D5 10^5 | 217 ms (210 ms–230 ms) | 216 ms (211 ms–229 ms) | 1.00, inside the spread |
+| Hull `sphere` D5 10^4 | 824 ms (810 ms–861 ms) | 810 ms (796 ms–836 ms) | 0.98, inside the spread |
+| Hull `cube` D6 10^4 | 573 ms (562 ms–587 ms) | 569 ms (557 ms–601 ms) | 0.99, inside the spread |
+| Delaunay `cube` D2 10^4 | 5.47 ms (5.26 ms–6.54 ms) | 5.42 ms (5.23 ms–6.28 ms) | 0.99, inside the spread |
+| Delaunay `cube` D2 10^5 | 54.0 ms (52.9 ms–60.6 ms) | 54.4 ms (53.0 ms–62.0 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^6 | 576 ms (566 ms–583 ms) | 575 ms (572 ms–591 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^4 | 5.60 ms (5.43 ms–6.87 ms) | 5.58 ms (5.29 ms–6.54 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^5 | 44.8 ms (43.3 ms–47.4 ms) | 44.8 ms (43.8 ms–49.7 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^6 | 437 ms (434 ms–456 ms) | 433 ms (429 ms–450 ms) | 0.99, inside the spread |
+| Delaunay `cube` D3 10^4 | 37.2 ms (35.7 ms–44.5 ms) | 37.5 ms (35.9 ms–39.6 ms) | 1.01, inside the spread |
+| Delaunay `cube` D3 10^5 | 390 ms (383 ms–399 ms) | 392 ms (384 ms–407 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^4 | 78.9 ms (77.2 ms–82.0 ms) | 78.9 ms (77.2 ms–90.0 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^5 | 767 ms (765 ms–776 ms) | 772 ms (764 ms–803 ms) | 1.01, inside the spread |
+| Delaunay `cube` D4 10^4 | 651 ms (635 ms–709 ms) | 641 ms (631 ms–733 ms) | 0.99, inside the spread |
+| Delaunay `cube` D5 10^4 | 7.55 s (7.47 s–7.61 s) | 7.55 s (7.49 s–7.57 s) | 1.00, inside the spread |
+
+### Reading
+
+- **The keep criterion is met.** Hull `sphere` D3 10^6 reads 0.94, faster beyond the spread: 4.39 s to 4.12 s.
+  - Hull `sphere` D4 10^5 reads 0.98, also faster beyond the spread.
+  - The other hull sets read 0.97 to 1.01.
+- On the parity ratio of #479 that is about 1.15 against Qhull for `sphere` D3 10^6, from 1.22.
+- **Nothing is slower beyond the spread.** Delaunay, which does not merge, reads 0.99 to 1.01.
+- What remains of the gap at 10^6 is construction's random reads: the walk's side tests and the outside sets' scan. A spike on its cache misses follows (Grill on #484).
