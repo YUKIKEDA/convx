@@ -5170,7 +5170,7 @@ The split adds a side test per point, so it would save at most about 5%: neither
 
 A first attempt removed the upper pass instead. The wrong hull made classification about three times slower, so it bounded nothing.
 
-## Delaunay: the pass after the insertion, P7-60 withdrawn (#483)
+## Delaunay: the pass after the insertion, P7-60 withdrawn, PR #513 (#483)
 
 The spike P7-71 (#509) put Delaunay `cube` D3's gap to CGAL in the pass after the insertion: 14 to 18% of `build()`. It joins cospherical simplices into groups.
 

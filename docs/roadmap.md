@@ -234,7 +234,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-57 | Spike | Hull sphere D2 10^4 and 10^5: acceptance, publication, and classification               | #470  | Done        |
 | P7-58 | Feat  | Delaunay D2: a face left unknown needs no test                                          | #474  | Done        |
 | P7-59 | Feat  | Hull D2: the chain's keys sorted by radix                                               | #477  | Withdrawn after measurement (#478) |
-| P7-60 | Feat  | Delaunay: the pass after the insertion reads a finiteness flag, not the neighbor        | #483  | Withdrawn after measurement |
+| P7-60 | Feat  | Delaunay: the pass after the insertion reads a finiteness flag, not the neighbor        | #483  | Withdrawn after measurement (#513) |
 | P7-61 | Spike | Hull sphere D3 at 10^6: why the gap to Qhull opens                                      | #484  | Done        |
 | P7-62 | Feat  | Hull: the merge's groups of one simplex and its dense index, at less cost               | #485  | Done        |
 | P7-63 | Spike | Hull sphere D3: cache misses of construction against Qhull                              | #487  | Done        |
