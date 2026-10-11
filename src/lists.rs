@@ -43,6 +43,13 @@ impl<T: Copy> Lists<T> {
         self.len() == 0
     }
 
+    /// Removes every list and keeps the storage, for a buffer reused from
+    /// one item to the next.
+    pub(crate) fn clear(&mut self) {
+        self.values.clear();
+        self.starts.truncate(1);
+    }
+
     /// Appends one list.
     pub(crate) fn push(&mut self, items: &[T]) {
         self.values.extend_from_slice(items);

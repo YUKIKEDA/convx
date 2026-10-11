@@ -17,10 +17,9 @@
 //! polytope; the diagonals inside a group are not edges, so they get no
 //! interface.
 
-use std::collections::BTreeMap;
-
-use faer::linalg::solvers::Solve;
-use faer::Mat;
+use faer::dyn_stack::{MemBuffer, MemStack};
+use faer::linalg::qr::no_pivoting as qr;
+use faer::{get_global_parallelism, Conj, Mat, Par};
 
 use crate::delaunay::{complex, NO_NEIGHBOR};
 use crate::hull::classify::classify;
@@ -380,22 +379,21 @@ impl core::fmt::Debug for VoronoiInterface<'_> {
     }
 }
 
-/// A facet of the site hull: extreme points, a basis of its hyperplane, and
-/// its outward unit normal.
-struct HullFacet {
-    vertices: Vec<u32>,
-    basis: Vec<u32>,
-    normal: Vec<f64>,
+/// The facets of the site hull, flat (#523): each one's extreme points, a
+/// basis of its hyperplane, and its outward unit normal, `d` values each.
+struct HullFacets {
+    vertices: Lists<u32>,
+    basis: Lists<u32>,
+    normals: Vec<f64>,
 }
 
-/// A ray of one vertex with the face of the group's polytope it leaves.
-struct GroupRay {
-    /// The site-hull facet the face lies in, by index.
-    hull_facet: usize,
-    /// The ray's number in the diagram's table.
-    number: u32,
-    /// The group's sites on the site-hull facet.
-    face: Vec<u32>,
+/// The facets of one group's polytope, flat and reused from one group to
+/// the next (#523): each facet's sites, and whether it lies on the site
+/// hull.
+#[derive(Default)]
+struct GroupFacets {
+    sites: Lists<u32>,
+    on_hull: Vec<bool>,
 }
 
 fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> {
@@ -419,15 +417,19 @@ fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> 
             )
         })
         .collect();
-    let mut hull_facets = Vec::with_capacity(hull.faces.len());
+    let mut hull_facets = HullFacets {
+        vertices: Lists::with_capacity(hull.faces.len(), hull.faces.len() * d),
+        basis: Lists::with_capacity(hull.faces.len(), hull.faces.len() * d),
+        normals: Vec::with_capacity(hull.faces.len() * d),
+    };
     for_each_facet_normal(&hull.input, &queries, |basis, normal| {
-        hull_facets.push(HullFacet {
-            vertices: hull.faces.get(hull_facets.len()).vertices.to_vec(),
-            basis: basis.to_vec(),
-            normal: normal.to_vec(),
-        });
+        let f = hull_facets.vertices.len();
+        hull_facets.vertices.push(hull.faces.get(f).vertices);
+        hull_facets.basis.push(basis);
+        hull_facets.normals.extend_from_slice(normal);
         Ok(())
     })?;
+    let hull_count = hull_facets.vertices.len();
 
     // Groups in the order of their site lists, and each group's cells in
     // the lexicographic order of their rows, from which a vertex takes its
@@ -456,8 +458,8 @@ fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> 
     // The site-hull facets incident to each hull vertex, as offsets into one
     // list.
     let mut incident_start = vec![0_usize; points.len() / d + 1];
-    for facet in &hull_facets {
-        for &v in &facet.vertices {
+    for f in 0..hull_count {
+        for &v in hull_facets.vertices.get(f) {
             incident_start[v as usize + 1] += 1;
         }
     }
@@ -466,15 +468,21 @@ fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> 
     }
     let mut incident = vec![0_u32; incident_start[incident_start.len() - 1]];
     let mut next = incident_start.clone();
-    for (f, facet) in hull_facets.iter().enumerate() {
-        for &v in &facet.vertices {
+    for f in 0..hull_count {
+        for &v in hull_facets.vertices.get(f) {
             incident[next[v as usize]] = f as u32;
             next[v as usize] += 1;
         }
     }
-    let contains_face = |hull_facet: &HullFacet, face: &[u32]| -> Result<bool, ConvexHullError> {
+    let contains_face = |f: usize, face: &[u32]| -> Result<bool, ConvexHullError> {
         for &s in face {
-            let set: Small<u32, 11> = hull_facet.basis.iter().copied().chain([s]).collect();
+            let set: Small<u32, 11> = hull_facets
+                .basis
+                .get(f)
+                .iter()
+                .copied()
+                .chain([s])
+                .collect();
             if !on_hyperplane(&orient_of, &set)? {
                 return Ok(false);
             }
@@ -482,8 +490,8 @@ fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> 
         Ok(true)
     };
     let scan_hull = |face: &[u32]| -> Result<Option<usize>, ConvexHullError> {
-        for (f, hull_facet) in hull_facets.iter().enumerate() {
-            if contains_face(hull_facet, face)? {
+        for f in 0..hull_count {
+            if contains_face(f, face)? {
                 return Ok(Some(f));
             }
         }
@@ -495,15 +503,33 @@ fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> 
     let mut ray_apexes: Vec<u32> = Vec::new();
     let mut ray_directions: Vec<f64> = Vec::new();
     let mut ray_hull_facets = Lists::default();
-    let mut rays_of: Vec<Vec<GroupRay>> = Vec::with_capacity(groups.len());
-    let mut interfaces: BTreeMap<[u32; 2], (Vec<u32>, Vec<u32>)> = BTreeMap::new();
+    // Each ray's face: the group's sites on its site-hull facet.
+    let mut ray_faces: Lists<u32> = Lists::default();
+    // Interfaces as (sites, item) entries, sorted into lists at the end. A
+    // group in general position is a simplex, whose every pair of sites is
+    // an edge.
+    let mut interface_apexes: Vec<([u32; 2], u32)> =
+        Vec::with_capacity(groups.len() * k * (k - 1) / 2);
+    let mut interface_ray_entries: Vec<([u32; 2], u32)> = Vec::new();
+    // Buffers of one group, reused from one group to the next (#523).
+    let mut circumcenters = Circumcenters::new(d);
     let mut tile_keys: Vec<u32> = Vec::new();
     let mut tile_hull: Vec<bool> = Vec::new();
+    let mut tile_list: Vec<usize> = Vec::new();
+    let mut facets = GroupFacets::default();
+    let mut facet: Vec<u32> = Vec::new();
+    let mut group_rays: Vec<(usize, usize)> = Vec::new();
+    let mut meet: Vec<u32> = Vec::new();
     for (apex, &g) in groups.iter().enumerate() {
         let apex = apex as u32;
         let sites = group_sites.get(g as usize);
         let cells = members.get(g as usize);
-        vertex_coords.extend(vertex_coords_of(d, &point, cells.iter().map(|&c| row(c)))?);
+        vertex_coords_of(
+            &point,
+            cells.iter().map(|&c| row(c)),
+            &mut circumcenters,
+            &mut vertex_coords,
+        )?;
         vertex_sites.push(sites);
 
         // Facets of the group's polytope: each face of a cell whose cell
@@ -528,42 +554,47 @@ fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> 
             }
         }
         let key = |i: usize| &tile_keys[i * d..(i + 1) * d];
-        let mut tile_list: Vec<usize> = (0..tile_hull.len()).collect();
+        tile_list.clear();
+        tile_list.extend(0..tile_hull.len());
         tile_list.sort_unstable_by(|&a, &b| key(a).cmp(key(b)));
-        let mut facets: Vec<(Vec<u32>, bool)> = Vec::new();
-        for i in tile_list {
+        facets.sites.clear();
+        facets.on_hull.clear();
+        for &i in &tile_list {
             let tile = key(i);
             // A simplex has no site on the hyperplane of a face but the face's.
-            let facet = if cells.len() == 1 {
-                tile.to_vec()
+            facet.clear();
+            if cells.len() == 1 {
+                facet.extend_from_slice(tile);
             } else {
-                let mut facet = Vec::new();
                 for &s in sites {
                     let set: Small<u32, 11> = tile.iter().copied().chain([s]).collect();
                     if tile.contains(&s) || on_hyperplane(&orient_of, &set)? {
                         facet.push(s);
                     }
                 }
-                facet
-            };
-            if facets.iter().any(|(f, _)| *f == facet) {
+            }
+            if facets.sites.iter().any(|f| f == facet.as_slice()) {
                 continue;
             }
-            facets.push((facet, tile_hull[i]));
+            facets.sites.push(&facet);
+            facets.on_hull.push(tile_hull[i]);
         }
 
         // One ray per boundary facet, along the site-hull facet it lies in.
         // The face spans D - 1 dimensions, so one logical facet holds it; a
         // site that is a hull vertex is a vertex of that facet.
-        let mut group_rays = Vec::new();
-        for (face, _) in facets.iter().filter(|(_, on_hull)| *on_hull) {
+        group_rays.clear();
+        for (j, face) in facets.sites.iter().enumerate() {
+            if !facets.on_hull[j] {
+                continue;
+            }
             let mut found = None;
             if let Some(&v) = face
                 .iter()
                 .find(|&&v| incident_start[v as usize] < incident_start[v as usize + 1])
             {
                 for &f in &incident[incident_start[v as usize]..incident_start[v as usize + 1]] {
-                    if contains_face(&hull_facets[f as usize], face)? {
+                    if contains_face(f as usize, face)? {
                         found = Some(f as usize);
                         break;
                     }
@@ -580,43 +611,41 @@ fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> 
                 debug_assert!(false, "a boundary face lies in a site-hull facet");
                 continue;
             };
-            group_rays.push(GroupRay {
-                hull_facet,
-                number: 0,
-                face: face.clone(),
-            });
+            group_rays.push((hull_facet, j));
         }
         // The rays of one apex, by `hull_facet`, numbered after those of
-        // every earlier apex: the order of the diagram's ray table.
+        // every earlier apex: the order of the diagram's ray table. The sort
+        // is stable, as before.
         group_rays.sort_by(|x, y| {
-            hull_facets[x.hull_facet]
+            hull_facets
                 .vertices
-                .cmp(&hull_facets[y.hull_facet].vertices)
+                .get(x.0)
+                .cmp(hull_facets.vertices.get(y.0))
         });
-        for group_ray in &mut group_rays {
-            let hull_facet = &hull_facets[group_ray.hull_facet];
-            group_ray.number = ray_apexes.len() as u32;
+        let first_ray = ray_apexes.len() as u32;
+        for &(hull_facet, j) in &group_rays {
             ray_apexes.push(apex);
-            ray_directions.extend_from_slice(&hull_facet.normal);
-            ray_hull_facets.push(&hull_facet.vertices);
+            ray_directions
+                .extend_from_slice(&hull_facets.normals[hull_facet * d..(hull_facet + 1) * d]);
+            ray_hull_facets.push(hull_facets.vertices.get(hull_facet));
+            ray_faces.push(facets.sites.get(j));
         }
 
         // Interfaces: the edges of the group's polytope.
         for (i, &a) in sites.iter().enumerate() {
             for &b in &sites[i + 1..] {
-                if !is_edge(d, sites.len(), &facets, a, b) {
+                if !is_edge(d, sites.len(), &facets.sites, a, b, &mut meet) {
                     continue;
                 }
-                let entry = interfaces.entry([a, b]).or_default();
-                entry.0.push(apex);
-                for group_ray in &group_rays {
-                    if group_ray.face.contains(&a) && group_ray.face.contains(&b) {
-                        entry.1.push(group_ray.number);
+                interface_apexes.push(([a, b], apex));
+                for number in first_ray..ray_apexes.len() as u32 {
+                    let face = ray_faces.get(number as usize);
+                    if face.contains(&a) && face.contains(&b) {
+                        interface_ray_entries.push(([a, b], number));
                     }
                 }
             }
         }
-        rays_of.push(group_rays);
     }
 
     let representatives: Vec<u32> = (0..complex.representative.len() as u32)
@@ -639,25 +668,39 @@ fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> 
     }
     let cell_vertices = lists_of(representatives.len(), &mut pairs);
     pairs.clear();
-    for group_ray in rays_of.iter().flatten() {
-        for &site in &group_ray.face {
+    for (number, face) in ray_faces.iter().enumerate() {
+        for &site in face {
             if let Some(cell) = cell_index(&cell_of, site) {
-                pairs.push((cell as u32, group_ray.number));
+                pairs.push((cell as u32, number as u32));
             }
         }
     }
     let cell_rays = lists_of(representatives.len(), &mut pairs);
-    let mut interface_sites = Vec::with_capacity(interfaces.len());
-    let mut interface_vertices = Lists::with_capacity(interfaces.len(), 2 * interfaces.len());
-    let mut interface_rays = Lists::with_capacity(interfaces.len(), 0);
-    for (sites, (mut vertices, mut rays)) in interfaces {
-        vertices.sort_unstable();
-        vertices.dedup();
-        rays.sort_unstable();
+    // The interfaces in the order of their sites, each one's vertices
+    // ascending without repeats and its rays ascending.
+    interface_apexes.sort_unstable();
+    interface_ray_entries.sort_unstable();
+    let mut interface_sites: Vec<[u32; 2]> = Vec::new();
+    let mut interface_vertices = Lists::with_capacity(0, interface_apexes.len());
+    let mut interface_rays = Lists::with_capacity(0, interface_ray_entries.len());
+    let mut rays_rest = &interface_ray_entries[..];
+    for run in interface_apexes.chunk_by(|x, y| x.0 == y.0) {
+        let sites = run[0].0;
         interface_sites.push(sites);
-        interface_vertices.push(&vertices);
-        interface_rays.push(&rays);
+        let mut last = None;
+        interface_vertices.push_iter(run.iter().map(|&(_, apex)| apex).filter(|&apex| {
+            let new = last != Some(apex);
+            last = Some(apex);
+            new
+        }));
+        let take = rays_rest.iter().take_while(|(s, _)| *s == sites).count();
+        interface_rays.push_iter(rays_rest[..take].iter().map(|&(_, number)| number));
+        rays_rest = &rays_rest[take..];
     }
+    debug_assert!(
+        rays_rest.is_empty(),
+        "every interface ray has its interface"
+    );
     Ok(VoronoiDiagram {
         dim: d,
         representative: complex.representative,
@@ -701,22 +744,32 @@ fn on_hyperplane(
 /// Whether sites `a` and `b` span an edge of the polytope whose facets are
 /// `facets` and which has `count` sites: in a simplex every pair does;
 /// otherwise the intersection of the facets holding both is exactly the
-/// pair.
-fn is_edge(d: usize, count: usize, facets: &[(Vec<u32>, bool)], a: u32, b: u32) -> bool {
+/// pair. `meet` is scratch, reused from one call to the next.
+fn is_edge(
+    d: usize,
+    count: usize,
+    facets: &Lists<u32>,
+    a: u32,
+    b: u32,
+    meet: &mut Vec<u32>,
+) -> bool {
     if count == d + 1 {
         return true;
     }
-    let mut meet: Option<Vec<u32>> = None;
-    for (facet, _) in facets {
+    let mut first = true;
+    meet.clear();
+    for facet in facets.iter() {
         if !(facet.contains(&a) && facet.contains(&b)) {
             continue;
         }
-        meet = Some(match meet {
-            None => facet.clone(),
-            Some(m) => m.into_iter().filter(|s| facet.contains(s)).collect(),
-        });
+        if first {
+            meet.extend_from_slice(facet);
+            first = false;
+        } else {
+            meet.retain(|s| facet.contains(s));
+        }
     }
-    meet.is_some_and(|m| m == [a, b])
+    !first && meet.as_slice() == [a, b]
 }
 
 /// The cell of `site` when `site` is a representative. A group's sites and a
@@ -731,53 +784,131 @@ fn cell_index(cell_of: &[u32], site: u32) -> Option<usize> {
     cell.filter(|&c| c != u32::MAX).map(|c| c as usize)
 }
 
-/// The circumcenter of the lexicographically minimum cell with a finite
-/// one, trying `cells`, which come in that order (design §8).
+/// Appends to `coords` the circumcenter of the lexicographically minimum
+/// cell with a finite one, trying `cells`, which come in that order
+/// (design §8).
 fn vertex_coords_of<'p>(
-    d: usize,
     point: &impl Fn(u32) -> &'p [f64],
     cells: impl Iterator<Item = &'p [u32]>,
-) -> Result<Vec<f64>, ConvexHullError> {
+    circumcenters: &mut Circumcenters,
+    coords: &mut Vec<f64>,
+) -> Result<(), ConvexHullError> {
     for cell in cells {
-        if let Some(center) = circumcenter(d, point, cell) {
-            return Ok(center);
+        if circumcenters.compute(point, cell) {
+            coords.extend_from_slice(&circumcenters.center);
+            return Ok(());
         }
     }
     Err(ConvexHullError::NonFiniteCircumcenter)
 }
 
-/// The circumcenter of the D + 1 sites `cell`, with the first site moved to
-/// the origin: `2 (v_i - v_0) . x = |v_i - v_0|^2`, solved by Householder QR,
-/// then `v_0 + x`. The translated edges are first scaled by the power of two
-/// that brings their width into [1, 2), and the solution scaled back, both
-/// exactly, so squares of large or tiny edges do not overflow or underflow.
-/// `None` when any value is not finite.
-fn circumcenter<'p>(d: usize, point: &impl Fn(u32) -> &'p [f64], cell: &[u32]) -> Option<Vec<f64>> {
-    let origin = point(cell[0]);
-    let edges: Vec<Vec<f64>> = cell[1..]
-        .iter()
-        .map(|&v| point(v).iter().zip(origin).map(|(x, o)| x - o).collect())
-        .collect();
-    let width = edges
-        .iter()
-        .flatten()
-        .map(|x| x.abs())
-        .fold(0.0_f64, f64::max);
-    if !width.is_finite() || width == 0.0 {
-        return None;
+/// What the circumcenter of a cell needs, kept from one vertex to the next
+/// so that a vertex allocates nothing (#523). The factorization is the one
+/// `Mat::qr` and its `solve_in_place` run, through the same functions with
+/// the same block size and parallelism, so each coordinate keeps its bits.
+struct Circumcenters {
+    d: usize,
+    /// The translated and scaled edges, row by row.
+    scaled: Vec<f64>,
+    /// `2 (v_i - v_0)`, factored in place.
+    a: Mat<f64>,
+    basis: Mat<f64>,
+    r: Mat<f64>,
+    coeff: Mat<f64>,
+    rhs: Mat<f64>,
+    work: MemBuffer,
+    par: Par,
+    /// The last circumcenter computed.
+    center: Vec<f64>,
+}
+
+impl Circumcenters {
+    fn new(d: usize) -> Self {
+        let block = qr::factor::recommended_block_size::<f64>(d, d);
+        let par = get_global_parallelism();
+        let need = qr::factor::qr_in_place_scratch::<f64>(d, d, block, par, Default::default())
+            .or(qr::solve::solve_in_place_scratch::<f64>(d, block, 1, par));
+        Self {
+            d,
+            scaled: vec![0.0; d * d],
+            a: Mat::zeros(d, d),
+            basis: Mat::zeros(d, d),
+            r: Mat::zeros(d, d),
+            coeff: Mat::zeros(block, d),
+            rhs: Mat::zeros(d, 1),
+            work: MemBuffer::new(need),
+            par,
+            center: vec![0.0; d],
+        }
     }
-    let shift = -binary_exponent(width);
-    let scaled: Vec<Vec<f64>> = edges
-        .iter()
-        .map(|e| e.iter().map(|&x| scale_by_power_of_two(x, shift)).collect())
-        .collect();
-    let a = Mat::from_fn(d, d, |i, j| 2.0 * scaled[i][j]);
-    let mut rhs = Mat::from_fn(d, 1, |i, _| scaled[i].iter().map(|x| x * x).sum::<f64>());
-    a.qr().solve_in_place(&mut rhs);
-    let center: Vec<f64> = (0..d)
-        .map(|i| origin[i] + scale_by_power_of_two(rhs[(i, 0)], -shift))
-        .collect();
-    center.iter().all(|x| x.is_finite()).then_some(center)
+
+    /// The circumcenter of the D + 1 sites `cell` into `self.center`, with
+    /// the first site moved to the origin: `2 (v_i - v_0) . x =
+    /// |v_i - v_0|^2`, solved by Householder QR, then `v_0 + x`. The
+    /// translated edges are first scaled by the power of two that brings
+    /// their width into [1, 2), and the solution scaled back, both exactly,
+    /// so squares of large or tiny edges do not overflow or underflow.
+    /// `false` when any value is not finite.
+    fn compute<'p>(&mut self, point: &impl Fn(u32) -> &'p [f64], cell: &[u32]) -> bool {
+        let d = self.d;
+        let origin = point(cell[0]);
+        for (i, &v) in cell[1..].iter().enumerate() {
+            for (j, (x, o)) in point(v).iter().zip(origin).enumerate() {
+                self.scaled[i * d + j] = x - o;
+            }
+        }
+        let width = self.scaled.iter().map(|x| x.abs()).fold(0.0_f64, f64::max);
+        if !width.is_finite() || width == 0.0 {
+            return false;
+        }
+        let shift = -binary_exponent(width);
+        for x in &mut self.scaled {
+            *x = scale_by_power_of_two(*x, shift);
+        }
+        let scaled = &self.scaled;
+        for i in 0..d {
+            for j in 0..d {
+                self.a[(i, j)] = 2.0 * scaled[i * d + j];
+            }
+            self.rhs[(i, 0)] = scaled[i * d..(i + 1) * d]
+                .iter()
+                .map(|x| x * x)
+                .sum::<f64>();
+        }
+        // `Qr::new`: factor a copy in place, with zeroed coefficients, then
+        // split it into the Householder basis (unit lower) and R (upper).
+        self.coeff.fill(0.0);
+        qr::factor::qr_in_place(
+            self.a.as_mut(),
+            self.coeff.as_mut(),
+            self.par,
+            MemStack::new(&mut self.work),
+            Default::default(),
+        );
+        self.r.fill(0.0);
+        self.r.copy_from_triangular_upper(self.a.as_ref());
+        self.basis.copy_from(self.a.as_ref());
+        for j in 0..d {
+            for i in 0..j {
+                self.basis[(i, j)] = 0.0;
+            }
+            self.basis[(j, j)] = 1.0;
+        }
+        // `solve_in_place`.
+        qr::solve::solve_in_place_with_conj(
+            self.basis.as_ref(),
+            self.coeff.as_ref(),
+            self.r.as_ref(),
+            Conj::No,
+            self.rhs.as_mut(),
+            self.par,
+            MemStack::new(&mut self.work),
+        );
+        for (i, (c, o)) in self.center.iter_mut().zip(origin).enumerate() {
+            *c = o + scale_by_power_of_two(self.rhs[(i, 0)], -shift);
+        }
+        self.center.iter().all(|x| x.is_finite())
+    }
 }
 
 #[cfg(test)]
