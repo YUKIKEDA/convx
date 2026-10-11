@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Amended on 2026-10-10: a set is met within 5% of each judged reference. Amended on 2026-10-11: CGAL's Delaunay reference gives the same output as convx (Amendments below).
+Accepted. Amended on 2026-10-10: a set is met within 5% of each judged reference. Amended on 2026-10-11: CGAL's Delaunay reference, and its D = 2 hull reference, give the same output as convx (Amendments below).
 
 ## Date
 
@@ -116,3 +116,26 @@ For D = 2 and 3 these are `Delaunay_triangulation_2` and `_3` with their `with_i
 **What is reported.** Each parity section judges against the reference with the same output. It also reports, beside it, the ratio to CGAL's construction from the points: the change moves the judgement in convx's favour, and both numbers stay visible.
 
 **What it does not change.** The hull's references, Qhull, the sets, and the method. Whether the hull's references give the same output is the spike P7-51 (#456).
+
+## Amendment of 2026-10-11: the hull's references and the same output
+
+Issue: #456, the spike P7-51. Decided by the owner on 2026-10-11, in the Grill on #456.
+
+**What changes.** CGAL's D = 2 hull reference gives the hull's vertices as input indices. `convex_hull_2` runs on the input indices through `Convex_hull_traits_adapter_2`, instead of on copies of the points. Neither form lists the coplanar and interior points, which convx publishes; CGAL has no operation that does, and that part is left out of the reference.
+
+**What stands, and why.**
+
+- **Qhull.** Its compute holds the merged facets, their vertices and neighbors, and the coplanar points. Keeping the coplanar points (`Qc`) read as the default. Of what convx publishes in `build()`, it lacks only the interior list, which is one pass over the points.
+- **CGAL for D >= 3.** `convex_hull_3` into a `Surface_mesh`, and `CGAL::Triangulation` for D >= 4, do not give merged facets or input indices. No set of P7 not met has CGAL as its larger ratio there: Qhull decides `sphere` D3 and `cubesurf` D3, and the hull sets of D >= 4 are met.
+
+**Measured** (pinned, medians of 3, under WSL2; `docs/bench.md`):
+
+| Set | From the points | As input indices |
+| --- | ---: | ---: |
+| `cube` D2 10^5 | 4.5 ms | 5.6 ms |
+| `cube` D2 10^6 | 43 ms | 68 ms |
+| `sphere` D2 10^4 | 0.69 ms | 0.77 ms |
+| `sphere` D2 10^5 | 8.0 ms | 10.1 ms |
+| `sphere` D2 10^6 | 93 ms | 157 ms |
+
+**What is reported.** As for Delaunay, each parity section also gives the ratio to the D = 2 reference from the points.
