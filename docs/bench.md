@@ -4169,3 +4169,40 @@ Every set published the same counts on both sides.
   - Hull `cube` D2 10^5 and `sphere` D2 10^4, which the change does not reach, read 1.05 and 1.04 in the first run and 1.00 in the second.
   - Delaunay `cube` D4 10^4, which it does not reach either, read 1.03 and 1.04, and 1.02 with one codegen unit.
 - What remains of `cubesurf` is construction (45%) and the rest of classification.
+
+## Delaunay: deciding the faces left unknown at linking, prototype, PR #473 (#469)
+
+P7-56, from the Grill on #467. The pass after the Delaunay insertion tests each face left unknown by one orientation of F, the D + 1 sites other than the newest (P7-48, #452). Those tests read the neighbor's vertices at random (#459). The prototype decided F's dependence instead when the cavity insertion links two new simplices, and recorded an independent face, so that the pass reads nothing more of it.
+
+### The prototype
+
+A copy of `main` (`2d2ee4f`), not committed, for D >= 3:
+
+- In `link_by_keys` (D = 3) and in the turn around ridges (D >= 4), a link between two new simplices from different cavity simplices takes the orientation of F there.
+- A face whose F is independent is recorded `Independent`, and the pass after the insertion treats it as not cospherical without reading the neighbor.
+- Every test passed, and the test-only switch that tests every face left unknown by the lifted orientation compared the same.
+
+Timed against `main`, pinned and alternated: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second. Every set published the same counts on both sides.
+
+| Set | `main` | At linking | Ratio |
+| --- | ---: | ---: | ---: |
+| Delaunay `cube` D2 10^4 | 6.16 ms (5.58 ms–6.77 ms) | 6.08 ms (5.68 ms–8.66 ms) | 0.99, inside the spread |
+| Delaunay `cube` D2 10^5 | 60.5 ms (55.7 ms–75.9 ms) | 59.9 ms (55.0 ms–67.2 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D2 10^4 | 5.61 ms (5.46 ms–6.13 ms) | 5.72 ms (5.48 ms–6.32 ms) | 1.02, inside the spread |
+| Delaunay `sphere` D2 10^5 | 45.2 ms (44.1 ms–48.5 ms) | 45.6 ms (44.2 ms–50.9 ms) | 1.01, inside the spread |
+| Delaunay `cube` D3 10^4 | 37.7 ms (36.1 ms–43.9 ms) | 38.5 ms (37.0 ms–44.8 ms) | 1.02, inside the spread |
+| Delaunay `cube` D3 10^5 | 393 ms (384 ms–450 ms) | 398 ms (390 ms–414 ms) | 1.01, inside the spread |
+| Delaunay `cube` D3 10^6 | 4.11 s (4.08 s–4.36 s) | 4.17 s (4.04 s–4.26 s) | 1.02, inside the spread |
+| Delaunay `sphere` D3 10^4 | 79.3 ms (78.4 ms–85.1 ms) | 81.1 ms (78.8 ms–84.6 ms) | 1.02, inside the spread |
+| Delaunay `sphere` D3 10^5 | 764 ms (756 ms–772 ms) | 769 ms (765 ms–770 ms) | 1.01, inside the spread |
+| Delaunay `cube` D4 10^4 | 637 ms (623 ms–651 ms) | 768 ms (760 ms–796 ms) | 1.21, slower beyond the spread |
+| Delaunay `sphere` D4 10^4 | 995 ms (981 ms–1.03 s) | 1.06 s (1.04 s–1.07 s) | 1.06, slower beyond the spread |
+| Delaunay `cube` D5 10^4 | 7.40 s (7.39 s–7.59 s) | 9.70 s (9.53 s–9.80 s) | 1.31, slower beyond the spread |
+
+### Reading
+
+- **Slower, not faster.**
+  - `cube` D4 10^4 reads 1.21 and `cube` D5 10^4 1.31, slower beyond the spread;
+  - `cube` D3 reads 1.01 to 1.02, and D2, which the change does not reach, 0.99 to 1.02.
+- **The linking sees about five times the faces the pass tests.** Most links are undone by later insertions: 2,722,510 links against 506,576 faces tested on `cube` D3 10^5 (#452). An orientation on data just read costs about what the pass saved, in D3. In D4 and D5 each orientation is the larger formula, and the extra ones cost more than the random reads.
+- **No feature row follows from this prototype.** As the Grill on #467 decided, a pass after the insertion dedicated to D2 and D3 (ADR 0008) goes to a Grill.
