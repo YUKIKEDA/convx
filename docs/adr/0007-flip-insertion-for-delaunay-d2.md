@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. Amended by ADR 0008 (2026-10-10): D = 2 and D = 3 may have dedicated paths, the pass after the insertion and publication included.
 
 ## Date
 

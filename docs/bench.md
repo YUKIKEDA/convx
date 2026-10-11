@@ -3496,3 +3496,83 @@ In D4 and D5 those tests are about 10% of `build()`, about the whole gap to CGAL
   - P7-45 (#446): the fixed-size entry, with the wrappers and the walk of ADR 0007 (prototype 2), and ADR 0008 for dedicated D = 2 and D = 3 paths;
   - P7-46 (#447): the first stage's bound, prototyped on top of it;
   - P7-47 (#448): a proof that decides the faces left unknown without a test, grilled before any row.
+
+## Delaunay D2 and D3: the predicates on fixed-size rows, PR #449 (#446)
+
+P7-45, the first dedicated path of ADR 0008. The spike P7-44 (#445) found that the fixed shapes `Plane` and `Space` reached the first-stage formulas through the generic `semi_static::sign`, on slices: about 127 instructions per orientation against about 18 in CGAL. It also found that the walk tested the face it came through.
+
+### The change
+
+- **The entry:** `Plane` and `Space` read each site as an array of D coordinates (`Sites::fixed`) and call the formula through `first_stage_fixed`, an inlined entry on arrays. The generic `first_stage` had no other caller and is removed.
+- **The wrappers:** `sphere_sign` and `replaced` move into `Shape`. `Plane` and `Space` build the ids of a predicate in arrays of 3, 4, or 5; `Any` keeps its buffer on the stack.
+- **The walk (ADR 0007):** `locate` skips the face to the simplex it came from. That orientation is not negative, so the walk takes the same steps. Debug builds check it on every skip.
+- **Checks:**
+  - debug builds compare every fixed-size sign with the generic one, as before;
+  - a test compares `fixed_sign` with the generic entry, and each certified sign with the exact one. It covers D = 2 and 3, plain and lifted, on random points, points one ulp from an exact zero, and points scaled from 2^-60 to 2^60;
+  - swapping two rows in `fixed_sign` makes that test fail.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `03d7247` against the head `754b878`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
+| Timed | `build()` alone, generated with `tests/common/generator.rs`, seed 1; the counts are read after the timer stops |
+| Sets | The shorter run of `docs/verification.md`, with Delaunay `cube` D3 10^6 |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second. A second run of hull D2, 20 × 3 |
+
+Every set published the same counts on both sides.
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.56 ms (0.50 ms–0.75 ms) | 0.57 ms (0.49 ms–0.68 ms) | 1.03, inside the spread |
+| Hull `cube` D2 10^5 | 5.06 ms (4.51 ms–6.46 ms) | 5.28 ms (4.80 ms–6.37 ms) | 1.04, inside the spread |
+| Hull `sphere` D2 10^4 | 1.17 ms (1.09 ms–1.40 ms) | 1.22 ms (1.11 ms–1.50 ms) | 1.05, inside the spread |
+| Hull `sphere` D2 10^5 | 12.4 ms (11.1 ms–17.0 ms) | 12.6 ms (11.3 ms–14.8 ms) | 1.02, inside the spread |
+| Hull `cube` D3 10^4 | 1.47 ms (1.28 ms–7.38 ms) | 1.49 ms (1.24 ms–3.36 ms) | 1.02, inside the spread |
+| Hull `cube` D3 10^5 | 12.8 ms (11.4 ms–14.8 ms) | 12.7 ms (11.2 ms–14.3 ms) | 0.99, inside the spread |
+| Hull `cubesurf` D3 10^5 | 64.4 ms (61.5 ms–70.0 ms) | 65.5 ms (61.2 ms–68.1 ms) | 1.02, inside the spread |
+| Hull `sphere` D3 10^4 | 23.2 ms (21.3 ms–35.1 ms) | 23.4 ms (21.5 ms–39.3 ms) | 1.01, inside the spread |
+| Hull `sphere` D3 10^5 | 279 ms (270 ms–297 ms) | 285 ms (272 ms–341 ms) | 1.02, inside the spread |
+| Hull `cube` D4 10^4 | 5.92 ms (5.24 ms–7.09 ms) | 5.92 ms (5.31 ms–6.83 ms) | 1.00, inside the spread |
+| Hull `cube` D4 10^5 | 35.8 ms (33.2 ms–39.4 ms) | 36.3 ms (34.2 ms–41.1 ms) | 1.01, inside the spread |
+| Hull `sphere` D4 10^4 | 101 ms (97.6 ms–105 ms) | 102 ms (97.8 ms–114 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^5 | 1.29 s (1.28 s–1.35 s) | 1.28 s (1.27 s–1.31 s) | 0.99, inside the spread |
+| Hull `cube` D5 10^4 | 59.6 ms (55.0 ms–64.2 ms) | 59.6 ms (57.0 ms–64.5 ms) | 1.00, inside the spread |
+| Hull `sphere` D5 10^4 | 887 ms (864 ms–919 ms) | 886 ms (867 ms–995 ms) | 1.00, inside the spread |
+| Hull `cube` D6 10^4 | 617 ms (602 ms–654 ms) | 617 ms (595 ms–647 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^4 | 6.62 ms (6.31 ms–8.83 ms) | 5.84 ms (5.48 ms–6.94 ms) | 0.88, inside the spread |
+| Delaunay `cube` D2 10^5 | 70.3 ms (67.9 ms–76.6 ms) | 60.4 ms (56.2 ms–66.2 ms) | 0.86, faster beyond the spread |
+| Delaunay `cube` D2 10^6 | 741 ms (727 ms–813 ms) | 661 ms (628 ms–696 ms) | 0.89, faster beyond the spread |
+| Delaunay `sphere` D2 10^4 | 6.59 ms (6.25 ms–7.93 ms) | 5.80 ms (5.55 ms–6.85 ms) | 0.88, inside the spread |
+| Delaunay `sphere` D2 10^5 | 56.6 ms (53.2 ms–59.9 ms) | 49.1 ms (47.2 ms–52.1 ms) | 0.87, faster beyond the spread |
+| Delaunay `sphere` D2 10^6 | 571 ms (563 ms–589 ms) | 488 ms (477 ms–493 ms) | 0.86, faster beyond the spread |
+| Delaunay `cube` D3 10^4 | 44.0 ms (41.3 ms–47.2 ms) | 38.7 ms (37.5 ms–41.9 ms) | 0.88, inside the spread |
+| Delaunay `cube` D3 10^5 | 465 ms (443 ms–486 ms) | 418 ms (399 ms–440 ms) | 0.90, faster beyond the spread |
+| Delaunay `cube` D3 10^6 | 4.93 s (4.90 s–4.99 s) | 4.46 s (4.43 s–4.52 s) | 0.90, faster beyond the spread |
+| Delaunay `sphere` D3 10^4 | 93.2 ms (89.2 ms–104 ms) | 89.4 ms (85.2 ms–94.4 ms) | 0.96, inside the spread |
+| Delaunay `sphere` D3 10^5 | 921 ms (912 ms–938 ms) | 886 ms (873 ms–889 ms) | 0.96, faster beyond the spread |
+| Delaunay `cube` D4 10^4 | 757 ms (728 ms–813 ms) | 741 ms (715 ms–826 ms) | 0.98, inside the spread |
+| Delaunay `cube` D5 10^4 | 8.58 s (8.46 s–8.76 s) | 8.71 s (8.54 s–8.81 s) | 1.02, inside the spread |
+
+### Hull D2
+
+The change does not reach the hull. Hull `cube` D2 read 1.03 and 1.04 in both runs, inside the spread; `sphere` D2 read 1.00 to 1.05. As `bench.mdc` asks for a path the change does not reach, two checks, 20 × 3:
+
+- **`main` against itself:** hull `cube` D2 10^4 0.97 and 10^5 0.96. These sets differ by 3 to 4% between identical builds in this harness.
+- **Both sides built with one codegen unit:**
+  - hull `cube` D2 10^4 1.01 and 10^5 1.02;
+  - Delaunay `cube` D2 10^5 0.87 and `cube` D3 10^4 0.90, the gain unchanged.
+
+### Reading
+
+- **The keep criterion is met.**
+  - Delaunay D2 at 10^6 reads 0.89 (`cube`) and 0.86 (`sphere`), faster beyond the spread.
+  - `cube` D3 10^5 reads 0.90, faster beyond the spread, and `cube` D3 10^6 0.90.
+- **Every D2 set reads 0.86 to 0.89, and `cube` D3 0.88 to 0.90.** That is a little more than prototype 2 of #445 (0.88 to 0.89 and 0.92), which built its entry from the same formulas.
+- **`sphere` D3 reads 0.96.** Its in-sphere tests reach the exact stage more often (#301), and that stage did not change.
+- **D4 and D5 read 0.98 and 1.02, inside the spread.** They take the generic path.
+- **Nothing is slower beyond the spread.** Hull D2's 1.03 to 1.04 is within what identical builds differ by, and reads 1.01 to 1.02 with one codegen unit.
+- On the parity ratios of #438, this is about 1.35 for `cube` D2 10^5 and for `cube` D3 10^5. The first stage's bound (P7-46, #447) and the faces the insertion leaves unknown (P7-47, #448) follow.
