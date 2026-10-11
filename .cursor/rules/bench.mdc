@@ -77,6 +77,8 @@ A saving is predicted from a time profile (VTune, or phase timers), not from a s
 - in #475 the D2 tests were read at about 11% and saved 2 to 5%;
 - in #478 a sort was 23% of instructions, and a radix sort read 1.02 to 1.03.
 
+A prototype on a path whose cost grows with the input is timed at the largest size of its family before it is withdrawn. P7-34's fast path for the merge read 1 to 2% on hull `sphere` D3 10^5 and was withdrawn (#471). By time it was about 4.4% at 10^6, and the same change read 0.94 there (#486).
+
 A recursive function is read by its own cost. callgrind's inclusive cost of a recursive function counts the recursion again at each level. In #471 the inclusive cost of `quicksort` read 23% of `cubesurf` D3, where all sorts together cost about 6%.
 
 Before a row chases a gap to a reference, check that the reference's timed section produces what convx's `build()` publishes (ADR 0006: "the same output"). From #215 to #455, CGAL's Delaunay reference timed the construction from the points and wrote nothing. Producing convx's output took it 9 to 45% longer (#459), and part of the gap several rows chased was the reference's.
