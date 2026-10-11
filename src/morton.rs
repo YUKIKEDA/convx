@@ -1,7 +1,7 @@
 //! Morton codes: the bits of grid coordinates interleaved, so that sorting by
 //! the code visits nearby points together. Delaunay orders its insertion by
 //! them (BRIO, #423); the hull of D = 3 orders its copy of the points by them
-//! (ADR 0009, #488).
+//! (ADR 0009, #489).
 
 /// The low 32 bits of `x` spread to the even bit positions.
 pub(crate) fn spread2(x: u64) -> u64 {

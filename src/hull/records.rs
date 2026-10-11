@@ -38,7 +38,7 @@ impl Records {
 
     /// Whether no point has a record.
     /// The record with each point `p` renamed `label[p]`, over `points`
-    /// points (ADR 0009, #488).
+    /// points (ADR 0009, #489).
     pub(crate) fn relabeled(self, label: &[u32], points: usize) -> Self {
         if self.starts.is_empty() {
             return Self {

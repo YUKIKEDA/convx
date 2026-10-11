@@ -132,7 +132,7 @@ impl<'a> SimplicialHull<'a> {
     }
 
     /// [`Self::build`] of D = 3 on a copy of the representatives in Morton
-    /// order (ADR 0009, #488). In the input's order, a large input's outside
+    /// order (ADR 0009, #489). In the input's order, a large input's outside
     /// sets read coordinates scattered over the whole input, and construction
     /// waited on memory. The copy's points carry consecutive labels; the
     /// built hull is renamed back to the input's indices, so classification
@@ -1523,7 +1523,7 @@ fn clearly_inside(edges: &[[[f64; 2]; 2]], point: &[f64]) -> bool {
 /// every bit is flipped, otherwise only the sign bit. The two give the
 /// order of the signed integer `total_cmp` compares, shifted to unsigned.
 /// From this many representatives, D = 3 builds on a copy in space order
-/// (ADR 0009, #488).
+/// (ADR 0009, #489).
 const SPACE_ORDER_FROM: usize = 1 << 16;
 
 /// [`SPACE_ORDER_FROM`], or a test's override on this thread.
@@ -1629,7 +1629,7 @@ pub(crate) mod tests {
     }
 
     /// Construction on a copy in space order publishes what construction in
-    /// the input's order does (ADR 0009, #488), on general and degenerate
+    /// the input's order does (ADR 0009, #489), on general and degenerate
     /// inputs of D = 3: random points in a cube and near a sphere, integer
     /// grids with duplicates, points on the faces of a cube, and two
     /// clusters of near-duplicates.

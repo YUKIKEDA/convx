@@ -23,7 +23,7 @@ impl<'a> Input<'a> {
     /// The input of the points `points` (dimension `dim`), all distinct and
     /// each its own representative, with the affine basis `spanning_points`:
     /// the copy in space order that construction of D = 3 runs on (ADR 0009,
-    /// #488).
+    /// #489).
     pub(crate) fn relabeled(dim: usize, points: &'a [f64], spanning_points: Vec<u32>) -> Self {
         let ids: Vec<u32> = (0..(points.len() / dim) as u32).collect();
         Self {
