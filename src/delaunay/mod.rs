@@ -748,7 +748,7 @@ fn inserted<S: insert::Shape>(
             );
             group.sort_unstable();
             group.dedup();
-            let (len, split) = placing.run(d, point, &group)?;
+            let (len, split) = placing.run(d, Some(d), point, &group)?;
             debug_assert_eq!(
                 len, k,
                 "a lower facet projects onto a full-dimensional region"
