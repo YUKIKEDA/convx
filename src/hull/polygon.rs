@@ -188,17 +188,53 @@ pub(crate) fn strict_cycle_of_sorted(
             [p[0], p[1]]
         })
         .collect();
-    // The chains hold positions in `sorted`.
-    let mut lower: Vec<u32> = Vec::new();
-    for at in 0..sorted.len() as u32 {
+    let n = sorted.len();
+    if n < 3 {
+        return Ok(sorted);
+    }
+    // As Akl–Toussaint's algorithm does, the points strictly below the line
+    // from the first point to the last go to the lower chain, those strictly
+    // above to the upper chain, and those on it to neither: a point on that
+    // segment is no strict extreme. Each point is scanned once, where a
+    // chain over every point scanned each twice (#515).
+    let last = n as u32 - 1;
+    let mut below: Vec<u32> = Vec::with_capacity(n / 2 + 2);
+    let mut above: Vec<u32> = Vec::with_capacity(n / 2 + 2);
+    below.push(0);
+    above.push(last);
+    for at in 1..last {
+        let (a, b, c) = (0, last as usize, at as usize);
+        let sign = match orient2_filter(&xy[a], &xy[b], &xy[c]) {
+            Some(sign) => {
+                #[cfg(debug_assertions)]
+                debug_assert_eq!(sign, rows.orient([sorted[a], sorted[b], sorted[c]])?);
+                sign
+            }
+            None => rows.orient([sorted[a], sorted[b], sorted[c]])?,
+        };
+        match sign {
+            Sign::Negative => below.push(at),
+            Sign::Positive => above.push(at),
+            Sign::Zero => {}
+        }
+    }
+    below.push(last);
+    above.push(0);
+    // The chains hold positions in `sorted`; the upper one runs from the
+    // last point back to the first.
+    let mut lower: Vec<u32> = Vec::with_capacity(below.len());
+    for &at in &below {
         pop_until_left(rows, &sorted, &xy, &mut lower, at)?;
         lower.push(at);
     }
-    let mut upper: Vec<u32> = Vec::new();
-    for at in (0..sorted.len() as u32).rev() {
+    let mut upper: Vec<u32> = Vec::with_capacity(above.len());
+    upper.push(last);
+    for &at in above[1..above.len() - 1].iter().rev() {
         pop_until_left(rows, &sorted, &xy, &mut upper, at)?;
         upper.push(at);
     }
+    pop_until_left(rows, &sorted, &xy, &mut upper, 0)?;
+    upper.push(0);
     let upper_middle = upper.len().saturating_sub(2);
     Ok(lower
         .into_iter()
@@ -251,6 +287,77 @@ fn total_key(x: f64) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// The chain before #515: a lower and an upper chain over every point.
+    fn two_passes(rows: Rows<'_>, sorted: &[u32]) -> Vec<u32> {
+        let xy: Vec<[f64; 2]> = sorted
+            .iter()
+            .map(|&i| {
+                let p = rows.point(i);
+                [p[0], p[1]]
+            })
+            .collect();
+        let mut lower: Vec<u32> = Vec::new();
+        for at in 0..sorted.len() as u32 {
+            pop_until_left(rows, sorted, &xy, &mut lower, at).unwrap();
+            lower.push(at);
+        }
+        let mut upper: Vec<u32> = Vec::new();
+        for at in (0..sorted.len() as u32).rev() {
+            pop_until_left(rows, sorted, &xy, &mut upper, at).unwrap();
+            upper.push(at);
+        }
+        let upper_middle = upper.len().saturating_sub(2);
+        lower
+            .into_iter()
+            .chain(upper.into_iter().skip(1).take(upper_middle))
+            .map(|at| sorted[at as usize])
+            .collect()
+    }
+
+    /// The chain on the two halves is the chain over every point twice, on
+    /// random points, small grids (many collinear points), points on a
+    /// circle, and points on one line.
+    #[test]
+    fn the_halves_give_the_cycle_of_two_passes() {
+        let mut state = 515_u64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let mut cases: Vec<Vec<f64>> = Vec::new();
+        for n in [1, 2, 3, 4, 10, 200] {
+            cases.push((0..2 * n).map(|_| (next() % 1000) as f64 / 7.0).collect());
+            cases.push((0..2 * n).map(|_| (next() % 4) as f64).collect());
+            cases.push(
+                (0..n)
+                    .flat_map(|i| {
+                        let t = i as f64 / n as f64 * core::f64::consts::TAU;
+                        [t.cos(), t.sin()]
+                    })
+                    .collect(),
+            );
+            cases.push((0..n).flat_map(|i| [i as f64, 2.0 * i as f64]).collect());
+        }
+        let mut compared = 0;
+        for points in &cases {
+            let rows = Rows(points);
+            let count = points.len() as u32 / 2;
+            let mut sorted = sorted_by_coordinates(rows, (0..count).collect());
+            sorted
+                .dedup_by(|a, b| coordinate_key(rows.point(*a)) == coordinate_key(rows.point(*b)));
+            assert_eq!(
+                strict_cycle_of_sorted(rows, sorted.clone()).unwrap(),
+                two_passes(rows, &sorted),
+                "{points:?}"
+            );
+            compared += 1;
+        }
+        assert_eq!(compared, 24);
+    }
     /// `total_key` orders values as `f64::total_cmp` does, the order the
     /// chain's sort keeps (#322): signed zeros, subnormals, the ends of the
     /// finite range, and random values of both signs, pairwise.
