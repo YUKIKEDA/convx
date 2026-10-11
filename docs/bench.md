@@ -5015,3 +5015,83 @@ For D = 3, classification builds a polygon per start group, from the group's ver
 - **Hull `cubesurf` D3 10^5 reads 0.70, faster beyond the spread,** on Windows and under WSL alike. Against Qhull it goes from 1.51 to 1.06 under WSL, just outside 1.05. Against CGAL (1.19 in the parity run of #499), it would be about 0.84.
 - **Nothing else is slower beyond the spread.** Hull `cube` D2 reads 1.04 to 1.05, inside the spread. The change does not reach D = 2, and P7-67's runs put that set at 0.99 to 1.02.
 - **The next rows of the Grill on #503** address construction: the zero tests (15.3% of the build before this change) and the sort of `u32` lists (7.5%).
+
+## Predicates: the first stage skips its bound for an exactly zero determinant, PR #507 (#506)
+
+### The change (P7-70)
+
+The spike P7-68 (#503) found the zero side tests of hull `cubesurf` D3 10^5 at 15.3% of the build, half of it in the first stage's underflow path. The points lie exactly on axis-aligned faces, so a zero test's permanent is 0, and the bound took the form `s + 4 η X`, a product with a subnormal factor (about 28 ns, #311). A determinant that is exactly zero is never certified, since the bound is never negative. `has_zero_column` then decided the sign right after the first stage.
+
+`Estimate` now keeps what its bound is computed from, and `sign` returns no sign for a determinant that is exactly zero before it computes the bound. Every sign is the same. The module docs of `semi_static` say why. This is the cheaper zero certificate of the Grill on #503: the certificate existed already, and the cost was the first stage before it.
+
+**Checks:** every test passes in debug, in release, and under WSL. Returning `Zero` for an exactly zero determinant fails four tests, through the debug comparison with the exact sign.
+
+### Against `main`
+
+`main` at `839505b` against `cf3cd60`, pinned and alternated, the shorter run: 10 rounds × 3 builds, 5 × 1 for the sets over about half a second. Every set published the same counts on both sides. The machine was noisier than in earlier runs.
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.58 ms (0.48 ms–1.15 ms) | 0.57 ms (0.49 ms–0.84 ms) | 0.99, inside the spread |
+| Hull `cube` D2 10^5 | 5.09 ms (4.54 ms–9.41 ms) | 5.21 ms (4.63 ms–6.88 ms) | 1.02, inside the spread |
+| Hull `sphere` D2 10^4 | 1.15 ms (1.06 ms–1.62 ms) | 1.16 ms (1.02 ms–3.28 ms) | 1.01, inside the spread |
+| Hull `sphere` D2 10^5 | 11.3 ms (9.99 ms–14.0 ms) | 11.5 ms (9.95 ms–13.0 ms) | 1.01, inside the spread |
+| Hull `cube` D3 10^4 | 1.54 ms (1.36 ms–2.24 ms) | 1.50 ms (1.35 ms–3.01 ms) | 0.97, inside the spread |
+| Hull `cube` D3 10^5 | 12.5 ms (11.1 ms–15.1 ms) | 12.6 ms (11.0 ms–21.4 ms) | 1.01, inside the spread |
+| Hull `cube` D3 10^6 | 154 ms (150 ms–161 ms) | 154 ms (151 ms–173 ms) | 1.01, inside the spread |
+| Hull `cubesurf` D3 10^5 | 52.7 ms (48.5 ms–72.3 ms) | 48.9 ms (44.5 ms–53.1 ms) | 0.93, inside the spread |
+| Hull `sphere` D3 10^4 | 22.2 ms (20.6 ms–25.2 ms) | 23.3 ms (20.3 ms–31.4 ms) | 1.05, inside the spread |
+| Hull `sphere` D3 10^5 | 273 ms (258 ms–307 ms) | 275 ms (260 ms–298 ms) | 1.01, inside the spread |
+| Hull `sphere` D3 10^6 | 3.74 s (3.69 s–4.08 s) | 3.74 s (3.71 s–3.76 s) | 1.00, inside the spread |
+| Hull `cube` D4 10^4 | 5.67 ms (5.26 ms–7.26 ms) | 5.74 ms (5.23 ms–6.97 ms) | 1.01, inside the spread |
+| Hull `cube` D4 10^5 | 36.0 ms (33.1 ms–37.7 ms) | 36.0 ms (33.3 ms–41.5 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^4 | 97.5 ms (91.0 ms–109 ms) | 97.6 ms (92.7 ms–112 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^5 | 1.26 s (1.24 s–1.39 s) | 1.27 s (1.23 s–1.36 s) | 1.01, inside the spread |
+| Hull `cube` D5 10^4 | 59.2 ms (54.4 ms–64.1 ms) | 58.3 ms (56.5 ms–63.5 ms) | 0.98, inside the spread |
+| Hull `sphere` D5 10^4 | 870 ms (844 ms–1.01 s) | 867 ms (834 ms–983 ms) | 1.00, inside the spread |
+| Hull `cube` D6 10^4 | 599 ms (588 ms–627 ms) | 603 ms (587 ms–638 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^4 | 6.00 ms (5.34 ms–6.66 ms) | 5.84 ms (5.23 ms–8.08 ms) | 0.97, inside the spread |
+| Delaunay `cube` D2 10^5 | 59.0 ms (55.7 ms–62.4 ms) | 57.8 ms (54.7 ms–64.7 ms) | 0.98, inside the spread |
+| Delaunay `cube` D2 10^6 | 636 ms (619 ms–665 ms) | 607 ms (594 ms–630 ms) | 0.96, inside the spread |
+| Delaunay `sphere` D2 10^4 | 6.21 ms (5.56 ms–7.71 ms) | 6.03 ms (5.50 ms–7.45 ms) | 0.97, inside the spread |
+| Delaunay `sphere` D2 10^5 | 49.0 ms (46.5 ms–69.4 ms) | 47.5 ms (46.1 ms–52.1 ms) | 0.97, inside the spread |
+| Delaunay `sphere` D2 10^6 | 495 ms (469 ms–520 ms) | 473 ms (455 ms–507 ms) | 0.95, inside the spread |
+| Delaunay `cube` D3 10^4 | 41.1 ms (38.0 ms–44.8 ms) | 40.1 ms (38.0 ms–45.6 ms) | 0.98, inside the spread |
+| Delaunay `cube` D3 10^5 | 435 ms (421 ms–457 ms) | 433 ms (412 ms–478 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^4 | 88.7 ms (85.2 ms–108 ms) | 88.4 ms (83.9 ms–103 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^5 | 827 ms (819 ms–858 ms) | 835 ms (822 ms–892 ms) | 1.01, inside the spread |
+| Delaunay `cube` D4 10^4 | 746 ms (702 ms–856 ms) | 766 ms (753 ms–900 ms) | 1.03, inside the spread |
+| Delaunay `cube` D5 10^4 | 8.74 s (8.21 s–9.72 s) | 8.65 s (8.56 s–9.01 s) | 0.99, inside the spread |
+
+**Again, 30 rounds × 3 builds, and 10 × 1 for Delaunay `cube` D4 10^4:**
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cubesurf` D3 10^5 | 52.6 ms (46.9 ms–68.7 ms) | 47.8 ms (43.4 ms–71.6 ms) | 0.91, inside the spread |
+| Hull `sphere` D3 10^4 | 22.6 ms (20.4 ms–39.9 ms) | 22.8 ms (20.2 ms–31.8 ms) | 1.01, inside the spread |
+| Delaunay `cube` D4 10^4 | 749 ms (713 ms–788 ms) | 777 ms (738 ms–805 ms) | 1.04, inside the spread |
+
+**With one codegen unit on both sides**, 20 rounds × 3 builds, and 10 × 1 for Delaunay `cube` D4 10^4:
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cubesurf` D3 10^5 | 56.9 ms (50.4 ms–72.7 ms) | 50.8 ms (46.2 ms–66.4 ms) | 0.89, inside the spread |
+| Delaunay `cube` D4 10^4 | 818 ms (773 ms–870 ms) | 795 ms (704 ms–834 ms) | 0.97, inside the spread |
+
+**Under WSL**, `cubesurf` D3 10^5 on the parity run's file, 10 rounds × 3 builds, alternated with Qhull (`qconvex i s`). The last row is P7-69's head (`b9dfca3`) with this change applied, in a scratch copy:
+
+| Build | Median | Interquartile range | Against Qhull |
+| --- | ---: | --- | ---: |
+| convx `main` | 47.7 ms | 46.2 to 49.3 ms | 1.56 |
+| this change | 43.6 ms | 42.0 to 44.8 ms | 1.42 |
+| Qhull | 30.6 ms | 29.2 to 31.5 ms | – |
+| convx `main`, second run | 47.6 ms | 45.6 to 50.3 ms | 1.57 |
+| P7-69 and this change | 29.0 ms | 27.8 to 30.1 ms | 0.95 |
+| Qhull, second run | 30.4 ms | 29.3 to 31.2 ms | – |
+
+### Reading
+
+- **Hull `cubesurf` D3 10^5 reads 0.89 to 0.93 over three runs on Windows, and 0.91 under WSL.** Each run's interquartile ranges are apart; the full ranges overlap through outliers on a noisy machine.
+- **With P7-69 (#505), `cubesurf` reads 0.95 against Qhull under WSL,** from 1.57: within 1.05 and 1.00.
+- **Delaunay `cube` D4 10^4** read 1.03 and 1.04 in the separate builds. With one codegen unit on both sides it reads 0.97, so the difference was the partition into codegen units, not the change (`bench.mdc`).
+- **Nothing else is slower beyond the spread.**

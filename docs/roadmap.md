@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-Hull `cubesurf` D3: a cheaper certificate of a zero side in construction, then what construction's sort of `u32` lists orders (Grill on #503). Then Delaunay `cube` D3 and hull `sphere` D2 from profiles under WSL, then P7-60 (#483) (Grill on #499). P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+Hull `cubesurf` D3: what construction's sort of `u32` lists orders (Grill on #503). Then Delaunay `cube` D3 and hull `sphere` D2 from profiles under WSL, then P7-60 (#483) (Grill on #499). P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -244,6 +244,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-67 | Feat  | Hull D2: the duplicates found from the chain's sort, where the chain reads every point  | #496  | Done        |
 | P7-68 | Spike | Hull `cubesurf` D3: the counts of construction and classification against Qhull       | #503  | Done        |
 | P7-69 | Feat  | Hull D3: classification's shortcut for points inside a facet                          | #504  | Done        |
+| P7-70 | Feat  | Predicates: the first stage skips its bound for an exactly zero determinant          | #506  | Done        |
 
 ## Intentionally out of scope
 
