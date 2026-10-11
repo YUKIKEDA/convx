@@ -4093,3 +4093,79 @@ The prototype reads 0.98 to 0.99 on hull `sphere` D3 and D4, inside the spread. 
 - **Hull `cubesurf`:** `found_vertices` is about two thirds of `build()`, most of it the exact side tests of points on the faces against every group, and its own lines. P7-55 (#468) starts from that: how many points are scanned without a record, how many groups each meets, and the cost of a zero sign.
 - **Hull `sphere` D3:** the merge's list building gives 1 to 2%, inside the spread; P7-34 is withdrawn. What is left there is construction itself (78 to 80%).
 - **Hull `sphere` D2 10^4 and 10^5:** acceptance, publication, and classification share the time. The spike P7-57 (#470) follows.
+
+## Hull: the recorded points of a face tested against its neighbors together, PR #472 (#468)
+
+P7-55. The spike P7-54 (#471) put hull `cubesurf` D3 10^5 (1.94 against Qhull) mostly in classification.
+
+### Counts before the change
+
+A scratch copy of `main` (`2d2ee4f`) counted, in `distance_zeros`:
+
+- **All 99,833 points not on the complex start from a record:** they were found on a plane during construction, and none is scanned against every group.
+- **The walk from each record** tested the point, one at a time, against every neighbor of its start group. There are 169 groups, with at most 31 neighbors each and 3 at the median. That made 2,578,023 side tests, none of them zero, and took 24 ms of a 64 ms build, with timers in.
+
+### The change
+
+- The recorded points are taken by their start group.
+- Each group's points are tested against each of its neighbors together, through that neighbor's cull plane (`CullPlane::mark_sides`), as the scan of points without a record already did.
+- Only a side the plane does not prove is evaluated exactly.
+- A point found on a neighbor's plane walks on from there, one at a time, as before. The signs, and so the classification, are the same.
+- **Checks:** debug builds compare every proved side with the exact one, and test every recorded point against every group, as before. Dropping the walk on from a neighbor's plane makes that check fire in four tests.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | `main` at `2d2ee4f` against the head `3c0f38e`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
+| Sets | The shorter run of `docs/verification.md`, with hull `sphere` D4 10^4 and `cube` D5 10^5 |
+| Rounds | `main` and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second. A second run of four sets, 20 × 3, and one with both sides built with one codegen unit |
+
+Every set published the same counts on both sides.
+
+### Against `main`
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.53 ms (0.47 ms–0.66 ms) | 0.51 ms (0.47 ms–0.63 ms) | 0.96, inside the spread |
+| Hull `cube` D2 10^5 | 4.83 ms (4.45 ms–6.20 ms) | 5.08 ms (4.56 ms–8.31 ms) | 1.05, inside the spread |
+| Hull `sphere` D2 10^4 | 1.19 ms (1.10 ms–2.14 ms) | 1.24 ms (1.10 ms–2.05 ms) | 1.04, inside the spread |
+| Hull `sphere` D2 10^5 | 11.9 ms (10.8 ms–14.5 ms) | 12.1 ms (10.7 ms–13.2 ms) | 1.02, inside the spread |
+| Hull `cube` D3 10^4 | 1.46 ms (1.24 ms–1.92 ms) | 1.48 ms (1.29 ms–1.90 ms) | 1.02, inside the spread |
+| Hull `cube` D3 10^5 | 12.1 ms (10.9 ms–15.3 ms) | 12.3 ms (11.0 ms–29.7 ms) | 1.02, inside the spread |
+| Hull `cubesurf` D3 10^5 | 59.0 ms (57.6 ms–65.4 ms) | 47.9 ms (46.3 ms–51.4 ms) | 0.81, faster beyond the spread |
+| Hull `sphere` D3 10^4 | 22.4 ms (20.5 ms–56.5 ms) | 22.8 ms (21.2 ms–28.3 ms) | 1.02, inside the spread |
+| Hull `sphere` D3 10^5 | 249 ms (242 ms–265 ms) | 252 ms (248 ms–272 ms) | 1.01, inside the spread |
+| Hull `cube` D4 10^4 | 5.76 ms (5.36 ms–8.63 ms) | 5.69 ms (5.29 ms–10.3 ms) | 0.99, inside the spread |
+| Hull `cube` D4 10^5 | 33.5 ms (32.6 ms–36.1 ms) | 33.3 ms (32.4 ms–36.6 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^4 | 92.0 ms (89.2 ms–98.6 ms) | 92.7 ms (89.6 ms–101 ms) | 1.01, inside the spread |
+| Hull `sphere` D4 10^5 | 1.13 s (1.12 s–1.17 s) | 1.13 s (1.12 s–1.15 s) | 0.99, inside the spread |
+| Hull `cube` D5 10^4 | 54.8 ms (53.2 ms–58.7 ms) | 54.8 ms (53.3 ms–67.5 ms) | 1.00, inside the spread |
+| Hull `cube` D5 10^5 | 212 ms (208 ms–237 ms) | 212 ms (207 ms–219 ms) | 1.00, inside the spread |
+| Hull `sphere` D5 10^4 | 802 ms (785 ms–818 ms) | 799 ms (780 ms–833 ms) | 1.00, inside the spread |
+| Hull `cube` D6 10^4 | 559 ms (551 ms–608 ms) | 558 ms (547 ms–576 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^4 | 5.55 ms (5.38 ms–7.39 ms) | 5.57 ms (5.41 ms–6.63 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^5 | 55.3 ms (54.0 ms–59.4 ms) | 55.3 ms (54.4 ms–58.4 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^6 | 600 ms (594 ms–608 ms) | 602 ms (592 ms–664 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^4 | 5.49 ms (5.37 ms–5.97 ms) | 5.47 ms (5.37 ms–5.88 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^5 | 44.7 ms (43.4 ms–47.3 ms) | 44.5 ms (43.6 ms–48.9 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D2 10^6 | 441 ms (440 ms–462 ms) | 454 ms (439 ms–490 ms) | 1.03, inside the spread |
+| Delaunay `cube` D3 10^4 | 36.3 ms (35.4 ms–40.5 ms) | 35.8 ms (35.1 ms–38.8 ms) | 0.99, inside the spread |
+| Delaunay `cube` D3 10^5 | 385 ms (375 ms–396 ms) | 383 ms (373 ms–397 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^4 | 79.4 ms (77.8 ms–85.1 ms) | 81.2 ms (78.5 ms–88.2 ms) | 1.02, inside the spread |
+| Delaunay `sphere` D3 10^5 | 756 ms (753 ms–775 ms) | 765 ms (762 ms–785 ms) | 1.01, inside the spread |
+| Delaunay `cube` D4 10^4 | 643 ms (630 ms–673 ms) | 665 ms (652 ms–688 ms) | 1.03, inside the spread |
+| Delaunay `cube` D5 10^4 | 7.40 s (7.31 s–7.45 s) | 7.25 s (7.24 s–7.37 s) | 0.98, inside the spread |
+
+**The second run (20 × 3):** hull `cubesurf` D3 10^5 reads 0.81. Hull `cube` D2 10^5 and `sphere` D2 10^4 read 1.00. Delaunay `cube` D4 10^4 reads 1.04.
+
+**With one codegen unit on both sides (20 × 3):** `cubesurf` D3 10^5 reads 0.80, faster beyond the spread; Delaunay `cube` D4 10^4 reads 1.02.
+
+### Reading
+
+- **Hull `cubesurf` D3 10^5 reads 0.81, faster beyond the spread,** and 0.80 with one codegen unit. On the parity ratio of #466 that is about 1.57 against Qhull, from 1.94.
+- **Nothing is slower beyond the spread.**
+  - Hull `cube` D2 10^5 and `sphere` D2 10^4, which the change does not reach, read 1.05 and 1.04 in the first run and 1.00 in the second.
+  - Delaunay `cube` D4 10^4, which it does not reach either, read 1.03 and 1.04, and 1.02 with one codegen unit.
+- What remains of `cubesurf` is construction (45%) and the rest of classification.
