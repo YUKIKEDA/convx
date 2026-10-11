@@ -111,11 +111,9 @@ pub(crate) fn merge_except(
     // copied a dozen times (#209).
     let mut ids: Vec<FacetId> = Vec::with_capacity(hull.facets.len());
     ids.extend(hull.facets.iter().map(|(id, _)| id));
-    let mut dense: SlotMarks<u32> = SlotMarks::default();
-    for (i, &id) in ids.iter().enumerate() {
-        dense.insert(id, i as u32);
-    }
+    let dense = Dense::of(&ids);
     let mut sets = UnionFind::new(ids.len());
+    let mut joined = false;
 
     for (i, &id) in ids.iter().enumerate() {
         let Some(facet) = hull.facets.get(id) else {
@@ -125,7 +123,7 @@ pub(crate) fn merge_except(
             continue;
         }
         for neighbor in facet.neighbors() {
-            let Some(j) = dense.get(neighbor) else {
+            let Some(j) = dense.get(&ids, neighbor) else {
                 continue;
             };
             if cut.contains(neighbor) {
@@ -150,10 +148,60 @@ pub(crate) fn merge_except(
             // cull usually proves it nonzero first.
             if hull.side(facet, across)? == Sign::Zero {
                 sets.union(i as u32, j);
+                joined = true;
             }
         }
     }
 
+    if !joined {
+        let fast = singletons(hull, &ids, &dense);
+        debug_assert!(
+            same_groups(&fast, &grouped(hull, &ids, &mut sets)),
+            "the groups of one simplex each are those of the general path"
+        );
+        return Ok(fast);
+    }
+    Ok(grouped(hull, &ids, &mut sets))
+}
+
+/// The dense index of each live simplex, by its slot: the neighbors of a
+/// live simplex are live, so a slot names one of them, and an array by slot
+/// is a quarter of the reads of [`SlotMarks`] in the ridge loop (#485).
+struct Dense {
+    by_slot: Vec<u32>,
+}
+
+impl Dense {
+    fn of(ids: &[FacetId]) -> Self {
+        let slots = ids
+            .iter()
+            .map(|id| id.index() as usize + 1)
+            .max()
+            .unwrap_or(0);
+        let mut by_slot = vec![u32::MAX; slots];
+        for (i, id) in ids.iter().enumerate() {
+            by_slot[id.index() as usize] = i as u32;
+        }
+        Self { by_slot }
+    }
+
+    /// The dense index of `id`, a neighbor of a live simplex.
+    fn get(&self, ids: &[FacetId], id: FacetId) -> Option<u32> {
+        let j = *self.by_slot.get(id.index() as usize)?;
+        if j == u32::MAX {
+            return None;
+        }
+        debug_assert!(
+            ids[j as usize] == id,
+            "a neighbor of a live simplex is live"
+        );
+        Some(j)
+    }
+}
+
+/// The groups of [`merge_except`] from the joined ridges in `sets`, over the
+/// live simplices `ids` in arena order.
+fn grouped(hull: &SimplicialHull<'_>, ids: &[FacetId], sets: &mut UnionFind) -> LogicalFacets {
     // Number groups by their smallest member, in arena order.
     // A root is a dense index; a group is numbered when its root is first
     // met, and `u32::MAX` marks a root not met yet.
@@ -198,11 +246,60 @@ pub(crate) fn merge_except(
         neighbors.push(&scratch);
     }
 
-    Ok(LogicalFacets {
+    LogicalFacets {
         groups,
         vertices,
         neighbors,
-    })
+    }
+}
+
+/// The groups of [`merge_except`] when no ridge joined two simplices: each
+/// simplex is a group of its own, numbered by its dense index, which is the
+/// numbering by smallest member in arena order. Its vertices and neighbors
+/// are written straight into lists sized once, without the per-group
+/// gathering, sort, and dedup of the general case (#485): the vertices of a
+/// simplex are distinct, and so are its neighbors, which are other groups.
+fn singletons(hull: &SimplicialHull<'_>, ids: &[FacetId], dense: &Dense) -> LogicalFacets {
+    let d = hull.input.dim();
+    let mut groups: Vec<Group> = Vec::with_capacity(ids.len());
+    let mut vertices = Lists::with_capacity(ids.len(), ids.len() * d);
+    let mut neighbors = Lists::with_capacity(ids.len(), ids.len() * d);
+    let mut row: Vec<u32> = Vec::with_capacity(d);
+    for &id in ids {
+        let mut simplices = Small::new();
+        simplices.push(id);
+        groups.push(Group { simplices });
+        let Some(facet) = hull.facets.get(id) else {
+            vertices.push(&[]);
+            neighbors.push(&[]);
+            continue;
+        };
+        row.clear();
+        row.extend(facet.vertices().iter().copied());
+        row.sort_unstable();
+        vertices.push(&row);
+        row.clear();
+        row.extend(facet.neighbors().filter_map(|n| dense.get(ids, n)));
+        row.sort_unstable();
+        neighbors.push(&row);
+    }
+    LogicalFacets {
+        groups,
+        vertices,
+        neighbors,
+    }
+}
+
+/// Whether `a` and `b` have the same groups, member for member, and the same
+/// vertex and neighbor lists. A debug check of [`singletons`].
+fn same_groups(a: &LogicalFacets, b: &LogicalFacets) -> bool {
+    a.groups.len() == b.groups.len()
+        && a.groups
+            .iter()
+            .zip(&b.groups)
+            .all(|(x, y)| x.simplices[..] == y.simplices[..])
+        && a.vertices.iter().eq(b.vertices.iter())
+        && a.neighbors.iter().eq(b.neighbors.iter())
 }
 
 #[cfg(test)]
