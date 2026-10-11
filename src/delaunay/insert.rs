@@ -1252,7 +1252,7 @@ pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hull::input::accept;
+    use crate::hull::input::accept_sites;
     use core::cmp::Ordering;
 
     /// The BRIO order before #423: the bits interleaved one at a time,
@@ -1338,7 +1338,7 @@ mod tests {
                         _ => (next() >> 11) as f64 / (1_u64 << 53) as f64,
                     })
                     .collect();
-                let input = accept(d, &points).unwrap();
+                let input = accept_sites(d, &points).unwrap();
                 let rows = Sites::of(&input);
                 let all: Vec<u32> = input.representatives.clone();
                 assert_eq!(
@@ -1415,7 +1415,7 @@ mod tests {
                 .iter()
                 .flat_map(|p| p.map(|x| x as f64 * scale + shift))
                 .collect();
-            let input = accept(2, &points).unwrap();
+            let input = accept_sites(2, &points).unwrap();
             let rows = Sites::of(&input);
             let n = sites.len() as u32;
             for a in 0..n {

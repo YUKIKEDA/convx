@@ -29,7 +29,7 @@
 mod insert;
 
 use crate::hull::classify::placing;
-use crate::hull::input::{accept, minimum_basis, Input};
+use crate::hull::input::{accept_sites, minimum_basis, Input};
 use crate::hull::merge::merge;
 use crate::hull::ridge::{fingerprint, pair_equal_keys_with_border};
 use crate::hull::simplicial::SimplicialHull;
@@ -465,7 +465,7 @@ fn generic_insertion() -> bool {
 /// the lift is flat. Input checks and `DegenerateDimension` concern the
 /// original sites, with their original indices.
 pub(crate) fn complex(dim: usize, points: &[f64]) -> Result<Complex, ConvexHullError> {
-    let input = accept(dim, points)?;
+    let input = accept_sites(dim, points)?;
     let sites = insert::Sites::of(&input);
     let complex = if flat(&input, &sites)? {
         pull(input)?

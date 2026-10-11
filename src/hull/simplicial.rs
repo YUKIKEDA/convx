@@ -24,6 +24,7 @@
 use std::collections::VecDeque;
 
 use super::input::Input;
+use super::polygon::{self, clearly_inside, Chain, Rows};
 use super::records::Records;
 use super::ridge::{fingerprint, pair_equal_keys_into};
 use super::store::{Facet, FacetStore};
@@ -55,16 +56,6 @@ pub(crate) struct SimplicialHull<'a> {
     /// D = 2 record nothing.
     pub(crate) records: Records,
 }
-
-/// The most representatives [`SimplicialHull::discarding_pays`] samples.
-const DISCARD_SAMPLE: usize = 1024;
-
-/// Discarding goes ahead when at least one sampled point in this many is
-/// proved inside. Timed on a unit circle with a share of its points moved
-/// inside (10^5 and 10^6 points, #232): with one point in 64 inside,
-/// discarding was 1 to 7% slower than not; with one in 32, the two were
-/// equal; with one in 16, discarding was 3 to 8% faster.
-const DISCARD_ONE_IN: usize = 32;
 
 /// What decides the side of a point against a simplex: its vertices, its
 /// outward sign, and its certified cull plane, when it has one, which holds
@@ -368,184 +359,52 @@ impl<'a> SimplicialHull<'a> {
         Ok(())
     }
 
-    /// The polygon that discards points before the D = 2 chain (design §6):
-    /// the strict chain of the farthest representative in each of eight
-    /// directions, counterclockwise. A tie keeps the smaller index. Fewer
-    /// than three vertices mean no polygon, and the list is empty.
-    ///
-    /// The directions are compared as rounded sums and differences. Any
-    /// input points make a valid polygon, so the rounding only changes
-    /// which ones it takes.
-    fn discard_polygon(&self) -> Result<Vec<u32>, ConvexHullError> {
-        let mut best = [f64::NEG_INFINITY; 8];
-        let mut farthest = [None; 8];
-        for &r in &self.input.representatives {
-            let p = self.input.point(r);
-            let (x, y) = (p[0], p[1]);
-            let keys = [x, -x, y, -y, x + y, x - y, y - x, -x - y];
-            for ((key, best), farthest) in keys.into_iter().zip(&mut best).zip(&mut farthest) {
-                // Representatives ascend, so a strict test keeps the
-                // smaller index on a tie.
-                if key > *best {
-                    *best = key;
-                    *farthest = Some(r);
-                }
-            }
-        }
-        let mut extremes: Vec<u32> = farthest.into_iter().flatten().collect();
-        extremes.sort_unstable();
-        extremes.dedup();
-        let cycle = self.strict_cycle(extremes)?;
-        Ok(if cycle.len() < 3 { Vec::new() } else { cycle })
-    }
-
-    /// The edges of the counterclockwise convex `cycle`, each as the
-    /// coordinates of its two ends, gathered once for [`clearly_inside`]:
-    /// every point is tested against them, and read from the input they
-    /// were most of its cost on hull `cube` D2 (#324).
-    fn edges_of(&self, cycle: &[u32]) -> Vec<[[f64; 2]; 2]> {
-        let n = cycle.len();
-        (0..n)
-            .map(|i| {
-                let (a, b) = (
-                    self.input.point(cycle[i]),
-                    self.input.point(cycle[(i + 1) % n]),
-                );
-                [[a[0], a[1]], [b[0], b[1]]]
-            })
-            .collect()
-    }
-
-    /// Whether discarding by `polygon` pays (design §6): of a stride of at
-    /// most [`DISCARD_SAMPLE`] representatives in input order, at least one
-    /// in [`DISCARD_ONE_IN`] is proved strictly inside.
-    ///
-    /// A point that is not discarded costs its place in the sort and its
-    /// classification; one that is tested and not discarded costs the tests
-    /// as well. Where every point is extreme, as on a circle, the pass
-    /// found nothing and cost 4 to 6% of the build (#232).
-    fn discarding_pays(&self, edges: &[[[f64; 2]; 2]]) -> bool {
-        let reps = &self.input.representatives;
-        let step = (reps.len() / DISCARD_SAMPLE).max(1);
-        let (mut seen, mut inside) = (0usize, 0usize);
-        for &r in reps.iter().step_by(step).take(DISCARD_SAMPLE) {
-            seen += 1;
-            inside += usize::from(clearly_inside(edges, self.input.point(r)));
-        }
-        inside * DISCARD_ONE_IN >= seen
-    }
-
     /// D = 2: the cycle of strict left turns, counterclockwise (design §6).
     ///
-    /// A representative proved strictly inside [`Self::discard_polygon`] is
-    /// strictly inside the hull, because the polygon's vertices are input
-    /// points. It is recorded as proved interior and takes no further part.
-    /// Where that would not pay ([`Self::discarding_pays`]), no point is
-    /// tested, and the chain and classification handle them all.
+    /// Acceptance decided how the chain gets its points ([`Chain`]). A
+    /// representative proved strictly inside the discard polygon is strictly
+    /// inside the hull, because the polygon's vertices are input points. It
+    /// is recorded as proved interior and takes no further part. Where
+    /// discarding would not pay, no point is tested, and the chain and
+    /// classification handle them all.
     /// Of the others, a representative stays on the chain only while it
     /// makes a strict turn under the exact orientation. Points on an edge
     /// or inside the polygon are left for classification, the same split
     /// [`Self::build_segment`] uses.
     fn build_polygon(&mut self) -> Result<(), ConvexHullError> {
         self.strict_edges = true;
-        let discard = self.discard_polygon()?;
-        let edges = self.edges_of(&discard);
-        let mut kept = Vec::new();
-        if discard.is_empty() || !self.discarding_pays(&edges) {
-            kept.clone_from(&self.input.representatives);
-        } else {
-            for &r in &self.input.representatives {
-                if clearly_inside(&edges, self.input.point(r)) {
-                    self.proved_interior.push(r);
-                } else {
-                    kept.push(r);
+        let rows = Rows(self.input.rows().0);
+        let reps = &self.input.representatives;
+        // Acceptance has no plan only when its polygon gave up the exact
+        // evaluation; planned again on the representatives, it gives up the
+        // same way, after acceptance's own errors, as before #496.
+        let chain = match self.input.chain.take() {
+            Some(chain) => chain,
+            None => match polygon::discard_edges(rows, reps.iter().copied())? {
+                Some(edges) => Chain::Discard(edges),
+                None => Chain::Every(polygon::sorted_by_coordinates(rows, reps.clone())),
+            },
+        };
+        let sorted = match chain {
+            Chain::Every(sorted) => sorted,
+            Chain::Discard(edges) => {
+                let mut kept = Vec::new();
+                for &r in reps {
+                    if clearly_inside(&edges, self.input.point(r)) {
+                        self.proved_interior.push(r);
+                    } else {
+                        kept.push(r);
+                    }
                 }
+                polygon::sorted_by_coordinates(rows, kept)
             }
-        }
-        let cycle = self.strict_cycle(kept)?;
+        };
+        let cycle = polygon::strict_cycle_of_sorted(rows, sorted)?;
         debug_assert!(
             cycle.len() >= 3,
             "a full-dimensional set has at least three extremes"
         );
         self.polygon = cycle;
-        Ok(())
-    }
-
-    /// The cycle of strict left turns of `points`, counterclockwise: the
-    /// lower chain, then the upper chain without the two endpoints the
-    /// lower one already lists. Fewer than three points come back as they
-    /// are, sorted.
-    ///
-    /// The points are sorted by x, then y, then index, each coordinate by
-    /// [`f64::total_cmp`] through [`total_key`]: one key per point, read
-    /// once, instead of two reads of the input per comparison (#322). The
-    /// chains then read the sorted coordinates in order.
-    fn strict_cycle(&self, points: Vec<u32>) -> Result<Vec<u32>, ConvexHullError> {
-        let mut keyed: Vec<(u64, u64, u32)> = points
-            .iter()
-            .map(|&i| {
-                let p = self.input.point(i);
-                (total_key(p[0]), total_key(p[1]), i)
-            })
-            .collect();
-        drop(points);
-        keyed.sort_unstable();
-        let sorted: Vec<u32> = keyed.iter().map(|&(_, _, i)| i).collect();
-        drop(keyed);
-        let xy: Vec<[f64; 2]> = sorted
-            .iter()
-            .map(|&i| {
-                let p = self.input.point(i);
-                [p[0], p[1]]
-            })
-            .collect();
-        // The chains hold positions in `sorted`.
-        let mut lower: Vec<u32> = Vec::new();
-        for at in 0..sorted.len() as u32 {
-            self.pop_until_left(&sorted, &xy, &mut lower, at)?;
-            lower.push(at);
-        }
-        let mut upper: Vec<u32> = Vec::new();
-        for at in (0..sorted.len() as u32).rev() {
-            self.pop_until_left(&sorted, &xy, &mut upper, at)?;
-            upper.push(at);
-        }
-        let upper_middle = upper.len().saturating_sub(2);
-        Ok(lower
-            .into_iter()
-            .chain(upper.into_iter().skip(1).take(upper_middle))
-            .map(|at| sorted[at as usize])
-            .collect())
-    }
-
-    /// Drops the tail of `chain` while the point at position `at` is not a
-    /// strict left turn from it. Positions index `sorted` and its
-    /// coordinates `xy`.
-    fn pop_until_left(
-        &self,
-        sorted: &[u32],
-        xy: &[[f64; 2]],
-        chain: &mut Vec<u32>,
-        at: u32,
-    ) -> Result<(), ConvexHullError> {
-        while chain.len() >= 2 {
-            let a = chain[chain.len() - 2] as usize;
-            let b = chain[chain.len() - 1] as usize;
-            let c = at as usize;
-            let ids = [sorted[a], sorted[b], sorted[c]];
-            let sign = if let Some(sign) = crate::predicates::orient2_filter(&xy[a], &xy[b], &xy[c])
-            {
-                #[cfg(debug_assertions)]
-                debug_assert_eq!(sign, self.input.orient(&ids)?);
-                sign
-            } else {
-                self.input.orient(&ids)?
-            };
-            if sign == Sign::Positive {
-                break;
-            }
-            chain.pop();
-        }
         Ok(())
     }
 
@@ -1510,15 +1369,6 @@ fn candidate_before(a: (u32, Option<f64>), b: (u32, Option<f64>)) -> bool {
     }
 }
 
-/// `point` is a strict left turn of every edge of a counterclockwise convex
-/// polygon (`edges`, from [`SimplicialHull::edges_of`]), by the certified
-/// filter: strictly inside it.
-fn clearly_inside(edges: &[[[f64; 2]; 2]], point: &[f64]) -> bool {
-    edges
-        .iter()
-        .all(|[a, b]| crate::predicates::orient2_filter(a, b, point) == Some(Sign::Positive))
-}
-
 /// From this many representatives, D = 3 builds on a copy in space order
 /// (ADR 0009, #489).
 const SPACE_ORDER_FROM: usize = 1 << 17;
@@ -1583,18 +1433,6 @@ fn space_order(input: &Input<'_>) -> Vec<u32> {
         at[code as usize] += 1;
     }
     order
-}
-
-/// A key that orders `x` as [`f64::total_cmp`] does: for a negative sign
-/// every bit is flipped, otherwise only the sign bit. The two give the
-/// order of the signed integer `total_cmp` compares, shifted to unsigned.
-fn total_key(x: f64) -> u64 {
-    let bits = x.to_bits();
-    if bits >> 63 == 1 {
-        !bits
-    } else {
-        bits | 1 << 63
-    }
 }
 
 #[cfg(test)]
@@ -1689,46 +1527,6 @@ pub(crate) mod tests {
             }
         }
         assert_eq!(cases, 15);
-    }
-
-    /// `total_key` orders values as `f64::total_cmp` does, the order the
-    /// chain's sort keeps (#322): signed zeros, subnormals, the ends of the
-    /// finite range, and random values of both signs, pairwise.
-    #[test]
-    fn total_key_orders_as_total_cmp() {
-        let mut values = vec![
-            0.0,
-            -0.0,
-            f64::MIN_POSITIVE,
-            -f64::MIN_POSITIVE,
-            f64::from_bits(1),
-            -f64::from_bits(1),
-            f64::MAX,
-            f64::MIN,
-            1.0,
-            -1.0,
-            0.5,
-            -0.5,
-        ];
-        let mut state = 322_u64;
-        for _ in 0..200 {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            let x = f64::from_bits(state);
-            if x.is_finite() {
-                values.push(x);
-            }
-        }
-        for &a in &values {
-            for &b in &values {
-                assert_eq!(
-                    super::total_key(a).cmp(&super::total_key(b)),
-                    a.total_cmp(&b),
-                    "{a:e} against {b:e}"
-                );
-            }
-        }
     }
 
     pub(crate) struct Rng(pub(crate) u64);

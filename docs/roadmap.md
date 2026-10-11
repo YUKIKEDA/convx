@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-P7-67, hull D2's duplicates from the chain's sort, then a parity run, then P7-60 (#483) (Grill on #469, #487, and #493). P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+A parity run, then P7-60 (#483) (Grill on #469, #487, #493, and #496). P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -241,6 +241,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-64 | Feat  | Hull D3: construction on a copy of the points in Morton order                           | #489  | Done        |
 | P7-65 | Spike | Hull `cubesurf` D3 and `sphere` D2 10^4: where the time goes                            | #493  | Done        |
 | P7-66 | Feat  | Hull D2 and D3: exact side tests through the fixed-size first stage                     | #494  | Withdrawn after measurement (#495) |
+| P7-67 | Feat  | Hull D2: the duplicates found from the chain's sort, where the chain reads every point  | #496  | Done        |
 
 ## Intentionally out of scope
 
