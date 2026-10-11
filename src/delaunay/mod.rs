@@ -610,7 +610,13 @@ fn inserted<S: insert::Shape>(
             // The insertion records a face as distinct or cospherical only
             // between finite simplices; an unknown one may have a simplex at
             // infinity. A distinct face is skipped without reading `n`.
-            if across == insert::Across::Unknown && !mesh.is_finite(n) {
+            // For D = 2 an unknown face joins nothing directly: two
+            // cospherical triangles with three collinear sites besides the
+            // newest do not exist, so the lemma of design §7 joins them
+            // through recorded faces (ADR 0008, #474).
+            if across == insert::Across::Unknown
+                && (k == 3 && !every_unknown_face_lifted() || !mesh.is_finite(n))
+            {
                 continue;
             }
             let mut test = || -> Result<bool, ConvexHullError> {

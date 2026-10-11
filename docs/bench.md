@@ -4206,3 +4206,70 @@ Timed against `main`, pinned and alternated: 10 rounds × 3 builds; 5 × 1 for t
   - `cube` D3 reads 1.01 to 1.02, and D2, which the change does not reach, 0.99 to 1.02.
 - **The linking sees about five times the faces the pass tests.** Most links are undone by later insertions: 2,722,510 links against 506,576 faces tested on `cube` D3 10^5 (#452). An orientation on data just read costs about what the pass saved, in D3. In D4 and D5 each orientation is the larger formula, and the extra ones cost more than the random reads.
 - **No feature row follows from this prototype.** As the Grill on #467 decided, a pass after the insertion dedicated to D2 and D3 (ADR 0008) goes to a Grill.
+
+## Delaunay D2: a face left unknown needs no test, PR #475 (#474)
+
+P7-58, from the Grill on #469. The pass after the insertion tested each face left unknown by one orientation of F, the D + 1 sites of the two simplices other than the newest (P7-48, #452).
+
+### The change
+
+For D = 2 (ADR 0008), a face left unknown joins nothing directly. The pass reads neither its triangle across nor any site.
+
+- F is three distinct sites, and three distinct sites on a line lie on no circle. So the F of two cospherical triangles is never dependent.
+- By the lemma of design §7, two cospherical triangles with an independent F are already joined through recorded faces. Design §7 says so in both languages.
+- **Checks:** the test of #452 compares, on D = 2 among others, what is published with every face left unknown tested by the lifted orientation. A mutation that also skips D = 3 makes it fail.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | P7-55 (`76c3c32`, the code of `3c0f38e`) against the head `3ad04bf`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
+| Sets | The shorter run of `docs/verification.md` |
+| Rounds | Alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second. A second run of three D2 sets, 20 × 3 |
+
+Every set published the same counts on both sides.
+
+### Against P7-55
+
+| Set | P7-55 | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.53 ms (0.48 ms–0.80 ms) | 0.54 ms (0.48 ms–1.15 ms) | 1.01, inside the spread |
+| Hull `cube` D2 10^5 | 4.81 ms (4.43 ms–6.00 ms) | 4.90 ms (4.49 ms–5.56 ms) | 1.02, inside the spread |
+| Hull `sphere` D2 10^4 | 1.15 ms (1.09 ms–4.51 ms) | 1.18 ms (1.08 ms–1.71 ms) | 1.03, inside the spread |
+| Hull `sphere` D2 10^5 | 12.0 ms (10.8 ms–27.8 ms) | 12.0 ms (10.8 ms–13.0 ms) | 1.00, inside the spread |
+| Hull `cube` D3 10^4 | 1.45 ms (1.25 ms–2.47 ms) | 1.48 ms (1.34 ms–2.89 ms) | 1.02, inside the spread |
+| Hull `cube` D3 10^5 | 11.5 ms (11.0 ms–12.7 ms) | 11.4 ms (10.9 ms–12.9 ms) | 0.99, inside the spread |
+| Hull `cubesurf` D3 10^5 | 47.6 ms (46.5 ms–54.7 ms) | 47.6 ms (46.6 ms–50.9 ms) | 1.00, inside the spread |
+| Hull `sphere` D3 10^4 | 20.9 ms (20.1 ms–23.2 ms) | 21.1 ms (20.3 ms–23.0 ms) | 1.01, inside the spread |
+| Hull `sphere` D3 10^5 | 250 ms (244 ms–271 ms) | 251 ms (244 ms–261 ms) | 1.01, inside the spread |
+| Hull `cube` D4 10^4 | 5.44 ms (5.20 ms–6.37 ms) | 5.49 ms (5.20 ms–6.12 ms) | 1.01, inside the spread |
+| Hull `cube` D4 10^5 | 33.2 ms (31.9 ms–44.4 ms) | 32.7 ms (31.6 ms–38.7 ms) | 0.99, inside the spread |
+| Hull `sphere` D4 10^4 | 91.1 ms (88.7 ms–96.3 ms) | 92.0 ms (89.2 ms–94.5 ms) | 1.01, inside the spread |
+| Hull `sphere` D4 10^5 | 1.14 s (1.14 s–1.21 s) | 1.15 s (1.12 s–1.16 s) | 1.00, inside the spread |
+| Hull `cube` D5 10^4 | 54.5 ms (53.1 ms–59.8 ms) | 54.2 ms (52.7 ms–56.8 ms) | 1.00, inside the spread |
+| Hull `sphere` D5 10^4 | 788 ms (770 ms–813 ms) | 786 ms (772 ms–802 ms) | 1.00, inside the spread |
+| Hull `cube` D6 10^4 | 563 ms (544 ms–623 ms) | 563 ms (539 ms–604 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^4 | 5.64 ms (5.46 ms–6.34 ms) | 5.41 ms (5.26 ms–7.50 ms) | 0.96, inside the spread |
+| Delaunay `cube` D2 10^5 | 56.4 ms (55.2 ms–65.9 ms) | 54.0 ms (52.2 ms–60.1 ms) | 0.96, inside the spread |
+| Delaunay `cube` D2 10^6 | 590 ms (587 ms–600 ms) | 559 ms (552 ms–577 ms) | 0.95, faster beyond the spread |
+| Delaunay `sphere` D2 10^4 | 5.60 ms (5.39 ms–16.2 ms) | 5.49 ms (5.27 ms–6.23 ms) | 0.98, inside the spread |
+| Delaunay `sphere` D2 10^5 | 45.0 ms (43.8 ms–49.8 ms) | 44.2 ms (43.5 ms–50.4 ms) | 0.98, inside the spread |
+| Delaunay `sphere` D2 10^6 | 446 ms (446 ms–451 ms) | 427 ms (420 ms–437 ms) | 0.96, faster beyond the spread |
+| Delaunay `cube` D3 10^4 | 36.8 ms (35.4 ms–40.5 ms) | 36.7 ms (35.2 ms–48.8 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^5 | 389 ms (382 ms–429 ms) | 391 ms (383 ms–409 ms) | 1.01, inside the spread |
+| Delaunay `sphere` D3 10^4 | 80.3 ms (78.2 ms–94.3 ms) | 80.2 ms (77.8 ms–92.3 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^5 | 763 ms (751 ms–782 ms) | 763 ms (753 ms–777 ms) | 1.00, inside the spread |
+| Delaunay `cube` D4 10^4 | 660 ms (651 ms–694 ms) | 660 ms (650 ms–733 ms) | 1.00, inside the spread |
+| Delaunay `cube` D5 10^4 | 7.23 s (7.16 s–7.50 s) | 7.30 s (7.21 s–7.43 s) | 1.01, inside the spread |
+
+The second run, 20 × 3: `cube` D2 10^5 0.95, `sphere` D2 10^5 0.98, `cube` D2 10^4 0.98, all inside the spread.
+
+### Reading
+
+- **Delaunay D2 reads 0.95 to 0.98.**
+  - `cube` and `sphere` D2 10^6 read 0.95 and 0.96, faster beyond the spread.
+  - `cube` and `sphere` D2 10^5 read 0.96 and 0.98 in the first run and 0.95 and 0.98 in the second, inside the spread.
+- **The keep criterion asked for D2 10^5 faster beyond the spread, and it is not.** Two runs agree on the direction, and the sets of 10^6 are faster beyond the spread. Whether to keep the change on that is the owner's call (`bench.mdc`).
+- **Nothing else moved:** D3 to D5 and the hull read 0.99 to 1.03, inside the spread.
+- The tests were about 11% of `cube` D2 10^5 in the scratch marks of #459, which include the reads around them. Without those marks, the saving reads 2 to 5%.
