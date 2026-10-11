@@ -1519,9 +1519,6 @@ fn clearly_inside(edges: &[[[f64; 2]; 2]], point: &[f64]) -> bool {
         .all(|[a, b]| crate::predicates::orient2_filter(a, b, point) == Some(Sign::Positive))
 }
 
-/// A key that orders `x` as [`f64::total_cmp`] does: for a negative sign
-/// every bit is flipped, otherwise only the sign bit. The two give the
-/// order of the signed integer `total_cmp` compares, shifted to unsigned.
 /// From this many representatives, D = 3 builds on a copy in space order
 /// (ADR 0009, #489).
 const SPACE_ORDER_FROM: usize = 1 << 17;
@@ -1588,6 +1585,9 @@ fn space_order(input: &Input<'_>) -> Vec<u32> {
     order
 }
 
+/// A key that orders `x` as [`f64::total_cmp`] does: for a negative sign
+/// every bit is flipped, otherwise only the sign bit. The two give the
+/// order of the signed integer `total_cmp` compares, shifted to unsigned.
 fn total_key(x: f64) -> u64 {
     let bits = x.to_bits();
     if bits >> 63 == 1 {
