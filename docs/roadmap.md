@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-The rows after the parity run of #499 (9 sets not met) are decided in a Grill on #499; P7-60 (#483) stays queued (Grill on #469, #487, #493, and #496). P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+Hull `cubesurf` D3: a cheaper certificate of a zero side in construction, then what construction's sort of `u32` lists orders (Grill on #503). Then Delaunay `cube` D3 and hull `sphere` D2 from profiles under WSL, then P7-60 (#483) (Grill on #499). P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
@@ -242,6 +242,8 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-65 | Spike | Hull `cubesurf` D3 and `sphere` D2 10^4: where the time goes                            | #493  | Done        |
 | P7-66 | Feat  | Hull D2 and D3: exact side tests through the fixed-size first stage                     | #494  | Withdrawn after measurement (#495) |
 | P7-67 | Feat  | Hull D2: the duplicates found from the chain's sort, where the chain reads every point  | #496  | Done        |
+| P7-68 | Spike | Hull `cubesurf` D3: the counts of construction and classification against Qhull       | #503  | Done        |
+| P7-69 | Feat  | Hull D3: classification's shortcut for points inside a facet                          | #504  | Done        |
 
 ## Intentionally out of scope
 

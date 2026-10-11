@@ -38,6 +38,7 @@ use std::collections::HashMap;
 
 use super::input::{accept, Input};
 use super::merge::{merge, LogicalFacets};
+use super::polygon::{self, clearly_inside, Edge, Rows};
 use super::ridge::{fingerprint, pair_equal_keys};
 use super::simplicial::SimplicialHull;
 use super::ConvexHullError;
@@ -588,7 +589,8 @@ fn classify_built<'a>(
 }
 
 /// Per point, whether some group's distance is zero, and per group its
-/// points at distance zero, each list unordered.
+/// points at distance zero, each list unordered. A point strictly inside
+/// its facet's polygon (D = 3) is on the boundary and in no list (#504).
 type Zeros = (Vec<bool>, Vec<Vec<u32>>);
 
 /// The exact distance-zero signs of `others` against every group. Points
@@ -686,11 +688,45 @@ fn distance_zeros(
     // Per point of the start group (by its place in `points`), a neighbor
     // whose plane holds it.
     let mut zeros: Vec<(u32, u32)> = Vec::new();
-    for (start, ks) in by_start.iter().enumerate() {
+    for (start, ks) in by_start.iter_mut().enumerate() {
         if ks.is_empty() {
             continue;
         }
         let start = start as u32;
+        // D = 3: a point strictly inside the polygon of its facet's extreme
+        // vertices is in the facet's relative interior, so it lies on no
+        // other facet's plane and is not extreme (design §3). It is on the
+        // boundary, and neither the walk nor the facet's extremes need it
+        // (#504).
+        if hull.input.dim() == 3 {
+            if let Some(inner) = facet_polygon(hull, groups, start)? {
+                #[cfg(debug_assertions)]
+                for &k in ks.iter() {
+                    let p = others[k as usize];
+                    if inner.contains(hull.input.point(p)) {
+                        for g in 0..groups.groups.len() as u32 {
+                            debug_assert_eq!(
+                                side_of(g, p)?,
+                                if g == start {
+                                    Sign::Zero
+                                } else {
+                                    Sign::Negative
+                                },
+                                "point {p} inside facet {start} against facet {g}"
+                            );
+                        }
+                    }
+                }
+                ks.retain(|&k| {
+                    let inside = inner.contains(hull.input.point(others[k as usize]));
+                    on_boundary[k as usize] |= inside;
+                    !inside
+                });
+                if ks.is_empty() {
+                    continue;
+                }
+            }
+        }
         points.clear();
         points.extend(ks.iter().map(|&k| others[k as usize]));
         zeros.clear();
@@ -786,6 +822,80 @@ fn distance_zeros(
         }
     }
     Ok((on_boundary, zero_points))
+}
+
+/// The polygon of the extreme vertices of a facet of D = 3, in two of the
+/// three coordinates.
+struct FacetPolygon {
+    /// The coordinates kept, ascending.
+    axes: [usize; 2],
+    edges: Vec<Edge>,
+}
+
+impl FacetPolygon {
+    /// Whether `point`, on the facet's plane, is strictly inside the
+    /// polygon. The projection drops a coordinate on which the plane's
+    /// normal is not zero, so it maps the plane onto the coordinate plane
+    /// one to one, and strict insideness carries over.
+    fn contains(&self, point: &[f64]) -> bool {
+        clearly_inside(&self.edges, &[point[self.axes[0]], point[self.axes[1]]])
+    }
+}
+
+/// The polygon of [`polygon::extremes_polygon`] on the vertices of group
+/// `g` (D = 3), projected to the coordinate plane on which the facet's
+/// first simplex has a nonzero orientation; `None` when the polygon has
+/// fewer than three vertices.
+fn facet_polygon(
+    hull: &SimplicialHull<'_>,
+    groups: &LogicalFacets,
+    g: u32,
+) -> Result<Option<FacetPolygon>, ConvexHullError> {
+    let Some(simplex) = groups.groups[g as usize]
+        .simplices
+        .first()
+        .and_then(|id| hull.facets.get(*id))
+    else {
+        debug_assert!(false, "a group has a live simplex");
+        return Ok(None);
+    };
+    let [a, b, c] = [0, 1, 2].map(|i| hull.input.point(simplex.vertices()[i]));
+    let (u, v) = (
+        [b[0] - a[0], b[1] - a[1], b[2] - a[2]],
+        [c[0] - a[0], c[1] - a[1], c[2] - a[2]],
+    );
+    let normal = [
+        u[1] * v[2] - u[2] * v[1],
+        u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0],
+    ];
+    // The coordinate dropped: the largest rounded normal component first,
+    // then the others, until the projected simplex is not flat.
+    let mut drops = [0, 1, 2];
+    drops.sort_by(|&i, &j| normal[j].abs().total_cmp(&normal[i].abs()));
+    for drop in drops {
+        let axes = match drop {
+            0 => [1, 2],
+            1 => [0, 2],
+            _ => [0, 1],
+        };
+        let project = |p: &[f64]| [p[axes[0]], p[axes[1]]];
+        let (pa, pb, pc) = (project(a), project(b), project(c));
+        if orient(&[&pa, &pb, &pc])? == Sign::Zero {
+            continue;
+        }
+        let vertices = groups.vertices.get(g as usize);
+        let rows: Vec<f64> = vertices
+            .iter()
+            .flat_map(|&v| project(hull.input.point(v)))
+            .collect();
+        return Ok(
+            polygon::extremes_polygon(Rows(&rows), vertices.len() as u32)?
+                .map(|edges| FacetPolygon { axes, edges }),
+        );
+    }
+    debug_assert!(false, "a simplex of D = 3 projects to a triangle");
+    Ok(None)
 }
 
 /// Per point of `others`, the group of a simplex of the final complex whose
@@ -2000,11 +2110,43 @@ pub(crate) mod tests {
                 zeros.iter_mut().for_each(|z| z.sort_unstable());
                 (on, zeros)
             };
-            assert_eq!(
-                sorted(distance_zeros(&recorded, &groups, &others).unwrap()),
-                sorted(distance_zeros(&cleared, &groups, &others).unwrap()),
-                "{name}"
-            );
+            // A point the record starts inside its facet's polygon is
+            // left out of the facet's zero points (#504); every other one
+            // is listed as without records.
+            let (on_with, zeros_with) =
+                sorted(distance_zeros(&recorded, &groups, &others).unwrap());
+            let (on_without, zeros_without) =
+                sorted(distance_zeros(&cleared, &groups, &others).unwrap());
+            assert_eq!(on_with, on_without, "{name}");
+            let mut left_out = 0;
+            for (g, (with, without)) in zeros_with.iter().zip(&zeros_without).enumerate() {
+                let polygon = if *dim == 3 {
+                    facet_polygon(&recorded, &groups, g as u32).unwrap()
+                } else {
+                    None
+                };
+                for &p in without {
+                    if with.binary_search(&p).is_err() {
+                        left_out += 1;
+                        assert!(
+                            polygon
+                                .as_ref()
+                                .is_some_and(|f| f.contains(recorded.input.point(p))),
+                            "{name}: point {p} left out of facet {g}"
+                        );
+                    }
+                }
+                assert!(
+                    with.iter().all(|p| without.binary_search(p).is_ok()),
+                    "{name}"
+                );
+            }
+            if name == "cube surface" {
+                assert!(
+                    left_out > 0,
+                    "{name}: no point was decided inside its facet"
+                );
+            }
             let with = classify_built(recorded, &mut FoundFaces::default()).unwrap();
             let mut reference = built();
             reference.records = Records::new(reference.input.representative.len());
