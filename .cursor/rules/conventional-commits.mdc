@@ -21,6 +21,8 @@ optional footer
 
 Use one of: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `build`, `ci`. `perf` is not a type here: a speedup that changes no result takes the type of its roadmap row (`feat` for a `Feat` row). The same list applies to every commit subject, not only to the PR title.
 
+Check the type against this list before each commit, not only for the pull request's title. In #507 a commit used `perf`; the squash merge took the title's `feat`, but the branch kept the slip, and rewriting it needed the owner's instruction (`.cursor/rules/git.mdc`).
+
 ## Scope
 
 - English, kebab-case or a short noun.
