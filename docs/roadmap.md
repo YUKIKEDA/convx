@@ -6,7 +6,7 @@ Acceptance text stays on each Issue and in the design (§10 and §11). This file
 
 ## Current work
 
-Delaunay `sphere` D2 10^4 from a profile; hull `sphere` D3 10^4 and Delaunay `cube` D4 10^4 timed several times before any row (Grill on #512). Hull `cubesurf` D3's sort of `u32` lists (Grill on #503) and Delaunay D2's walk in plain doubles (Grill on #509) wait for it. P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
+Delaunay `sphere` D2 10^4 from a profile; hull `sphere` D3 10^4 and Delaunay `cube` D4 10^4 timed several times before any row (Grill on #512). A cheaper pass over the D = 2 discard polygon's extremes returns if a parity run puts hull `sphere` D2 back outside 1.05 (#515). Hull `cubesurf` D3's sort of `u32` lists (Grill on #503) and Delaunay D2's walk in plain doubles (Grill on #509) wait for it. P7-8 (#323): acceptance. P7-31 (#400): the exact direction's bound. P7-18 (#355): the lifted underflow terms of the first-stage formulas of k ≤ 4, after them (owner, 2026-10-10).
 
 ## Dependencies
 
