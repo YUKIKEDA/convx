@@ -131,6 +131,14 @@ impl<T: Copy + Default + PartialEq, const N: usize> PartialEq for Small<T, N> {
 
 impl<T: Copy + Default + Eq, const N: usize> Eq for Small<T, N> {}
 
+/// Hashes as the slice it reads as, so the inline and the heap form of one
+/// list hash alike, as they compare equal.
+impl<T: Copy + Default + core::hash::Hash, const N: usize> core::hash::Hash for Small<T, N> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self[..].hash(state);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

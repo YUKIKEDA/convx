@@ -28,7 +28,7 @@
 
 mod insert;
 
-use crate::hull::classify::placing;
+use crate::hull::classify::Placing;
 use crate::hull::input::{accept_sites, minimum_basis, Input};
 use crate::hull::merge::merge;
 use crate::hull::ridge::{fingerprint, pair_equal_keys_with_border};
@@ -270,14 +270,27 @@ impl Draft {
     /// whether that order is negative), every face to be paired by its
     /// vertex set.
     fn push_group(&mut self, sites: &[u32], cells: &[(Vec<u32>, bool)]) {
+        let group = self.begin_group(sites);
+        for (row, negative) in cells {
+            self.push_cell(group, row, *negative);
+        }
+    }
+
+    /// Starts a group of the sites `sites` and returns its number; its cells
+    /// follow through [`Self::push_cell`].
+    fn begin_group(&mut self, sites: &[u32]) -> u32 {
         let group = self.sites.len() as u32;
         self.sites.push(sites);
-        for (row, negative) in cells {
-            self.rows.extend_from_slice(row);
-            self.links.extend(core::iter::repeat_n(UNKNOWN, self.k));
-            self.negative.push(*negative);
-            self.group.push(group);
-        }
+        group
+    }
+
+    /// Adds to group `group` the cell `row` (ascending), with whether that
+    /// order is negative, every face to be paired by its vertex set.
+    fn push_cell(&mut self, group: u32, row: &[u32], negative: bool) {
+        self.rows.extend_from_slice(row);
+        self.links.extend(core::iter::repeat_n(UNKNOWN, self.k));
+        self.negative.push(negative);
+        self.group.push(group);
     }
 
     /// Pairs the faces left [`UNKNOWN`] by their vertex sets. The cells keep
@@ -724,20 +737,32 @@ fn inserted<S: insert::Shape>(
             .collect();
         members.sort_unstable();
         let point = |i: u32| input.point(i);
+        // One workspace and one list of sites for every group (#524).
+        let mut placing = Placing::default();
+        let mut group: Vec<u32> = Vec::new();
         for run in members.chunk_by(|x, y| x.0 == y.0) {
-            let mut group: Vec<u32> = run
-                .iter()
-                .flat_map(|&(_, c)| mesh.vertices_of(c).iter().map(|&v| site(v)))
-                .collect();
+            group.clear();
+            group.extend(
+                run.iter()
+                    .flat_map(|&(_, c)| mesh.vertices_of(c).iter().map(|&v| site(v))),
+            );
             group.sort_unstable();
             group.dedup();
-            let split = placing(d, point, &group)?;
-            debug_assert!(
-                split.iter().all(|s| s.len() == k),
+            let (len, split) = placing.run(d, point, &group)?;
+            debug_assert_eq!(
+                len, k,
                 "a lower facet projects onto a full-dimensional region"
             );
-            let cells = oriented(d, point, split)?;
-            draft.push_group(&group, &cells);
+            let number = draft.begin_group(&group);
+            for cell in split.chunks_exact(len) {
+                // Each cell as its ascending vertex list and whether that
+                // order has negative orientation, as `oriented` gives it.
+                let mut cell: Small<u32, 11> = cell.iter().copied().collect();
+                cell.sort_unstable();
+                let points: Small<&[f64], 11> = cell.iter().map(|&v| point(v)).collect();
+                let negative = orient(&points)? == Sign::Negative;
+                draft.push_cell(number, &cell, negative);
+            }
         }
     }
     drop(mesh);
