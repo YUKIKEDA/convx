@@ -3635,3 +3635,101 @@ Every set published the same counts on both sides.
   Their sites lie near one circle or sphere, so the in-circle and in-sphere determinants are small against the columns' extent. The new stage leaves those open, and the present stage then evaluates the formula again with its permanent.
 - **The permanent is not the cost it looked.** Its terms are the absolute values of products the determinant already forms, so dropping it saves little. A bound that ignores how the entries combine certifies fewer of the calls that matter on `sphere`.
 - **No feature row follows** (Grill on #444). The pass after the insertion, P7-47 (#448), is next.
+
+## Delaunay: the faces left unknown, by an orientation, PR #452 (#448, #451)
+
+The spike P7-47 (#448) and the row P7-48 (#451). The pass after the insertion tested each face the insertion left unknown with a lifted orientation of D + 2 sites. Those are faces between two new simplices whose boundary faces lie in different cavity simplices. The tests were about 10% of `build()` in D4 and D5 (#445).
+
+### Counts (P7-47)
+
+A scratch copy of P7-45 (`afae8ca`) under WSL2, one build each. "Lattice" is `{0..m-1}^D`: 300², 20³, 9⁴, 6⁵.
+
+| Set | Finite faces | Left unknown | Cospherical among them | F dependent | Missed by the rule |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `cube` D3 10^5 | 1,343,043 | 506,576 | 0 | 0 | 0 |
+| `sphere` D3 10^5 | 504,028 | 187,835 | 0 | 0 | 0 |
+| `cube` D4 10^4 | 737,215 | 325,881 | 0 | 0 | 0 |
+| `sphere` D4 10^4 | 288,179 | 126,112 | 0 | 0 | 0 |
+| `cube` D5 10^4 | 4,644,774 | 2,260,561 | 0 | 0 | 0 |
+| Lattice D2 | 267,605 | 124,638 | 0 | 2,217 | 0 |
+| Lattice D3 | 79,708 | 31,453 | 8,122 | 8,390 | 0 |
+| Lattice D4 | 228,082 | 108,446 | 52,510 | 43,235 | 0 |
+| Lattice D5 | 990,006 | 541,601 | 348,236 | 263,192 | 0 |
+
+F is the D + 1 sites of the two simplices other than the newest. The rule tests a face by the lifted orientation only when F is dependent. "Missed" counts the cospherical pairs that are not joined in the end.
+
+Two other rules fall short:
+
+- **Skipping every test** misses 2,398 of 8,122 cospherical pairs on lattice D3, 8,102 of 52,510 on D4, and 38,962 of 348,236 on D5.
+- **Deciding only when both boundary faces share their outside simplex**, the one exact shortcut, covers 6 to 20% of the faces left unknown.
+
+The lemma behind the rule and its proof are in design §7 (Grill on #448).
+
+### The change (P7-48)
+
+- **The rule:** a face left unknown is tested by the orientation of F. The lifted orientation runs only when that orientation is zero. The newest site is the one latest in the insertion order.
+- **The test-only switch:** it tests every face left unknown by the lifted orientation.
+- **The test:** a new test compares the simplices and neighbors published with and without the switch. Inputs: lattices of D = 2 to 5, integer grids, general position, sites near one sphere, and integer sites on one sphere with its center.
+  - The simplices are compared as sets: the merged groups are numbered in the order their faces are joined.
+  - The test takes about 12 s in debug.
+- **Mutation check:** dropping the orientation gate, so that every such face is skipped, makes that test fail.
+
+### Method
+
+| Item | Value |
+| --- | --- |
+| convx | P7-45 at `afae8ca` against the head `4813b67`. rustc 1.97.1, `--release` with debug info, baseline target |
+| Machine | Intel Core i5-13400F, Windows 11, every process pinned (logical processor 2), nothing else running |
+| Sets | The shorter run of `docs/verification.md`, with Delaunay `sphere` D4 10^4 and `cube` D3 10^6 |
+| Rounds | P7-45 and the head alternated per round: 10 rounds × 3 builds; 5 × 1 for the sets over about half a second. A second run of `cube` D3, 20 × 3, and one with both sides built with one codegen unit |
+
+Every set published the same counts on both sides.
+
+### Against P7-45
+
+| Set | P7-45 | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.59 ms (0.52 ms–0.77 ms) | 0.56 ms (0.52 ms–0.77 ms) | 0.95, inside the spread |
+| Hull `cube` D2 10^5 | 5.31 ms (4.79 ms–6.03 ms) | 5.06 ms (4.59 ms–5.89 ms) | 0.95, inside the spread |
+| Hull `sphere` D2 10^4 | 1.26 ms (1.12 ms–1.49 ms) | 1.23 ms (1.17 ms–1.39 ms) | 0.97, inside the spread |
+| Hull `sphere` D2 10^5 | 12.5 ms (11.2 ms–13.7 ms) | 12.2 ms (11.1 ms–14.0 ms) | 0.98, inside the spread |
+| Hull `cube` D3 10^4 | 1.53 ms (1.36 ms–2.34 ms) | 1.49 ms (1.28 ms–1.98 ms) | 0.98, inside the spread |
+| Hull `cube` D3 10^5 | 12.5 ms (11.3 ms–15.9 ms) | 12.5 ms (12.1 ms–21.8 ms) | 1.00, inside the spread |
+| Hull `cubesurf` D3 10^5 | 62.2 ms (57.9 ms–79.5 ms) | 61.8 ms (58.4 ms–66.9 ms) | 0.99, inside the spread |
+| Hull `sphere` D3 10^4 | 22.4 ms (20.9 ms–30.6 ms) | 22.2 ms (20.4 ms–23.6 ms) | 0.99, inside the spread |
+| Hull `sphere` D3 10^5 | 257 ms (246 ms–283 ms) | 266 ms (246 ms–285 ms) | 1.03, inside the spread |
+| Hull `cube` D4 10^4 | 5.45 ms (5.22 ms–7.86 ms) | 5.49 ms (5.26 ms–6.51 ms) | 1.01, inside the spread |
+| Hull `cube` D4 10^5 | 33.1 ms (32.1 ms–40.8 ms) | 33.2 ms (32.1 ms–35.7 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^4 | 92.3 ms (89.6 ms–99.4 ms) | 93.2 ms (89.6 ms–101 ms) | 1.01, inside the spread |
+| Hull `sphere` D4 10^5 | 1.14 s (1.13 s–1.16 s) | 1.13 s (1.12 s–1.15 s) | 0.99, inside the spread |
+| Hull `cube` D5 10^4 | 59.5 ms (56.5 ms–73.0 ms) | 59.0 ms (56.8 ms–66.0 ms) | 0.99, inside the spread |
+| Hull `sphere` D5 10^4 | 812 ms (793 ms–956 ms) | 808 ms (791 ms–913 ms) | 0.99, inside the spread |
+| Hull `cube` D6 10^4 | 573 ms (562 ms–594 ms) | 570 ms (561 ms–584 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^4 | 5.60 ms (5.38 ms–6.13 ms) | 5.69 ms (5.49 ms–6.73 ms) | 1.02, inside the spread |
+| Delaunay `cube` D2 10^5 | 55.9 ms (54.4 ms–62.1 ms) | 56.3 ms (54.7 ms–62.7 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^6 | 598 ms (594 ms–608 ms) | 596 ms (592 ms–598 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^4 | 5.63 ms (5.42 ms–6.72 ms) | 5.57 ms (5.43 ms–5.91 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D2 10^5 | 45.3 ms (44.1 ms–49.0 ms) | 45.0 ms (44.0 ms–50.9 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D2 10^6 | 442 ms (438 ms–460 ms) | 441 ms (433 ms–465 ms) | 1.00, inside the spread |
+| Delaunay `cube` D3 10^4 | 36.1 ms (34.9 ms–39.7 ms) | 36.9 ms (36.0 ms–39.8 ms) | 1.02, inside the spread |
+| Delaunay `cube` D3 10^5 | 383 ms (374 ms–403 ms) | 390 ms (383 ms–405 ms) | 1.02, inside the spread |
+| Delaunay `cube` D3 10^6 | 4.14 s (4.13 s–4.19 s) | 4.22 s (4.17 s–4.24 s) | 1.02, inside the spread |
+| Delaunay `sphere` D3 10^4 | 84.1 ms (82.2 ms–91.5 ms) | 79.3 ms (77.9 ms–81.5 ms) | 0.94, faster beyond the spread |
+| Delaunay `sphere` D3 10^5 | 804 ms (800 ms–806 ms) | 759 ms (753 ms–774 ms) | 0.94, faster beyond the spread |
+| Delaunay `cube` D4 10^4 | 679 ms (663 ms–751 ms) | 632 ms (609 ms–653 ms) | 0.93, faster beyond the spread |
+| Delaunay `sphere` D4 10^4 | 1.10 s (1.08 s–1.19 s) | 996 ms (979 ms–1.08 s) | 0.91, faster beyond the spread |
+| Delaunay `cube` D5 10^4 | 7.55 s (7.45 s–7.68 s) | 7.33 s (7.25 s–7.37 s) | 0.97, faster beyond the spread |
+
+
+The second run of `cube` D3, 20 × 3: 10^4 1.02 and 10^5 1.01, inside the spread. With both sides built with one codegen unit, 20 × 3:
+
+- `cube` D3 10^4 and 10^5 read 1.00;
+- `cube` D4 10^4 reads 0.96.
+
+### Reading
+
+- **The keep criterion is met.** Delaunay `cube` D4 10^4 reads 0.93 and `cube` D5 10^4 0.97, both faster beyond the spread.
+- **`sphere` D4 10^4 reads 0.91 and `sphere` D3 0.94**, faster beyond the spread.
+- **`cube` D3 does not gain.** It read 1.01 to 1.02 in two runs, and 1.00 with one codegen unit. Its tests of the faces left unknown were already on the fixed-size entry of P7-45, where an orientation of four sites costs about as much as reading them.
+- **D2 reads 0.99 to 1.02.** Its insertion by flips leaves few faces unknown.
+- **Nothing is slower beyond the spread.**

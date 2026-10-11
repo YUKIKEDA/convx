@@ -12,6 +12,81 @@ thread_local! {
     /// thread, to compare with the order of insertion (#366).
     pub(super) static STORED_IN_INPUT_ORDER: core::cell::Cell<bool> =
         const { core::cell::Cell::new(false) };
+    /// Makes the pass after the insertion test every face left unknown by
+    /// the lifted orientation on this thread, to compare with the
+    /// orientation that decides most of them (#451).
+    pub(super) static EVERY_UNKNOWN_FACE_LIFTED: core::cell::Cell<bool> =
+        const { core::cell::Cell::new(false) };
+}
+
+/// The faces the insertion leaves unknown are decided by an orientation,
+/// and by the lifted orientation only when that is zero (design §7, #451).
+/// The simplices published, cospherical groups included, and their
+/// neighbors are those of testing every such face by the lifted
+/// orientation. Lattices of D = 2 to 5,
+/// where most faces left unknown are cospherical and many of their sites
+/// are affinely dependent; integer grids with duplicates; sites near and
+/// on one sphere; and general position.
+#[test]
+fn faces_left_unknown_need_the_lifted_test_only_when_dependent() {
+    let mut state = 451_u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    for dim in 2..=5_usize {
+        let side: u32 = [0, 0, 12, 6, 4, 3][dim];
+        let lattice: Vec<f64> = (0..side.pow(dim as u32))
+            .flat_map(|i| (0..dim).map(move |a| f64::from(i / side.pow(a as u32) % side)))
+            .collect();
+        let count = [0, 0, 300, 150, 60, 30][dim];
+        let grid: Vec<f64> = (0..dim * count).map(|_| (next() % 5) as f64).collect();
+        let unit = |next: &mut dyn FnMut() -> u64| {
+            2.0 * ((next() >> 11) as f64 / (1_u64 << 53) as f64) - 1.0
+        };
+        let general: Vec<f64> = (0..dim * count).map(|_| unit(&mut next)).collect();
+        let mut near_sphere = Vec::with_capacity(dim * count);
+        for _ in 0..count {
+            let v: Vec<f64> = (0..dim).map(|_| unit(&mut next)).collect();
+            let norm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
+            near_sphere.extend(v.iter().map(|x| x / norm));
+        }
+        // The integer points of [-2, 2]^D on one sphere (squared radius 5
+        // for D = 2, 8 points; 4 above: 6 points in D = 3, 24 in D = 4, 90 in
+        // D = 5), with its center, so the lift is not flat.
+        let radius = if dim == 2 { 5.0 } else { 4.0 };
+        let mut on_sphere: Vec<f64> = vec![0.0; dim];
+        for i in 0..5_u32.pow(dim as u32) {
+            let p: Vec<f64> = (0..dim)
+                .map(|a| f64::from(i / 5_u32.pow(a as u32) % 5) - 2.0)
+                .collect();
+            if p.iter().map(|x| x * x).sum::<f64>() == radius {
+                on_sphere.extend(p);
+            }
+        }
+        for (family, points) in [
+            ("lattice", &lattice),
+            ("grid", &grid),
+            ("general", &general),
+            ("near sphere", &near_sphere),
+            ("on sphere", &on_sphere),
+        ] {
+            assert!(!is_flat(dim, points), "D = {dim}, {family}: inserted");
+            let gated = DelaunayBuilder::new(dim, points).build().unwrap();
+            EVERY_UNKNOWN_FACE_LIFTED.with(|c| c.set(true));
+            let lifted = DelaunayBuilder::new(dim, points).build();
+            EVERY_UNKNOWN_FACE_LIFTED.with(|c| c.set(false));
+            let lifted = lifted.unwrap();
+            // The merged groups are numbered by the order their faces were
+            // joined, which the skipped tests change, so the simplices are
+            // compared as sets (design §7 fixes no order across builds that
+            // decide differently).
+            assert_eq!(rows(&gated), rows(&lifted), "D = {dim}, {family}");
+            check(&gated, points);
+        }
+    }
 }
 
 /// The triangulation of `points` by the shape of its dimension, and by the
