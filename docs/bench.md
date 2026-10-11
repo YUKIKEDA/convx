@@ -4693,3 +4693,106 @@ The Grill on #493 chose P7-66 (below), then P7-67: hull D2's duplicates found fr
 - **P7-66 is withdrawn after measurement.** Hull `cubesurf` D3 10^5 read 0.97 and 0.96, inside the spread both times (`bench.mdc`: a gain inside the spread is reverted). The exact side tests were 15.4% of the build, and about half of that was the underflow path, which the fixed first stage takes too.
 - **`#[cold]` on the underflow path stays.**
 - P7-67 follows, then a parity run.
+
+## Hull D2: the duplicates found from the chain's sort, where the chain reads every point (#496)
+
+The spike P7-65 (#493) put hull `sphere` D2 10^4 at 1.26 against CGAL as input indices, with acceptance's hashing at 14.0% of the build and the chain's sort at 22.3%. The chain sorts every representative by (x, y, index), which puts equal points next to each other.
+
+### The first prototype
+
+`fbe26dc` sorted every point of D = 2 in acceptance, found the duplicates as equal neighbors, and handed the sorted representatives to the chain. Against P7-64 (`9460825` code), pinned and alternated, 20 rounds × 3 builds:
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.54 ms (0.47 ms–1.11 ms) | 0.72 ms (0.61 ms–1.71 ms) | 1.34, inside the spread |
+| Hull `cube` D2 10^5 | 5.11 ms (4.46 ms–6.22 ms) | 7.58 ms (6.59 ms–10.7 ms) | 1.48, slower beyond the spread |
+| Hull `sphere` D2 10^4 | 1.24 ms (1.11 ms–4.89 ms) | 1.18 ms (1.03 ms–1.76 ms) | 0.95, inside the spread |
+| Hull `sphere` D2 10^5 | 12.8 ms (10.9 ms–20.6 ms) | 11.4 ms (10.3 ms–19.1 ms) | 0.89, inside the spread |
+| Hull `cube` D3 10^4 | 1.46 ms (1.21 ms–1.89 ms) | 1.41 ms (1.22 ms–2.02 ms) | 0.97, inside the spread |
+
+Again on hull `sphere` D2, 40 rounds × 3 builds:
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `sphere` D2 10^4 | 1.22 ms (1.09 ms–2.99 ms) | 1.14 ms (1.00 ms–2.17 ms) | 0.93, inside the spread |
+| Hull `sphere` D2 10^5 | 12.4 ms (11.0 ms–39.0 ms) | 11.0 ms (9.79 ms–15.5 ms) | 0.89, inside the spread |
+
+Hull `cube` D2 got slower beyond the spread. There the discard polygon removes most points, so the chain sorts few, and a sort of every point costs more than the hashing. The Grill on #496 chose to decide the polygon first.
+
+### The change (P7-67)
+
+- **The plan on the input points.** For a hull of D = 2, acceptance computes the discard polygon and whether discarding pays on the input points, before duplicates are removed. This is the same polygon as before: on a tie the earlier point is kept, and the first of equal points is their representative. Duplicates can enter the sample, which changes only whether discarding goes ahead.
+- **Where the chain reads every point**, one sort by x, then y, then index finds the duplicates, and the chain reads the representatives in that order without sorting again. The keys add `+0.0` to each coordinate, so `-0.0` and `+0.0` share one key (design §3).
+- **Where discarding pays**, duplicates are found by hashing, as before. The polygon's edges are passed to construction, so the extremes are not found twice.
+- **Where the polygon gives up the exact evaluation**, acceptance leaves no plan. Construction plans again on the representatives, gives up the same way, and returns the same error after acceptance's own errors, as before.
+- **New module.** The polygon, the sample, and the chain of strict left turns moved to `src/hull/polygon.rs`, as functions of the rows.
+- **Delaunay.** Delaunay accepts its sites through `accept_sites`, which hashes in every dimension. A first version planned the chain for Delaunay D2 too, which never reads it, and Delaunay `sphere` D2 10^6 read 1.07.
+- **Design.** §6 (both languages) says the same.
+
+**Checks:**
+
+- A test compares the representatives of the one sort with those of the sort by `compare_points`, on inputs with many duplicates and signed zeros. It also compares the sorted list with an independent sort. Comparing classes on x alone makes it fail.
+- Every test passes in debug, in release, and under WSL.
+
+### Against P7-64
+
+`9460825` code against the head `d2ba949`, pinned and alternated, 20 rounds × 3 builds, and 8 × 1 for 10^6:
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.52 ms (0.47 ms–1.19 ms) | 0.51 ms (0.46 ms–0.70 ms) | 0.99, inside the spread |
+| Hull `cube` D2 10^5 | 4.69 ms (4.23 ms–5.83 ms) | 4.63 ms (4.41 ms–5.90 ms) | 0.99, inside the spread |
+| Hull `sphere` D2 10^4 | 1.17 ms (1.08 ms–1.67 ms) | 1.06 ms (0.99 ms–5.15 ms) | 0.91, inside the spread |
+| Hull `sphere` D2 10^5 | 11.3 ms (10.7 ms–15.3 ms) | 10.7 ms (9.65 ms–33.2 ms) | 0.94, inside the spread |
+| Delaunay `cube` D2 10^4 | 5.45 ms (5.21 ms–6.18 ms) | 5.43 ms (5.22 ms–6.54 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^5 | 53.1 ms (51.7 ms–57.8 ms) | 52.9 ms (51.5 ms–95.1 ms) | 1.00, inside the spread |
+| Delaunay `cube` D2 10^6 | 615 ms (608 ms–623 ms) | 613 ms (609 ms–621 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^4 | 5.50 ms (5.27 ms–6.21 ms) | 5.50 ms (5.26 ms–6.13 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^5 | 44.0 ms (42.6 ms–54.2 ms) | 43.7 ms (42.6 ms–47.0 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D2 10^6 | 461 ms (454 ms–480 ms) | 462 ms (459 ms–477 ms) | 1.00, inside the spread |
+
+The whole shorter run of `docs/verification.md`, timed on `db5c785` (before Delaunay's acceptance was split off), 10 rounds × 3 builds, 5 × 1 for the sets over about half a second:
+
+| Set | `main` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull `cube` D2 10^4 | 0.57 ms (0.50 ms–1.29 ms) | 0.56 ms (0.48 ms–6.34 ms) | 0.99, inside the spread |
+| Hull `cube` D2 10^5 | 5.08 ms (4.52 ms–9.07 ms) | 5.18 ms (4.49 ms–8.03 ms) | 1.02, inside the spread |
+| Hull `sphere` D2 10^4 | 1.27 ms (1.18 ms–2.54 ms) | 1.20 ms (1.02 ms–3.15 ms) | 0.94, inside the spread |
+| Hull `sphere` D2 10^5 | 12.6 ms (11.0 ms–18.9 ms) | 11.0 ms (10.1 ms–13.4 ms) | 0.87, inside the spread |
+| Hull `cube` D3 10^4 | 1.44 ms (1.25 ms–1.86 ms) | 1.48 ms (1.30 ms–3.35 ms) | 1.03, inside the spread |
+| Hull `cube` D3 10^5 | 12.6 ms (11.0 ms–17.2 ms) | 12.2 ms (11.3 ms–17.1 ms) | 0.97, inside the spread |
+| Hull `cube` D3 10^6 | 153 ms (150 ms–159 ms) | 152 ms (150 ms–153 ms) | 0.99, inside the spread |
+| Hull `cubesurf` D3 10^5 | 52.5 ms (50.3 ms–59.1 ms) | 53.2 ms (50.9 ms–65.0 ms) | 1.01, inside the spread |
+| Hull `sphere` D3 10^4 | 22.7 ms (20.9 ms–78.0 ms) | 22.8 ms (20.6 ms–26.7 ms) | 1.01, inside the spread |
+| Hull `sphere` D3 10^5 | 275 ms (261 ms–342 ms) | 277 ms (265 ms–303 ms) | 1.01, inside the spread |
+| Hull `sphere` D3 10^6 | 3.66 s (3.42 s–3.82 s) | 3.64 s (3.50 s–3.83 s) | 1.00, inside the spread |
+| Hull `cube` D4 10^4 | 5.77 ms (5.37 ms–6.67 ms) | 5.81 ms (5.31 ms–8.90 ms) | 1.01, inside the spread |
+| Hull `cube` D4 10^5 | 35.7 ms (34.1 ms–37.9 ms) | 36.6 ms (35.0 ms–39.6 ms) | 1.03, inside the spread |
+| Hull `sphere` D4 10^4 | 96.9 ms (93.1 ms–104 ms) | 96.7 ms (93.3 ms–105 ms) | 1.00, inside the spread |
+| Hull `sphere` D4 10^5 | 1.22 s (1.21 s–1.25 s) | 1.23 s (1.22 s–1.27 s) | 1.00, inside the spread |
+| Hull `cube` D5 10^4 | 58.6 ms (56.7 ms–63.1 ms) | 59.7 ms (56.7 ms–64.3 ms) | 1.02, inside the spread |
+| Hull `sphere` D5 10^4 | 865 ms (846 ms–893 ms) | 868 ms (840 ms–909 ms) | 1.00, inside the spread |
+| Hull `cube` D6 10^4 | 611 ms (596 ms–633 ms) | 608 ms (584 ms–642 ms) | 0.99, inside the spread |
+| Delaunay `cube` D2 10^4 | 5.58 ms (5.30 ms–7.09 ms) | 6.00 ms (5.44 ms–6.98 ms) | 1.08, inside the spread |
+| Delaunay `cube` D2 10^5 | 57.3 ms (55.1 ms–87.4 ms) | 57.9 ms (55.1 ms–61.2 ms) | 1.01, inside the spread |
+| Delaunay `cube` D2 10^6 | 615 ms (605 ms–637 ms) | 616 ms (614 ms–630 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D2 10^4 | 5.96 ms (5.43 ms–7.17 ms) | 6.09 ms (5.65 ms–6.75 ms) | 1.02, inside the spread |
+| Delaunay `sphere` D2 10^5 | 46.5 ms (44.5 ms–51.9 ms) | 49.9 ms (47.1 ms–52.2 ms) | 1.07, inside the spread |
+| Delaunay `sphere` D2 10^6 | 459 ms (454 ms–466 ms) | 493 ms (490 ms–497 ms) | 1.07, slower beyond the spread |
+| Delaunay `cube` D3 10^4 | 39.3 ms (36.9 ms–47.8 ms) | 38.6 ms (36.6 ms–41.2 ms) | 0.98, inside the spread |
+| Delaunay `cube` D3 10^5 | 416 ms (399 ms–437 ms) | 412 ms (398 ms–427 ms) | 0.99, inside the spread |
+| Delaunay `sphere` D3 10^4 | 81.7 ms (80.6 ms–86.9 ms) | 81.7 ms (79.9 ms–89.5 ms) | 1.00, inside the spread |
+| Delaunay `sphere` D3 10^5 | 819 ms (817 ms–858 ms) | 822 ms (814 ms–833 ms) | 1.00, inside the spread |
+| Delaunay `cube` D4 10^4 | 676 ms (664 ms–702 ms) | 664 ms (650 ms–695 ms) | 0.98, inside the spread |
+| Delaunay `cube` D5 10^4 | 8.14 s (8.06 s–8.37 s) | 8.12 s (8.06 s–8.32 s) | 1.00, inside the spread |
+
+Every set published the same counts on both sides.
+
+### Reading
+
+- **Hull `sphere` D2 10^5 reads 0.87 to 0.94 over three runs.** Each run's interquartile ranges are apart, but the full ranges overlap through outliers.
+- **Hull `sphere` D2 10^4 reads 0.91 to 0.94.** Its interquartile ranges overlap in one run.
+- **Hull `cube` D2 reads 0.99 to 1.02, inside the spread.** That set keeps the hashing.
+- **Delaunay D2 reads 0.99 to 1.00 since `d2ba949`.** The full shorter run's Delaunay rows were timed before that commit.
+- **Nothing else is slower beyond the spread.**
+- **The keep criterion** asked hull `sphere` D2 10^4 and 10^5 to be faster beyond the spread. By the rule on repeated runs (`bench.mdc`), 10^5 meets it; 10^4 agrees in direction but not beyond its spread. Whether to keep the change is the owner's call.
