@@ -17,9 +17,10 @@ fn two(e: i32) -> f64 {
     2f64.powi(e / 2) * 2f64.powi(e - e / 2)
 }
 
-/// The scales: beyond the hull's and the sites' thresholds on both sides,
-/// between the two thresholds, and at the ends of the range.
-const EXPONENTS: [i32; 8] = [-1000, -300, -70, -20, 20, 70, 300, 900];
+/// The scales: beyond every threshold on both sides, between the
+/// thresholds of the sites (12), of a hull (64), and of a hull of D = 2
+/// (300), and at the ends of the range.
+const EXPONENTS: [i32; 10] = [-1000, -400, -200, -70, -20, 20, 70, 200, 400, 900];
 
 fn scaled(points: &[f64], e: i32) -> Vec<f64> {
     let s = two(e);

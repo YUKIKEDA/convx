@@ -26,6 +26,21 @@ use crate::normal::{binary_exponent, scale_by_power_of_two};
 /// already leaves.
 pub(crate) const HULL_FROM: i32 = 64;
 
+/// The same for a hull of D = 2, whose determinants are products of two
+/// differences: its builds read the same down to `2^-200`, where the copy
+/// would cost a tenth of a build that reads every point once.
+pub(crate) const PLANE_HULL_FROM: i32 = 300;
+
+/// From which binary exponent the points of a hull of dimension `dim` are
+/// scaled.
+pub(crate) fn hull_from(dim: usize) -> i32 {
+    if dim == 2 {
+        PLANE_HULL_FROM
+    } else {
+        HULL_FROM
+    }
+}
+
 /// The same for the sites of a Delaunay triangulation or a Voronoi
 /// diagram. The lifted entries are squares, and the first stage's bound
 /// leaves its common form once the sum of its underflow term passes `2^60`
@@ -112,12 +127,12 @@ mod tests {
     fn a_copy_is_the_input_times_one_power_of_two() {
         // The largest magnitude has the binary exponent 0.
         let base = [0.75, -0.5, 0.0, 0.3, -0.0, 0.123, 1.0 / 3.0, -1.999];
-        for from in [HULL_FROM, SITES_FROM] {
+        for from in [HULL_FROM, PLANE_HULL_FROM, SITES_FROM] {
             for e in [0, 1, from, -from] {
                 let points: Vec<f64> = base.iter().map(|x| x * two(e)).collect();
                 assert!(scaled_copy(&points, from).is_none(), "2^{e} from {from}");
             }
-            for e in [from + 2, -from - 2, 300, -300, 1000, -1000, -1060] {
+            for e in [from + 2, -from - 2, 400, -400, 1000, -1000, -1060] {
                 let points: Vec<f64> = base.iter().map(|x| x * two(e)).collect();
                 let copy = scaled_copy(&points, from).unwrap();
                 let largest = copy.iter().fold(0.0_f64, |m, x| m.max(x.abs()));
