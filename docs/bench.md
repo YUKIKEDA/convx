@@ -6525,6 +6525,94 @@ The guards, pinned and alternated, minimum and median in ms, with the ratios of 
 
 5 to 16 rounds. Three Windows rows are a second sitting of 14 to 16 rounds: in the first, of 8, Delaunay `cube` D3 10^5 read 1.04 and 1.04, `cube` D2 10^5 1.02 and 1.03, and `sphere` D2 10^5 0.99 and 1.05. The last three WSL rows were disturbed (their medians stand far above their minima on both sides). The change takes three operations out of an in-circle test and five out of an in-sphere test, and no set moves beyond the spread: it is not a speed change and claims none.
 
+## The full parity run after the last rows of P7, PR #603 (#591)
+
+One run of the 41 sets on `main` at `df80378`, which has the placing search at every dimension (#587) and the lifted formulas without their redundant underflow terms (#588). The count of 37 of 38 in the section of #583 was two runs put together; this is one. Method: `docs/verification.md`, with `benches/parity/` as committed; WSL2, Qhull 2020.2, CGAL 5.4, `rustc` 1.99.0, `g++` 11.4.0.
+
+It is the record of `main` before the filter's exact scaling (#589), which goes first in R1; a run after that row follows.
+
+### Judgement
+
+| Threshold | Met of the 38 judged sets | Hull | Delaunay | Run of #577 | Final P7 run |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1.05 | 36 | 25 | 11 | 35 | 34 |
+| 1.00 | 29 | 21 | 8 | 29 | 29 |
+
+| Set | convx `build()` | / CGAL | / CGAL from the points | / Qhull | At 1.05 | At 1.00 |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| Hull `cube` D2 10^4 | 0.47 ms | 0.75 | 0.87 | 0.76 | met | met |
+| Hull `cube` D2 10^5 | 4.37 ms | 0.78 | 0.98 | 0.78 | met | met |
+| Hull `cube` D2 10^6 | 54.8 ms | 0.80 | 1.21 | 0.97 | met | met |
+| Hull `cube` D3 10^4 | 1.13 ms | 0.53 | – | 0.77 | met | met |
+| Hull `cube` D3 10^5 | 10.5 ms | 0.40 | – | 0.86 | met | met |
+| Hull `cube` D3 10^6 | 144 ms | 0.26 | – | 0.95 | met | met |
+| Hull `cube` D4 10^4 | 5.64 ms | 0.13 | – | 0.80 | met | met |
+| Hull `cube` D4 10^5 | 33.9 ms | 0.06 | – | 0.97 | met | met |
+| Hull `cube` D5 10^4 | 54.2 ms | 0.24 | – | 0.73 | met | met |
+| Hull `cube` D5 10^5 | 239 ms | 0.13 | – | 0.67 | met | met |
+| Hull `cube` D6 10^4 | 605 ms | 0.27 | – | 0.46 | met | met |
+| Hull `cube` D6 10^5 | 2.63 s | 0.24 | – | 0.39 | met | met |
+| Hull `sphere` D2 10^4 | 0.80 ms | 0.99 | 1.15 | 0.11 (ref.) | met | met |
+| Hull `sphere` D2 10^5 | 10.5 ms | 0.97 | 1.26 | 0.08 (ref.) | met | met |
+| Hull `sphere` D2 10^6 | 114 ms | 0.65 | 1.22 | 0.05 (ref.) | met | met |
+| Hull `sphere` D3 10^4 | 21.0 ms | 0.88 | – | 1.04 | met | not met |
+| Hull `sphere` D3 10^5 | 260 ms | 0.63 | – | 1.01 | met | not met |
+| Hull `sphere` D3 10^6 | 3.96 s | 0.42 | – | 0.98 | met | met |
+| Hull `sphere` D4 10^4 | 107 ms | 0.79 | – | 0.91 | met | met |
+| Hull `sphere` D4 10^5 | 1.24 s | 0.93 | – | 0.89 | met | met |
+| Hull `sphere` D5 10^4 | 895 ms | 0.86 | – | 1.00 | met | not met |
+| Hull `sphere` D5 10^5 | 10.77 s | 0.99 | – | 1.02 | met | not met |
+| Hull `sphere` D6 10^4 | 6.76 s | 0.69 | – | 0.80 | met | met |
+| Hull `cubesurf` D3 10^5 | 31.3 ms | 0.76 | – | 0.97 | met | met |
+| Hull `grid` D6 10^4 | 234 ms | 0.91 (ref.) | – | 0.66 | met | met |
+| Delaunay `cube` D2 10^4 | 5.10 ms | 1.09 | 1.26 | 0.27 | not met | not met |
+| Delaunay `cube` D2 10^5 | 53.4 ms | 0.96 | 1.26 | 0.22 | met | met |
+| Delaunay `cube` D2 10^6 | 606 ms | 0.85 | 1.26 | 0.17 | met | met |
+| Delaunay `sphere` D2 10^4 | 5.04 ms | 1.16 | 1.24 | 0.22 (ref.) | not met | not met |
+| Delaunay `sphere` D2 10^5 | 41.8 ms | 1.04 | 1.35 | 0.12 (ref.) | met | not met |
+| Delaunay `sphere` D2 10^6 | 417 ms | 0.82 | 1.32 | 0.04 (ref.) | met | met |
+| Delaunay `cube` D3 10^4 | 37.0 ms | 1.09 | 1.12 | 0.35 | reported | reported |
+| Delaunay `cube` D3 10^5 | 381 ms | 1.07 | 1.23 | 0.30 | reported | reported |
+| Delaunay `cube` D3 10^6 | 4.18 s | 1.07 | 1.21 | 0.25 | reported | reported |
+| Delaunay `sphere` D3 10^4 | 74.2 ms | 0.51 | 0.51 | 0.56 (ref.) | met | met |
+| Delaunay `sphere` D3 10^5 | 697 ms | 0.69 | 0.70 | 0.35 (ref.) | met | met |
+| Delaunay `sphere` D3 10^6 | 5.65 s | 0.81 | 0.84 | 0.33 (ref.) | met | met |
+| Delaunay `cube` D4 10^4 | 683 ms | 1.05 | 1.10 | 0.87 | met | not met |
+| Delaunay `sphere` D4 10^4 | 880 ms | 0.34 | 0.34 | 0.70 (ref.) | met | met |
+| Delaunay `cube` D5 10^4 | 7.36 s | 1.02 | 1.05 | 0.92 | met | not met |
+| Delaunay `sphere` D5 10^4 | 12.56 s | 0.34 | 0.33 | 0.74 (ref.) | met | met |
+
+**Delaunay `cube` D3, reported:** convx's construction alone reads 0.93, 0.88, and 0.87 of CGAL's whole time at 10^4, 10^5, and 10^6.
+
+### The sets run again
+
+Three sets had a slowest build 1.5 times the fastest or more, and two more were run with them: hull `sphere` D3 10^4, at the edge of 1.05, and hull `cube` D6 10^5, whose `build()` read 3.26 s against 2.63 s in the run of #577. The table above has the second reading. With the first readings 34 sets are met at 1.05, with the second 36.
+
+| Set | First: `build()` (fastest to slowest), / CGAL, / Qhull | Again |
+| --- | --- | --- |
+| Hull `sphere` D3 10^4 | 22.2 ms (20.6 to 27.0), 0.84, 1.05 | 21.0 ms (18.8 to 22.3), 0.88, 1.04 |
+| Hull `sphere` D3 10^5 | 297 ms (262 to 436), 0.62, 1.11 | 260 ms (239 to 294), 0.63, 1.01 |
+| Hull `cubesurf` D3 10^5 | 28.0 ms (26.6 to 40.2), 0.72, 0.97 | 31.3 ms (28.4 to 37.5), 0.76, 0.97 |
+| Hull `cube` D6 10^5 | 3.26 s (2.88 to 4.29), 0.14, 0.38 | 2.63 s (2.60 to 2.67), 0.24, 0.39 |
+| Delaunay `sphere` D5 10^4 | 11.59 s (11.29 to 37.72), 0.32, 0.78 | 12.56 s (11.17 to 15.45), 0.34, 0.74 |
+
+After it, 23 of the 41 sets still have a slowest build 1.2 times the fastest or more, the largest 1.48. During this run I edited files, made commits, and searched the web, and built nothing; the machine was not otherwise idle either.
+
+### What is not met
+
+| Set | Ratio | Reason |
+| --- | --- | --- |
+| Delaunay `cube` D2 10^4 | 1.09 against CGAL | 1.04 to 1.13 over eight runs, with no change to its code |
+| Delaunay `sphere` D2 10^4 | 1.16 against CGAL | 1.04 to 1.17 over seven runs in a row (#512) |
+
+Three more sit between 1.03 and 1.05: hull `sphere` D3 10^4 (1.04 against Qhull), Delaunay `sphere` D2 10^5 (1.04 against CGAL), and Delaunay `cube` D4 10^4 (1.045). Delaunay `cube` D5 10^4 and hull `sphere` D5 10^5 read 1.02.
+
+### Reading
+
+- Hull `sphere` D2 and D3 are inside 1.05 at every size, as before the rows that cost them (#570, #578).
+- The two sets not met are Delaunay of D = 2 at 10^4, where CGAL's whole run is under 5 ms: the same two as at the end of P7.
+- The rows since the run of #577 (#580, #587, #588) moved no set out. The corners of a cube, which #587 is about, are not a parity set.
+
 ## Inputs far from 1: one exact scaling of the whole input, PR #606 (#589)
 
 ### What was slow, and how widely

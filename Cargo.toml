@@ -5,6 +5,25 @@ edition = "2021"
 rust-version = "1.89"
 description = "N-dimensional convex hull, Delaunay triangulation, and Voronoi diagram with exact predicates"
 repository = "https://github.com/YUKIKEDA/convx"
+homepage = "https://github.com/YUKIKEDA/convx"
+documentation = "https://docs.rs/convx"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+keywords = ["convex-hull", "delaunay", "voronoi", "geometry", "exact"]
+categories = ["algorithms", "mathematics", "science"]
+# A whitelist (`.cursor/rules/publish.mdc`). A root file starts with `/`:
+# without it the pattern also matches a file of that name in a directory.
+include = [
+    "src/**/*",
+    "examples/**/*",
+    "tests/**/*",
+    # A unit test and the example that exports the sets read this list.
+    "/benches/sets.txt",
+    "/README.md",
+    "/README.ja.md",
+    "/LICENSE-MIT",
+    "/LICENSE-APACHE",
+]
 publish = false
 
 [lints.rust]

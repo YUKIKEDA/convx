@@ -1,0 +1,65 @@
+---
+description: The crates.io publish gate, the package's files, the MSRV, and the 0.x contract
+alwaysApply: true
+---
+
+# Publish
+
+Ready means the owner runs `cargo publish` and no other step is left. An agent does not run that command. An agent may run `cargo publish --dry-run` and `cargo package`.
+
+`just lint` and `just test` run on every change, publish or not.
+
+## Order
+
+One pull request says the release is prepared: what is done, and what is not. The owner merges it. That merge on `main` is the commit that is published.
+
+No version tag and no GitHub Release exists before that merge. After it, the checks below run on that commit; a run on an earlier commit, even one with the same tree, is not this check. When they pass, the owner creates the annotated tag `v{version}` on it, then the GitHub Release on that tag, then runs `cargo publish`. An agent pushes no tag.
+
+## Before `cargo publish`
+
+All of these hold for the merge commit:
+
+- `Cargo.toml` `version` is the version to publish, and `publish = false` is absent.
+- `CHANGELOG.md` has the entry of that version.
+- `cargo doc --no-deps` has no warning and no broken link.
+- `cargo package --list` is the whitelist below.
+- `just lint` and `just test` pass on that commit, and the suite passes on Linux.
+- `cargo publish --dry-run` exits 0 on a clean tree of that commit.
+
+## No benchmark before the code it measures is final
+
+A benchmark that is published, or kept as the record of a release, is taken on the commit that is published or on one whose library code is the same. A change to the library after it means the benchmark is taken again. The owner, 2026-10-12: the filter's exact scaling (#589) went before every benchmark of R1 for this reason.
+
+## MSRV
+
+The MSRV is `rust-version` in `Cargo.toml`, 1.89 at 0.1.0. CI runs the tests on it and on stable. Raising it is a change the changelog names.
+
+## Public contract
+
+A 0.x minor version may break the public API, and the README says so. The contract is every item an external crate can name. A `pub` item that no external crate can name is not part of it.
+
+What the crate promises about results (exact signs, what a hull, a Delaunay triangulation, and a Voronoi diagram publish, the order of failures) is in the README and the crate documentation, and nothing there promises what no test checks (`.cursor/rules/spec-checks.mdc`).
+
+## Package files
+
+`Cargo.toml` `include` is a whitelist:
+
+- `src/`
+- `examples/`
+- `tests/`, with the fixtures under `tests/fixtures/` that the tests read
+- `benches/sets.txt`, which a unit test and the example that exports the sets read; nothing else of `benches/`
+- `README.md` and `README.ja.md`
+- `LICENSE-MIT` and `LICENSE-APACHE`
+
+A root file's pattern starts with `/` (`/README.md`): without it the pattern also matches a file of that name in a directory, such as `benches/parity/README.md`.
+
+Development files do not ship: `.cursor/`, `.agents/`, `.github/`, `docs/`, the rest of `benches/`, `clippy.toml`, the `justfile`. Links from the README to development documents are absolute GitHub URLs, because the documents are not in the package.
+
+`cargo package --list` matches this list, and the tests pass when run from the packaged tree (`target/package/convx-{version}`): a test that reads a file outside the list fails there, as `src/cull.rs` would have without `benches/sets.txt` (#594).
+`Cargo.toml` `include` is a whitelist, decided in R1-2 (#594) and written here by that change. Development files do not ship: `.cursor/`, `.agents/`, `.github/`, `docs/`, `benches/`, `clippy.toml`, the `justfile`. Links from the README to development documents are absolute GitHub URLs, because the documents are not in the package.
+
+## The comparison
+
+The published comparison (`docs/comparison.md`) is a report, not a test: a row where another library is better stays in the table. It names the machine, the versions, the flags, what is timed, and what each library outputs. The parity run (ADR 0006, `benches/parity/`) is the internal judgement and is not the comparison.
+
+Data that is not ours is not committed: a script downloads it, checks a checksum, and the document credits the source.
