@@ -6102,7 +6102,7 @@ On Windows, `main` against the change, 4 to 12 rounds:
 
 The inputs of #549 (the k-gon times a square, the prism) were not timed again: the change touches no path of theirs but the push of a list.
 
-## The parity run again, after #573 (#577)
+## The parity run again, after #573, PR #579 (#577)
 
 The run of #569 found hull `sphere` D2 slower and was noisy. #573 removed that cause. This run judges the sets again.
 
