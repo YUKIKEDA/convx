@@ -47,23 +47,21 @@ impl Records {
         self.points = points;
     }
 
-    pub(crate) fn relabeled(self, label: &[u32], points: usize) -> Self {
+    /// `spare` takes the list of starts by local number, which the renamed
+    /// records leave, and gives its storage to the new one: kept from one
+    /// build to the next, the renaming allocates nothing (#551).
+    pub(crate) fn relabeled(mut self, label: &[u32], points: usize, spare: &mut Vec<u32>) -> Self {
+        self.points = points;
         if self.starts.is_empty() {
-            return Self {
-                starts: Vec::new(),
-                entries: self.entries,
-                points,
-            };
+            return self;
         }
-        let mut starts = vec![NONE; points];
+        spare.clear();
+        spare.resize(points, NONE);
         for (local, &start) in self.starts.iter().enumerate() {
-            starts[label[local] as usize] = start;
+            spare[label[local] as usize] = start;
         }
-        Self {
-            starts,
-            entries: self.entries,
-            points,
-        }
+        core::mem::swap(&mut self.starts, spare);
+        self
     }
 
     /// Whether no point has a record.
