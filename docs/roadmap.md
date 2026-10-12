@@ -142,7 +142,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-60 | Feat  | Build every D = 2 hull by the filtered strict chain                                                        | #232  | Done                     |
 | P5-61 | Spike | Extremes of a coplanar face come from recursive sub-hulls: where does that time go?                       | #237  | Done                     |
 | P5-62 | Spike | What does hull construction in general position pay per simplex, at 10^4 and at 10^6 points?              | #247  | Done                     |
-| P5-63 | Feat  | Predicates: the filter scales one predicate's entries by an exact power of two                            | #589  | Not started              |
+| P5-63 | Feat  | Predicates: the filter scales one predicate's entries by an exact power of two                            | #589  | Done                     |
 
 ## P6
 
@@ -267,7 +267,7 @@ The owner opened this phase on 2026-10-12 (Grill on #592). The comparison it pub
 | R1-6 | Task | The comparison's data: rbox, the distributions of PBBS, and the Stanford scans | #598 | Not started |
 | R1-7 | Task | Rust crates in the comparison | #599 | Not started |
 | R1-8 | Docs | Run the comparison and publish it: the document, the figures, and the numbers | #600 | Not started |
-| R1-9 | Feat | The filter's exact scaling before the release (P5-63) | #601 | Not started |
+| R1-9 | Feat | The filter's exact scaling before the release (P5-63) | #601 | Done |
 | R1-10 | Task | 0.1.0: the changelog, the version, and `publish = false` removed | #602 | Not started |
 
 ## Intentionally out of scope

@@ -86,7 +86,13 @@ impl<'a> DelaunayBuilder<'a> {
     /// [`ConvexHullError::ExactEvaluationExhausted`]. Sites that all lie on
     /// one sphere succeed.
     pub fn build(self) -> Result<DelaunayTriangulation, ConvexHullError> {
-        Ok(publish(complex(self.dim, self.points)?))
+        // An input far from 1 is built on a copy scaled exactly (#589);
+        // a triangulation publishes indices only.
+        let scaled = crate::scaling::scaled_copy(self.points, crate::scaling::SITES_FROM);
+        Ok(publish(complex(
+            self.dim,
+            scaled.as_deref().unwrap_or(self.points),
+        )?))
     }
 }
 

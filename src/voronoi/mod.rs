@@ -71,7 +71,14 @@ impl<'a> VoronoiBuilder<'a> {
     /// and [`ConvexHullError::NonFiniteCircumcenter`] when every simplex of
     /// some vertex has a non-finite circumcenter in `f64`.
     pub fn build(self) -> Result<VoronoiDiagram, ConvexHullError> {
-        build(self.dim, self.points)
+        // An input far from 1 is built on a copy scaled exactly (#589);
+        // the vertices take their coordinates from the input itself.
+        let scaled = crate::scaling::scaled_copy(self.points, crate::scaling::SITES_FROM);
+        build(
+            self.dim,
+            scaled.as_deref().unwrap_or(self.points),
+            self.points,
+        )
     }
 }
 
@@ -396,10 +403,12 @@ struct GroupFacets {
     on_hull: Vec<bool>,
 }
 
-fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> {
+fn build(dim: usize, points: &[f64], given: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> {
     let complex = complex(dim, points)?;
     let d = complex.dim;
     let point = |i: u32| &points[i as usize * d..(i as usize + 1) * d];
+    // The sites as they were given, where `points` is a scaled copy.
+    let given_point = |i: u32| &given[i as usize * d..(i as usize + 1) * d];
     let orient_of = |set: &[u32]| -> Result<Sign, ConvexHullError> {
         let refs: Small<&[f64], 11> = set.iter().map(|&v| point(v)).collect();
         Ok(orient(&refs)?)
@@ -528,7 +537,7 @@ fn build(dim: usize, points: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> 
         let sites = group_sites.get(g as usize);
         let cells = members.get(g as usize);
         vertex_coords_of(
-            &point,
+            &given_point,
             cells.iter().map(|&c| row(c)),
             &mut circumcenters,
             &mut vertex_coords,
