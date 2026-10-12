@@ -171,10 +171,11 @@ pub(super) fn orient4(m: &[[Approx; 4]; 4]) -> Approx {
 /// for any size, by Gaussian elimination with partial pivoting. Returns
 /// `None` when a pivot's sign is not certain.
 ///
-/// Sizes 5 to 9 (every orientation and lifted orientation of the static
-/// range) keep the matrix on the stack, so a call does not allocate. Larger
-/// sizes use one vector. Both run [`eliminate`], so the value and the bound
-/// do not depend on the storage.
+/// Sizes 5 to 11 (every orientation up to D = 10, and every lifted
+/// orientation up to D = 9) keep the matrix on the stack, so a call does
+/// not allocate. Larger sizes use one vector. Both run [`eliminate`], so the
+/// value and the bound do not depend on the storage. Sizes 10 and 11 were
+/// on the heap, two allocations a call in a hull of D = 10 (#554).
 pub(super) fn determinant(n: usize, entry: impl Fn(usize, usize) -> Approx) -> Option<Approx> {
     match n {
         5 => in_blocks(Square(Stack::<5, 2>::load(5, 5, entry))),
@@ -182,6 +183,8 @@ pub(super) fn determinant(n: usize, entry: impl Fn(usize, usize) -> Approx) -> O
         7 => in_blocks(Square(Stack::<7, 2>::load(7, 7, entry))),
         8 => in_blocks(Square(Stack::<8, 2>::load(8, 8, entry))),
         9 => in_blocks(Square(Stack::<9, 3>::load(9, 9, entry))),
+        10 => in_blocks(Square(Stack::<10, 3>::load(10, 10, entry))),
+        11 => in_blocks(Square(Stack::<11, 3>::load(11, 11, entry))),
         _ => in_blocks(Square(Heap::load(n, n, entry))),
     }
 }
@@ -208,6 +211,7 @@ pub(super) fn cofactors(
         7 => in_blocks(Shared(Stack::<6, 2>::load(6, 7, entry))),
         8 => in_blocks(Shared(Stack::<7, 2>::load(7, 8, entry))),
         9 => in_blocks(Shared(Stack::<8, 3>::load(8, 9, entry))),
+        10 => in_blocks(Shared(Stack::<9, 3>::load(9, 10, entry))),
         _ => in_blocks(Shared(Heap::load(k - 1, k, entry))),
     }
 }
@@ -961,5 +965,78 @@ fn update(
             e[lane] = (e[lane] + product_error + difference.abs() * UNIT_ROUNDOFF + ETA) * GROW;
             v[lane] = difference;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A matrix on the stack gives the value and the bound of the same
+    /// matrix in a vector, bit for bit: the determinant at sizes 5 to 11
+    /// and the cofactors at sizes 5 to 10, which is every size the stack
+    /// holds, 10 and 11 since #554. Entries are exact or carry a bound, and
+    /// some matrices have two equal rows, whose determinant no bound
+    /// separates from zero.
+    #[test]
+    fn the_stack_and_the_heap_give_one_value() {
+        let mut state = 0x0554_f491_4f6c_dd1d_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let bits = |a: Approx| (a.value.to_bits(), a.error.to_bits());
+        let (mut certified, mut uncertain) = (0, 0);
+        for n in 5..=11 {
+            for round in 0..40 {
+                let mut m: Vec<Vec<Approx>> = (0..n)
+                    .map(|_| {
+                        (0..n)
+                            .map(|_| {
+                                let value =
+                                    (next() >> 11) as f64 / (1_u64 << 53) as f64 * 2.0 - 1.0;
+                                let error = if next().is_multiple_of(3) {
+                                    0.0
+                                } else {
+                                    value.abs() * f64::EPSILON
+                                };
+                                Approx { value, error }
+                            })
+                            .collect()
+                    })
+                    .collect();
+                if round % 8 == 0 {
+                    m[n - 1] = m[0].clone();
+                }
+                let entry = |i: usize, j: usize| m[i][j];
+                let on_stack = determinant(n, entry);
+                let on_heap = in_blocks(Square(Heap::load(n, n, entry)));
+                assert_eq!(
+                    on_stack.map(bits),
+                    on_heap.map(bits),
+                    "size {n}, round {round}"
+                );
+                certified += usize::from(on_stack.is_some_and(|a| a.value.abs() > a.error));
+                uncertain += usize::from(on_stack.is_none_or(|a| a.value.abs() <= a.error));
+                if n <= 10 {
+                    let on_stack = cofactors(n, entry);
+                    let on_heap = in_blocks(Shared(Heap::load(n - 1, n, entry)));
+                    let all = |c: Option<Small<Approx, 10>>| {
+                        c.map(|c| c.iter().map(|&a| bits(a)).collect::<Vec<_>>())
+                    };
+                    assert_eq!(
+                        all(on_stack),
+                        all(on_heap),
+                        "cofactors of {n}, round {round}"
+                    );
+                }
+            }
+        }
+        assert!(
+            certified > 200 && uncertain >= 30,
+            "{certified} certified, {uncertain} not"
+        );
     }
 }

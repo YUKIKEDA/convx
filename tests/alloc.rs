@@ -106,6 +106,10 @@ enum Points {
     /// of one determinant are about 1,000 apart, more than the integers
     /// on the stack hold, so the exact stage runs on heap integers (#185).
     Scaled(usize),
+    /// The generator's `cube` at two numbers of points, for the high
+    /// dimensions, where sixteen times the points is out of reach: the
+    /// facets grow about ten times between the two (#554).
+    Few(usize, usize),
 }
 
 impl Points {
@@ -121,6 +125,7 @@ impl Points {
             }
             Self::Clusters(k) => format!("clusters on a sphere D{dim} k={k}"),
             Self::Scaled(n) => format!("cube with exponents far apart D{dim} n={n}"),
+            Self::Few(small, large) => format!("cube D{dim} n={small},{large}"),
         }
     }
 
@@ -134,6 +139,7 @@ impl Points {
         };
         match self {
             Self::Drawn(family, n) => family.points(dim, times * n, 521),
+            Self::Few(small, big) => Family::Cube.points(dim, if large { big } else { small }, 521),
             Self::Scaled(n) => Family::Cube
                 .points(dim, times * n, 521)
                 .iter()
@@ -279,6 +285,11 @@ const CASES: &[Case] = &[
     Case { kind: Kind::Hull, points: Points::Clusters(16), dim: 4, small: (286, 439), large: (341, 720) },
     Case { kind: Kind::Hull, points: Points::Scaled(100), dim: 3, small: (144, 137), large: (120, 210) },
     Case { kind: Kind::Hull, points: Points::Scaled(50), dim: 4, small: (120, 206), large: (128, 324) },
+    Case { kind: Kind::Hull, points: Points::Few(40, 120), dim: 8, small: (111, 351), large: (126, 491) },
+    Case { kind: Kind::Hull, points: Points::Few(24, 44), dim: 9, small: (97, 296), large: (111, 388) },
+    Case { kind: Kind::Hull, points: Points::Few(20, 32), dim: 10, small: (94, 293), large: (103, 383) },
+    Case { kind: Kind::Delaunay, points: Points::Few(16, 26), dim: 8, small: (7354, 7353), large: (7354, 7381) },
+    Case { kind: Kind::Delaunay, points: Points::Few(14, 22), dim: 9, small: (11066, 22053), large: (11066, 22088) },
     Case { kind: Kind::Hull, points: Points::Duoprism(8), dim: 4, small: (225, 361), large: (305, 689) },
 ];
 

@@ -55,8 +55,8 @@ use pulp::{Arch, Simd, WithSimd};
 #[cfg(test)]
 use crate::normal::facet_cofactors;
 use crate::normal::NormalCertificate;
+use crate::predicates::Direction;
 use crate::predicates::Sign;
-use crate::small::Small;
 
 const UNIT_ROUNDOFF: f64 = f64::EPSILON / 2.0;
 /// 2^-1073.
@@ -65,14 +65,14 @@ const ETA: f64 = f64::from_bits(2);
 /// A facet prepared for culling. `N` holds the working unit normal: inline
 /// when the plane is prepared, or borrowed from the rows of a facet store
 /// (see [`CullPlane::from_parts`]).
-pub(crate) struct CullPlane<N = Small<f64, 8>> {
+pub(crate) struct CullPlane<N = Direction> {
     /// The working unit normal. The origin vertex is the facet's first
     /// point, which every caller passes in.
     normal: N,
     /// The origin the plane was prepared with, to check the callers'. A
     /// plane read back from stored parts has none.
     #[cfg(debug_assertions)]
-    origin: Option<Small<f64, 8>>,
+    origin: Option<Direction>,
     slope: f64,
     floor: f64,
 }
