@@ -36,7 +36,9 @@
 
 use std::collections::{BinaryHeap, HashMap};
 
-use super::input::{accept, Input, InputWork};
+#[cfg(any(test, debug_assertions))]
+use super::input::accept;
+use super::input::{Input, InputWork};
 use super::merge::{merge_into, LogicalFacets, MergeWork};
 use super::polygon::{self, clearly_inside, ChainWork, Edge, Rows};
 use super::ridge::{fingerprint, pair_equal_keys};
