@@ -5651,6 +5651,17 @@ Allocations of one `build()`, at the small and the large size of `tests/alloc.rs
 
 Over the 44 cases the allocations at the large size fall from 42,197 to 14,002 in sum. Of the 3,393 left on hull `cluster` D4, 2,404 are the exact direction of a plane, two per call (#548).
 
+**The exact direction (#548):** returned inline. The generator's `cluster` has eight clusters however many points are drawn, so its count was fixed; clusters that grow show the growth (k points of `sphere`, each with the 2^D points at 0 or 2^-30 from it along every axis; a simplex with two vertices of one cluster is a sliver, which the cofactors in `f64` do not certify). Base #549's head, head `06104b5`:
+
+| Case | Before | After |
+| --- | --- | --- |
+| Hull, clusters on a sphere D4, k = 16 and 256 | 1,820 and 7,171 | 286 and 341 |
+| Hull, clusters on a sphere D3, k = 32 and 512 | 239 and 457 | 169 and 217 |
+| Hull `cluster` D4 | 2,740 and 1,960 | 336 and 328 |
+| Hull `cluster` D3 | 234 and 227 | 176 and 177 |
+
+Its time does not move: over ten alternated launches, pinned, the hull of 1,024 clusters in D4 has a median of 78.4 ms before and 78.2 ms after, and of 256 clusters 29.9 ms and 30.0 ms, with the same hash of the result.
+
 Time, pinned and alternated, the minimum of eight rounds, one pair of builds, the same hash of the whole result on both sides in every row:
 
 | Input | Before | After | Ratio |

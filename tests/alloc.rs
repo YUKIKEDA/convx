@@ -17,19 +17,25 @@
 //! The generator's degenerate families (`grid`, `lattice`, `cluster`) keep
 //! a fixed number of distinct points however many are drawn. Their faces
 //! and cospherical groups do not grow, so an allocation per face shows
-//! there as a fixed count. Three inputs grow in structure instead (#530):
+//! there as a fixed count. These inputs grow in structure instead (#530):
 //!
 //! - a prism over a k-gon: k faces that are not simplices;
 //! - the full grid of side m: every unit cell is a cospherical group, and a
 //!   whole side or face of points comes before the first affinely
 //!   independent ones;
-//! - a k-gon times a square in D = 4: k faces whose sub-hull has D = 3.
+//! - a k-gon times a square in D = 4: k faces whose sub-hull has D = 3;
+//! - the integer points of a sphere, alone and with a site outside: one
+//!   cospherical group of all of them (#539, #540);
+//! - clusters on a sphere: planes whose direction the filters do not
+//!   certify, as many as the clusters (#548).
 //!
 //! Growths found and removed: Voronoi per site (#523), the placing
 //! triangulation per simplex (#524), and per face of a hull of D = 3 and
 //! per point of a collinear prefix (#530), the pulling triangulation per
-//! site (#539), and the sub-hull of a face in D >= 4, built from nothing
-//! for each face (#531). None is left.
+//! site (#539), the sub-hull of a face in D >= 4, built from nothing for
+//! each face (#531), and the exact direction of a plane, per call (#548).
+//! One known is left: the copy in space order of a sub-hull of 2^17
+//! points or more (#551), which no case here reaches.
 //!
 //! Debug builds run invariant checks inside every build, and those allocate
 //! freely, so the counts hold for release builds only. `just test` runs this
