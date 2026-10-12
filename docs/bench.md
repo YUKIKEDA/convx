@@ -6394,6 +6394,6 @@ The same sets built with `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1`, where the comp
 
 - **The Delaunay sets of D = 2 are where they were at the final P7 run**: `main` reads 0.97 to 1.01 of it. The 1.02 to 1.07 of the default builds is where the compiler put the code in those builds, not what the code does. The rows since P7 did not slow Delaunay D2.
 - **Hull `sphere` D3 10^4 is back**: `main` reads 1.01 by the minimum and by the median, and the change 1.00 and 1.00. The percent left in the default builds is layout too.
-- **One codegen unit is itself 6 to 8% faster on hull `sphere` D3 10^4**: 16.97 to 17.16 ms by the minimum, against 17.9 to 18.7 ms in the default builds of the same commits. The parity run judges the default build, as a user's `cargo build --release` makes it. Whether it should is a question for the owner and for ADR 0006, not something this change decides.
+- **One codegen unit is itself 6 to 8% faster on hull `sphere` D3 10^4**: 16.97 to 17.16 ms by the minimum, against 17.9 to 18.7 ms in the default builds of the same commits. The parity run judges the default build, as a user's `cargo build --release` makes it, and it stays so: the owner decided on 2026-10-12 to keep judging the default build (#578). A reading with one codegen unit is a way to tell layout from work, and is reported beside the judgement, not in its place.
 
 **Not timed:** the hulls of D = 9 and 10 of #556. The change is in `src/lists.rs` alone and #556's lists are not `Lists`. The set was not judged against Qhull and CGAL again.
