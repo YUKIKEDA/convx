@@ -5774,6 +5774,70 @@ Time, pinned and alternated, five rounds, minimum and median, the same hash on b
 
 `sphere` D3 read 1.06 in that run. Over eight rounds more it read 0.95 by the minimum and 0.92 by the median, and with one codegen unit 1.02 and 0.99; at 400,000 points 1.01 and 1.01. `cube` D5 read 1.04 and 1.01 in the eight rounds, 1.02 and 1.02 with one codegen unit. The machine's spread in these runs was several percent.
 
+### The scans behind the allocation contract (#185, #554, #560)
+
+The contract covers D <= 10 (design; the owner's decision of 2026-10-13 on #554). Three scans counted the allocations of one `build()` at two sizes or more, on release builds, each input once:
+
+- **D = 2 to 6, 90 inputs** (on #553's head): every builder; points, faces, cospherical groups, and uncertified planes growing. It found the heap exact stage (#185).
+- **D = 7 to 11, the generator's `cube`** (on #555's head): it found the lists of capacity 8 and the filter's rows of D = 9 and 10 (#554).
+- **D = 5 to 10, degenerate inputs** (on #556's head, #560): the table below. No count grows per item.
+
+Points and allocations, `points:allocations`:
+
+| Build | Input | D | Counts |
+| --- | --- | ---: | --- |
+| Hull | a k-gon times a cube | 7 | 128:512, 256:563, 512:618 |
+| Hull | a k-gon times a cube | 8 | 192:604, 256:619 |
+| Hull | `cubesurf` | 7 | 100:226, 200:280, 400:318 |
+| Hull | `cubesurf` | 8 | 80:118, 160:247 |
+| Hull | `cubesurf` | 9 | 60:117, 100:222 |
+| Hull | `cubesurf` | 10 | 40:109, 60:119 |
+| Hull | points on the faces of a cube, on a grid of 1/64 | 7 | 200:281, 800:330, 3,200:364 |
+| Hull | the same | 8 | 200:260, 800:323 |
+| Hull | the same | 9 | 200:259, 600:329 |
+| Hull | the full grid of side 2 and of side 3 | 7 | 128:478, 2,187:612 |
+| Hull | the same | 8 | 256:570, 6,561:737 |
+| Hull | the corners of a cube | 9 | 512:666 |
+| Hull | clusters on a sphere | 7 | 1,280:766, 1,792:790 |
+| Hull | every point twice | 7 | 60:99, 120:114 |
+| Hull | every point twice | 9 | 40:94, 60:105 |
+| Hull | `nearsphere` | 5 | 200:393, 800:535, 3,200:580, 12,800:571 |
+| Hull | `nearsphere` | 6 | 200:513, 800:713, 3,200:826 |
+| Hull | `nearsphere` | 7 | 100:257, 200:326, 400:686, 800:767, 1,600:812 |
+| Hull | `nearsphere` | 8 | 200:292, 400:427 |
+| Hull | exponents far apart | 7 | 20:203, 30:101 |
+| Hull | exponents far apart | 9 | 14:130, 18:91 |
+| Hull | the integer points of a sphere | 7 | 84:449, 280:485 |
+| Hull, with `planes()` | a k-gon times a cube | 7 | 128:522, 256:573 |
+| Hull, with `planes()` | `cube` | 9 | 24:109, 44:117 |
+| Delaunay | `cube` | 7 | 14:4,670, 20:4,670, 28:4,670 |
+| Delaunay | `cube` | 9 | 14:11,066, 22:11,066 |
+| Delaunay | the full grid of side 3 and of side 4 | 5 | 243:1,591, 1,024:1,591 |
+| Delaunay | unit cubes in a row | 5 | 64:1,591, 256:1,591, 1,024:1,591 |
+| Delaunay | unit cubes in a row | 6 | 128:2,840, 512:2,840, 2,048:2,840 |
+| Delaunay | unit cubes in a row | 7 | 256:4,709, 768:4,709 |
+| Delaunay | the integer points of a sphere | 5 | 40:98, 112:110, 200:111 |
+| Delaunay | the same | 6 | 60:103, 160:106 |
+| Delaunay | the same and a site outside | 5 | 41:1,603, 113:1,603, 201:1,605 |
+| Delaunay | the same and a site outside | 6 | 61:2,838, 161:2,841 |
+| Delaunay | every point twice | 6 | 40:2,804, 80:2,804 |
+| Voronoi | `cube` | 5 | 40:1,727, 80:1,738, 160:1,744 |
+| Voronoi | `cube` | 6 | 30:2,961, 50:2,967 |
+| Voronoi | `cube` | 7 | 20:4,815, 28:4,816 |
+| Voronoi | unit cubes in a row | 5 | 64:2,005, 256:2,005, 1,024:2,005 |
+| Voronoi | unit cubes in a row | 6 | 128:3,363, 512:3,368 |
+| Voronoi | the integer points of a sphere | 5 | 40:430, 112:373 |
+| Voronoi | the same and a site outside | 5 | 41:1,941, 113:1,882 |
+
+**Hull `nearsphere`** rises the most: 326 to 686 between 200 and 400 points in D = 7. It levels off, 767 at 800 and 812 at 1,600, and in D = 5 it stays at 571 to 580 from 3,200 points on. Its distinct points are a fixed set, so its faces stop growing; the rise is the buffers of deeper levels of faces being reserved as those faces first appear.
+
+**Not run**, because one build takes from ten minutes to more than an hour: the hull of the corners of a 10-cube; a k-gon times a cube in D = 9 and 10; clusters on a sphere in D = 8; Delaunay of the full grid in D = 7. Builds that end in an error were not counted either.
+
+**Seen on the way, and not a growth per item:**
+
+- A Delaunay build allocates a fixed number of times that rises with the dimension, whatever the sites: 1,591 in D = 5, 2,840 in D = 6, 4,670 in D = 7, 7,354 in D = 8, 11,066 in D = 9. It has not been traced.
+- The hull of the 512 corners of a 9-cube took 406 s, and of 256 corners in D = 8 10 s. A cube has 2^k k! chains of faces down to its vertices, and each face that is not a simplex is classified through a sub-hull; whether the time is that count and nothing more has not been profiled.
+
 ### Reading
 
 Each of the four steps was quadratic or cubic in the points of one face or group, and is linear on these inputs in the given order. Shuffled, the sphere grows a little faster than linearly under the search of #547 (2.8 times the time for 2.3 times the sites). The sub-hull of each face then stopped allocating for each face (#531), which took another tenth off the k-gon times a square.
