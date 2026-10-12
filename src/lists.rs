@@ -6,10 +6,13 @@
 //! and the published results keep their per-item lists this way.
 
 /// Lists of `T`, numbered in the order they were pushed.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(crate) struct Lists<T> {
     values: Vec<T>,
-    /// `starts[i]..starts[i + 1]` is list `i`; one more entry than lists.
+    /// `starts[i]..starts[i + 1]` is list `i`; one more entry than lists,
+    /// or none before the first list: a default value allocates nothing,
+    /// so a workspace that holds lists costs nothing until it is used
+    /// (#531).
     starts: Vec<u32>,
 }
 
@@ -17,10 +20,21 @@ impl<T> Default for Lists<T> {
     fn default() -> Self {
         Self {
             values: Vec::new(),
-            starts: vec![0],
+            starts: Vec::new(),
         }
     }
 }
+
+impl<T: PartialEq> PartialEq for Lists<T> {
+    /// The same lists in the same order, whether or not either has
+    /// written its first start.
+    fn eq(&self, other: &Self) -> bool {
+        self.values == other.values
+            && self.starts.get(1..).unwrap_or(&[]) == other.starts.get(1..).unwrap_or(&[])
+    }
+}
+
+impl<T: Eq> Eq for Lists<T> {}
 
 impl<T: Copy> Lists<T> {
     /// No lists, with room for `lists` lists of `values` values in all.
@@ -35,7 +49,7 @@ impl<T: Copy> Lists<T> {
 
     /// Number of lists.
     pub(crate) fn len(&self) -> usize {
-        self.starts.len() - 1
+        self.starts.len().saturating_sub(1)
     }
 
     /// Whether there are no lists.
@@ -70,6 +84,9 @@ impl<T: Copy> Lists<T> {
 
     /// Ends the list that the values pushed since the last one form.
     fn close(&mut self) {
+        if self.starts.is_empty() {
+            self.starts.push(0);
+        }
         // Values are indexed by `u32`; more is an exhaustion of the index
         // space, which aborts like an allocation failure (design §3).
         let Ok(end) = u32::try_from(self.values.len()) else {
@@ -104,6 +121,8 @@ mod tests {
     fn lists_read_back_in_order_with_empty_ones() {
         let mut lists = Lists::default();
         assert!(lists.is_empty());
+        assert_eq!(lists, Lists::with_capacity(2, 4));
+        assert_eq!(lists.iter().count(), 0);
         lists.push(&[3, 1]);
         lists.push(&[]);
         lists.push_iter([7, 8, 9]);
@@ -114,5 +133,8 @@ mod tests {
         lists.get_mut(2).sort_unstable_by(|a, b| b.cmp(a));
         let all: Vec<&[u32]> = lists.iter().collect();
         assert_eq!(all, vec![&[3, 1][..], &[][..], &[9, 8, 7][..]]);
+        lists.clear();
+        assert!(lists.is_empty());
+        assert_eq!(lists, Lists::default());
     }
 }

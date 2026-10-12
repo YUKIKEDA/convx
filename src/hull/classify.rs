@@ -335,11 +335,10 @@ fn sub_vertices(
     )?;
     let hull = SimplicialHull::build_with(input, core::mem::take(&mut level.hull))?;
     debug_assert!(!hull.strict_edges, "a hull of D >= 3 is not a polygon");
-    let mut sub = core::mem::take(&mut level.sub);
-    found_vertices_into(&hull, faces, Some(global), &mut sub)?;
+    // Taken in place: an empty `Found` allocates its lists.
+    found_vertices_into(&hull, faces, Some(global), &mut level.sub)?;
     faces.places.clear();
-    faces.places.extend_from_slice(&sub.vertices);
-    level.sub = sub;
+    faces.places.extend_from_slice(&level.sub.vertices);
     let (input, work) = hull.into_work();
     level.hull = work;
     level.input = input.into_work();
@@ -505,8 +504,9 @@ fn found_at(
     let groups = &*groups;
     // A group's member simplices, in outward order.
     let members = |g: usize| {
-        groups.groups[g]
-            .simplices
+        groups
+            .groups
+            .get(g)
             .iter()
             .filter_map(|id| hull.facets.get(*id))
             .map(|s| s.vertices())
@@ -565,7 +565,7 @@ fn found_at(
     let mut candidates = core::mem::take(&mut level.candidates);
     let mut found = core::mem::take(&mut level.found);
     for (g, group) in groups.groups.iter().enumerate() {
-        if group.simplices.len() == 1 && level.zero_points.get(g).is_empty() {
+        if group.len() == 1 && level.zero_points.get(g).is_empty() {
             extremes.lists.push(&[]);
             extremes.own.push(false);
             continue;
@@ -673,13 +673,13 @@ fn classify_built<'a>(
     let mut placing = Placing::default();
     for g in 0..extremes.len() {
         let extreme = extremes.get(g);
-        let group = &groups.groups[g];
+        let group = groups.groups.get(g);
         let group_vertices = groups.vertices.get(g);
         let first = simplices.len() as u32;
         // A single simplex whose vertices are all extreme is kept; every
         // other facet is re-triangulated by placing, so facets that share a
         // lower face split it the same way.
-        let single = group.simplices.len() == 1;
+        let single = group.len() == 1;
         match extreme {
             Some(extreme) if !(single && extreme == group_vertices) => {
                 let q = vertices
@@ -696,7 +696,7 @@ fn classify_built<'a>(
                 faces.vertices.push(extreme);
             }
             _ => {
-                if let Some(&id) = group.simplices.first() {
+                if let Some(&id) = group.first() {
                     if let Some(s) = hull.facets.get(id) {
                         kept.push((first, id));
                         simplices.push(s.vertices(), g as u32, None);
@@ -842,7 +842,7 @@ fn distance_zeros_into(
         sides.clear();
         sides.resize(scanned.len(), None);
         for (g, group) in groups.groups.iter().enumerate() {
-            let Some(simplex) = group.simplices.first().and_then(|id| hull.facets.get(*id)) else {
+            let Some(simplex) = group.first().and_then(|id| hull.facets.get(*id)) else {
                 continue;
             };
             sides.fill(None);
@@ -888,8 +888,9 @@ fn distance_zeros_into(
     // points lie on its faces (#468). A point found on a neighbor's plane
     // walks on from there as before.
     let side_of = |g: u32, p: u32| -> Result<Sign, ConvexHullError> {
-        match groups.groups[g as usize]
-            .simplices
+        match groups
+            .groups
+            .get(g as usize)
             .first()
             .and_then(|id| hull.facets.get(*id))
         {
@@ -958,8 +959,9 @@ fn distance_zeros_into(
         points.extend(ks.iter().map(|&k| others[k as usize]));
         zeros.clear();
         for &n in groups.neighbors.get(start as usize) {
-            let Some(simplex) = groups.groups[n as usize]
-                .simplices
+            let Some(simplex) = groups
+                .groups
+                .get(n as usize)
                 .first()
                 .and_then(|id| hull.facets.get(*id))
             else {
@@ -1088,8 +1090,9 @@ fn facet_polygon(
     g: u32,
     rows: &mut Vec<f64>,
 ) -> Result<Option<FacetPolygon>, ConvexHullError> {
-    let Some(simplex) = groups.groups[g as usize]
-        .simplices
+    let Some(simplex) = groups
+        .groups
+        .get(g as usize)
         .first()
         .and_then(|id| hull.facets.get(*id))
     else {
@@ -1163,7 +1166,6 @@ fn recorded_groups_into(
     numbers.clear();
     numbers.extend(groups.groups.iter().enumerate().flat_map(|(g, group)| {
         group
-            .simplices
             .iter()
             .filter_map(|id| hull.facets.get(*id))
             .map(move |s| (s.number(), g as u32))

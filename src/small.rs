@@ -44,16 +44,6 @@ impl<T: Copy + Default, const N: usize> Small<T, N> {
     }
 }
 
-impl<T: Copy + Default, const N: usize> Small<T, N> {
-    /// Empties the list. A list on the heap keeps its storage.
-    pub(crate) fn clear(&mut self) {
-        match self {
-            Self::Inline { len, .. } => *len = 0,
-            Self::Heap(items) => items.clear(),
-        }
-    }
-}
-
 impl<T: Copy + Default, const N: usize> Default for Small<T, N> {
     fn default() -> Self {
         Self::new()

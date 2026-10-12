@@ -13,21 +13,10 @@ use super::ConvexHullError;
 use crate::arena::{FacetId, SlotMarks};
 use crate::lists::Lists;
 use crate::predicates::Sign;
-use crate::small::Small;
 
-/// A logical facet during construction. `GroupId` in the design is the index
-/// of the group in [`LogicalFacets::groups`]; it exists only here.
-pub(crate) struct Group {
-    /// Member simplices in store order. Inline for the usual group of one
-    /// simplex, so a hull in general position allocates no list per facet.
-    pub(crate) simplices: Small<FacetId, 2>,
-}
-
-/// The groups, with their vertex and neighbor lists kept flat (#254), so
-/// that no group allocates a list.
 #[derive(Default)]
 pub(crate) struct LogicalFacets {
-    pub(crate) groups: Vec<Group>,
+    pub(crate) groups: Lists<FacetId>,
     /// Per group, the union of the member vertices, ascending.
     pub(crate) vertices: Lists<u32>,
     /// Per group, the indices of the neighboring groups, ascending.
@@ -85,7 +74,8 @@ pub(crate) struct MergeWork {
     number_of_root: Vec<u32>,
     group_of: SlotMarks<u32>,
     scratch: Vec<u32>,
-    spare: Vec<Group>,
+    /// (group, dense index) of each simplex, sorted into the groups' lists.
+    members: Vec<(u32, u32)>,
 }
 
 /// [`merge`] into `facets`, emptied first, with the working lists of
@@ -95,10 +85,7 @@ pub(crate) fn merge_into(
     facets: &mut LogicalFacets,
     work: &mut MergeWork,
 ) -> Result<(), ConvexHullError> {
-    for mut group in facets.groups.drain(..) {
-        group.simplices.clear();
-        work.spare.push(group);
-    }
+    facets.groups.clear();
     facets.vertices.clear();
     facets.neighbors.clear();
     if hull.strict_edges {
@@ -112,7 +99,7 @@ pub(crate) fn merge_into(
 fn polygon_groups(hull: &SimplicialHull<'_>) -> LogicalFacets {
     let cycle = &hull.polygon;
     let n = cycle.len();
-    let mut groups = Vec::with_capacity(n);
+    let mut groups = Lists::with_capacity(n, 0);
     let mut vertices = Lists::with_capacity(n, 2 * n);
     let mut neighbors = Lists::with_capacity(n, 2 * n);
     for i in 0..n {
@@ -121,9 +108,7 @@ fn polygon_groups(hull: &SimplicialHull<'_>) -> LogicalFacets {
         let prev = if i == 0 { n - 1 } else { i - 1 } as u32;
         let next = ((i + 1) % n) as u32;
         neighbors.push(&[prev.min(next), prev.max(next)]);
-        groups.push(Group {
-            simplices: Small::new(),
-        });
+        groups.push(&[]);
     }
     LogicalFacets {
         groups,
@@ -274,7 +259,7 @@ fn grouped(
         number_of_root,
         group_of,
         scratch,
-        spare,
+        members,
         ..
     } = work;
     // Number groups by their smallest member, in arena order.
@@ -282,20 +267,26 @@ fn grouped(
     // met, and `u32::MAX` marks a root not met yet.
     number_of_root.clear();
     number_of_root.resize(ids.len(), u32::MAX);
-    let roots = (0..ids.len() as u32).filter(|&i| sets.find(i) == i).count();
-    groups.reserve(roots);
     group_of.clear();
+    members.clear();
+    let mut count = 0_u32;
     for (i, &id) in ids.iter().enumerate() {
         let root = sets.find(i as u32) as usize;
         if number_of_root[root] == u32::MAX {
-            number_of_root[root] = groups.len() as u32;
-            groups.push(spare.pop().unwrap_or(Group {
-                simplices: Small::new(),
-            }));
+            number_of_root[root] = count;
+            count += 1;
         }
         let number = number_of_root[root];
-        groups[number as usize].simplices.push(id);
+        members.push((number, i as u32));
         group_of.insert(id, number);
+    }
+    // A group's simplices in arena order: the pairs sort by group, then
+    // by dense index. A list on the heap per group of three simplices or
+    // more allocated per facet (#531).
+    members.sort_unstable();
+    groups.reserve(count as usize, ids.len());
+    for run in members.chunk_by(|x, y| x.0 == y.0) {
+        groups.push_iter(run.iter().map(|&(_, i)| ids[i as usize]));
     }
 
     // Sized once: a simplex has D vertices and D neighbors.
@@ -303,7 +294,7 @@ fn grouped(
     vertices.reserve(groups.len(), ids.len() * d);
     neighbors.reserve(groups.len(), ids.len() * d);
     for (number, group) in groups.iter().enumerate() {
-        let members = || group.simplices.iter().filter_map(|id| hull.facets.get(*id));
+        let members = || group.iter().filter_map(|id| hull.facets.get(*id));
         scratch.clear();
         scratch.extend(members().flat_map(|facet| facet.vertices().iter().copied()));
         scratch.sort_unstable();
@@ -341,16 +332,12 @@ fn singletons(
         neighbors,
     } = facets;
     let d = hull.input.dim();
-    groups.reserve(ids.len());
+    groups.reserve(ids.len(), ids.len());
     vertices.reserve(ids.len(), ids.len() * d);
     neighbors.reserve(ids.len(), ids.len() * d);
     let row = &mut work.scratch;
     for &id in ids {
-        let mut group = work.spare.pop().unwrap_or(Group {
-            simplices: Small::new(),
-        });
-        group.simplices.push(id);
-        groups.push(group);
+        groups.push(&[id]);
         let Some(facet) = hull.facets.get(id) else {
             vertices.push(&[]);
             neighbors.push(&[]);
@@ -370,11 +357,7 @@ fn singletons(
 /// Whether `a` and `b` have the same groups, member for member, and the same
 /// vertex and neighbor lists. A debug check of [`singletons`].
 fn same_groups(a: &LogicalFacets, b: &LogicalFacets) -> bool {
-    a.groups.len() == b.groups.len()
-        && a.groups
-            .iter()
-            .zip(&b.groups)
-            .all(|(x, y)| x.simplices[..] == y.simplices[..])
+    a.groups.iter().eq(b.groups.iter())
         && a.vertices.iter().eq(b.vertices.iter())
         && a.neighbors.iter().eq(b.neighbors.iter())
 }
@@ -389,11 +372,7 @@ mod tests {
         let hull = SimplicialHull::build(accept(dim, points).unwrap()).unwrap();
         let facets = merge(&hull).unwrap();
         // Every simplex belongs to exactly one group.
-        let mut members: Vec<FacetId> = facets
-            .groups
-            .iter()
-            .flat_map(|g| g.simplices.to_vec())
-            .collect();
+        let mut members: Vec<FacetId> = facets.groups.iter().flat_map(|g| g.to_vec()).collect();
         let total = members.len();
         members.sort_unstable();
         members.dedup();
@@ -425,7 +404,7 @@ mod tests {
                 // A 3-cube splits into 5 or 6 tetrahedra depending on the
                 // diagonals, so only the lower dimensions fix the count.
                 if let Some(count) = simplices_per_face {
-                    assert_eq!(group.simplices.len(), count, "dim {dim}");
+                    assert_eq!(group.len(), count, "dim {dim}");
                 }
                 // Every face of a cube meets every other face except the
                 // opposite one.
@@ -449,16 +428,10 @@ mod tests {
             let facets = groups_of(dim, &points);
             if dim == 2 {
                 // The extreme chain stores the edge as the group.
-                assert!(
-                    facets.groups.iter().all(|g| g.simplices.is_empty()),
-                    "dim {dim}"
-                );
+                assert!(facets.groups.iter().all(|g| g.is_empty()), "dim {dim}");
                 assert!(facets.vertices.iter().all(|v| v.len() == 2), "dim {dim}");
             } else {
-                assert!(
-                    facets.groups.iter().all(|g| g.simplices.len() == 1),
-                    "dim {dim}"
-                );
+                assert!(facets.groups.iter().all(|g| g.len() == 1), "dim {dim}");
             }
         }
     }
