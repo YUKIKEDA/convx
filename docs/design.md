@@ -10,7 +10,7 @@ This file and [design.ja.md](design.ja.md) both carry the full specification. Wh
 
 ## 1. Predicates decide the sign
 
-An input `f64` is the coordinate its bit pattern names. Predicates do not translate or scale first. A rounded transform moves the exact zero.
+An input `f64` is the coordinate its bit pattern names. Predicates do not translate or scale first. A rounded transform moves the exact zero. One transform is not rounded and is allowed inside the filter (#179): every entry of the one determinant multiplied by the same power of two, chosen so that no entry and no product of the filter underflows or overflows. It leaves the sign as it is. Only the filter reads the scaled entries, where it left a sign open with the entries as they are; the exact stage takes the input coordinates.
 
 Error is only the rounding of evaluating that predicate's expression. Each predicate returns `Sign`. It does not return `f64`.
 
