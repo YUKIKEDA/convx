@@ -42,6 +42,20 @@ What the crate promises about results (exact signs, what a hull, a Delaunay tria
 
 ## Package files
 
+`Cargo.toml` `include` is a whitelist:
+
+- `src/`
+- `examples/`
+- `tests/`, with the fixtures under `tests/fixtures/` that the tests read
+- `benches/sets.txt`, which a unit test and the example that exports the sets read; nothing else of `benches/`
+- `README.md` and `README.ja.md`
+- `LICENSE-MIT` and `LICENSE-APACHE`
+
+A root file's pattern starts with `/` (`/README.md`): without it the pattern also matches a file of that name in a directory, such as `benches/parity/README.md`.
+
+Development files do not ship: `.cursor/`, `.agents/`, `.github/`, `docs/`, the rest of `benches/`, `clippy.toml`, the `justfile`. Links from the README to development documents are absolute GitHub URLs, because the documents are not in the package.
+
+`cargo package --list` matches this list, and the tests pass when run from the packaged tree (`target/package/convx-{version}`): a test that reads a file outside the list fails there, as `src/cull.rs` would have without `benches/sets.txt` (#594).
 `Cargo.toml` `include` is a whitelist, decided in R1-2 (#594) and written here by that change. Development files do not ship: `.cursor/`, `.agents/`, `.github/`, `docs/`, `benches/`, `clippy.toml`, the `justfile`. Links from the README to development documents are absolute GitHub URLs, because the documents are not in the package.
 
 ## The comparison
