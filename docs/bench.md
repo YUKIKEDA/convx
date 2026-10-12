@@ -5734,6 +5734,16 @@ Time, pinned and alternated, five rounds, the same hash of the result on both si
 
 `cube` D4 reads 1.09 by the minimum and 1.01 by the median: one launch of the base was faster than its others. It does not reach the heap integers.
 
+The heap integers also take every determinant of a size above 10, so a hull of D >= 10. The generator's `cube`, one `build()`, not pinned, the same hash on both sides:
+
+| Hull | Facets | Allocations before | Allocations after | Time before | Time after |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| D = 11, 14 points | 108 | 65,819 | 3,474 | 23.8 ms | 21.1 ms |
+| D = 11, 18 points | 1,246 | 756,970 | 41,054 | 276 ms | 220 ms |
+| D = 12, 16 points | 291 | 374,855 | 10,459 | 173 ms | 144 ms |
+
+What is left there grows with the facets and is not the heap integers: the planes of new simplices allocate from D = 9 up, in lists that are inline only up to a length of 8 or 10 (#554). D = 7 and 8 do not grow (116 and 139 allocations at 60 and 240 points in D = 7).
+
 ### Reading
 
 Each of the four steps was quadratic or cubic in the points of one face or group, and is linear on these inputs in the given order. Shuffled, the sphere grows a little faster than linearly under the search of #547 (2.8 times the time for 2.3 times the sites). The sub-hull of each face then stopped allocating for each face (#531), which took another tenth off the k-gon times a square.
