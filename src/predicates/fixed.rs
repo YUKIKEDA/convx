@@ -847,6 +847,9 @@ mod tests {
         if let Some(sign) = sign(rows) {
             assert_eq!(sign, sign_exact_on_heap(rows).unwrap());
         }
+        // The heap path on this thread's workspace, which every earlier
+        // case has used, against the heap integers in a new one (#185).
+        assert_eq!(sign_exact_on_heap(rows).unwrap(), want.sign());
         signs[want.sign() as usize] += 1;
     }
 

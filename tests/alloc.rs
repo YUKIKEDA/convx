@@ -27,7 +27,9 @@
 //! - the integer points of a sphere, alone and with a site outside: one
 //!   cospherical group of all of them (#539, #540);
 //! - clusters on a sphere: planes whose direction the filters do not
-//!   certify, as many as the clusters (#548).
+//!   certify, as many as the clusters (#548);
+//! - coordinates whose exponents are far apart: determinants that only
+//!   the heap integers hold (#185).
 //!
 //! Growths found and removed: Voronoi per site (#523), the placing
 //! triangulation per simplex (#524), and per face of a hull of D = 3 and
@@ -36,7 +38,12 @@
 //! each face (#531), and the exact direction of a plane, per call (#548).
 //! The copy in space order of a sub-hull of 2^17 points or more (#551) is
 //! kept too; no case here reaches it, and a unit test of the hull's
-//! storage covers it with the threshold lowered.
+//! storage covers it with the threshold lowered. The exact stage over
+//! heap integers allocated in every call, and runs on a workspace kept
+//! per thread (#185): its buffers are reserved by the first build of a
+//! thread that needs them, so a later build on that thread counts fewer.
+//! One is known and not removed: a hull of D >= 9 allocates for every
+//! simplex it plans (#554). No case here is of D >= 7.
 //!
 //! Debug builds run invariant checks inside every build, and those allocate
 //! freely, so the counts hold for release builds only. `just test` runs this
@@ -94,6 +101,11 @@ enum Points {
     /// cofactors in `f64` do not certify, so its plane takes the exact
     /// direction, and the planes grow with the clusters (#548).
     Clusters(usize),
+    /// The generator's `cube`, `n` and `16 n` points, with the first
+    /// coordinate scaled by 1e150 and the others by 1e-150. The exponents
+    /// of one determinant are about 1,000 apart, more than the integers
+    /// on the stack hold, so the exact stage runs on heap integers (#185).
+    Scaled(usize),
 }
 
 impl Points {
@@ -108,6 +120,7 @@ impl Points {
                 format!("integer sphere and a site outside r2={small},{large}")
             }
             Self::Clusters(k) => format!("clusters on a sphere D{dim} k={k}"),
+            Self::Scaled(n) => format!("cube with exponents far apart D{dim} n={n}"),
         }
     }
 
@@ -121,6 +134,12 @@ impl Points {
         };
         match self {
             Self::Drawn(family, n) => family.points(dim, times * n, 521),
+            Self::Scaled(n) => Family::Cube
+                .points(dim, times * n, 521)
+                .iter()
+                .enumerate()
+                .map(|(i, x)| if i % dim == 0 { x * 1e150 } else { x * 1e-150 })
+                .collect(),
             Self::Clusters(k) => Family::Sphere
                 .points(dim, times * k, 521)
                 .chunks_exact(dim)
@@ -258,6 +277,8 @@ const CASES: &[Case] = &[
     Case { kind: Kind::Voronoi, points: Points::SphereAndOutside(1001, 1_221_025), dim: 3, small: (627, 725), large: (664, 1235) },
     Case { kind: Kind::Hull, points: Points::Clusters(32), dim: 3, small: (169, 231), large: (217, 419) },
     Case { kind: Kind::Hull, points: Points::Clusters(16), dim: 4, small: (286, 439), large: (341, 720) },
+    Case { kind: Kind::Hull, points: Points::Scaled(100), dim: 3, small: (144, 137), large: (120, 210) },
+    Case { kind: Kind::Hull, points: Points::Scaled(50), dim: 4, small: (120, 206), large: (128, 324) },
     Case { kind: Kind::Hull, points: Points::Duoprism(8), dim: 4, small: (225, 361), large: (305, 689) },
 ];
 

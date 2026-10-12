@@ -7,18 +7,28 @@
 //! and multiplication of big integers are needed. Scaling every entry by the
 //! same positive power of two does not change the sign of the determinant.
 //!
-//! Every buffer is reserved with `try_reserve_exact`. A failed reservation is
-//! reported as [`ExactEvaluationExhausted`] instead of aborting.
+//! Every buffer is reserved with `try_reserve` or `try_reserve_exact`. A
+//! failed reservation is reported as [`ExactEvaluationExhausted`] instead of
+//! aborting.
+//!
+//! The buffers are those of a workspace kept per thread ([`HeapWork`]): the
+//! scaled coordinates, the matrix, the slots of the determinant, and the
+//! limbs of each integer are reserved when a call first needs them and
+//! filled again by every later call. Reserved for each call, they were 10
+//! to 1,250 allocations per point of a hull whose coordinates have
+//! exponents far apart (`docs/bench.md`, #185).
 //!
 //! [`sign_exact`] and [`cofactor_direction_exact`] first try the integers on
 //! the stack of [`super::fixed`], which hold most determinants without
 //! reserving memory (#173); the heap integers here take the rest.
 
+use core::cell::RefCell;
 use core::cmp::Ordering;
 
 use super::{ExactEvaluationExhausted, Row, Rows, Sign};
 
 /// Reserves an empty vector with room for `capacity` elements.
+#[cfg(test)]
 fn try_vec<T>(capacity: usize) -> Result<Vec<T>, ExactEvaluationExhausted> {
     let mut v = Vec::new();
     v.try_reserve_exact(capacity)
@@ -61,7 +71,7 @@ fn try_reserve_total<T>(v: &mut Vec<T>, total: usize) -> Result<(), ExactEvaluat
 ///
 /// The magnitude is stored as little-endian 64-bit limbs without high zero
 /// limbs. Zero has an empty magnitude and is never negative.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub(super) struct BigInt {
     negative: bool,
     magnitude: Vec<u64>,
@@ -75,6 +85,7 @@ impl BigInt {
         }
     }
 
+    #[cfg(test)]
     fn one() -> Result<Self, ExactEvaluationExhausted> {
         let mut magnitude = try_vec(1)?;
         magnitude.push(1);
@@ -84,35 +95,38 @@ impl BigInt {
         })
     }
 
-    fn from_parts(negative: bool, mut magnitude: Vec<u64>) -> Self {
-        trim(&mut magnitude);
-        let negative = negative && !magnitude.is_empty();
-        Self {
-            negative,
-            magnitude,
-        }
-    }
-
     /// Returns `x * 2^(1074 - base)` as an integer. `x` must be finite and
     /// `base` must not exceed [`exponent_shift`] of any nonzero `x` converted
     /// with it.
+    #[cfg(test)]
     pub(super) fn from_f64_scaled(x: f64, base: u64) -> Result<Self, ExactEvaluationExhausted> {
+        let mut value = Self::zero();
+        value.set_f64_scaled(x, base)?;
+        Ok(value)
+    }
+
+    /// Sets the value to `x * 2^(1074 - base)`, keeping the limb buffer. `x`
+    /// must be finite and `base` must not exceed [`exponent_shift`] of any
+    /// nonzero `x` converted with it.
+    fn set_f64_scaled(&mut self, x: f64, base: u64) -> Result<(), ExactEvaluationExhausted> {
         debug_assert!(x.is_finite(), "predicate input must be finite");
-        let negative = x.to_bits() >> 63 == 1;
+        self.clear();
         let (mantissa, shift) = decompose(x);
         if mantissa == 0 {
-            return Ok(Self::zero());
+            return Ok(());
         }
         debug_assert!(shift >= base, "scale base above an input exponent");
         let shift = shift - base;
         let limb_shift = (shift / 64) as usize;
         let bit_shift = (shift % 64) as u32;
         let wide = u128::from(mantissa) << bit_shift;
-        let mut magnitude = try_vec(limb_shift + 2)?;
-        magnitude.resize(limb_shift, 0);
-        magnitude.push(wide as u64);
-        magnitude.push((wide >> 64) as u64);
-        Ok(Self::from_parts(negative, magnitude))
+        try_reserve_total(&mut self.magnitude, limb_shift + 2)?;
+        self.magnitude.resize(limb_shift, 0);
+        self.magnitude.push(wide as u64);
+        self.magnitude.push((wide >> 64) as u64);
+        trim(&mut self.magnitude);
+        self.negative = x.to_bits() >> 63 == 1 && !self.magnitude.is_empty();
+        Ok(())
     }
 
     /// Number of significant bits of the magnitude.
@@ -200,6 +214,7 @@ impl BigInt {
         Ok(())
     }
 
+    #[cfg(test)]
     fn negated(mut self) -> Self {
         self.negative = !self.negative && !self.magnitude.is_empty();
         self
@@ -366,73 +381,165 @@ pub(super) fn sign_exact(rows: Rows<'_>) -> Result<Sign, ExactEvaluationExhauste
     sign_exact_on_heap(rows)
 }
 
+/// The buffers of the heap stage, kept from one call to the next on a
+/// thread: every list of integers keeps its slots, and every integer its
+/// limbs.
+#[derive(Default)]
+struct HeapWork {
+    /// The scaled origin and the scaled point of one row.
+    origin: Vec<BigInt>,
+    point: Vec<BigInt>,
+    origin_norm: BigInt,
+    /// The k x k matrix, row-major.
+    matrix: Vec<BigInt>,
+    /// The product of one multiplication.
+    scratch: Vec<u64>,
+    /// The slots of [`determinant_in`]; its result is left in `poly`.
+    poly: Vec<BigInt>,
+    next_poly: Vec<BigInt>,
+    column: Vec<BigInt>,
+    v: Vec<BigInt>,
+    next: Vec<BigInt>,
+    /// The cofactors of [`cofactor_direction_on_heap`] and its unit row.
+    cofactors: Vec<BigInt>,
+    unit: Vec<f64>,
+}
+
+thread_local! {
+    /// The workspace of this thread. A build runs on one thread (design
+    /// §6), and two threads do not share one.
+    static WORK: RefCell<HeapWork> = RefCell::new(HeapWork::default());
+}
+
+/// Runs `f` with this thread's workspace. A workspace of its own serves a
+/// call made while the thread's is in use, or while the thread ends.
+fn with_work<T>(
+    f: impl FnOnce(&mut HeapWork) -> Result<T, ExactEvaluationExhausted>,
+) -> Result<T, ExactEvaluationExhausted> {
+    let mut f = Some(f);
+    let kept = WORK
+        .try_with(|cell| {
+            let mut work = cell.try_borrow_mut().ok()?;
+            f.take().map(|f| f(&mut work))
+        })
+        .ok()
+        .flatten();
+    kept.or_else(|| f.take().map(|f| f(&mut HeapWork::default())))
+        // `f` is taken only where its result is returned, so one of the
+        // two ran; no path reaches this.
+        .unwrap_or(Err(ExactEvaluationExhausted))
+}
+
+/// At least `len` slots in `slots`, the new ones zero. Slots are never
+/// dropped, so their limb buffers stay.
+fn fit(slots: &mut Vec<BigInt>, len: usize) -> Result<(), ExactEvaluationExhausted> {
+    if slots.len() < len {
+        try_reserve_total(slots, len)?;
+        slots.resize_with(len, BigInt::zero);
+    }
+    Ok(())
+}
+
 /// [`sign_exact`] over the heap integers alone.
 pub(super) fn sign_exact_on_heap(rows: Rows<'_>) -> Result<Sign, ExactEvaluationExhausted> {
-    Ok(determinant_of(rows)?.sign())
+    with_work(|work| {
+        let negated = determinant_of_in(rows, work)?;
+        let sign = work.poly[rows.k()].sign();
+        Ok(if negated { flipped(sign) } else { sign })
+    })
+}
+
+/// `sign` of the value negated.
+fn flipped(sign: Sign) -> Sign {
+    match sign {
+        Sign::Positive => Sign::Negative,
+        Sign::Negative => Sign::Positive,
+        Sign::Zero => Sign::Zero,
+    }
 }
 
 /// The determinant described by `rows`, scaled by a positive power of two
 /// that depends only on the multiset of values in `rows`.
+#[cfg(test)]
 pub(super) fn determinant_of(rows: Rows<'_>) -> Result<BigInt, ExactEvaluationExhausted> {
+    let mut work = HeapWork::default();
+    let negated = determinant_of_in(rows, &mut work)?;
+    let value = core::mem::take(&mut work.poly[rows.k()]);
+    Ok(if negated { value.negated() } else { value })
+}
+
+/// [`determinant_of`] in the buffers of `work`: the value is
+/// `work.poly[rows.k()]`, negated when this returns `true`.
+fn determinant_of_in(
+    rows: Rows<'_>,
+    work: &mut HeapWork,
+) -> Result<bool, ExactEvaluationExhausted> {
     let k = rows.k();
+    let HeapWork {
+        origin,
+        point: scaled,
+        origin_norm,
+        matrix,
+        scratch,
+        ..
+    } = work;
     // Every value is a multiple of 2^(base - 1074). Dividing all of them by
     // that power of two keeps the integers small and multiplies the
     // determinant by a positive factor, so the sign is unchanged.
     let base = rows.values().filter_map(exponent_shift).min().unwrap_or(0);
-    let mut scaled_origin = try_vec(rows.origin.len())?;
-    for &x in rows.origin {
-        scaled_origin.push(BigInt::from_f64_scaled(x, base)?);
+    fit(origin, rows.origin.len())?;
+    for (slot, &x) in origin.iter_mut().zip(rows.origin) {
+        slot.set_f64_scaled(x, base)?;
     }
+    let origin = &origin[..rows.origin.len()];
     // The lifted column holds sum X^2 - sum O^2 over the scaled integers:
     // the true difference times 2^(2 (base - 1074)), another positive factor
     // that applies to the whole column.
-    let mut scratch = Vec::new();
-    let mut squared_norm = |scaled: &[BigInt]| -> Result<BigInt, ExactEvaluationExhausted> {
-        let mut sum = BigInt::zero();
-        for x in scaled {
-            sum.add_product(x, x, false, &mut scratch)?;
+    let lifted = rows.lifted.is_some();
+    if lifted {
+        origin_norm.clear();
+        for x in origin {
+            origin_norm.add_product(x, x, false, scratch)?;
         }
-        Ok(sum)
-    };
-    let origin_norm = if rows.lifted.is_some() {
-        Some(squared_norm(&scaled_origin)?)
-    } else {
-        None
-    };
-    let mut matrix: Vec<Vec<BigInt>> = try_vec(k)?;
+    }
+    fit(matrix, k * k)?;
     for i in 0..k {
-        let mut row = try_vec(k)?;
+        let row = &mut matrix[i * k..(i + 1) * k];
         match rows.row(i) {
             Row::Difference(point) => {
-                if let Some(origin_norm) = &origin_norm {
-                    let mut scaled = try_vec(point.len())?;
-                    for &x in point {
-                        scaled.push(BigInt::from_f64_scaled(x, base)?);
+                if lifted {
+                    fit(scaled, point.len())?;
+                    let scaled = &mut scaled[..point.len()];
+                    for (slot, &x) in scaled.iter_mut().zip(point) {
+                        slot.set_f64_scaled(x, base)?;
                     }
-                    let mut norm = squared_norm(&scaled)?;
+                    // The last entry of the row: the norm of the point less
+                    // that of the origin.
+                    let norm = &mut row[point.len()];
+                    norm.clear();
+                    for x in scaled.iter() {
+                        norm.add_product(x, x, false, scratch)?;
+                    }
                     norm.accumulate(&origin_norm.magnitude, !origin_norm.negative)?;
-                    for (mut x, o) in scaled.into_iter().zip(&scaled_origin) {
-                        x.accumulate(&o.magnitude, !o.negative)?;
-                        row.push(x);
-                    }
-                    row.push(norm);
-                } else {
-                    for (&x, o) in point.iter().zip(&scaled_origin) {
-                        let mut entry = BigInt::from_f64_scaled(x, base)?;
+                    for ((entry, x), o) in row.iter_mut().zip(scaled.iter()).zip(origin) {
+                        entry.assign(x)?;
                         entry.accumulate(&o.magnitude, !o.negative)?;
-                        row.push(entry);
+                    }
+                } else {
+                    for ((entry, &x), o) in row.iter_mut().zip(point).zip(origin) {
+                        entry.set_f64_scaled(x, base)?;
+                        entry.accumulate(&o.magnitude, !o.negative)?;
                     }
                 }
             }
             Row::Direction(direction) => {
-                for &x in direction {
-                    row.push(BigInt::from_f64_scaled(x, base)?);
+                for (entry, &x) in row.iter_mut().zip(direction) {
+                    entry.set_f64_scaled(x, base)?;
                 }
             }
         }
-        matrix.push(row);
     }
-    determinant(&matrix)
+    determinant_in(k, work)
 }
 
 /// The unit direction of the exact cofactor vector of the hyperplane through
@@ -446,109 +553,142 @@ pub(super) fn cofactor_direction_exact(
     if let Some(direction) = super::fixed::cofactor_direction(facet) {
         return Ok(direction);
     }
-    Ok(cofactor_direction_on_heap(facet)?.map(Into::into))
+    cofactor_direction_on_heap(facet)
 }
 
 /// [`cofactor_direction_exact`] over the heap integers alone.
 pub(super) fn cofactor_direction_on_heap(
     facet: &[&[f64]],
-) -> Result<Option<Vec<f64>>, ExactEvaluationExhausted> {
+) -> Result<Option<super::Direction>, ExactEvaluationExhausted> {
     let k = facet.len();
-    let mut unit = vec![0.0; k];
-    let mut cofactors = try_vec(k)?;
-    for j in 0..k {
-        unit[j] = 1.0;
-        // Every row set holds the same values (the facet, one 1, and zeros),
-        // so every cofactor carries the same power-of-two scale.
-        cofactors.push(determinant_of(Rows {
-            origin: facet[0],
-            points: &facet[1..],
-            direction: Some(&unit),
-            lifted: None,
-        })?);
-        unit[j] = 0.0;
-    }
-    let longest = cofactors.iter().map(BigInt::bit_length).max().unwrap_or(0);
-    if longest == 0 {
-        return Ok(None);
-    }
-    let shift = longest.saturating_sub(64);
-    let values: Vec<f64> = cofactors.iter().map(|c| c.to_f64_shifted(shift)).collect();
-    let norm = values.iter().map(|x| x * x).sum::<f64>().sqrt();
-    Ok(Some(values.iter().map(|x| x / norm).collect()))
+    with_work(|work| {
+        fit(&mut work.cofactors, k)?;
+        let mut unit = core::mem::take(&mut work.unit);
+        unit.clear();
+        unit.try_reserve(k).map_err(|_| ExactEvaluationExhausted)?;
+        unit.resize(k, 0.0);
+        for j in 0..k {
+            unit[j] = 1.0;
+            // Every row set holds the same values (the facet, one 1, and
+            // zeros), so every cofactor carries the same power-of-two scale.
+            let negated = determinant_of_in(
+                Rows {
+                    origin: facet[0],
+                    points: &facet[1..],
+                    direction: Some(&unit),
+                    lifted: None,
+                },
+                work,
+            )?;
+            unit[j] = 0.0;
+            let HeapWork {
+                cofactors, poly, ..
+            } = &mut *work;
+            if negated {
+                cofactors[j].assign_negated(&poly[k])?;
+            } else {
+                cofactors[j].assign(&poly[k])?;
+            }
+        }
+        work.unit = unit;
+        let cofactors = &work.cofactors[..k];
+        let longest = cofactors.iter().map(BigInt::bit_length).max().unwrap_or(0);
+        if longest == 0 {
+            return Ok(None);
+        }
+        let shift = longest.saturating_sub(64);
+        let values: super::Direction = cofactors.iter().map(|c| c.to_f64_shifted(shift)).collect();
+        let norm = values.iter().map(|x| x * x).sum::<f64>().sqrt();
+        Ok(Some(values.iter().map(|x| x / norm).collect()))
+    })
 }
 
 /// Determinant of a square integer matrix by the Berkowitz algorithm.
+#[cfg(test)]
+pub(super) fn determinant(a: &[Vec<BigInt>]) -> Result<BigInt, ExactEvaluationExhausted> {
+    let n = a.len();
+    let mut work = HeapWork::default();
+    fit(&mut work.matrix, n * n)?;
+    for (slot, entry) in work.matrix.iter_mut().zip(a.iter().flatten()) {
+        slot.assign(entry)?;
+    }
+    let negated = determinant_in(n, &mut work)?;
+    let value = core::mem::take(&mut work.poly[n]);
+    Ok(if negated { value.negated() } else { value })
+}
+
+/// Determinant of the `n` x `n` matrix in `work.matrix` (row-major) by the
+/// Berkowitz algorithm: the value is `work.poly[n]`, negated when this
+/// returns `true`.
 ///
 /// The algorithm builds the characteristic polynomial det(xI - A) of each
 /// leading principal submatrix from the previous one with a Toeplitz matrix,
 /// using O(n^4) ring operations and no division. The constant term of the
 /// polynomial of the full matrix is (-1)^n det(A).
-pub(super) fn determinant(a: &[Vec<BigInt>]) -> Result<BigInt, ExactEvaluationExhausted> {
-    let n = a.len();
-    if n == 0 {
-        return BigInt::one();
-    }
-    // Every intermediate lives in a slot allocated once per determinant and
-    // overwritten in place, so limb buffers are reused across steps.
-    let slots = |len: usize| -> Result<Vec<BigInt>, ExactEvaluationExhausted> {
-        let mut v = try_vec(len)?;
-        v.resize_with(len, BigInt::zero);
-        Ok(v)
-    };
-    let mut scratch: Vec<u64> = Vec::new();
+fn determinant_in(n: usize, work: &mut HeapWork) -> Result<bool, ExactEvaluationExhausted> {
+    let HeapWork {
+        matrix,
+        scratch,
+        poly,
+        next_poly,
+        column,
+        v,
+        next,
+        ..
+    } = work;
+    let a = |i: usize, j: usize| &matrix[i * n + j];
+    // Every intermediate lives in a slot kept by the workspace and
+    // overwritten in place, so limb buffers are reused across steps and
+    // across calls.
     // Coefficients of det(xI - A_r), highest power first, for the leading
     // r x r submatrix A_r: r + 1 of them. Starts with r = 1.
-    let mut poly = slots(n + 1)?;
-    let mut next_poly = slots(n + 1)?;
-    let mut column = slots(n + 1)?;
-    let mut v = slots(n)?;
-    let mut next = slots(n)?;
+    fit(poly, n + 1)?;
+    fit(next_poly, n + 1)?;
+    fit(column, n + 1)?;
+    fit(v, n)?;
+    fit(next, n)?;
     poly[0].set_one()?;
-    poly[1].assign_negated(&a[0][0])?;
+    if n == 0 {
+        return Ok(false);
+    }
+    poly[1].assign_negated(a(0, 0))?;
 
     for r in 1..n {
         // First column of the Toeplitz matrix: 1, -a_rr, -R C, -R A_r C, ...,
         // -R A_r^(r-1) C, where R is row r and C is column r restricted to
         // the leading r entries.
         column[0].set_one()?;
-        column[1].assign_negated(&a[r][r])?;
-        for (slot, row) in v.iter_mut().zip(a).take(r) {
-            slot.assign(&row[r])?;
+        column[1].assign_negated(a(r, r))?;
+        for (i, slot) in v.iter_mut().enumerate().take(r) {
+            slot.assign(a(i, r))?;
         }
         for step in 0..r {
             // -(R . v), accumulated with the sign folded into each product.
             let dot = &mut column[step + 2];
             dot.clear();
-            for (x, y) in a[r][..r].iter().zip(&v[..r]) {
-                dot.add_product(x, y, true, &mut scratch)?;
+            for (j, y) in v.iter().enumerate().take(r) {
+                dot.add_product(a(r, j), y, true, scratch)?;
             }
             if step + 1 < r {
-                for (sum, row) in next.iter_mut().zip(a).take(r) {
+                for (i, sum) in next.iter_mut().enumerate().take(r) {
                     sum.clear();
-                    for (x, y) in row[..r].iter().zip(&v[..r]) {
-                        sum.add_product(x, y, false, &mut scratch)?;
+                    for (j, y) in v.iter().enumerate().take(r) {
+                        sum.add_product(a(i, j), y, false, scratch)?;
                     }
                 }
-                core::mem::swap(&mut v, &mut next);
+                core::mem::swap(v, next);
             }
         }
         // poly <- T * poly, T lower-triangular Toeplitz of size (r+2) x (r+1).
         for (i, sum) in next_poly.iter_mut().enumerate().take(r + 2) {
             sum.clear();
             for (j, p) in poly.iter().enumerate().take((i + 1).min(r + 1)) {
-                sum.add_product(&column[i - j], p, false, &mut scratch)?;
+                sum.add_product(&column[i - j], p, false, scratch)?;
             }
         }
-        core::mem::swap(&mut poly, &mut next_poly);
+        core::mem::swap(poly, next_poly);
     }
-
-    let constant = core::mem::replace(&mut poly[n], BigInt::zero());
-    Ok(if n % 2 == 1 {
-        constant.negated()
-    } else {
-        constant
-    })
+    Ok(n % 2 == 1)
 }
 
 #[cfg(test)]
@@ -696,6 +836,113 @@ mod tests {
             m[n - 1] = m[0].clone();
         }
         m
+    }
+
+    /// A determinant in a workspace that earlier calls have used (#185) is
+    /// the determinant in a new one, limb for limb: sizes 1 to 7 in turn,
+    /// larger after smaller and smaller after larger, with and without the
+    /// lifted row and the direction row, on coordinates whose exponents are
+    /// far apart, so the integers are long and of very different lengths.
+    /// The direction of a facet's cofactors agrees in the same way.
+    #[test]
+    fn a_workspace_used_before_gives_the_values_of_a_new_one() {
+        let mut state = 0x0185_f491_4f6c_dd1d_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let mut coordinate = |wide: bool| -> f64 {
+            let sign = if next().is_multiple_of(2) { 1.0 } else { -1.0 };
+            match next() % 6 {
+                0 => 0.0,
+                1 => (next() % 7) as f64 - 3.0,
+                _ => {
+                    let span = if wide { 1800 } else { 60 };
+                    let exponent = (next() % span) as i32 - span as i32 / 2;
+                    sign * ((next() >> 11) as f64 / (1_u64 << 53) as f64 + 0.5)
+                        * 2f64.powi(exponent)
+                }
+            }
+        };
+        let read = |work: &HeapWork, k: usize, negated: bool| {
+            let value = &work.poly[k];
+            (
+                negated != value.negative && !value.magnitude.is_empty(),
+                value.magnitude.clone(),
+            )
+        };
+        let mut used = HeapWork::default();
+        let (mut cases, mut long, mut zero) = (0, 0, 0);
+        for round in 0..40 {
+            for d in [3, 7, 1, 5, 2, 6, 4] {
+                let wide = round % 2 == 0;
+                let mut rows: Vec<Vec<f64>> = (0..d + 2)
+                    .map(|_| (0..d).map(|_| coordinate(wide)).collect())
+                    .collect();
+                if round % 5 == 0 && d >= 2 {
+                    rows[d] = rows[1].clone();
+                }
+                let refs: Vec<&[f64]> = rows.iter().map(Vec::as_slice).collect();
+                // The orientation of d + 1 points, the lifted orientation
+                // of d + 2, and d points with a direction.
+                let shapes = [
+                    Rows {
+                        origin: refs[0],
+                        points: &refs[1..=d],
+                        direction: None,
+                        lifted: None,
+                    },
+                    Rows {
+                        origin: refs[0],
+                        points: &refs[1..=d + 1],
+                        direction: None,
+                        lifted: Some(&[]),
+                    },
+                    Rows {
+                        origin: refs[0],
+                        points: &refs[1..d],
+                        direction: Some(refs[d]),
+                        lifted: None,
+                    },
+                ];
+                for shape in shapes {
+                    let k = shape.k();
+                    let negated = determinant_of_in(shape, &mut used).unwrap();
+                    let mut new = HeapWork::default();
+                    let want = determinant_of_in(shape, &mut new).unwrap();
+                    assert_eq!(
+                        read(&used, k, negated),
+                        read(&new, k, want),
+                        "round {round}, D = {d}"
+                    );
+                    cases += 1;
+                    long += usize::from(new.poly[k].magnitude.len() > 16);
+                    zero += usize::from(new.poly[k].magnitude.is_empty());
+                }
+                // The direction: on this thread's workspace, then again
+                // after it was used for another size.
+                let facet = &refs[..d];
+                let first = cofactor_direction_on_heap(facet).unwrap();
+                let _ = sign_exact_on_heap(shapes[1]).unwrap();
+                let again = cofactor_direction_on_heap(facet).unwrap();
+                let bits = |v: &Option<crate::predicates::Direction>| {
+                    v.as_ref()
+                        .map(|v| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>())
+                };
+                assert_eq!(bits(&first), bits(&again), "round {round}, D = {d}");
+                if let Some(fixed) = crate::predicates::fixed::cofactor_direction(facet) {
+                    assert_eq!(bits(&first), bits(&fixed), "round {round}, D = {d}");
+                }
+            }
+        }
+        assert_eq!(cases, 840);
+        // The slots of the largest size stay through the smaller ones, with
+        // their limbs: the lifted orientation of D = 7 has k = 8.
+        assert_eq!((used.matrix.len(), used.poly.len()), (64, 9));
+        assert!(used.matrix[63].magnitude.capacity() > 0);
+        assert!(long > 200 && zero > 20, "{long} long values, {zero} zeros");
     }
 
     #[test]
