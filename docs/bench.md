@@ -6398,6 +6398,50 @@ The same sets built with `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1`, where the comp
 
 **Not timed:** the hulls of D = 9 and 10 of #556. The change is in `src/lists.rs` alone and #556's lists are not `Lists`. The set was not judged against Qhull and CGAL again.
 
+## The sets not met or at the edge, judged again after #580, PR #584 (#583)
+
+The run of #577 left three sets outside 1.05 and several within a few hundredths of it. #580 then brought hull `sphere` D3 10^4 back to its time at the final P7 run. These thirteen sets are judged again on `main` at `d9b6725`, by the method of that run, with the tools of `benches/parity/` as committed (their first use for a record). No set's slowest build reached 1.5 times its fastest (the largest 1.44), so none was run again.
+
+| Set | convx `build()` | / CGAL | / CGAL from the points | / Qhull | At 1.05 | At 1.00 |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| Hull `cube` D2 10^6 | 55.8 ms | 0.80 | 1.24 | 0.96 | met | met |
+| Hull `sphere` D2 10^4 | 0.81 ms | 1.01 | 1.19 | 0.11 (ref.) | met | not met |
+| Hull `sphere` D3 10^4 | 19.1 ms | 0.87 | – | 0.98 | met | met |
+| Hull `sphere` D3 10^5 | 254 ms | 0.61 | – | 1.01 | met | not met |
+| Hull `sphere` D3 10^6 | 3.40 s | 0.42 | – | 1.03 | met | not met |
+| Hull `sphere` D5 10^4 | 846 ms | 0.84 | – | 0.95 | met | met |
+| Hull `cubesurf` D3 10^5 | 28.5 ms | 0.70 | – | 0.93 | met | met |
+| Delaunay `cube` D2 10^4 | 5.23 ms | 1.04 | 1.23 | 0.26 | met | not met |
+| Delaunay `cube` D2 10^5 | 56.6 ms | 1.00 | 1.29 | 0.22 | met | met |
+| Delaunay `sphere` D2 10^4 | 5.37 ms | 1.10 | 1.30 | 0.21 (ref.) | not met | not met |
+| Delaunay `sphere` D2 10^5 | 47.9 ms | 1.03 | 1.39 | 0.11 (ref.) | met | not met |
+| Delaunay `cube` D4 10^4 | 694 ms | 1.03 | 1.09 | 0.87 | met | not met |
+| Delaunay `cube` D5 10^4 | 7.55 s | 1.04 | 1.11 | 0.94 | met | not met |
+
+Against the run of #577 (its second readings):
+
+| Set | Run of #577 | This run |
+| --- | ---: | ---: |
+| Hull `cube` D2 10^6 | 0.97 | 0.96 |
+| Hull `sphere` D2 10^4 | 1.02 | 1.01 |
+| Hull `sphere` D3 10^4 | 1.09 | 0.98 |
+| Hull `sphere` D3 10^5 | 0.99 | 1.01 |
+| Hull `sphere` D3 10^6 | 1.00 | 1.03 |
+| Hull `sphere` D5 10^4 | 1.01 | 0.95 |
+| Hull `cubesurf` D3 10^5 | 0.97 | 0.93 |
+| Delaunay `cube` D2 10^4 | 1.07 | 1.04 |
+| Delaunay `cube` D2 10^5 | 1.04 | 1.00 |
+| Delaunay `sphere` D2 10^4 | 1.17 | 1.10 |
+| Delaunay `sphere` D2 10^5 | 1.00 | 1.03 |
+| Delaunay `cube` D4 10^4 | 1.05 | 1.03 |
+| Delaunay `cube` D5 10^4 | 1.03 | 1.04 |
+
+- **Hull `sphere` D3 10^4 is met again:** 0.98 against Qhull, from 1.06 and 1.09. Its `build()` reads 19.1 ms, from 20.9 and 22.5 ms.
+- **One set of the thirteen is not met:** Delaunay `sphere` D2 10^4, 1.10 against CGAL, as in every run since #512.
+- **Delaunay `cube` D2 10^4 reads 1.04** and is met in this run. It has read 1.04 to 1.13 over seven runs with no change to its code, on either side of 1.05; it is not settled by this reading.
+- With these thirteen rows in place of theirs in the run of #577, and the other 25 as that run read them, 37 of the 38 judged sets are met at 1.05 and 30 at 1.00. That is two runs put together, two hours and two commits apart (`ce01e84` and `d9b6725`, which differ by #580, the tools of #581, and documents), and not one run.
+- Five of the thirteen sit between 1.02 and 1.05: Delaunay `cube` D2 10^4, D4 10^4, and D5 10^4, Delaunay `sphere` D2 10^5, and hull `sphere` D3 10^6. A run can put any of them on either side.
+
 ## The placing search at every dimension the complex reaches, PR #587 (#565)
 
 The spike #563 found 15.9% of the hull of the corners of a cube in D = 8 in `Placing::scan`. The search on the surface of #540 started only once the complex had the dimension of all the points; the corners of a cube in index order reach dimension k at corner 2^(k - 1), so the first half of a facet's points were placed by the scan of every boundary ridge. The search now starts after each point that raises the complex to three dimensions or more, and stops at the next point that raises it.
