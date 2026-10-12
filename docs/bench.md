@@ -5499,7 +5499,7 @@ Against the references from the points instead, 27 sets would be met at 1.05 and
 
 Delaunay `cube` D3 (1.09 to 1.12) is reported: the price of the cospherical groups (ADR 0006).
 
-## Inputs whose structure grows: faces and cospherical groups of many points, PRs #535, #542, #543, #547, #549, #552, #553, #555 (#531, #533, #534, #539, #540, #541, #548, #551, #185)
+## Inputs whose structure grows: faces and cospherical groups of many points, PRs #535, #542, #543, #547, #549, #552, #553, #555, #556 (#531, #533, #534, #539, #540, #541, #548, #551, #185, #554)
 
 ### Why these inputs
 
@@ -5744,7 +5744,7 @@ The heap integers also take every determinant of a size above 10, so a hull of D
 
 What is left there grows with the facets and is not the heap integers: the planes of new simplices allocate from D = 9 up, in lists that are inline only up to a length of 8 or 10 (#554). D = 7 and 8 do not grow (116 and 139 allocations at 60 and 240 points in D = 7).
 
-**Hulls of D = 9 and 10 (#554):** the planes of new simplices allocated in two lists of capacity 8 (the normal of a cull plane, and the key of a ridge in the plan of a region) and in the filter's rows on the heap for sizes 10 and 11. Base #555's head, head `6f96ed7`. Allocations of one `build()` of the generator's `cube`:
+**Hulls of D = 9 and 10, PR #556 (#554):** the planes of new simplices allocated in two lists of capacity 8 (the normal of a cull plane, and the key of a ridge in the plan of a region) and in the filter's rows on the heap for sizes 10 and 11. Base #555's head, head `6f96ed7`. Allocations of one `build()` of the generator's `cube`:
 
 | Build | Points | Before | After |
 | --- | ---: | ---: | ---: |
