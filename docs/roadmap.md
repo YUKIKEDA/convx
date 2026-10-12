@@ -116,8 +116,8 @@ After a correct sequential hull. These rows do not block P4.
 | P5-37 | Spike | Would a core monomorphized on D speed up the static API, and would a dedicated D = 2 hull beat Quickhull? | #176  | Done                     |
 | P5-38 | Spike | Where does the peak memory of output-heavy builds go?                                                     | #177  | Absorbed by P6-6 (#254)  |
 | P5-39 | Spike | Why does parallel(true) give only 1.2 to 1.3 times on four cores?                                         | #178  | Absorbed by P6-8 (#256)  |
-| P5-40 | Docs  | Let the filter rescale tiny inputs by an exact power of two                                               | #179  | Set after Grill on #179  |
-| P5-41 | Spike | How many NonFiniteCircumcenter failures have a circumcenter that fits in f64?                             | #180  | Not started              |
+| P5-40 | Docs  | Let the filter rescale tiny inputs by an exact power of two                                               | #179  | Done                     |
+| P5-41 | Spike | How many NonFiniteCircumcenter failures have a circumcenter that fits in f64?                             | #180  | Done                     |
 | P5-42 | Spike | Why does hull sphere D2 wall time grow faster than its instruction count?                                 | #182  | Done                     |
 | P5-43 | Spike | Coplanar points are scanned again for every new facet: can construction stop rescanning them?             | #183  | Done                     |
 | P5-44 | Feat  | Reuse the work space of the heap exact stage across predicate calls                                       | #185  | Done                     |
@@ -139,6 +139,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-60 | Feat  | Build every D = 2 hull by the filtered strict chain                                                        | #232  | Done                     |
 | P5-61 | Spike | Extremes of a coplanar face come from recursive sub-hulls: where does that time go?                       | #237  | Done                     |
 | P5-62 | Spike | What does hull construction in general position pay per simplex, at 10^4 and at 10^6 points?              | #247  | Done                     |
+| P5-63 | Feat  | Predicates: the filter scales one predicate's entries by an exact power of two                            | #589  | Not started              |
 
 ## P6
 
@@ -253,5 +254,6 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 
 Items land here only through Grill → Issue.
 
+- A Voronoi diagram for sites whose coordinates spread over hundreds of orders of magnitude (#180; the owner's decision of 2026-10-12). Of 3,739 inputs with such coordinates on which Voronoi returned `NonFiniteCircumcenter`, 76% have a vertex beyond `f64`, which design §8 makes a failure, and 24% have every vertex inside `f64` and fail because the `f64` solve of the circumcenter is not accurate on systems that mix those scales. Reaching them needs a solve that scales each row and column, or an exact one. No parity set and no generator family is near such inputs. It returns if a user's input fails this way.
 - A parallel hull build (#256, #269; Grill of 2026-10-07 on #269, option A). The round protocol lost to the sequential build, and of the coarse-grained strategies only parallel publication was never slower, with a ceiling of about 0.78 of the sequential build on four cores. The single-thread construction decides the comparison with Qhull, so no parallel path or `parallel` switch is added now. It returns through a Grill with a measurement that meets a stated criterion (`docs/adr/0004-sequential-hull-only.md`). A spike is such a measurement and adds no path to the crate: P6-14 (#276) asks whether a ParGeo-style fully parallel hull beats the sequential build, and its answer goes to a Grill.
 - Lock-free allocation (was P5-2, #26). Construction inserts one point at a time on one thread (§6), so no insert or remove in the facet store is concurrent. On the P2-7 `cube` sets measured in #26, inserts and removes in the arena of that time took under 1% of the build. It returns through Grill with a parallel construction.
