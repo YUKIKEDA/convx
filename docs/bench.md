@@ -6033,3 +6033,71 @@ Delaunay `cube` D4 10^4 reads 1.03, from 1.06, and is met; directly its two comm
 ### Reading
 
 Of the rows since the final run, one changed a parity set beyond the spread: #549, on hull `sphere` D2. No other set moved against convx in the direct timing, where the largest other ratios are 1.03 (hull `sphere` D3 10^4 and D4 10^5) and 1.05 by the minimum with 1.02 by the median (Delaunay `cube` D2 10^4). The guards of a pull request did not cover the path it changed: `build()` reaches the D = 2 hull through code that #549 touched, and a guard of D = 2 was not in its list.
+
+## Hull `sphere` D2: the first start of a list out of the push (#570)
+
+The parity run of #569 found hull `sphere` D2 8 to 10% slower since PR #549, under WSL.
+
+### The cause
+
+The phases of one `build()` of hull `sphere` D2, summed by timers around them in scratch copies, under WSL, pinned and alternated, the median of 5 runs of 40 builds (10^5) and of 6 builds (10^6):
+
+| Points | Commit | `build()` | Acceptance | Construction | Classification | Publication |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 10^5 | `accd8ce`, before #549 | 10.05 ms | 5.14 ms | 1.71 ms | 1.27 ms | 2.04 ms |
+| 10^5 | `5846643`, `main` | 10.82 ms | 5.08 ms | 1.77 ms | 2.15 ms | 2.05 ms |
+| 10^5 | `5229af2`, this change | 10.17 ms | 5.14 ms | 1.75 ms | 1.34 ms | 2.10 ms |
+| 10^6 | `accd8ce` | 108.6 ms | 61.1 ms | 20.6 ms | 11.5 ms | 16.6 ms |
+| 10^6 | `5846643` | 117.5 ms | 59.3 ms | 21.4 ms | 20.0 ms | 17.1 ms |
+| 10^6 | `5229af2` | 108.6 ms | 58.5 ms | 21.6 ms | 12.0 ms | 16.3 ms |
+
+Only classification moved, and the code of the classification of a polygon did not change in #549. It writes the edges and the simplices of the cycle into flat lists, one push per edge. #549 made a default `Lists` allocate nothing, and for that every push tested whether the first start was written and wrote it when it was not. That write, in the body of the push, cost 9 ns a point on a hull of D = 2 whose points are all extreme. It is now a cold function out of line, and the push keeps only the test.
+
+### Time
+
+Plain builds, pinned and alternated, minimum and median in ms; the ratios are against the first column.
+
+Under WSL, 5 to 8 rounds:
+
+| Set | `accd8ce`, before #549 | `5846643`, `main` | `5229af2`, this change |
+| --- | ---: | ---: | ---: |
+| Hull `sphere` D2 10^4 | 0.740, 0.781 | 0.830, 0.879 (1.12, 1.13) | 0.689, 0.791 (0.93, 1.01) |
+| Hull `sphere` D2 10^5 | 8.33, 9.99 | 9.50, 10.76 (1.14, 1.08) | 8.79, 10.17 (1.06, 1.02) |
+| Hull `sphere` D2 10^6 | 99.2, 107.5 | 105.6, 114.8 (1.07, 1.07) | 103.4, 112.0 (1.04, 1.04) |
+| Hull `cube` D2 10^5 | 3.97, 4.49 | 4.02, 4.40 (1.01, 0.98) | 3.91, 4.38 (0.98, 0.98) |
+| Hull `cube` D2 10^6 | 53.8, 56.1 | 53.9, 55.6 (1.00, 0.99) | 52.1, 55.6 (0.97, 0.99) |
+| Hull `sphere` D3 10^5 | 256.9, 263.7 | 251.4, 266.2 (0.98, 1.01) | 249.1, 266.9 (0.97, 1.01) |
+| Hull `cube` D3 10^6 | 133.3, 142.0 | 132.8, 142.8 (1.00, 1.01) | 132.3, 145.4 (0.99, 1.02) |
+| Hull `cubesurf` D3 10^5 | 26.9, 28.5 | 27.6, 29.6 (1.03, 1.04) | 26.1, 29.4 (0.97, 1.03) |
+| Hull `cube` D4 10^5 | 32.3, 34.2 | 31.7, 34.6 (0.98, 1.01) | 31.9, 34.4 (0.99, 1.01) |
+| Hull `sphere` D4 10^4 | 89.9, 92.7 | 91.9, 95.8 (1.02, 1.03) | 89.8, 95.4 (1.00, 1.03) |
+| Hull `grid` D6 10^4 | 237.1, 239.2 | 231.1, 236.5 (0.97, 0.99) | 232.2, 236.5 (0.98, 0.99) |
+| Delaunay `cube` D2 10^5 | 53.6, 55.9 | 53.7, 57.5 (1.00, 1.03) | 53.8, 56.9 (1.00, 1.02) |
+| Delaunay `sphere` D2 10^5 | 40.8, 44.0 | 43.7, 46.6 (1.07, 1.06) | 42.1, 45.0 (1.03, 1.02) |
+| Delaunay `cube` D3 10^5 | 388.4, 396.3 | 397.2, 401.0 (1.02, 1.01) | 391.0, 399.2 (1.01, 1.01) |
+| Delaunay of 20,000 `lattice` points, D3 | 2.45, 2.75 | 2.46, 2.62 (1.00, 0.95) | 2.46, 2.64 (1.00, 0.96) |
+
+Hull `sphere` D2 at 10^5 and 10^6 still reads 1.02 to 1.06 of `accd8ce` in this table. In the table of the phases, taken after it, the same three builds read 10.05, 10.82, and 10.17 ms and 108.6, 117.5, and 108.6 ms, with classification at 1.04 to 1.05 of `accd8ce`. The test that stays in the push may be what is left; it was not separated. Removing it would put a branch in every read of a list instead.
+
+Delaunay `sphere` D2 10^5 read 1.07 and 1.06 on `main` and 1.03 and 1.02 with the change: it writes its cells through the same lists. The parity run did not show it.
+
+On Windows, `main` against the change, 4 to 12 rounds:
+
+| Set | `5846643`, `main` | `5229af2`, this change |
+| --- | ---: | ---: |
+| Hull `sphere` D2 10^4 | 0.980, 1.058 | 0.982, 1.059 (1.00, 1.00) |
+| Hull `sphere` D2 10^5 | 9.20, 10.29 | 9.21, 10.14 (1.00, 0.99) |
+| Hull `sphere` D2 10^6 | 105.7, 113.8 | 108.3, 112.8 (1.02, 0.99) |
+| Hull `cube` D2 10^6 | 56.2, 59.6 | 56.6, 59.9 (1.01, 1.00) |
+| Hull `sphere` D3 10^5 | 253.9, 270.5 | 252.7, 270.6 (1.00, 1.00) |
+| Hull `cube` D3 10^6 | 140.6, 146.3 | 134.9, 146.1 (0.96, 1.00) |
+| Hull `cubesurf` D3 10^5 | 28.7, 32.0 | 28.7, 30.6 (1.00, 0.96) |
+| Hull `cube` D4 10^5 | 32.6, 35.9 | 33.0, 35.6 (1.01, 0.99) |
+| Hull `grid` D6 10^4 | 244.7, 251.5 | 246.7, 254.2 (1.01, 1.01) |
+| Delaunay `cube` D2 10^5 | 54.1, 55.5 | 54.3, 55.8 (1.00, 1.01) |
+| Delaunay `sphere` D2 10^5 | 44.4, 47.7 | 45.0, 47.7 (1.02, 1.00) |
+| Delaunay `cube` D3 10^5 | 396.3, 413.3 | 392.2, 411.8 (0.99, 1.00) |
+
+**The regression does not show on Windows.** The commit before #549, #549, and `main` read 0.83 to 0.94 ms at 10^4 and 8.9 to 9.8 ms at 10^5 there, in no order, in three alternated rounds. #549 was timed on Windows only, and its guards had no set of D = 2; either would have missed it, and the two together did. `bench.mdc` now asks both of a change to a container every builder uses.
+
+The inputs of #549 (the k-gon times a square, the prism) were not timed again: the change touches no path of theirs but the push of a list.
