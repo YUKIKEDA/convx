@@ -54,7 +54,7 @@ impl<'a> ConvexHullBuilder<'a> {
     pub fn build(self) -> Result<ConvexHull, ConvexHullError> {
         // An input far from 1 is built on a copy scaled exactly (#589);
         // the hull keeps the coordinates of the input itself.
-        let scaled = crate::scaling::scaled_copy(self.points);
+        let scaled = crate::scaling::scaled_copy(self.points, crate::scaling::HULL_FROM);
         let input = accept(self.dim, scaled.as_deref().unwrap_or(self.points))?;
         let mut hull = publish(classify(input)?);
         if scaled.is_some() {

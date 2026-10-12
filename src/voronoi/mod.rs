@@ -73,7 +73,7 @@ impl<'a> VoronoiBuilder<'a> {
     pub fn build(self) -> Result<VoronoiDiagram, ConvexHullError> {
         // An input far from 1 is built on a copy scaled exactly (#589);
         // the vertices take their coordinates from the input itself.
-        let scaled = crate::scaling::scaled_copy(self.points);
+        let scaled = crate::scaling::scaled_copy(self.points, crate::scaling::SITES_FROM);
         build(
             self.dim,
             scaled.as_deref().unwrap_or(self.points),

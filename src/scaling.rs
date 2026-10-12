@@ -19,17 +19,26 @@
 use crate::normal::{binary_exponent, scale_by_power_of_two};
 
 /// From which binary exponent of the largest coordinate, on either side of
-/// zero, an input is scaled. Inside it nothing is slower: the fixed-size
+/// zero, the points of a hull are scaled. Inside it a hull is not slower:
+/// its builds read the same from `2^-90` to `2^98`, and the fixed-size
 /// planes of D = 3 and 4 take edges in `[2^-100, 2^100]`
-/// ([`crate::normal::fixed_plane`]), and no product of the first stage
-/// leaves the normal range.
-const FROM: i32 = 100;
+/// ([`crate::normal::fixed_plane`]), which a coordinate near `2^-98`
+/// already leaves.
+pub(crate) const HULL_FROM: i32 = 64;
+
+/// The same for the sites of a Delaunay triangulation or a Voronoi
+/// diagram. The lifted entries are squares, and the first stage's bound
+/// leaves its common form once the sum of its underflow term passes `2^60`
+/// ([`crate::predicates`]): a Delaunay build of D = 3 read 1.08 of its time
+/// with coordinates near `2^16`, 1.49 near `2^24`, and 1.46 near `2^30`.
+pub(crate) const SITES_FROM: i32 = 12;
 
 /// How many coordinates decide whether the input is looked at in full.
 const SAMPLE: usize = 1024;
 
 /// `points` times the power of two that brings the largest coordinate into
-/// `[1, 2)`, when the coordinates are far from 1 and that product is exact
+/// `[1, 2)`, when its binary exponent is beyond `from` on either side of
+/// zero and that product is exact
 /// for every one of them; `None` otherwise, and the build runs on `points`.
 ///
 /// An ordinary input pays for a sample of its coordinates and nothing else:
@@ -43,7 +52,7 @@ const SAMPLE: usize = 1024;
 /// exact unless it lands below the normal range, which the smallest
 /// nonzero coordinate decides. A coordinate that is not finite leaves the
 /// input as it is, and acceptance reports it.
-pub(crate) fn scaled_copy(points: &[f64]) -> Option<Vec<f64>> {
+pub(crate) fn scaled_copy(points: &[f64], from: i32) -> Option<Vec<f64>> {
     let magnitude = |largest: f64, x: &f64| {
         let x = x.abs();
         if x > largest {
@@ -54,14 +63,14 @@ pub(crate) fn scaled_copy(points: &[f64]) -> Option<Vec<f64>> {
     };
     let step = (points.len() / SAMPLE).max(1);
     let sampled = points.iter().step_by(step).fold(0.0_f64, magnitude);
-    if !far_from_one(sampled) {
+    if !far_from_one(sampled, from) {
         return None;
     }
     if points.iter().any(|x| !x.is_finite()) {
         return None;
     }
     let largest = points.iter().fold(0.0_f64, magnitude);
-    if !far_from_one(largest) {
+    if !far_from_one(largest, from) {
         return None;
     }
     let shift = -binary_exponent(largest);
@@ -83,7 +92,7 @@ pub(crate) fn scaled_copy(points: &[f64]) -> Option<Vec<f64>> {
 }
 
 /// Whether `largest`, the largest magnitude of some coordinates, is finite,
-/// nonzero, and at least `2^FROM` away from 1 in exponent.
-fn far_from_one(largest: f64) -> bool {
-    largest.is_finite() && largest != 0.0 && binary_exponent(largest).abs() > FROM
+/// nonzero, and has a binary exponent beyond `from` on either side of zero.
+fn far_from_one(largest: f64, from: i32) -> bool {
+    largest.is_finite() && largest != 0.0 && binary_exponent(largest).abs() > from
 }
