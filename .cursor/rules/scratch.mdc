@@ -21,6 +21,8 @@ A change that belongs in the repo is not finished as a local edit. It is finishe
 
 A script that writes scratch stops at its first failed command (`set -e` in bash, `$ErrorActionPreference = 'Stop'` with `$PSNativeCommandUseErrorActionPreference = $true` in PowerShell 7.3+, because `Stop` alone does not stop on a native command such as `git` or `cargo` that exits non-zero; otherwise check `$LASTEXITCODE` after each) and names its targets by absolute path. Do not rely on a `cd` earlier in an `&&` chain: when a command before it fails, the lines after the chain run in the repository. In #259 that overwrote `Cargo.toml` and left two files in the checkout.
 
+A tool that does not return is stopped, and its process is looked for by name afterwards. A process that cannot be stopped, and what it keeps locked, is reported to the owner with its ID and path in the same reply; it is not left unsaid. In #543 a VTune report hung, its process outlived the task that started it, and its result directory stayed locked.
+
 ```text
 # BAD — a worktree, a timing crate, and a profile still on disk after the reply
 git worktree add .dev/wt-133
