@@ -34,7 +34,7 @@
 //! all facets agree. Simplex neighbors are then linked across the updated
 //! simplices; face neighbors are those of the merged groups.
 
-use std::collections::HashMap;
+use std::collections::{BinaryHeap, HashMap};
 
 use super::input::{accept, Input};
 use super::merge::{merge, LogicalFacets};
@@ -1190,6 +1190,9 @@ pub(crate) struct Placing {
     chain: ChainWork,
     before: Vec<u32>,
     after: Vec<u32>,
+    /// For points that span three dimensions or more
+    /// ([`Self::on_the_surface`]): the boundary ridges with their neighbors.
+    surface: Surface,
 }
 
 impl Placing {
@@ -1215,7 +1218,7 @@ impl Placing {
             #[cfg(debug_assertions)]
             if extreme.len() <= 64 {
                 let fast = self.simplices.clone();
-                let (len, general) = self.general(d, &point, extreme)?;
+                let (len, general) = self.general(d, None, &point, extreme)?;
                 debug_assert_eq!(
                     (3, fast.as_slice()),
                     (len, general),
@@ -1225,7 +1228,22 @@ impl Placing {
             }
             return Ok((3, &self.simplices));
         }
-        self.general(d, point, extreme)
+        let span = span.filter(|&span| span >= 3);
+        // Debug builds compare up to 64 points with the scan of every
+        // boundary ridge, which is quadratic in them.
+        #[cfg(debug_assertions)]
+        if span.is_some() && extreme.len() <= 64 {
+            let (len, fast) = self.general(d, span, &point, extreme)?;
+            let fast = (len, fast.to_vec());
+            let (len, scanned) = self.general(d, None, &point, extreme)?;
+            debug_assert_eq!(
+                (fast.0, fast.1.as_slice()),
+                (len, scanned),
+                "the ridges reached through their neighbors are those of the scan"
+            );
+            return Ok((len, scanned));
+        }
+        self.general(d, span, &point, extreme)
     }
 
     /// The placing triangulation of points that span a plane, read from
@@ -1244,7 +1262,7 @@ impl Placing {
     ///
     /// The general method tests each point against every boundary ridge,
     /// about k^2 / 2 orientations for k points: the hull of a prism over a
-    /// 2,048-gon took 138 ms, nearly all of it there (#533).
+    /// 2,048-gon took 138 ms, nearly all of it there (`docs/bench.md`, #533).
     fn in_a_plane<'p>(
         &mut self,
         d: usize,
@@ -1311,13 +1329,31 @@ impl Placing {
     }
 
     /// [`Self::run`] for any points: each point against every boundary
-    /// ridge of the complex built so far.
+    /// ridge of the complex built so far. With `span`, the affine dimension
+    /// of the points, the points left once the complex has that dimension
+    /// go to [`Self::on_the_surface`], when there are enough of them.
     fn general<'p>(
         &mut self,
         d: usize,
-        point: impl Fn(u32) -> &'p [f64],
+        span: Option<usize>,
+        point: &impl Fn(u32) -> &'p [f64],
         extreme: &[u32],
     ) -> Result<(usize, &[u32]), ConvexHullError> {
+        if let Some(from) = self.scan(d, span, point, extreme)? {
+            self.on_the_surface(point, &extreme[from..])?;
+        }
+        Ok((self.len, &self.simplices))
+    }
+
+    /// [`Self::general`] by the scan. `Some` is the place in `extreme` of
+    /// the first point left to [`Self::on_the_surface`].
+    fn scan<'p>(
+        &mut self,
+        d: usize,
+        span: Option<usize>,
+        point: &impl Fn(u32) -> &'p [f64],
+        extreme: &[u32],
+    ) -> Result<Option<usize>, ConvexHullError> {
         let Self {
             simplices,
             len,
@@ -1336,7 +1372,7 @@ impl Placing {
         basis.clear();
         boundary.clear();
         let Some((&first, rest)) = extreme.split_first() else {
-            return Ok((1, &simplices[..]));
+            return Ok(None);
         };
         simplices.push(first);
         basis.push(first);
@@ -1353,7 +1389,7 @@ impl Placing {
             Ok(orient(&refs)?)
         };
         toggle(boundary, simplices);
-        for &p in rest {
+        for (at, &p) in rest.iter().enumerate() {
             // Does p raise the affine dimension?
             let mut raise = None;
             for j in (0..d).filter(|j| !axes.contains(j)) {
@@ -1377,6 +1413,9 @@ impl Placing {
                 boundary.clear();
                 for simplex in simplices.chunks_exact(*len) {
                     toggle(boundary, simplex);
+                }
+                if span == Some(axes.len()) && rest.len() - at > SURFACE_FROM {
+                    return Ok(Some(at + 2));
                 }
                 continue;
             }
@@ -1412,7 +1451,421 @@ impl Placing {
                 simplices.extend_from_slice(simplex(i));
             }
         }
-        Ok((*len, &simplices[..]))
+        Ok(None)
+    }
+
+    /// The rest of [`Self::general`] once the complex has the dimension of
+    /// the points: each point of `rest` adds a simplex on each boundary
+    /// ridge it is beyond, and those ridges are reached through their
+    /// neighbors and not by a scan of the boundary (#540).
+    ///
+    /// The points are in convex position, so the complex is the hull of
+    /// the points placed, and the ridges a point is beyond are connected
+    /// through the faces they share. One of them is searched for from a
+    /// ridge of the point before, highest first by the height of the point
+    /// over a ridge's hyperplane, in units of the depth of a point inside
+    /// the complex under it. Over the ridges of a convex surface that
+    /// height has no peak but its greatest, which is above 1 exactly when
+    /// the point is beyond the ridge. It is computed in `f64` and decides
+    /// nothing: every ridge taken is tested exactly, and the search ends
+    /// only at a ridge the point is beyond or when no ridge is left. Ridges
+    /// in one hyperplane have one height, and a face of many ridges would
+    /// be searched whole, so among ridges of one height, to about one part
+    /// in a million, the one with the vertex nearest to the point is taken
+    /// first. The others
+    /// follow from it across shared faces. The simplices of one point are
+    /// appended in lexicographic order, as the scan appends them.
+    ///
+    /// The scan tests each point against every boundary ridge, about n^2
+    /// orientations for n points: the hull of a 1,024-gon times a square
+    /// took 889 ms, and a cospherical group of 6,630 sites 1.9 s
+    /// (`docs/bench.md`, #540).
+    fn on_the_surface<'p>(
+        &mut self,
+        point: &impl Fn(u32) -> &'p [f64],
+        rest: &[u32],
+    ) -> Result<(), ConvexHullError> {
+        let Self {
+            simplices,
+            len,
+            boundary,
+            added,
+            order,
+            axes,
+            basis,
+            rows,
+            surface,
+            ..
+        } = self;
+        let s = axes.len();
+        let Surface {
+            vertices,
+            opposite,
+            side,
+            across,
+            depth,
+            inner,
+            matrix,
+            queued,
+            tried,
+            inside,
+            free,
+            heap,
+            stack,
+            visible,
+            links,
+        } = surface;
+        // The orientation of the ridge `ridge` with `last`, on `axes`.
+        let mut sign = |ridge: &[u32], last: u32| -> Result<Sign, ConvexHullError> {
+            rows.clear();
+            for &v in ridge.iter().chain([&last]) {
+                let x = point(v);
+                rows.extend(axes.iter().map(|&a| x[a]));
+            }
+            let refs: Small<&[f64], 11> = rows.chunks_exact(s).collect();
+            Ok(orient(&refs)?)
+        };
+        // A point inside the complex: the mean of the first simplex.
+        inner.clear();
+        inner.extend(
+            axes.iter()
+                .map(|&a| basis.iter().map(|&v| point(v)[a]).sum::<f64>() / basis.len() as f64),
+        );
+        // The volume, in `f64`, of `ridge` with the point `x` (on `axes`
+        // already): its sign is the side of `x`, and its size the height
+        // of `x` over the ridge's hyperplane times the ridge's own measure.
+        let mut volume = |ridge: &[u32], x: &[f64]| -> f64 {
+            matrix.clear();
+            for &v in ridge {
+                let y = point(v);
+                matrix.extend(axes.iter().zip(x).map(|(&a, &c)| y[a] - c));
+            }
+            determinant(s, matrix)
+        };
+        // A number of the face of ridge `id` without the vertex at `slot`.
+        let mixed = |vertices: &[u32], entry: u32| {
+            let (id, slot) = (entry as usize / s, entry as usize % s);
+            vertices[id * s..(id + 1) * s]
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| i != slot)
+                .fold(0_u64, |h, (_, &v)| {
+                    (h ^ u64::from(v))
+                        .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+                        .rotate_left(29)
+                })
+        };
+
+        vertices.clear();
+        opposite.clear();
+        side.clear();
+        free.clear();
+        for (ridge, &(vertex, known)) in boundary.iter() {
+            vertices.extend_from_slice(ridge);
+            opposite.push(vertex);
+            side.push(known);
+        }
+        let count = opposite.len();
+        across.clear();
+        across.resize(count * s, u32::MAX);
+        depth.clear();
+        for id in 0..count {
+            depth.push(volume(&vertices[id * s..(id + 1) * s], inner));
+        }
+        for marks in [&mut *queued, &mut *tried, &mut *inside] {
+            marks.clear();
+            marks.resize(count, 0);
+        }
+        links.clear();
+        links.extend((0..(count * s) as u32).map(|entry| (mixed(vertices, entry), entry)));
+        pair_faces(s, vertices, links, across);
+
+        let mut stamp = 0_u32;
+        let mut last = 0_u32;
+        for &p in rest {
+            stamp += 1;
+            let x: Small<f64, 11> = axes.iter().map(|&a| point(p)[a]).collect();
+            // Highest first: the least volume with the point over the
+            // volume with the inner point, negative beyond the ridge.
+            let mut near = |vertices: &[u32], depth: &[f64], id: u32| -> Near {
+                let at = id as usize * s;
+                let low = volume(&vertices[at..at + s], &x) / depth[id as usize];
+                let far = vertices[at..at + s]
+                    .iter()
+                    .map(|&v| {
+                        let y = point(v);
+                        axes.iter()
+                            .zip(x.iter())
+                            .map(|(&a, &c)| (y[a] - c) * (y[a] - c))
+                            .sum::<f64>()
+                    })
+                    .fold(f64::INFINITY, f64::min);
+                Near {
+                    // Saturating, and 0 for a height that is not a number.
+                    low: (low * 1_048_576.0).round() as i64,
+                    far,
+                    ridge: id,
+                }
+            };
+            let mut beyond = |id: u32,
+                              side: &mut [Option<Sign>],
+                              vertices: &[u32]|
+             -> Result<bool, ConvexHullError> {
+                let ridge = &vertices[id as usize * s..(id as usize + 1) * s];
+                let of_point = sign(ridge, p)?;
+                if of_point == Sign::Zero {
+                    return Ok(false);
+                }
+                let of_opposite = match side[id as usize] {
+                    Some(known) => known,
+                    None => {
+                        let found = sign(ridge, opposite[id as usize])?;
+                        side[id as usize] = Some(found);
+                        found
+                    }
+                };
+                Ok(of_opposite != Sign::Zero && of_point != of_opposite)
+            };
+            // One ridge the point is beyond.
+            heap.clear();
+            queued[last as usize] = stamp;
+            heap.push(near(vertices, depth, last));
+            let mut start = None;
+            while let Some(Near { ridge: id, .. }) = heap.pop() {
+                tried[id as usize] = stamp;
+                if beyond(id, side, vertices)? {
+                    start = Some(id);
+                    break;
+                }
+                for &next in &across[id as usize * s..(id as usize + 1) * s] {
+                    if queued[next as usize] != stamp {
+                        queued[next as usize] = stamp;
+                        heap.push(near(vertices, depth, next));
+                    }
+                }
+            }
+            // A point beyond no ridge adds nothing, as in the scan.
+            let Some(start) = start else {
+                continue;
+            };
+            // The others, across shared faces.
+            visible.clear();
+            visible.push(start);
+            inside[start as usize] = stamp;
+            stack.clear();
+            stack.push(start);
+            while let Some(id) = stack.pop() {
+                for slot in 0..s {
+                    let next = across[id as usize * s + slot];
+                    if tried[next as usize] == stamp {
+                        continue;
+                    }
+                    tried[next as usize] = stamp;
+                    if beyond(next, side, vertices)? {
+                        inside[next as usize] = stamp;
+                        visible.push(next);
+                        stack.push(next);
+                    }
+                }
+            }
+            // The added simplices in lexicographic order.
+            added.clear();
+            for &id in visible.iter() {
+                added.extend_from_slice(&vertices[id as usize * s..(id as usize + 1) * s]);
+                added.push(p);
+            }
+            let simplex = |i: u32| &added[i as usize * *len..(i as usize + 1) * *len];
+            order.clear();
+            order.extend(0..visible.len() as u32);
+            order.sort_unstable_by(|&a, &b| simplex(a).cmp(simplex(b)));
+            for &i in order.iter() {
+                simplices.extend_from_slice(simplex(i));
+            }
+            // The boundary: the ridges the point is beyond leave it, and
+            // each face they share with a ridge that stays gives a ridge
+            // with the point.
+            links.clear();
+            for &id in visible.iter() {
+                for slot in 0..s {
+                    let outer = across[id as usize * s + slot];
+                    if inside[outer as usize] == stamp {
+                        continue;
+                    }
+                    let old: Small<u32, 11> = vertices[id as usize * s..(id as usize + 1) * s]
+                        .iter()
+                        .copied()
+                        .collect();
+                    let new = match free.pop() {
+                        Some(new) => new,
+                        None => {
+                            let new = opposite.len() as u32;
+                            vertices.resize(vertices.len() + s, 0);
+                            across.resize(across.len() + s, u32::MAX);
+                            depth.push(0.0);
+                            opposite.push(0);
+                            side.push(None);
+                            queued.push(0);
+                            tried.push(0);
+                            inside.push(0);
+                            new
+                        }
+                    };
+                    let at = new as usize * s;
+                    let mut next = at;
+                    for (i, &v) in old.iter().enumerate() {
+                        if i != slot {
+                            vertices[next] = v;
+                            next += 1;
+                        }
+                    }
+                    vertices[next] = p;
+                    opposite[new as usize] = old[slot];
+                    side[new as usize] = None;
+                    depth[new as usize] = volume(&vertices[at..at + s], inner);
+                    // Across the face without the point is the ridge that
+                    // stays, which now has the new ridge across that face.
+                    across[at + s - 1] = outer;
+                    for back in &mut across[outer as usize * s..(outer as usize + 1) * s] {
+                        if *back == id {
+                            *back = new;
+                        }
+                    }
+                    links.extend((0..s as u32 - 1).map(|j| {
+                        let entry = new * s as u32 + j;
+                        (mixed(vertices, entry), entry)
+                    }));
+                    last = new;
+                }
+            }
+            pair_faces(s, vertices, links, across);
+            free.extend_from_slice(visible);
+        }
+        Ok(())
+    }
+}
+
+/// From how many points left [`Placing::general`] hands them to
+/// [`Placing::on_the_surface`].
+const SURFACE_FROM: usize = 16;
+
+/// The boundary ridges of [`Placing::on_the_surface`], `s` vertices each,
+/// ascending, by number; a number is reused once its ridge has left.
+#[derive(Default)]
+struct Surface {
+    vertices: Vec<u32>,
+    /// Per ridge, the vertex opposite it in its one simplex and, once
+    /// evaluated, that vertex's side of the ridge.
+    opposite: Vec<u32>,
+    side: Vec<Option<Sign>>,
+    /// `s` per ridge: the ridge across the face without the vertex at that
+    /// place.
+    across: Vec<u32>,
+    /// Per ridge, its volume in `f64` with the inner point, and that point
+    /// on the axes; `matrix` is the scratch of one volume.
+    depth: Vec<f64>,
+    inner: Vec<f64>,
+    matrix: Vec<f64>,
+    /// Per ridge, the point that last queued it, tested it, and was found
+    /// beyond it, as that point's number among the points placed here.
+    queued: Vec<u32>,
+    tried: Vec<u32>,
+    inside: Vec<u32>,
+    /// The numbers of ridges that have left.
+    free: Vec<u32>,
+    heap: BinaryHeap<Near>,
+    stack: Vec<u32>,
+    /// The ridges the current point is beyond.
+    visible: Vec<u32>,
+    /// Faces to pair, as (a number of the face's vertices, `ridge * s +
+    /// place of the vertex left out`).
+    links: Vec<(u64, u32)>,
+}
+
+/// The determinant of the `s` rows of `s` entries in `rows`, by
+/// elimination with the largest pivot of each column. `rows` is consumed.
+fn determinant(s: usize, rows: &mut [f64]) -> f64 {
+    let mut product = 1.0;
+    for column in 0..s {
+        let mut pivot = column;
+        for row in column + 1..s {
+            if rows[row * s + column].abs() > rows[pivot * s + column].abs() {
+                pivot = row;
+            }
+        }
+        if rows[pivot * s + column] == 0.0 {
+            return 0.0;
+        }
+        if pivot != column {
+            for entry in column..s {
+                rows.swap(pivot * s + entry, column * s + entry);
+            }
+            product = -product;
+        }
+        let top = rows[column * s + column];
+        product *= top;
+        for row in column + 1..s {
+            let factor = rows[row * s + column] / top;
+            for entry in column + 1..s {
+                rows[row * s + entry] -= factor * rows[column * s + entry];
+            }
+        }
+    }
+    product
+}
+
+/// A ridge in the search of [`Placing::on_the_surface`]: the volume with
+/// the point over the volume with the inner point, in parts of 2^-20 (least
+/// first: negative is beyond the ridge), and the squared distance from the
+/// point to the nearest vertex of the ridge (least first).
+struct Near {
+    low: i64,
+    far: f64,
+    ridge: u32,
+}
+
+impl PartialEq for Near {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+
+impl Eq for Near {}
+
+impl PartialOrd for Near {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Near {
+    /// The greatest is the first taken: the lowest, then the nearest, then
+    /// the smallest number.
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        other
+            .low
+            .cmp(&self.low)
+            .then(other.far.total_cmp(&self.far))
+            .then(other.ridge.cmp(&self.ridge))
+    }
+}
+
+/// Pairs the faces in `links` by their vertices: each face is in two
+/// ridges, which become each other's ridge across it.
+fn pair_faces(s: usize, vertices: &[u32], links: &mut [(u64, u32)], across: &mut [u32]) {
+    let face = |entry: u32| {
+        let (id, slot) = (entry as usize / s, entry as usize % s);
+        vertices[id * s..(id + 1) * s]
+            .iter()
+            .enumerate()
+            .filter(move |&(i, _)| i != slot)
+            .map(|(_, &v)| v)
+    };
+    links.sort_unstable_by(|x, y| x.0.cmp(&y.0).then_with(|| face(x.1).cmp(face(y.1))));
+    for pair in links.windows(2) {
+        if pair[0].0 == pair[1].0 && face(pair[0].1).eq(face(pair[1].1)) {
+            across[pair[0].1 as usize] = pair[1].1 / s as u32;
+            across[pair[1].1 as usize] = pair[0].1 / s as u32;
+        }
     }
 }
 
@@ -2027,6 +2480,89 @@ pub(crate) mod tests {
             faces += found;
         }
         assert!(faces > 30, "{faces} faces of real hulls");
+    }
+
+    /// Points that span three dimensions or more are placed from the
+    /// ridges reached through their neighbors (#540), with the simplices
+    /// of the scan in its order. The sets have more points than the debug
+    /// comparison of [`Placing::run`] covers: a prism over 150 points of a
+    /// parabola, the integer points of a sphere in D = 3 and D = 4, each
+    /// also lifted into two more coordinates that are exact sums of the
+    /// others, and the sphere of D = 3 with its center last, a point
+    /// beyond no ridge. Each runs in three index orders.
+    #[test]
+    fn the_surface_places_as_the_scan() {
+        fn sphere(d: usize, squared: i64) -> Vec<Vec<f64>> {
+            let r = (squared as f64).sqrt() as i64 + 1;
+            let mut found = Vec::new();
+            let mut x = vec![-r; d];
+            loop {
+                if x.iter().map(|c| c * c).sum::<i64>() == squared {
+                    found.push(x.iter().map(|&c| c as f64).collect());
+                }
+                let Some(axis) = (0..d).find(|&a| x[a] < r) else {
+                    return found;
+                };
+                x[..axis].fill(-r);
+                x[axis] += 1;
+            }
+        }
+        let prism: Vec<Vec<f64>> = (0..150)
+            .flat_map(|i| {
+                let t = f64::from(i) - 75.0;
+                [vec![t, t * t, 0.0], vec![t, t * t, 1.0]]
+            })
+            .collect();
+        let mut centered = sphere(3, 101);
+        centered.push(vec![0.0; 3]);
+        let lifted = |rows: &[Vec<f64>]| -> Vec<Vec<f64>> {
+            rows.iter()
+                .map(|x| {
+                    let mut y = vec![x[0] + x[1], 2.0 * x[0]];
+                    y.extend_from_slice(x);
+                    y
+                })
+                .collect()
+        };
+        let sets = [
+            (3, prism.clone()),
+            (3, lifted(&prism)),
+            (3, sphere(3, 101)),
+            (3, lifted(&sphere(3, 101))),
+            (3, centered),
+            (4, sphere(4, 10)),
+            (4, lifted(&sphere(4, 10))),
+        ];
+        let mut workspace = Placing::default();
+        let mut rng = Rng(540);
+        for (span, mut rows) in sets {
+            assert!(
+                rows.len() > 64 + SURFACE_FROM + span + 1,
+                "{} points",
+                rows.len()
+            );
+            for round in 0..3 {
+                if round > 0 {
+                    for i in (1..rows.len()).rev() {
+                        rows.swap(i, rng.next() as usize % (i + 1));
+                    }
+                }
+                let d = rows[0].len();
+                let point = |i: u32| rows[i as usize].as_slice();
+                let extreme: Vec<u32> = (0..rows.len() as u32).collect();
+                let scanned = placed(&mut workspace, d, None, point, &extreme);
+                assert!(
+                    scanned.len() >= rows.len() - span - 1,
+                    "a simplex per point or more"
+                );
+                assert_eq!(
+                    placed(&mut workspace, d, Some(span), point, &extreme),
+                    scanned,
+                    "span {span} in D = {d}, {} points, round {round}",
+                    rows.len()
+                );
+            }
+        }
     }
 
     /// Points that span a plane are placed from their cyclic order (#534),

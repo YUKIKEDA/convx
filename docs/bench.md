@@ -5498,3 +5498,143 @@ Against the references from the points instead, 27 sets would be met at 1.05 and
 | Delaunay `cube` D4 10^4 | 1.06 against CGAL | 1.02 to 1.07 over the last runs |
 
 Delaunay `cube` D3 (1.09 to 1.12) is reported: the price of the cospherical groups (ADR 0006).
+
+## Inputs whose structure grows: faces and cospherical groups of many points, PRs #535, #542, #543, #547 (#531, #533, #534, #539, #540, #541)
+
+### Why these inputs
+
+The parity sets and the generator's degenerate families keep a fixed number of distinct points on a face or a sphere. A step that is quadratic in the points of one face, or of one cospherical group, does not show on them. After P7 the allocation contract was tested on inputs whose faces and groups grow (#530), and timing the same inputs showed four such steps. Each was found by a series at doubling sizes, and placed by a profile (VTune, user-mode sampling, on the binary where cargo built it).
+
+**The inputs:**
+
+- **A prism over a k-gon**, D = 3: the points `(cos t, sin t, 0)` and `(cos t, sin t, 1)`. Two faces of k points.
+- **A k-gon times a square**, D = 4: four facets that are prisms over the k-gon, with 2k points each.
+- **The integer points of a sphere**, D = 3, of a squared radius chosen for its count: 168 at 101, 480 at 1,001, 1,920 at 10,001, 2,880 at 40,001, 6,630 at 1,221,025. Alone, every site is on one sphere. With one more site outside the sphere, they are one cospherical group beside other cells.
+
+**Method, for every table below:** release builds, one `build()` per timing, the minimum over the builds of a run. Windows, the machine of the earlier sections. Each table says whether its runs were pinned to one core and alternated. Every "before" and "after" is the base and the head of the pull request named, built in scratch copies.
+
+### The placing triangulation of a face in a plane, PR #535 (#533, #534)
+
+The placing triangulation tested each point against every boundary ridge of the complex built so far, about k^2 / 2 orientations for a face of k points. A face in a plane is now read from the cyclic order of its points.
+
+The hull of a prism over a k-gon, base `d26b203`, head `bcf07ab`, pinned and alternated:
+
+| k | Before | After |
+| ---: | ---: | ---: |
+| 2,048 | 138 ms | 11.3 ms |
+| 4,096 | 533 ms | 22.2 ms |
+
+The head alone read 1.4 ms at k = 256 and 89.7 ms at k = 16,384: linear in k.
+
+### The pulling triangulation, PR #542 (#539)
+
+When every site is on one sphere, the pulling triangulation intersected each face with every facet of the site hull. The facets of a face are now found from the facets at its vertices.
+
+Delaunay D = 3, the integer points of a sphere alone, base `356c8ee`, head `f9b2f39`, the minimum of 5, one after the other at each size, not pinned:
+
+| Sites | Before | After | Allocations before | Allocations after |
+| ---: | ---: | ---: | ---: | ---: |
+| 168 | 1.21 ms | 1.26 ms | 3,206 | 130 |
+| 480 | 4.33 ms | 2.10 ms | 8,118 | 186 |
+| 1,920 | 47.1 ms | 8.13 ms | 28,395 | 289 |
+| 6,630 | 468 ms | 30.5 ms | 81,192 | 262 |
+
+The measurement of #531, on the same base, read 411 ms at 6,630 sites.
+
+### The facets and edges of a cospherical group of a Voronoi build, PR #543 (#541)
+
+Every pair of a group's sites was asked whether it is an edge, against every facet of the group: cubic in the sites of one group. A profile by line put 88% of the samples of the 480-site input on that test. The facets now come from the group's boundary faces joined across their ridges, and the edges from the edges of those faces.
+
+Voronoi D = 3, the integer points of a sphere alone, base #542's head, the minimum of 1 to 5, not pinned:
+
+| Sites | Before | After |
+| ---: | ---: | ---: |
+| 168 | 11.4 ms | 1.79 ms |
+| 480 | 189 ms | 5.44 ms |
+| 1,920 | 17,208 ms | 20.4 ms |
+| 2,880 | 59,929 ms | 29.9 ms |
+
+The row at 2,880 sites took its "before" from an earlier scratch state than the other rows (the retrospective of #543).
+
+Guards, pinned and alternated, the minimum of four rounds:
+
+| Voronoi input | Before | After | Ratio |
+| --- | ---: | ---: | ---: |
+| `lattice` D3, 4,000 points | 2.179 ms | 2.137 ms | 0.98 |
+| `lattice` D2, 4,000 points | 0.295 ms | 0.317 ms | 1.07 |
+| full grid 20^3 | 167.4 ms | 168.5 ms | 1.01 |
+| full grid 100^2 | 24.78 ms | 24.15 ms | 0.97 |
+| full grid 7^4 | 452.3 ms | 440.4 ms | 0.97 |
+| `cube` D3, 30,000 points | 348.6 ms | 334.9 ms | 0.96 |
+| `cube` D2, 100,000 points | 199.3 ms | 185.5 ms | 0.93 |
+
+`lattice` D2 reads 0.240 ms on both sides with one codegen unit.
+
+### The placing triangulation of three dimensions or more, PR #547 (#540)
+
+**Before, on `main` at `356c8ee`** (the measurement of #531), one after the other, not pinned:
+
+| Input | Size | Time |
+| --- | ---: | ---: |
+| Hull D = 4, a k-gon times a square | k = 256 | 64.8 ms |
+| | k = 512 | 223 ms |
+| | k = 1,024 | 889 ms |
+| | k = 2,048 | 3,281 ms |
+| Delaunay D = 3, a sphere and a site outside | 481 sites | 13.8 ms |
+| | 1,921 sites | 173 ms |
+| | 2,881 sites | 371 ms |
+| | 6,631 sites | 1,907 ms |
+
+Both are quadratic. The profile puts 77% of the samples of the first at k = 1,024 and 91% of the second at 6,631 sites in the placing triangulation and the orientations it calls.
+
+**The change:** once the complex has the dimension of the points, the boundary ridges keep their neighbors. One ridge a point is beyond is searched for from a ridge of the point before, and the others follow across shared faces. The search is ordered by a height in `f64` that decides nothing (design §3).
+
+**The prototype**, a scratch copy of `main` at `1467557`, the minimum of 2, one pair of builds, not pinned; the whole `Debug` form of each result has the same hash on both sides:
+
+| Input | Size | Before | After |
+| --- | ---: | ---: | ---: |
+| Hull D = 4, a k-gon times a square | k = 512 | 222 ms | 43.4 ms |
+| | k = 1,024 | 857 ms | 81.9 ms |
+| | k = 2,048 | 3,349 ms | 171 ms |
+| The same, index order shuffled | k = 512 | 243 ms | 64.1 ms |
+| | k = 1,024 | 896 ms | 137 ms |
+| | k = 2,048 | 3,492 ms | 283 ms |
+| Delaunay D = 3, a sphere and a site outside | 1,921 sites | 182 ms | 27.4 ms |
+| | 2,881 sites | 400 ms | 36.2 ms |
+| | 6,631 sites | 2,017 ms | 92.0 ms |
+| The same, index order shuffled | 1,921 sites | 174 ms | 31.3 ms |
+| | 2,881 sites | 402 ms | 51.7 ms |
+| | 6,631 sites | 1,989 ms | 145 ms |
+
+**The order of the search**, three guides measured on the k-gon times a square at k = 1,024:
+
+| Guide | In order | Shuffled |
+| --- | ---: | ---: |
+| The distance to a ridge's centroid | 163 ms | 167 ms |
+| The height over a ridge alone | 81.1 ms | 541 ms |
+| The height, then the nearest vertex of a ridge (kept) | 81.9 ms | 137 ms |
+
+The first walks through the many ridges of one face of a prism before it reaches the side the point is beyond. The second searches the whole of a face whose ridges share one height.
+
+**Small sets:** with every set on the path, Delaunay full grid 20^3 read 1.08 and `lattice` D3 1.10. The path is taken when more than 16 points are left once the complex has its dimension.
+
+**The head `f901ab8` against `main` at `1467557`**, pinned and alternated, the minimum of four rounds, the same hash on both sides in every row:
+
+| Input | Before | After | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull D = 4, a 2,048-gon times a square | 3,372 ms | 167.6 ms | 0.05 |
+| Delaunay D = 3, a sphere of 6,630 points and a site outside | 2,017 ms | 87.9 ms | 0.04 |
+| Hull D = 4, a 16-gon times a square | 1.420 ms | 1.323 ms | 0.93 |
+| Delaunay full grid 20^3 | 138.3 ms | 138.1 ms | 1.00 |
+| Delaunay full grid 7^4 | 407.6 ms | 385.4 ms | 0.95 |
+| Delaunay, integers of [-2, 2]^3, 4,000 points | 1.567 ms | 1.602 ms | 1.02 |
+| Delaunay, integers of [-2, 2]^4, 4,000 points | 77.61 ms | 77.53 ms | 1.00 |
+| Hull D = 4, 20,000 grid points on the faces of a cube | 5.828 ms | 5.990 ms | 1.03 |
+| Delaunay D = 3, 30,000 points in general position | 113.8 ms | 115.8 ms | 1.02 |
+| Hull D = 4, 30,000 points in general position | 11.10 ms | 11.10 ms | 1.00 |
+
+With one codegen unit on both sides the three rows at 1.02 and 1.03 read 1.01, 1.00, and 1.00.
+
+### Reading
+
+Each of the four steps was quadratic or cubic in the points of one face or group, and is linear on these inputs in the given order. Shuffled, the sphere grows a little faster than linearly under the search of #547 (2.8 times the time for 2.3 times the sites). What the profile of the k-gon times a square shows next is the sub-hull of each face and classification, which is #531.
