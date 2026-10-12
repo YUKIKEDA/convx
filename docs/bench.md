@@ -6441,3 +6441,40 @@ Against the run of #577 (its second readings):
 - **Delaunay `cube` D2 10^4 reads 1.04** and is met in this run. It has read 1.04 to 1.13 over seven runs with no change to its code, on either side of 1.05; it is not settled by this reading.
 - With these thirteen rows in place of theirs in the run of #577, and the other 25 as that run read them, 37 of the 38 judged sets are met at 1.05 and 30 at 1.00. That is two runs put together, two hours and two commits apart (`ce01e84` and `d9b6725`, which differ by #580, the tools of #581, and documents), and not one run.
 - Five of the thirteen sit between 1.02 and 1.05: Delaunay `cube` D2 10^4, D4 10^4, and D5 10^4, Delaunay `sphere` D2 10^5, and hull `sphere` D3 10^6. A run can put any of them on either side.
+
+## The last rows of P7: two withdrawn after measurement, and the lifted underflow terms removed (#323, #400, #355)
+
+### P7-8 and P7-31, withdrawn
+
+- **P7-8, faster duplicate detection (#323).** Two changes of 2026-10-09 read 0.98 to 1.02 on hull `cube` D2 and D3 and Delaunay `cube` D2 at 10^6, inside the spread; the time charged to the table is the first read of each point. The Issue has the tables.
+- **P7-31, the exact direction's error bound from its derivation (#400).** Counted before any change, on `main` at `9a8785b`: with the bound at the derived `(k/2 + 5) u` in place of `k 2^-49`, the side tests a cull plane leaves to the orientation are 808,554 of 2,611,341 either way on hull `grid` D6 10^4, 1,229,151 of 5,655,537 either way on hull `lattice` D6 10^4, and 233,077 against 233,089 on hull `cluster` D5 10^4. The points a plane of these sets does not prove are on the plane, at a working distance of exactly zero; none sits between the two thresholds.
+
+### P7-18, the lifted formulas of k up to 4 (#355)
+
+`lifted1`, `lifted2`, and `lifted3` held, in the sum `X` of their underflow term `4 η X`, a part for the underflow of their lifted entries: `|a| + |b|`, the sum of the minors' permanents, and twice that sum. Dropping it failed no test. It is redundant, proved in the functions' documentation, and removed:
+
+- **`lifted2`:** the permanent of a minor of two rows is at most half the sum of their lifted entries (`|x_i y_j| <= (x_i^2 + y_j^2) / 2`), so the three permanents add up to at most the sum of the lifted entries, which `X` holds for the minors' underflow.
+- **`lifted3`:** expanded along the third coordinate, the four minors' permanents add up to at most `Z` times the sum of the lifted entries, which `X` holds too.
+- **`lifted1`:** `X` has no such sum. A square's underflow error scaled by the other coordinate is either within `η`, or the monomial `|a| b^2` of the permanent is a normal number and the slack of the relative term covers it.
+
+**Searched before it was proved.** In a scratch copy, 400,000 inputs per formula with each row at its own scale between the smallest subnormal and `2^300`: with the terms dropped, the exact error of the computed determinant never exceeded half the bound. With the sum of the lifted entries dropped as well, the same inputs put the error above the bound on 14% (D = 2) and 18% (D = 3) of them, and a wrong sign was certified on 981 and 7,074: the search finds what is there.
+
+`lifted_rows_of_mixed_scales_are_covered` keeps 4,000 such inputs per formula, with the bound at twice the exact error and every certified sign compared with the exact one. Five mutations of the terms that stay each fail a test (the pull request lists them).
+
+**Time**, `main` at `9a8785b` against `91425cf`, pinned and alternated, minimum and median in ms with the ratios of the head; the result has the same hash on both sides on every set:
+
+| Set | WSL, base | WSL, head | Windows, base | Windows, head |
+| --- | ---: | ---: | ---: | ---: |
+| Delaunay `cube` D2 10^4 | 4.85, 5.43 | 4.65, 5.42 (0.96, 1.00) | 5.21, 5.95 | 5.22, 5.81 (1.00, 0.98) |
+| Delaunay `sphere` D2 10^4 | 4.66, 5.28 | 4.63, 5.22 (0.99, 0.99) | 5.50, 6.07 | 5.40, 6.06 (0.98, 1.00) |
+| Delaunay `cube` D2 10^5 | 53.5, 59.0 | 53.3, 59.5 (1.00, 1.01) | 53.2, 59.1 | 52.5, 57.5 (0.99, 0.97) |
+| Delaunay `sphere` D2 10^5 | 40.6, 44.9 | 41.0, 44.5 (1.01, 0.99) | 42.4, 44.1 | 42.6, 44.5 (1.00, 1.01) |
+| Delaunay `cube` D3 10^4 | 32.1, 35.2 | 31.6, 35.1 (0.99, 1.00) | 35.1, 39.4 | 35.5, 39.1 (1.01, 0.99) |
+| Delaunay `sphere` D3 10^4 | 65.8, 68.0 | 65.5, 67.2 (1.00, 0.99) | 82.0, 92.5 | 82.7, 92.2 (1.01, 1.00) |
+| Delaunay `cube` D3 10^5 | 381.9, 406.3 | 378.7, 386.5 (0.99, 0.95) | 411.1, 426.6 | 410.6, 432.1 (1.00, 1.01) |
+| Delaunay of 20,000 `lattice` points, D3 | 2.38, 3.53 | 2.37, 3.59 (1.00, 1.02) | 2.46, 2.83 | 2.50, 2.79 (1.02, 0.99) |
+| Voronoi `cube` D2 10^5 | 200.9, 226.7 | 202.6, 227.7 (1.01, 1.00) | 201.7, 214.7 | 200.5, 211.8 (0.99, 0.99) |
+| Hull `sphere` D3 10^4 | 21.9, 30.3 | 22.2, 30.4 (1.01, 1.00) | 20.6, 22.0 | 20.8, 22.5 (1.01, 1.02) |
+| Hull `cube` D3 10^5 | 12.0, 19.4 | 11.8, 16.6 (0.98, 0.86) | 11.3, 12.2 | 11.0, 12.4 (0.98, 1.01) |
+
+5 to 16 rounds. Three Windows rows are a second sitting of 14 to 16 rounds: in the first, of 8, Delaunay `cube` D3 10^5 read 1.04 and 1.04, `cube` D2 10^5 1.02 and 1.03, and `sphere` D2 10^5 0.99 and 1.05. The last three WSL rows were disturbed (their medians stand far above their minima on both sides). The change takes three operations out of an in-circle test and five out of an in-sphere test, and no set moves beyond the spread: it is not a speed change and claims none.
