@@ -42,8 +42,10 @@
 //! heap integers allocated in every call, and runs on a workspace kept
 //! per thread (#185): its buffers are reserved by the first build of a
 //! thread that needs them, so a later build on that thread counts fewer.
-//! One is known and not removed: a hull of D >= 9 allocates for every
-//! simplex it plans (#554). No case here is of D >= 7.
+//! A hull of D = 9 or 10 allocated for every simplex it planned (#554);
+//! hulls of D = 8 to 10 and Delaunay of D = 8 and 9 are counted at two
+//! numbers of points. The contract reaches D = 10: in D >= 11 the lists
+//! whose length follows the dimension are on the heap, by design (#554).
 //!
 //! Debug builds run invariant checks inside every build, and those allocate
 //! freely, so the counts hold for release builds only. `just test` runs this
@@ -106,6 +108,10 @@ enum Points {
     /// of one determinant are about 1,000 apart, more than the integers
     /// on the stack hold, so the exact stage runs on heap integers (#185).
     Scaled(usize),
+    /// The generator's `cube` at two numbers of points, for the high
+    /// dimensions, where sixteen times the points is out of reach: the
+    /// facets grow about ten times between the two (#554).
+    Few(usize, usize),
 }
 
 impl Points {
@@ -121,6 +127,7 @@ impl Points {
             }
             Self::Clusters(k) => format!("clusters on a sphere D{dim} k={k}"),
             Self::Scaled(n) => format!("cube with exponents far apart D{dim} n={n}"),
+            Self::Few(small, large) => format!("cube D{dim} n={small},{large}"),
         }
     }
 
@@ -134,6 +141,7 @@ impl Points {
         };
         match self {
             Self::Drawn(family, n) => family.points(dim, times * n, 521),
+            Self::Few(small, big) => Family::Cube.points(dim, if large { big } else { small }, 521),
             Self::Scaled(n) => Family::Cube
                 .points(dim, times * n, 521)
                 .iter()
@@ -279,6 +287,11 @@ const CASES: &[Case] = &[
     Case { kind: Kind::Hull, points: Points::Clusters(16), dim: 4, small: (286, 439), large: (341, 720) },
     Case { kind: Kind::Hull, points: Points::Scaled(100), dim: 3, small: (144, 137), large: (120, 210) },
     Case { kind: Kind::Hull, points: Points::Scaled(50), dim: 4, small: (120, 206), large: (128, 324) },
+    Case { kind: Kind::Hull, points: Points::Few(40, 120), dim: 8, small: (111, 351), large: (126, 491) },
+    Case { kind: Kind::Hull, points: Points::Few(24, 44), dim: 9, small: (97, 296), large: (111, 388) },
+    Case { kind: Kind::Hull, points: Points::Few(20, 32), dim: 10, small: (94, 293), large: (103, 383) },
+    Case { kind: Kind::Delaunay, points: Points::Few(16, 26), dim: 8, small: (7354, 7353), large: (7354, 7381) },
+    Case { kind: Kind::Delaunay, points: Points::Few(14, 22), dim: 9, small: (11066, 22053), large: (11066, 22088) },
     Case { kind: Kind::Hull, points: Points::Duoprism(8), dim: 4, small: (225, 361), large: (305, 689) },
 ];
 

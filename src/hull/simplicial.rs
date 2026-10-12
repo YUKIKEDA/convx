@@ -805,7 +805,9 @@ impl<'a> SimplicialHull<'a> {
             // The horizon ridge, sorted once with each vertex's slot; the
             // key of the ridge opposite one of them is the rest, still
             // sorted.
-            let mut ridge: Small<(u32, usize), 8> = vertices[start..]
+            // Inline up to D = 10, as the other lists of a plan are: of 8, a
+            // hull of D = 10 allocated this list for every new simplex (#554).
+            let mut ridge: Small<(u32, usize), 10> = vertices[start..]
                 .iter()
                 .enumerate()
                 .filter(|&(m, _)| m != h.slot as usize)

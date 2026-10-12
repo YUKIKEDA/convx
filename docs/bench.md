@@ -5499,7 +5499,7 @@ Against the references from the points instead, 27 sets would be met at 1.05 and
 
 Delaunay `cube` D3 (1.09 to 1.12) is reported: the price of the cospherical groups (ADR 0006).
 
-## Inputs whose structure grows: faces and cospherical groups of many points, PRs #535, #542, #543, #547, #549, #552, #553, #555 (#531, #533, #534, #539, #540, #541, #548, #551, #185)
+## Inputs whose structure grows: faces and cospherical groups of many points, PRs #535, #542, #543, #547, #549, #552, #553, #555, #556 (#531, #533, #534, #539, #540, #541, #548, #551, #185, #554)
 
 ### Why these inputs
 
@@ -5743,6 +5743,36 @@ The heap integers also take every determinant of a size above 10, so a hull of D
 | D = 12, 16 points | 291 | 374,855 | 10,459 | 173 ms | 144 ms |
 
 What is left there grows with the facets and is not the heap integers: the planes of new simplices allocate from D = 9 up, in lists that are inline only up to a length of 8 or 10 (#554). D = 7 and 8 do not grow (116 and 139 allocations at 60 and 240 points in D = 7).
+
+**Hulls of D = 9 and 10, PR #556 (#554):** the planes of new simplices allocated in two lists of capacity 8 (the normal of a cull plane, and the key of a ridge in the plan of a region) and in the filter's rows on the heap for sizes 10 and 11. Base #555's head, head `6f96ed7`. Allocations of one `build()` of the generator's `cube`:
+
+| Build | Points | Before | After |
+| --- | ---: | ---: | ---: |
+| Hull D = 8 | 40 and 120 | 111 and 126 | 111 and 126 |
+| Hull D = 9 | 24 and 44 | 6,782 and 73,634 | 97 and 111 |
+| Hull D = 10 | 20 and 32 | 16,063 and 184,032 | 94 and 103 |
+| Delaunay D = 8 | 16 and 26 | 7,354 and 7,354 | 7,354 and 7,354 |
+| Delaunay D = 9 | 14 and 22 | 11,312 and 22,306 | 11,066 and 11,066 |
+
+Delaunay's count is fixed in the points and large: about 7,000 and 11,000 allocations of a build in D = 8 and 9 whatever the sites. That is inside the contract and has not been traced.
+
+Time, pinned and alternated, five rounds, minimum and median, the same hash on both sides:
+
+| Hull | Before | After | Ratio of the minimum |
+| --- | ---: | ---: | ---: |
+| `cube` D3, 200,000 points | 26.67 and 27.40 ms | 26.41 and 26.86 ms | 0.99 |
+| `cube` D4, 30,000 points | 12.44 and 12.55 ms | 12.60 and 12.95 ms | 1.01 |
+| `cube` D5, 5,000 points | 34.65 and 37.34 ms | 35.38 and 37.94 ms | 1.02 |
+| `cube` D6, 1,500 points | 126.4 and 129.1 ms | 125.6 and 129.3 ms | 0.99 |
+| `cube` D8, 60 points | 87.56 and 88.67 ms | 86.03 and 87.89 ms | 0.98 |
+| `sphere` D3, 100,000 points | 248.6 and 259.0 ms | 262.9 and 268.1 ms | 1.06 |
+| `cubesurf` D4, 20,000 points | 37.36 and 39.14 ms | 37.12 and 39.98 ms | 0.99 |
+| Delaunay `cube` D3, 30,000 points | 114.4 and 121.6 ms | 114.9 and 122.1 ms | 1.00 |
+| `cube` D9, 44 points | 261.4 and 276.4 ms | 265.2 and 282.4 ms | 1.01 |
+| `cube` D9, 60 points | 992.1 and 1,005 ms | 984.5 and 1,006 ms | 0.99 |
+| `cube` D10, 32 points | 944.4 and 969.3 ms | 889.4 and 918.5 ms | 0.94 |
+
+`sphere` D3 read 1.06 in that run. Over eight rounds more it read 0.95 by the minimum and 0.92 by the median, and with one codegen unit 1.02 and 0.99; at 400,000 points 1.01 and 1.01. `cube` D5 read 1.04 and 1.01 in the eight rounds, 1.02 and 1.02 with one codegen unit. The machine's spread in these runs was several percent.
 
 ### Reading
 
