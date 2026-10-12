@@ -15,7 +15,7 @@
 //! exact one.
 
 use super::exact::decompose;
-use super::{Row, Rows, Sign};
+use super::{Direction, Row, Rows, Sign};
 
 /// A result did not fit in the limbs of the stage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -478,7 +478,7 @@ pub(super) fn sign(rows: Rows<'_>) -> Option<Sign> {
 /// (k points of dimension k), rounded as
 /// [`super::exact::cofactor_direction_exact`] rounds it: `Some(None)` when
 /// every cofactor is zero, and `None` when this stage does not hold them.
-pub(super) fn cofactor_direction(facet: &[&[f64]]) -> Option<Option<Vec<f64>>> {
+pub(super) fn cofactor_direction(facet: &[&[f64]]) -> Option<Option<Direction>> {
     let k = facet.len();
     if k == 0 || k > MAX_SIZE {
         return None;
@@ -499,7 +499,10 @@ pub(super) fn cofactor_direction(facet: &[&[f64]]) -> Option<Option<Vec<f64>>> {
     })
 }
 
-fn cofactor_direction_n<T: Int>(facet: &[&[f64]], base: u64) -> Result<Option<Vec<f64>>, Overflow> {
+fn cofactor_direction_n<T: Int>(
+    facet: &[&[f64]],
+    base: u64,
+) -> Result<Option<Direction>, Overflow> {
     let k = facet.len();
     let mut unit = [0.0; MAX_SIZE];
     let mut cofactors = [T::default(); MAX_SIZE];
@@ -525,7 +528,14 @@ fn cofactor_direction_n<T: Int>(facet: &[&[f64]], base: u64) -> Result<Option<Ve
         return Ok(None);
     }
     let shift = longest.saturating_sub(64);
-    let values: Vec<f64> = cofactors.iter().map(|c| c.shifted_f64(shift)).collect();
+    // On the stack, and returned inline: a list for the values and one for
+    // the direction were two allocations per plane whose direction the
+    // cofactors in `f64` do not certify (#548).
+    let mut values = [0.0; MAX_SIZE];
+    for (value, cofactor) in values.iter_mut().zip(cofactors) {
+        *value = cofactor.shifted_f64(shift);
+    }
+    let values = &values[..k];
     let norm = values.iter().map(|x| x * x).sum::<f64>().sqrt();
     Ok(Some(values.iter().map(|x| x / norm).collect()))
 }
@@ -927,11 +937,10 @@ mod tests {
                     if let Some(got) = cofactor_direction(&refs) {
                         // Bit for bit: the same integers, shifted and
                         // rounded the same way.
-                        let bits = |d: &Option<Vec<f64>>| {
-                            d.as_ref()
-                                .map(|v| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>())
+                        let bits = |d: Option<&[f64]>| {
+                            d.map(|v| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>())
                         };
-                        assert_eq!(bits(&got), bits(&want), "{p:?}");
+                        assert_eq!(bits(got.as_deref()), bits(want.as_deref()), "{p:?}");
                         held += 1;
                         zero += usize::from(got.is_none());
                     }

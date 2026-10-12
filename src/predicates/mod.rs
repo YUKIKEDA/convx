@@ -617,7 +617,7 @@ pub(crate) fn cofactor_direction_from(
         return Ok(Some(certified));
     }
     let err = facet.len() as f64 * 2f64.powi(-49);
-    Ok(exact::cofactor_direction_exact(facet)?.map(|d| (d.into(), err)))
+    Ok(exact::cofactor_direction_exact(facet)?.map(|d| (d, err)))
 }
 
 /// The filtered half of [`cofactor_direction_from`]: the unit direction of

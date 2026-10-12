@@ -81,6 +81,12 @@ enum Points {
     /// of the sphere are one cospherical group beside other cells, split by
     /// the placing triangulation.
     SphereAndOutside(i64, i64),
+    /// `k` and `16 k` points of the generator's `sphere`, each with the
+    /// 2^D points at 0 or 2^-30 from it along every axis. A simplex with
+    /// two vertices of one such cluster is a sliver, whose direction the
+    /// cofactors in `f64` do not certify, so its plane takes the exact
+    /// direction, and the planes grow with the clusters (#548).
+    Clusters(usize),
 }
 
 impl Points {
@@ -94,6 +100,7 @@ impl Points {
             Self::SphereAndOutside(small, large) => {
                 format!("integer sphere and a site outside r2={small},{large}")
             }
+            Self::Clusters(k) => format!("clusters on a sphere D{dim} k={k}"),
         }
     }
 
@@ -107,6 +114,17 @@ impl Points {
         };
         match self {
             Self::Drawn(family, n) => family.points(dim, times * n, 521),
+            Self::Clusters(k) => Family::Sphere
+                .points(dim, times * k, 521)
+                .chunks_exact(dim)
+                .flat_map(|center| {
+                    (0..1_u32 << dim).flat_map(move |corner| {
+                        center.iter().enumerate().map(move |(a, x)| {
+                            x + f64::from((corner >> a) & 1) / f64::from(1_u32 << 30)
+                        })
+                    })
+                })
+                .collect(),
             Self::Prism(k) => circle(times * k)
                 .flat_map(|(x, y)| [x, y, 0.0, x, y, 1.0])
                 .collect(),
@@ -198,10 +216,10 @@ const CASES: &[Case] = &[
     Case { kind: Kind::Hull, points: Points::Drawn(Family::Grid, 1000), dim: 3, small: (151, 141), large: (151, 141) },
     Case { kind: Kind::Hull, points: Points::Drawn(Family::Grid, 1000), dim: 4, small: (276, 420), large: (274, 414) },
     Case { kind: Kind::Hull, points: Points::Drawn(Family::CubeSurf, 1000), dim: 3, small: (187, 282), large: (192, 319) },
-    Case { kind: Kind::Hull, points: Points::Drawn(Family::CubeSurf, 1000), dim: 4, small: (328, 719), large: (368, 979) },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::CubeSurf, 1000), dim: 4, small: (328, 719), large: (366, 979) },
     Case { kind: Kind::Hull, points: Points::Drawn(Family::Cluster, 1000), dim: 2, small: (40, 16), large: (40, 16) },
-    Case { kind: Kind::Hull, points: Points::Drawn(Family::Cluster, 1000), dim: 3, small: (234, 257), large: (227, 230) },
-    Case { kind: Kind::Hull, points: Points::Drawn(Family::Cluster, 1000), dim: 4, small: (2740, 650), large: (1960, 621) },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::Cluster, 1000), dim: 3, small: (176, 257), large: (177, 230) },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::Cluster, 1000), dim: 4, small: (336, 650), large: (328, 621) },
     Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Cube, 1000), dim: 2, small: (154, 37), large: (154, 54) },
     Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Cube, 1000), dim: 3, small: (376, 71), large: (376, 91) },
     Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Sphere, 1000), dim: 2, small: (154, 38), large: (154, 55) },
@@ -231,7 +249,9 @@ const CASES: &[Case] = &[
     Case { kind: Kind::Voronoi, points: Points::Sphere(1001, 1_221_025), dim: 3, small: (348, 803), large: (416, 1576) },
     Case { kind: Kind::Delaunay, points: Points::SphereAndOutside(1001, 1_221_025), dim: 3, small: (408, 222), large: (408, 307) },
     Case { kind: Kind::Voronoi, points: Points::SphereAndOutside(1001, 1_221_025), dim: 3, small: (627, 725), large: (664, 1235) },
-    Case { kind: Kind::Hull, points: Points::Duoprism(8), dim: 4, small: (225, 361), large: (319, 689) },
+    Case { kind: Kind::Hull, points: Points::Clusters(32), dim: 3, small: (169, 231), large: (217, 419) },
+    Case { kind: Kind::Hull, points: Points::Clusters(16), dim: 4, small: (286, 439), large: (341, 720) },
+    Case { kind: Kind::Hull, points: Points::Duoprism(8), dim: 4, small: (225, 361), large: (305, 689) },
 ];
 
 #[test]

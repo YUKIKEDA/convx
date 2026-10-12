@@ -442,11 +442,11 @@ pub(super) fn determinant_of(rows: Rows<'_>) -> Result<BigInt, ExactEvaluationEx
 /// zero, that is, when the points are affinely dependent.
 pub(super) fn cofactor_direction_exact(
     facet: &[&[f64]],
-) -> Result<Option<Vec<f64>>, ExactEvaluationExhausted> {
+) -> Result<Option<super::Direction>, ExactEvaluationExhausted> {
     if let Some(direction) = super::fixed::cofactor_direction(facet) {
         return Ok(direction);
     }
-    cofactor_direction_on_heap(facet)
+    Ok(cofactor_direction_on_heap(facet)?.map(Into::into))
 }
 
 /// [`cofactor_direction_exact`] over the heap integers alone.
