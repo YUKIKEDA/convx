@@ -763,15 +763,26 @@ struct ZerosWork {
     scanned: Vec<u32>,
     scanned_at: Vec<usize>,
     sides: Vec<Option<Sign>>,
-    /// (start group, place among the others), sorted; `ks` is the places
-    /// of one start group.
-    by_start: Vec<(u32, u32)>,
+    /// The places among the others, by start group and ascending within
+    /// one: `by_start[offsets[g]..offsets[g + 1]]` for group `g`. `ks` is
+    /// the places of one start group.
+    by_start: Vec<u32>,
+    offsets: Vec<u32>,
     ks: Vec<u32>,
     tested: Vec<usize>,
     stack: Vec<u32>,
     points: Vec<u32>,
     zeros: Vec<(u32, u32)>,
-    polygon_rows: Vec<f64>,
+    polygon: PolygonWork,
+}
+
+/// The buffers of [`facet_polygon`]: the facet's vertices on a coordinate
+/// plane, the chain that orders their extremes, and the polygon's edges.
+#[derive(Default)]
+struct PolygonWork {
+    rows: Vec<f64>,
+    chain: ChainWork,
+    edges: Vec<Edge>,
 }
 
 /// [`distance_zeros_into`] with lists of its own.
@@ -812,12 +823,13 @@ fn distance_zeros_into(
         scanned_at,
         sides,
         by_start,
+        offsets,
         ks,
         tested,
         stack,
         points,
         zeros,
-        polygon_rows,
+        polygon,
     } = work;
     on_boundary.clear();
     on_boundary.resize(others.len(), false);
@@ -902,32 +914,46 @@ fn distance_zeros_into(
         }
     };
     // The places of the points of each start group, ascending, the groups
-    // in their order: a list per group allocated per group (#531).
+    // in their order, by a counting sort: a list per group allocated per
+    // group (#531), and a sort of the pairs cost 5% of a hull whose points
+    // lie on its faces.
+    let count = groups.groups.len();
+    offsets.clear();
+    offsets.resize(count + 2, 0);
+    for start in starts.iter().flatten() {
+        offsets[*start as usize + 2] += 1;
+    }
+    for g in 2..offsets.len() {
+        offsets[g] += offsets[g - 1];
+    }
     by_start.clear();
+    by_start.resize(offsets[count + 1] as usize, 0);
     for (k, start) in starts.iter().enumerate() {
         if let Some(start) = *start {
-            by_start.push((start, k as u32));
+            let slot = &mut offsets[start as usize + 1];
+            by_start[*slot as usize] = k as u32;
+            *slot += 1;
         }
     }
-    by_start.sort_unstable();
     let (rows, stride) = hull.input.rows();
     tested.clear();
     tested.resize(groups.groups.len(), usize::MAX);
     // `zeros`: per point of the start group (by its place in `points`), a
     // neighbor whose plane holds it.
-    let mut rest = &by_start[..];
-    while let Some(&(start, _)) = rest.first() {
-        let run = rest.iter().take_while(|entry| entry.0 == start).count();
+    for start in 0..count as u32 {
+        let run = &by_start[offsets[start as usize] as usize..offsets[start as usize + 1] as usize];
+        if run.is_empty() {
+            continue;
+        }
         ks.clear();
-        ks.extend(rest[..run].iter().map(|entry| entry.1));
-        rest = &rest[run..];
+        ks.extend_from_slice(run);
         // D = 3: a point strictly inside the polygon of its facet's extreme
         // vertices is in the facet's relative interior, so it lies on no
         // other facet's plane and is not extreme (design §3). It is on the
         // boundary, and neither the walk nor the facet's extremes need it
         // (#504).
         if hull.input.dim() == 3 {
-            if let Some(inner) = facet_polygon(hull, groups, start, polygon_rows)? {
+            if let Some(inner) = facet_polygon(hull, groups, start, polygon)? {
                 #[cfg(debug_assertions)]
                 for &k in ks.iter() {
                     let p = others[k as usize];
@@ -1064,32 +1090,33 @@ fn distance_zeros_into(
 
 /// The polygon of the extreme vertices of a facet of D = 3, in two of the
 /// three coordinates.
-struct FacetPolygon {
+struct FacetPolygon<'w> {
     /// The coordinates kept, ascending.
     axes: [usize; 2],
-    edges: Vec<Edge>,
+    edges: &'w [Edge],
 }
 
-impl FacetPolygon {
+impl FacetPolygon<'_> {
     /// Whether `point`, on the facet's plane, is strictly inside the
     /// polygon. The projection drops a coordinate on which the plane's
     /// normal is not zero, so it maps the plane onto the coordinate plane
     /// one to one, and strict insideness carries over.
     fn contains(&self, point: &[f64]) -> bool {
-        clearly_inside(&self.edges, &[point[self.axes[0]], point[self.axes[1]]])
+        clearly_inside(self.edges, &[point[self.axes[0]], point[self.axes[1]]])
     }
 }
 
 /// The polygon of [`polygon::extremes_polygon`] on the vertices of group
 /// `g` (D = 3), projected to the coordinate plane on which the facet's
 /// first simplex has a nonzero orientation; `None` when the polygon has
-/// fewer than three vertices.
-fn facet_polygon(
+/// fewer than three vertices. It is built in the buffers of `work`.
+fn facet_polygon<'w>(
     hull: &SimplicialHull<'_>,
     groups: &LogicalFacets,
     g: u32,
-    rows: &mut Vec<f64>,
-) -> Result<Option<FacetPolygon>, ConvexHullError> {
+    work: &'w mut PolygonWork,
+) -> Result<Option<FacetPolygon<'w>>, ConvexHullError> {
+    let PolygonWork { rows, chain, edges } = work;
     let Some(simplex) = groups
         .groups
         .get(g as usize)
@@ -1127,10 +1154,8 @@ fn facet_polygon(
         let vertices = groups.vertices.get(g as usize);
         rows.clear();
         rows.extend(vertices.iter().flat_map(|&v| project(hull.input.point(v))));
-        return Ok(
-            polygon::extremes_polygon(Rows(rows), vertices.len() as u32)?
-                .map(|edges| FacetPolygon { axes, edges }),
-        );
+        let found = polygon::extremes_polygon(Rows(rows), vertices.len() as u32, chain, edges)?;
+        return Ok(found.then_some(FacetPolygon { axes, edges }));
     }
     debug_assert!(false, "a simplex of D = 3 projects to a triangle");
     Ok(None)
@@ -2698,6 +2723,127 @@ pub(crate) mod tests {
         assert!(faces > 30, "{faces} faces of real hulls");
     }
 
+    /// What is found on a hull with the buffers of the hulls before it
+    /// (#531), levels and lists, is what is found with none: the groups,
+    /// the vertices, the other points and whether each is on the boundary,
+    /// and each facet's extreme points. The hulls are of D = 3 to 5, with
+    /// faces that hold many points, so that sub-hulls are built at one
+    /// level and at two, and in general position. A face is also found
+    /// again through the memo.
+    #[test]
+    fn found_with_the_buffers_of_another_hull_is_found_with_none() {
+        fn read(found: &Found) -> impl PartialEq + core::fmt::Debug {
+            (
+                found
+                    .groups
+                    .groups
+                    .iter()
+                    .map(<[FacetId]>::to_vec)
+                    .collect::<Vec<_>>(),
+                found.groups.vertices.clone(),
+                found.groups.neighbors.clone(),
+                found.on_complex.clone(),
+                found.others.clone(),
+                found.on_boundary.clone(),
+                (found.extremes.lists.clone(), found.extremes.own.clone()),
+                found.is_vertex.clone(),
+                found.vertices.clone(),
+            )
+        }
+        let mut rng = Rng(531);
+        let mut levels = Vec::new();
+        let mut out = Found::default();
+        let before = SUB_HULLS.with(core::cell::Cell::get);
+        let mut hulls = 0;
+        for round in 0..2 {
+            for (dim, count, grid) in [
+                (4, 500, true),
+                (3, 80, false),
+                (5, 400, true),
+                (3, 700, true),
+                (4, 120, false),
+                (5, 60, false),
+                (4, 40, true),
+            ] {
+                let points = crate::hull::simplicial::tests::drawn(&mut rng, dim, count, grid);
+                let Ok(input) = accept(dim, &points) else {
+                    continue;
+                };
+                let hull = SimplicialHull::build(input).unwrap();
+                let fresh = found_vertices(&hull, &mut FoundFaces::default(), None).unwrap();
+                let mut faces = FoundFaces {
+                    levels: core::mem::take(&mut levels),
+                    ..FoundFaces::default()
+                };
+                found_vertices_into(&hull, &mut faces, None, &mut out).unwrap();
+                assert_eq!(
+                    read(&out),
+                    read(&fresh),
+                    "D = {dim}, {count} points, round {round}"
+                );
+                levels = faces.levels;
+                hulls += 1;
+            }
+        }
+        assert!(hulls >= 12, "{hulls} hulls");
+        // The cross-polytope of D = 4 with the midpoint of one edge, twice
+        // in a row, for each edge. Four facets meet around an edge, so the
+        // midpoint is on a facet that is no neighbor of the one it was
+        // recorded on, and the walk reaches that facet through marks that
+        // the hull before left set for the same point.
+        let corners: Vec<f64> = (0..4)
+            .flat_map(|i| [-1.0, 1.0].map(|side| (i, side)))
+            .flat_map(|(i, side)| (0..4).map(move |a| if a == i { side } else { 0.0 }))
+            .collect();
+        let mut walked = 0;
+        for i in 0..4 {
+            for j in i + 1..4 {
+                for (si, sj) in [(-0.5, -0.5), (-0.5, 0.5), (0.5, -0.5), (0.5, 0.5)] {
+                    let mut cross = corners.clone();
+                    cross.extend((0..4).map(|a| match a {
+                        a if a == i => si,
+                        a if a == j => sj,
+                        _ => 0.0,
+                    }));
+                    for round in 0..2 {
+                        let hull = SimplicialHull::build(accept(4, &cross).unwrap()).unwrap();
+                        let fresh =
+                            found_vertices(&hull, &mut FoundFaces::default(), None).unwrap();
+                        assert_eq!(fresh.vertices.len(), 8);
+                        assert_eq!(fresh.on_boundary, [true]);
+                        walked += usize::from(hull.records.has_any(8));
+                        let mut faces = FoundFaces {
+                            levels: core::mem::take(&mut levels),
+                            ..FoundFaces::default()
+                        };
+                        found_vertices_into(&hull, &mut faces, None, &mut out).unwrap();
+                        assert_eq!(
+                            read(&out),
+                            read(&fresh),
+                            "the cross-polytope, edge {i} {j}, round {round}"
+                        );
+                        levels = faces.levels;
+                    }
+                }
+            }
+        }
+        assert!(walked >= 24, "{walked} midpoints were recorded on a plane");
+        assert!(
+            SUB_HULLS.with(core::cell::Cell::get) - before > 100,
+            "sub-hulls were built"
+        );
+        // The memo: faces stored under keys that share a prefix.
+        let mut memo = FaceMemo::default();
+        assert_eq!(memo.get(&[1, 2, 3]), None);
+        memo.insert(&[1, 2, 3], [1, 3]);
+        memo.insert(&[1, 2, 3, 4], [1, 4]);
+        memo.insert(&[1, 2], []);
+        assert_eq!(memo.get(&[1, 2, 3]), Some(&[1, 3][..]));
+        assert_eq!(memo.get(&[1, 2, 3, 4]), Some(&[1, 4][..]));
+        assert_eq!(memo.get(&[1, 2]), Some(&[][..]));
+        assert_eq!(memo.get(&[2, 3]), None);
+    }
+
     /// Points that span three dimensions or more are placed from the
     /// ridges reached through their neighbors (#540), with the simplices
     /// of the scan in its order. The sets have more points than the debug
@@ -3194,8 +3340,9 @@ pub(crate) mod tests {
             assert_eq!(on_with, on_without, "{name}");
             let mut left_out = 0;
             for (g, (with, without)) in zeros_with.iter().zip(zeros_without.iter()).enumerate() {
+                let mut work = PolygonWork::default();
                 let polygon = if *dim == 3 {
-                    facet_polygon(&recorded, &groups, g as u32, &mut Vec::new()).unwrap()
+                    facet_polygon(&recorded, &groups, g as u32, &mut work).unwrap()
                 } else {
                     None
                 };

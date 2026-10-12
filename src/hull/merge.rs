@@ -74,8 +74,11 @@ pub(crate) struct MergeWork {
     number_of_root: Vec<u32>,
     group_of: SlotMarks<u32>,
     scratch: Vec<u32>,
-    /// (group, dense index) of each simplex, sorted into the groups' lists.
-    members: Vec<(u32, u32)>,
+    /// The group of each simplex by dense index, where each group's
+    /// simplices start, and the simplices by group.
+    number: Vec<u32>,
+    offsets: Vec<u32>,
+    members: Vec<FacetId>,
 }
 
 /// [`merge`] into `facets`, emptied first, with the working lists of
@@ -259,6 +262,8 @@ fn grouped(
         number_of_root,
         group_of,
         scratch,
+        number,
+        offsets,
         members,
         ..
     } = work;
@@ -268,25 +273,38 @@ fn grouped(
     number_of_root.clear();
     number_of_root.resize(ids.len(), u32::MAX);
     group_of.clear();
-    members.clear();
-    let mut count = 0_u32;
+    number.clear();
+    let mut count = 0_usize;
     for (i, &id) in ids.iter().enumerate() {
         let root = sets.find(i as u32) as usize;
         if number_of_root[root] == u32::MAX {
-            number_of_root[root] = count;
+            number_of_root[root] = count as u32;
             count += 1;
         }
-        let number = number_of_root[root];
-        members.push((number, i as u32));
-        group_of.insert(id, number);
+        number.push(number_of_root[root]);
+        group_of.insert(id, number_of_root[root]);
     }
-    // A group's simplices in arena order: the pairs sort by group, then
-    // by dense index. A list on the heap per group of three simplices or
-    // more allocated per facet (#531).
-    members.sort_unstable();
-    groups.reserve(count as usize, ids.len());
-    for run in members.chunk_by(|x, y| x.0 == y.0) {
-        groups.push_iter(run.iter().map(|&(_, i)| ids[i as usize]));
+    // A group's simplices in arena order, by a counting sort over the
+    // groups. A list on the heap per group of three simplices or more
+    // allocated per facet (#531).
+    offsets.clear();
+    offsets.resize(count + 2, 0);
+    for &g in number.iter() {
+        offsets[g as usize + 2] += 1;
+    }
+    for g in 2..offsets.len() {
+        offsets[g] += offsets[g - 1];
+    }
+    members.clear();
+    members.resize(ids.len(), FacetId::default());
+    for (&g, &id) in number.iter().zip(ids) {
+        let slot = &mut offsets[g as usize + 1];
+        members[*slot as usize] = id;
+        *slot += 1;
+    }
+    groups.reserve(count, ids.len());
+    for g in 0..count {
+        groups.push(&members[offsets[g] as usize..offsets[g + 1] as usize]);
     }
 
     // Sized once: a simplex has D vertices and D neighbors.
@@ -366,7 +384,47 @@ fn same_groups(a: &LogicalFacets, b: &LogicalFacets) -> bool {
 mod tests {
     use super::*;
     use crate::hull::input::accept;
+    use crate::hull::simplicial::tests::drawn;
     use crate::hull::simplicial::tests::Rng;
+
+    /// A merge into the lists of an earlier one, with its working lists
+    /// (#531), gives the groups of a merge from nothing, on hulls of D = 2
+    /// to 5 whose facets are simplices, pairs, and larger groups.
+    #[test]
+    fn a_merge_into_the_lists_of_another_is_the_merge_from_nothing() {
+        let mut rng = Rng(531);
+        let (mut facets, mut work) = (LogicalFacets::default(), MergeWork::default());
+        let (mut merged, mut large) = (0, 0);
+        for round in 0..3 {
+            for (dim, count, grid) in [
+                (4, 400, true),
+                (3, 60, false),
+                (5, 300, true),
+                (2, 500, false),
+                (3, 900, true),
+                (4, 90, false),
+                (3, 12, true),
+            ] {
+                let points = drawn(&mut rng, dim, count, grid);
+                let Ok(input) = accept(dim, &points) else {
+                    continue;
+                };
+                let hull = SimplicialHull::build(input).unwrap();
+                let fresh = merge(&hull).unwrap();
+                merge_into(&hull, &mut facets, &mut work).unwrap();
+                assert!(
+                    same_groups(&facets, &fresh),
+                    "D = {dim}, {count} points, round {round}"
+                );
+                merged += 1;
+                large += fresh.groups.iter().filter(|group| group.len() > 2).count();
+            }
+        }
+        assert!(
+            merged >= 19 && large > 20,
+            "{merged} merges, {large} large groups"
+        );
+    }
 
     fn groups_of(dim: usize, points: &[f64]) -> LogicalFacets {
         let hull = SimplicialHull::build(accept(dim, points).unwrap()).unwrap();

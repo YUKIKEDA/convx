@@ -565,9 +565,14 @@ impl<'a> SimplicialHull<'a> {
     }
 
     /// The candidate of every facet with outside points, for the queue of
-    /// [`Self::absorb_in_place`], in the storage of `pending`.
+    /// [`Self::absorb_in_place`], in the storage of `pending`: the queue of
+    /// an earlier build, which that build emptied. Its buckets stay, empty,
+    /// and are filled again.
     fn all_candidates(&self, mut pending: Candidates) -> Candidates {
-        pending.clear();
+        debug_assert!(
+            pending.rest.is_empty() && pending.buckets.iter().all(Vec::is_empty),
+            "a build empties its queue"
+        );
         for (id, facet) in self.facets.iter() {
             if let Some((point, distance)) = facet.farthest() {
                 pending.push(Pending {
@@ -1386,8 +1391,6 @@ struct Candidates {
     buckets: VecDeque<Vec<Pending>>,
     /// Candidates without a positive finite distance, taken last.
     rest: Vec<Pending>,
-    /// Empty buckets of an earlier build, for the next (#531).
-    spare: Vec<Vec<Pending>>,
 }
 
 impl Candidates {
@@ -1397,15 +1400,6 @@ impl Candidates {
         distance
             .filter(|d| *d > 0.0 && d.is_finite())
             .map(|d| d.to_bits() >> (52 - BUCKET_MANTISSA_BITS))
-    }
-
-    /// Empties the queue. Its buckets keep their storage.
-    fn clear(&mut self) {
-        for mut bucket in self.buckets.drain(..) {
-            bucket.clear();
-            self.spare.push(bucket);
-        }
-        self.rest.clear();
     }
 
     fn push(&mut self, candidate: Pending) {
@@ -1418,13 +1412,12 @@ impl Candidates {
             self.top = key;
         }
         for _ in key..self.low {
-            self.buckets
-                .push_front(self.spare.pop().unwrap_or_default());
+            self.buckets.push_front(Vec::new());
         }
         self.low = self.low.min(key);
         let at = (key - self.low) as usize;
         while self.buckets.len() <= at {
-            self.buckets.push_back(self.spare.pop().unwrap_or_default());
+            self.buckets.push_back(Vec::new());
         }
         self.buckets[at].push(candidate);
         self.top = self.top.max(key);
@@ -1548,6 +1541,89 @@ pub(crate) mod tests {
     use super::*;
     use crate::hull::input::accept;
     use crate::predicates::orient;
+
+    /// Points of dimension `dim` for the tests of kept storage: `count`
+    /// draws, on a grid of four values a side when `grid`, so that faces
+    /// hold many points, or in general position.
+    pub(crate) fn drawn(rng: &mut Rng, dim: usize, count: usize, grid: bool) -> Vec<f64> {
+        (0..dim * count)
+            .map(|_| {
+                if grid {
+                    (rng.next() % 4) as f64
+                } else {
+                    rng.unit()
+                }
+            })
+            .collect()
+    }
+
+    /// A hull built in the storage of an earlier one (#531) is the hull
+    /// built from nothing: the same facets in the same slots with the same
+    /// neighbors, signs, plane numbers, outside sets and candidates, the
+    /// same points proved interior, the same polygon, and the same records.
+    /// The storage passes through hulls of D = 1 to 5, larger and smaller,
+    /// degenerate and not, so each list is reused after a longer one.
+    #[test]
+    fn a_hull_in_the_storage_of_another_is_the_hull_built_from_nothing() {
+        type Row = (Vec<u32>, Vec<FacetId>, Sign, u32, Vec<u32>, Option<u32>);
+        type Read = (Vec<Row>, Vec<u32>, bool, Vec<u32>, Vec<Vec<u32>>);
+        fn read(hull: &SimplicialHull<'_>) -> Read {
+            let rows = hull
+                .facets
+                .iter()
+                .map(|(_, facet)| {
+                    (
+                        facet.vertices().to_vec(),
+                        facet.neighbors().collect(),
+                        facet.outward(),
+                        facet.number(),
+                        facet.outside().to_vec(),
+                        facet.farthest().map(|(point, _)| point),
+                    )
+                })
+                .collect();
+            let records = (0..hull.input.representative.len() as u32)
+                .map(|p| hull.records.numbers(p).collect())
+                .collect();
+            (
+                rows,
+                hull.proved_interior.clone(),
+                hull.strict_edges,
+                hull.polygon.clone(),
+                records,
+            )
+        }
+        let mut rng = Rng(531);
+        let mut work = HullWork::default();
+        let mut built = 0;
+        for round in 0..3 {
+            for (dim, count, grid) in [
+                (4, 400, true),
+                (3, 60, false),
+                (5, 300, true),
+                (2, 500, false),
+                (3, 900, true),
+                (1, 40, false),
+                (4, 90, false),
+                (3, 12, true),
+            ] {
+                let points = drawn(&mut rng, dim, count, grid);
+                let Ok(input) = accept(dim, &points) else {
+                    continue;
+                };
+                let fresh = SimplicialHull::build(accept(dim, &points).unwrap()).unwrap();
+                let reused = SimplicialHull::build_with(input, work).unwrap();
+                assert_eq!(
+                    read(&reused),
+                    read(&fresh),
+                    "D = {dim}, {count} points, round {round}"
+                );
+                work = reused.into_work().1;
+                built += 1;
+            }
+        }
+        assert!(built >= 22, "{built} hulls");
+    }
 
     thread_local! {
         /// Overrides [`super::SPACE_ORDER_FROM`] on this thread, to build
