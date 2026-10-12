@@ -12,7 +12,9 @@
 //!   seed, and a few counts move by one between runs. A count may fall, and
 //!   the record is then lowered; raising one needs an Issue.
 //! - **The growth.** At the large size the allocations stay below twice
-//!   those at the small one, so they cannot be per item.
+//!   those at the small one, so they cannot be per item. The first call
+//!   of `planes()` and builds that end in an error are held to the same
+//!   two checks (#567).
 //!
 //! The generator's degenerate families (`grid`, `lattice`, `cluster`) keep
 //! a fixed number of distinct points however many are drawn. Their faces
@@ -46,6 +48,9 @@
 //! hulls of D = 8 to 10 and Delaunay of D = 8 and 9 are counted at two
 //! numbers of points. The contract reaches D = 10: in D >= 11 the lists
 //! whose length follows the dimension are on the heap, by design (#554).
+//! The first call of `planes()` allocates 4 to 10 times whatever the
+//! facets, and a build that ends in an error at most 15 times whatever
+//! the points (#567).
 //!
 //! Debug builds run invariant checks inside every build, and those allocate
 //! freely, so the counts hold for release builds only. `just test` runs this
@@ -71,6 +76,13 @@ enum Kind {
     Hull,
     Delaunay,
     Voronoi,
+    /// The first call of `planes()` on a built hull; the build is not
+    /// counted (#567).
+    Planes,
+    /// A build that ends in an error, for each builder (#567).
+    HullFails,
+    DelaunayFails,
+    VoronoiFails,
 }
 
 /// The points of a case, at its small and its large size.
@@ -112,6 +124,14 @@ enum Points {
     /// dimensions, where sixteen times the points is out of reach: the
     /// facets grow about ten times between the two (#554).
     Few(usize, usize),
+    /// The generator's `cube`, `n` and `16 n` points, with the last
+    /// coordinate set to zero: the points do not span the dimension, and a
+    /// build fails with `DegenerateDimension`.
+    Flat(usize),
+    /// The generator's `cube`, `n` and `16 n` points, with a NaN as the
+    /// last coordinate of the last point: a build fails with
+    /// `NonFiniteCoordinate` after it has read every point.
+    NanLast(usize),
 }
 
 impl Points {
@@ -128,6 +148,8 @@ impl Points {
             Self::Clusters(k) => format!("clusters on a sphere D{dim} k={k}"),
             Self::Scaled(n) => format!("cube with exponents far apart D{dim} n={n}"),
             Self::Few(small, large) => format!("cube D{dim} n={small},{large}"),
+            Self::Flat(n) => format!("cube in a hyperplane D{dim} n={n}"),
+            Self::NanLast(n) => format!("cube with a NaN last D{dim} n={n}"),
         }
     }
 
@@ -141,6 +163,20 @@ impl Points {
         };
         match self {
             Self::Drawn(family, n) => family.points(dim, times * n, 521),
+            Self::Flat(n) => {
+                let mut points = Family::Cube.points(dim, times * n, 521);
+                for point in points.chunks_exact_mut(dim) {
+                    point[dim - 1] = 0.0;
+                }
+                points
+            }
+            Self::NanLast(n) => {
+                let mut points = Family::Cube.points(dim, times * n, 521);
+                if let Some(last) = points.last_mut() {
+                    *last = f64::NAN;
+                }
+                points
+            }
             Self::Few(small, big) => Family::Cube.points(dim, if large { big } else { small }, 521),
             Self::Scaled(n) => Family::Cube
                 .points(dim, times * n, 521)
@@ -235,6 +271,21 @@ fn build(kind: Kind, dim: usize, points: &[f64]) -> (usize, usize) {
         Kind::Voronoi => count(|| {
             std::hint::black_box(VoronoiBuilder::new(dim, points).build().unwrap());
         }),
+        Kind::Planes => {
+            let hull = ConvexHullBuilder::new(dim, points).build().unwrap();
+            count(|| {
+                std::hint::black_box(hull.planes().unwrap());
+            })
+        }
+        Kind::HullFails => count(|| {
+            std::hint::black_box(ConvexHullBuilder::new(dim, points).build().unwrap_err());
+        }),
+        Kind::DelaunayFails => count(|| {
+            std::hint::black_box(DelaunayBuilder::new(dim, points).build().unwrap_err());
+        }),
+        Kind::VoronoiFails => count(|| {
+            std::hint::black_box(VoronoiBuilder::new(dim, points).build().unwrap_err());
+        }),
     }
 }
 
@@ -292,6 +343,19 @@ const CASES: &[Case] = &[
     Case { kind: Kind::Hull, points: Points::Few(20, 32), dim: 10, small: (94, 293), large: (103, 383) },
     Case { kind: Kind::Delaunay, points: Points::Few(16, 26), dim: 8, small: (65, 63), large: (65, 91) },
     Case { kind: Kind::Delaunay, points: Points::Few(14, 22), dim: 9, small: (67, 53), large: (67, 88) },
+    Case { kind: Kind::Planes, points: Points::Drawn(Family::Sphere, 1000), dim: 2, small: (4, 0), large: (4, 0) },
+    Case { kind: Kind::Planes, points: Points::Drawn(Family::Sphere, 1000), dim: 3, small: (9, 0), large: (9, 0) },
+    Case { kind: Kind::Planes, points: Points::Drawn(Family::Sphere, 500), dim: 4, small: (9, 0), large: (9, 0) },
+    Case { kind: Kind::Planes, points: Points::Drawn(Family::CubeSurf, 500), dim: 4, small: (10, 0), large: (10, 0) },
+    Case { kind: Kind::Planes, points: Points::Clusters(16), dim: 4, small: (10, 0), large: (10, 0) },
+    Case { kind: Kind::Planes, points: Points::Few(20, 32), dim: 10, small: (9, 0), large: (9, 0) },
+    Case { kind: Kind::HullFails, points: Points::Flat(200), dim: 2, small: (15, 12), large: (15, 20) },
+    Case { kind: Kind::HullFails, points: Points::Flat(200), dim: 4, small: (5, 6), large: (5, 10) },
+    Case { kind: Kind::DelaunayFails, points: Points::Flat(200), dim: 3, small: (5, 6), large: (5, 10) },
+    Case { kind: Kind::VoronoiFails, points: Points::Flat(200), dim: 3, small: (5, 6), large: (5, 10) },
+    Case { kind: Kind::HullFails, points: Points::NanLast(200), dim: 3, small: (0, 0), large: (0, 0) },
+    Case { kind: Kind::DelaunayFails, points: Points::NanLast(200), dim: 3, small: (0, 0), large: (0, 0) },
+    Case { kind: Kind::VoronoiFails, points: Points::NanLast(200), dim: 2, small: (0, 0), large: (0, 0) },
     Case { kind: Kind::Hull, points: Points::Duoprism(8), dim: 4, small: (225, 361), large: (305, 689) },
 ];
 
@@ -329,7 +393,9 @@ fn builds_keep_the_allocation_contract() {
                 case.large
             ));
         }
-        if large.0 >= 2 * small.0 {
+        // Twice the small count, or three more where that count is zero
+        // or one: a build that fails before it allocates counts none.
+        if large.0 >= (2 * small.0).max(small.0 + 3) {
             failures.push(format!(
                 "{name}: {} allocations at the large size against {} at the small",
                 large.0, small.0
