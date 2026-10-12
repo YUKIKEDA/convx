@@ -50,6 +50,12 @@ impl<T: Copy> Lists<T> {
         self.starts.truncate(1);
     }
 
+    /// Room for `lists` more lists holding `values` more values in all.
+    pub(crate) fn reserve(&mut self, lists: usize, values: usize) {
+        self.starts.reserve(lists);
+        self.values.reserve(values);
+    }
+
     /// Appends one list.
     pub(crate) fn push(&mut self, items: &[T]) {
         self.values.extend_from_slice(items);

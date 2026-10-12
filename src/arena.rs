@@ -30,7 +30,6 @@ impl<V: Copy + Default> Default for SlotMarks<V> {
 
 impl<V: Copy + Default> SlotMarks<V> {
     /// Forgets every value.
-    #[cfg(test)]
     pub(crate) fn clear(&mut self) {
         if self.epoch == u32::MAX {
             self.entries.clear();

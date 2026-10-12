@@ -25,6 +25,7 @@ pub(crate) struct Group {
 
 /// The groups, with their vertex and neighbor lists kept flat (#254), so
 /// that no group allocates a list.
+#[derive(Default)]
 pub(crate) struct LogicalFacets {
     pub(crate) groups: Vec<Group>,
     /// Per group, the union of the member vertices, ascending.
@@ -38,10 +39,11 @@ struct UnionFind {
 }
 
 impl UnionFind {
-    fn new(n: usize) -> Self {
-        Self {
-            parent: (0..n as u32).collect(),
-        }
+    /// `n` sets of one member each, in the storage of `parent`.
+    fn new(n: usize, mut parent: Vec<u32>) -> Self {
+        parent.clear();
+        parent.extend(0..n as u32);
+        Self { parent }
     }
 
     fn find(&mut self, mut x: u32) -> u32 {
@@ -67,10 +69,43 @@ impl UnionFind {
 
 /// Groups the simplices of `hull` into logical facets.
 pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, ConvexHullError> {
-    if hull.strict_edges {
-        return Ok(polygon_groups(hull));
+    let mut facets = LogicalFacets::default();
+    merge_into(hull, &mut facets, &mut MergeWork::default())?;
+    Ok(facets)
+}
+
+/// The working lists of [`merge_into`], and the groups of an earlier merge
+/// for the next to fill: a merge per face allocated each of them per face
+/// (#531).
+#[derive(Default)]
+pub(crate) struct MergeWork {
+    ids: Vec<FacetId>,
+    by_slot: Vec<u32>,
+    parent: Vec<u32>,
+    number_of_root: Vec<u32>,
+    group_of: SlotMarks<u32>,
+    scratch: Vec<u32>,
+    spare: Vec<Group>,
+}
+
+/// [`merge`] into `facets`, emptied first, with the working lists of
+/// `work`.
+pub(crate) fn merge_into(
+    hull: &SimplicialHull<'_>,
+    facets: &mut LogicalFacets,
+    work: &mut MergeWork,
+) -> Result<(), ConvexHullError> {
+    for mut group in facets.groups.drain(..) {
+        group.simplices.clear();
+        work.spare.push(group);
     }
-    merge_except(hull, &SlotMarks::default())
+    facets.vertices.clear();
+    facets.neighbors.clear();
+    if hull.strict_edges {
+        *facets = polygon_groups(hull);
+        return Ok(());
+    }
+    merge_except(hull, &SlotMarks::default(), facets, work)
 }
 
 /// One group per edge, in chain order. Adjacent edges are not collinear.
@@ -102,17 +137,21 @@ fn polygon_groups(hull: &SimplicialHull<'_>) -> LogicalFacets {
 /// group it has already decided to drop, and a cut simplex is coplanar with
 /// no simplex it keeps, so the groups of the kept simplices are those of
 /// [`merge`].
-pub(crate) fn merge_except(
+fn merge_except(
     hull: &SimplicialHull<'_>,
     cut: &SlotMarks<()>,
-) -> Result<LogicalFacets, ConvexHullError> {
+    facets: &mut LogicalFacets,
+    work: &mut MergeWork,
+) -> Result<(), ConvexHullError> {
     // The arena's iterator cannot say how many entries are live, so the
     // lists below are sized from its count: grown by doubling, each would be
     // copied a dozen times (#209).
-    let mut ids: Vec<FacetId> = Vec::with_capacity(hull.facets.len());
+    let mut ids = core::mem::take(&mut work.ids);
+    ids.clear();
+    ids.reserve(hull.facets.len());
     ids.extend(hull.facets.iter().map(|(id, _)| id));
-    let dense = Dense::of(&ids);
-    let mut sets = UnionFind::new(ids.len());
+    let dense = Dense::of(&ids, core::mem::take(&mut work.by_slot));
+    let mut sets = UnionFind::new(ids.len(), core::mem::take(&mut work.parent));
     let mut joined = false;
 
     for (i, &id) in ids.iter().enumerate() {
@@ -153,15 +192,30 @@ pub(crate) fn merge_except(
         }
     }
 
-    if !joined {
-        let fast = singletons(hull, &ids, &dense);
-        debug_assert!(
-            same_groups(&fast, &grouped(hull, &ids, &mut sets)),
-            "the groups of one simplex each are those of the general path"
-        );
-        return Ok(fast);
+    if joined {
+        grouped(hull, &ids, &mut sets, facets, work);
+    } else {
+        singletons(hull, &ids, &dense, facets, work);
+        #[cfg(debug_assertions)]
+        {
+            let mut general = LogicalFacets::default();
+            grouped(
+                hull,
+                &ids,
+                &mut sets,
+                &mut general,
+                &mut MergeWork::default(),
+            );
+            debug_assert!(
+                same_groups(facets, &general),
+                "the groups of one simplex each are those of the general path"
+            );
+        }
     }
-    Ok(grouped(hull, &ids, &mut sets))
+    work.ids = ids;
+    work.by_slot = dense.by_slot;
+    work.parent = sets.parent;
+    Ok(())
 }
 
 /// The dense index of each live simplex, by its slot: the neighbors of a
@@ -172,13 +226,15 @@ struct Dense {
 }
 
 impl Dense {
-    fn of(ids: &[FacetId]) -> Self {
+    /// The dense index of `ids`, in the storage of `by_slot`.
+    fn of(ids: &[FacetId], mut by_slot: Vec<u32>) -> Self {
         let slots = ids
             .iter()
             .map(|id| id.index() as usize + 1)
             .max()
             .unwrap_or(0);
-        let mut by_slot = vec![u32::MAX; slots];
+        by_slot.clear();
+        by_slot.resize(slots, u32::MAX);
         for (i, id) in ids.iter().enumerate() {
             by_slot[id.index() as usize] = i as u32;
         }
@@ -201,21 +257,41 @@ impl Dense {
 
 /// The groups of [`merge_except`] from the joined ridges in `sets`, over the
 /// live simplices `ids` in arena order.
-fn grouped(hull: &SimplicialHull<'_>, ids: &[FacetId], sets: &mut UnionFind) -> LogicalFacets {
+/// The groups of `sets` into `facets`, which is empty.
+fn grouped(
+    hull: &SimplicialHull<'_>,
+    ids: &[FacetId],
+    sets: &mut UnionFind,
+    facets: &mut LogicalFacets,
+    work: &mut MergeWork,
+) {
+    let LogicalFacets {
+        groups,
+        vertices,
+        neighbors,
+    } = facets;
+    let MergeWork {
+        number_of_root,
+        group_of,
+        scratch,
+        spare,
+        ..
+    } = work;
     // Number groups by their smallest member, in arena order.
     // A root is a dense index; a group is numbered when its root is first
     // met, and `u32::MAX` marks a root not met yet.
-    let mut number_of_root = vec![u32::MAX; ids.len()];
+    number_of_root.clear();
+    number_of_root.resize(ids.len(), u32::MAX);
     let roots = (0..ids.len() as u32).filter(|&i| sets.find(i) == i).count();
-    let mut groups: Vec<Group> = Vec::with_capacity(roots);
-    let mut group_of: SlotMarks<u32> = SlotMarks::default();
+    groups.reserve(roots);
+    group_of.clear();
     for (i, &id) in ids.iter().enumerate() {
         let root = sets.find(i as u32) as usize;
         if number_of_root[root] == u32::MAX {
             number_of_root[root] = groups.len() as u32;
-            groups.push(Group {
+            groups.push(spare.pop().unwrap_or(Group {
                 simplices: Small::new(),
-            });
+            }));
         }
         let number = number_of_root[root];
         groups[number as usize].simplices.push(id);
@@ -224,16 +300,15 @@ fn grouped(hull: &SimplicialHull<'_>, ids: &[FacetId], sets: &mut UnionFind) -> 
 
     // Sized once: a simplex has D vertices and D neighbors.
     let d = hull.input.dim();
-    let mut vertices = Lists::with_capacity(groups.len(), ids.len() * d);
-    let mut neighbors = Lists::with_capacity(groups.len(), ids.len() * d);
-    let mut scratch: Vec<u32> = Vec::new();
+    vertices.reserve(groups.len(), ids.len() * d);
+    neighbors.reserve(groups.len(), ids.len() * d);
     for (number, group) in groups.iter().enumerate() {
         let members = || group.simplices.iter().filter_map(|id| hull.facets.get(*id));
         scratch.clear();
         scratch.extend(members().flat_map(|facet| facet.vertices().iter().copied()));
         scratch.sort_unstable();
         scratch.dedup();
-        vertices.push(&scratch);
+        vertices.push(scratch);
         scratch.clear();
         scratch.extend(
             members()
@@ -243,13 +318,7 @@ fn grouped(hull: &SimplicialHull<'_>, ids: &[FacetId], sets: &mut UnionFind) -> 
         );
         scratch.sort_unstable();
         scratch.dedup();
-        neighbors.push(&scratch);
-    }
-
-    LogicalFacets {
-        groups,
-        vertices,
-        neighbors,
+        neighbors.push(scratch);
     }
 }
 
@@ -259,16 +328,29 @@ fn grouped(hull: &SimplicialHull<'_>, ids: &[FacetId], sets: &mut UnionFind) -> 
 /// are written straight into lists sized once, without the per-group
 /// gathering, sort, and dedup of the general case (#485): the vertices of a
 /// simplex are distinct, and so are its neighbors, which are other groups.
-fn singletons(hull: &SimplicialHull<'_>, ids: &[FacetId], dense: &Dense) -> LogicalFacets {
+fn singletons(
+    hull: &SimplicialHull<'_>,
+    ids: &[FacetId],
+    dense: &Dense,
+    facets: &mut LogicalFacets,
+    work: &mut MergeWork,
+) {
+    let LogicalFacets {
+        groups,
+        vertices,
+        neighbors,
+    } = facets;
     let d = hull.input.dim();
-    let mut groups: Vec<Group> = Vec::with_capacity(ids.len());
-    let mut vertices = Lists::with_capacity(ids.len(), ids.len() * d);
-    let mut neighbors = Lists::with_capacity(ids.len(), ids.len() * d);
-    let mut row: Vec<u32> = Vec::with_capacity(d);
+    groups.reserve(ids.len());
+    vertices.reserve(ids.len(), ids.len() * d);
+    neighbors.reserve(ids.len(), ids.len() * d);
+    let row = &mut work.scratch;
     for &id in ids {
-        let mut simplices = Small::new();
-        simplices.push(id);
-        groups.push(Group { simplices });
+        let mut group = work.spare.pop().unwrap_or(Group {
+            simplices: Small::new(),
+        });
+        group.simplices.push(id);
+        groups.push(group);
         let Some(facet) = hull.facets.get(id) else {
             vertices.push(&[]);
             neighbors.push(&[]);
@@ -277,16 +359,11 @@ fn singletons(hull: &SimplicialHull<'_>, ids: &[FacetId], dense: &Dense) -> Logi
         row.clear();
         row.extend(facet.vertices().iter().copied());
         row.sort_unstable();
-        vertices.push(&row);
+        vertices.push(row);
         row.clear();
         row.extend(facet.neighbors().filter_map(|n| dense.get(ids, n)));
         row.sort_unstable();
-        neighbors.push(&row);
-    }
-    LogicalFacets {
-        groups,
-        vertices,
-        neighbors,
+        neighbors.push(row);
     }
 }
 

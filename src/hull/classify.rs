@@ -36,11 +36,11 @@
 
 use std::collections::{BinaryHeap, HashMap};
 
-use super::input::{accept, Input};
-use super::merge::{merge, LogicalFacets};
+use super::input::{accept, Input, InputWork};
+use super::merge::{merge_into, LogicalFacets, MergeWork};
 use super::polygon::{self, clearly_inside, ChainWork, Edge, Rows};
 use super::ridge::{fingerprint, pair_equal_keys};
-use super::simplicial::SimplicialHull;
+use super::simplicial::{HullWork, SimplicialHull};
 use super::ConvexHullError;
 use crate::arena::{FacetId, SlotMarks};
 use crate::lists::Lists;
@@ -228,21 +228,76 @@ pub(crate) fn classify(input: Input<'_>) -> Result<Classified<'_>, ConvexHullErr
 /// reached with other candidates is only found again.
 #[derive(Default)]
 struct FoundFaces {
-    extremes: HashMap<Vec<u32>, Vec<u32>>,
+    extremes: FaceMemo,
     /// The buffers of one face, kept from one face to the next, so that a
-    /// face of a hull of D = 3 allocates nothing (#530): its projected
-    /// candidates, the chain that finds their extreme points, those points
-    /// as places among the candidates, and the lists [`found_vertices`]
-    /// fills per facet.
-    projected: Vec<f64>,
+    /// face allocates nothing (#530, #531): the chain that finds the
+    /// extreme points of a face in a plane, those points as places among
+    /// the candidates, and the buffers of each level of the recursion, one
+    /// set per hull being classified at a time.
     chain: ChainWork,
     places: Vec<u32>,
+    levels: Vec<Level>,
+}
+
+/// The extreme points of the faces found so far, by their candidates as
+/// input indices, in flat lists: a key and a list allocated per face
+/// (#531).
+#[derive(Default)]
+struct FaceMemo {
+    /// By the fingerprint of a key, the last face stored with it; `next`
+    /// chains the faces of one fingerprint.
+    first: HashMap<u64, u32>,
+    next: Vec<u32>,
+    keys: Lists<u32>,
+    found: Lists<u32>,
+}
+
+impl FaceMemo {
+    fn get(&self, key: &[u32]) -> Option<&[u32]> {
+        let mut at = *self.first.get(&fingerprint(key))?;
+        loop {
+            if self.keys.get(at as usize) == key {
+                return Some(self.found.get(at as usize));
+            }
+            at = self.next[at as usize];
+            if at == u32::MAX {
+                return None;
+            }
+        }
+    }
+
+    fn insert(&mut self, key: &[u32], found: impl IntoIterator<Item = u32>) {
+        let at = self.keys.len() as u32;
+        self.keys.push(key);
+        self.found.push_iter(found);
+        let previous = self.first.insert(fingerprint(key), at);
+        self.next.push(previous.unwrap_or(u32::MAX));
+    }
+}
+
+/// The buffers of one level of the recursion of [`found_vertices`]: what
+/// it fills for the hull it classifies, what [`face_extremes`] fills for
+/// one face of that hull, and the sub-hull of that face with what is found
+/// on it.
+#[derive(Default)]
+struct Level {
+    merge: MergeWork,
+    skipped: Vec<bool>,
+    zeros: ZerosWork,
+    zero_points: Lists<u32>,
     candidates: Vec<u32>,
     found: Vec<u32>,
+    projected: Vec<f64>,
+    key: Vec<u32>,
+    basis_rows: Vec<f64>,
+    input: InputWork,
+    hull: HullWork,
+    sub: Found,
 }
 
 /// Each facet's extreme points, when they are not the facet's vertices: a
 /// single simplex with no other point on its plane has none of its own.
+#[derive(Default)]
 struct Extremes {
     lists: Lists<u32>,
     own: Vec<bool>,
@@ -258,24 +313,37 @@ impl Extremes {
     }
 }
 
-/// The vertices of the hull of an accepted input, for a face one level
-/// down: nothing else of its classification is read. `global` maps its
-/// indices to the input's.
+/// The vertices of the hull of the candidates of a face, projected to
+/// `projected` (dimension `d` >= 3), into `faces.places`, ascending:
+/// nothing else of its classification is read. `global` maps the
+/// candidates to the input's indices. The hull, its input, and what is
+/// found on it use the storage of `level`.
 fn sub_vertices(
-    input: Input<'_>,
+    d: usize,
+    projected: &[f64],
     faces: &mut FoundFaces,
+    level: &mut Level,
     global: &[u32],
-) -> Result<Vec<u32>, ConvexHullError> {
+) -> Result<(), ConvexHullError> {
     #[cfg(test)]
     tests::SUB_HULLS.with(|c| c.set(c.get() + 1));
-    let hull = SimplicialHull::build(input)?;
-    if hull.strict_edges {
-        // The cycle vertices of a strict polygon are its extreme points.
-        let mut vertices = hull.polygon.clone();
-        vertices.sort_unstable();
-        return Ok(vertices);
-    }
-    Ok(found_vertices(&hull, faces, Some(global))?.vertices)
+    let input = Input::of_distinct(
+        d,
+        projected,
+        core::mem::take(&mut level.input),
+        &mut level.basis_rows,
+    )?;
+    let hull = SimplicialHull::build_with(input, core::mem::take(&mut level.hull))?;
+    debug_assert!(!hull.strict_edges, "a hull of D >= 3 is not a polygon");
+    let mut sub = core::mem::take(&mut level.sub);
+    found_vertices_into(&hull, faces, Some(global), &mut sub)?;
+    faces.places.clear();
+    faces.places.extend_from_slice(&sub.vertices);
+    level.sub = sub;
+    let (input, work) = hull.into_work();
+    level.hull = work;
+    level.input = input.into_work();
+    Ok(())
 }
 
 /// Classifies a strict polygon from its extreme cycle.
@@ -379,6 +447,7 @@ fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
 /// simplicial vertices, the other representatives and whether each is on
 /// the boundary, and each facet's extreme points (`None` when they are the
 /// facet's vertices).
+#[derive(Default)]
 struct Found {
     groups: LogicalFacets,
     on_complex: Vec<bool>,
@@ -397,7 +466,43 @@ fn found_vertices(
     faces: &mut FoundFaces,
     global: Option<&[u32]>,
 ) -> Result<Found, ConvexHullError> {
-    let groups = merge(hull)?;
+    let mut found = Found::default();
+    found_vertices_into(hull, faces, global, &mut found)?;
+    Ok(found)
+}
+
+/// [`found_vertices`] into `out`, whose lists keep their storage, with the
+/// buffers of one level of `faces`.
+fn found_vertices_into(
+    hull: &SimplicialHull<'_>,
+    faces: &mut FoundFaces,
+    global: Option<&[u32]>,
+    out: &mut Found,
+) -> Result<(), ConvexHullError> {
+    let mut level = faces.levels.pop().unwrap_or_default();
+    let result = found_at(hull, faces, &mut level, global, out);
+    faces.levels.push(level);
+    result
+}
+
+fn found_at(
+    hull: &SimplicialHull<'_>,
+    faces: &mut FoundFaces,
+    level: &mut Level,
+    global: Option<&[u32]>,
+    out: &mut Found,
+) -> Result<(), ConvexHullError> {
+    let Found {
+        groups,
+        on_complex,
+        others,
+        on_boundary,
+        extremes,
+        is_vertex,
+        vertices,
+    } = out;
+    merge_into(hull, groups, &mut level.merge)?;
+    let groups = &*groups;
     // A group's member simplices, in outward order.
     let members = |g: usize| {
         groups.groups[g]
@@ -408,7 +513,9 @@ fn found_vertices(
     };
 
     // Simplicial vertices.
-    let mut on_complex = vec![false; hull.input.representative.len()];
+    let points = hull.input.representative.len();
+    on_complex.clear();
+    on_complex.resize(points, false);
     for g in 0..groups.groups.len() {
         for vertices in members(g) {
             for &v in vertices {
@@ -420,7 +527,9 @@ fn found_vertices(
     // Distance signs of the other representatives against every group.
     // Points construction proved strictly inside are interior already
     // (design §3) and skip the scan.
-    let mut skipped = vec![false; hull.input.representative.len()];
+    let skipped = &mut level.skipped;
+    skipped.clear();
+    skipped.resize(points, false);
     for &p in &hull.proved_interior {
         debug_assert!(!on_complex[p as usize], "a dropped point is not a vertex");
         // A point leaves every outside set when it is proved interior, and
@@ -428,66 +537,76 @@ fn found_vertices(
         debug_assert!(!skipped[p as usize], "point {p} was proved interior twice");
         skipped[p as usize] = true;
     }
-    let others: Vec<u32> = hull
-        .input
-        .representatives
-        .iter()
-        .copied()
-        .filter(|&p| !on_complex[p as usize] && !skipped[p as usize])
-        .collect();
-    let (on_boundary, zero_points) = distance_zeros(hull, &groups, &others)?;
+    others.clear();
+    others.extend(
+        hull.input
+            .representatives
+            .iter()
+            .copied()
+            .filter(|&p| !on_complex[p as usize] && !skipped[p as usize]),
+    );
+    distance_zeros_into(
+        hull,
+        groups,
+        others,
+        on_boundary,
+        &mut level.zero_points,
+        &mut level.zeros,
+    )?;
 
     // Extreme points of each group; `None` when they are the group's
     // vertices, a single simplex with no other point on its plane.
     let count = groups.groups.len();
-    let mut extremes = Extremes {
-        lists: Lists::with_capacity(count, 0),
-        own: Vec::with_capacity(count),
-    };
+    extremes.lists.clear();
+    extremes.lists.reserve(count, 0);
+    extremes.own.clear();
+    extremes.own.reserve(count);
     // One list of candidates and one of extreme points for every facet.
-    let mut candidates = core::mem::take(&mut faces.candidates);
-    let mut found = core::mem::take(&mut faces.found);
+    let mut candidates = core::mem::take(&mut level.candidates);
+    let mut found = core::mem::take(&mut level.found);
     for (g, group) in groups.groups.iter().enumerate() {
-        if group.simplices.len() == 1 && zero_points.get(g).is_empty() {
+        if group.simplices.len() == 1 && level.zero_points.get(g).is_empty() {
             extremes.lists.push(&[]);
             extremes.own.push(false);
             continue;
         }
         candidates.clear();
         candidates.extend_from_slice(groups.vertices.get(g));
-        candidates.extend_from_slice(zero_points.get(g));
+        candidates.extend_from_slice(level.zero_points.get(g));
         candidates.sort_unstable();
         candidates.dedup();
         let plane = members(g).next().unwrap_or(&[]);
-        face_extremes(&hull.input, plane, &candidates, faces, global, &mut found)?;
+        face_extremes(
+            &hull.input,
+            plane,
+            &candidates,
+            faces,
+            level,
+            global,
+            &mut found,
+        )?;
         extremes.lists.push(&found);
         extremes.own.push(true);
     }
-    faces.candidates = candidates;
-    faces.found = found;
+    level.candidates = candidates;
+    level.found = found;
 
-    let mut is_vertex = vec![false; hull.input.representative.len()];
+    is_vertex.clear();
+    is_vertex.resize(points, false);
     for g in 0..count {
         for &v in extremes.get(g).unwrap_or(groups.vertices.get(g)) {
             is_vertex[v as usize] = true;
         }
     }
-    let vertices: Vec<u32> = hull
-        .input
-        .representatives
-        .iter()
-        .copied()
-        .filter(|&p| is_vertex[p as usize])
-        .collect();
-    Ok(Found {
-        groups,
-        on_complex,
-        others,
-        on_boundary,
-        extremes,
-        is_vertex,
-        vertices,
-    })
+    vertices.clear();
+    vertices.extend(
+        hull.input
+            .representatives
+            .iter()
+            .copied()
+            .filter(|&p| is_vertex[p as usize]),
+    );
+    Ok(())
 }
 
 /// Classifies a built simplicial hull. Its `proved_interior` points go to
@@ -631,32 +750,97 @@ fn classify_built<'a>(
 /// Per point, whether some group's distance is zero, and per group its
 /// points at distance zero, ascending. A point strictly inside its facet's
 /// polygon (D = 3) is on the boundary and in no list (#504).
+#[cfg(test)]
 type Zeros = (Vec<bool>, Lists<u32>);
 
-/// The exact distance-zero signs of `others` against every group. Points
-/// construction proved strictly inside are not among `others`.
+/// The working lists of [`distance_zeros_into`], kept from one hull to the
+/// next (#531).
+#[derive(Default)]
+struct ZerosWork {
+    zero_pairs: Vec<(u32, u32)>,
+    starts: Vec<Option<u32>>,
+    numbers: Vec<(u32, u32)>,
+    scanned: Vec<u32>,
+    scanned_at: Vec<usize>,
+    sides: Vec<Option<Sign>>,
+    /// (start group, place among the others), sorted; `ks` is the places
+    /// of one start group.
+    by_start: Vec<(u32, u32)>,
+    ks: Vec<u32>,
+    tested: Vec<usize>,
+    stack: Vec<u32>,
+    points: Vec<u32>,
+    zeros: Vec<(u32, u32)>,
+    polygon_rows: Vec<f64>,
+}
+
+/// [`distance_zeros_into`] with lists of its own.
+#[cfg(test)]
 fn distance_zeros(
     hull: &SimplicialHull<'_>,
     groups: &LogicalFacets,
     others: &[u32],
 ) -> Result<Zeros, ConvexHullError> {
-    let mut on_boundary = vec![false; others.len()];
+    let (mut on_boundary, mut zero_points) = (Vec::new(), Lists::default());
+    distance_zeros_into(
+        hull,
+        groups,
+        others,
+        &mut on_boundary,
+        &mut zero_points,
+        &mut ZerosWork::default(),
+    )?;
+    Ok((on_boundary, zero_points))
+}
+
+/// The exact distance-zero signs of `others` against every group, into
+/// `on_boundary` and `zero_points`. Points construction proved strictly
+/// inside are not among `others`.
+fn distance_zeros_into(
+    hull: &SimplicialHull<'_>,
+    groups: &LogicalFacets,
+    others: &[u32],
+    on_boundary: &mut Vec<bool>,
+    zero_points: &mut Lists<u32>,
+    work: &mut ZerosWork,
+) -> Result<(), ConvexHullError> {
+    let ZerosWork {
+        zero_pairs,
+        starts,
+        numbers,
+        scanned,
+        scanned_at,
+        sides,
+        by_start,
+        ks,
+        tested,
+        stack,
+        points,
+        zeros,
+        polygon_rows,
+    } = work;
+    on_boundary.clear();
+    on_boundary.resize(others.len(), false);
     // (group, point) for each zero, sorted into one list per group at the
     // end: a list per group allocated per facet with a point on it (#530).
-    let mut zero_pairs: Vec<(u32, u32)> = Vec::new();
+    zero_pairs.clear();
     // The group of a recorded number of each other point, if a simplex of
     // the final complex carries one, and the points with none, which are
     // scanned against every group.
-    let starts = recorded_groups(hull, groups, others);
-    let scanned: Vec<u32> = others
-        .iter()
-        .zip(&starts)
-        .filter(|&(_, start)| start.is_none())
-        .map(|(&p, _)| p)
-        .collect();
-    let scanned_at: Vec<usize> = (0..others.len()).filter(|&k| starts[k].is_none()).collect();
+    recorded_groups_into(hull, groups, others, starts, numbers);
+    scanned.clear();
+    scanned.extend(
+        others
+            .iter()
+            .zip(starts.iter())
+            .filter(|&(_, start)| start.is_none())
+            .map(|(&p, _)| p),
+    );
+    scanned_at.clear();
+    scanned_at.extend((0..others.len()).filter(|&k| starts[k].is_none()));
     if !scanned.is_empty() {
-        let mut sides = vec![None; scanned.len()];
+        sides.clear();
+        sides.resize(scanned.len(), None);
         for (g, group) in groups.groups.iter().enumerate() {
             let Some(simplex) = group.simplices.first().and_then(|id| hull.facets.get(*id)) else {
                 continue;
@@ -665,7 +849,7 @@ fn distance_zeros(
             if let Some(cull) = simplex.cull() {
                 let (rows, stride) = hull.input.rows();
                 let origin = hull.input.point(simplex.vertices()[0]);
-                cull.mark_sides(origin, rows, stride, &scanned, &mut sides);
+                cull.mark_sides(origin, rows, stride, scanned, sides);
             }
             for (k, &p) in scanned.iter().enumerate() {
                 let side = match sides[k] {
@@ -716,32 +900,33 @@ fn distance_zeros(
             }
         }
     };
-    let mut by_start: Vec<Vec<u32>> = vec![Vec::new(); groups.groups.len()];
+    // The places of the points of each start group, ascending, the groups
+    // in their order: a list per group allocated per group (#531).
+    by_start.clear();
     for (k, start) in starts.iter().enumerate() {
         if let Some(start) = *start {
-            by_start[start as usize].push(k as u32);
+            by_start.push((start, k as u32));
         }
     }
+    by_start.sort_unstable();
     let (rows, stride) = hull.input.rows();
-    let mut tested = vec![usize::MAX; groups.groups.len()];
-    let mut stack: Vec<u32> = Vec::new();
-    let mut points: Vec<u32> = Vec::new();
-    let mut sides: Vec<Option<Sign>> = Vec::new();
-    // Per point of the start group (by its place in `points`), a neighbor
-    // whose plane holds it.
-    let mut zeros: Vec<(u32, u32)> = Vec::new();
-    for (start, ks) in by_start.iter_mut().enumerate() {
-        if ks.is_empty() {
-            continue;
-        }
-        let start = start as u32;
+    tested.clear();
+    tested.resize(groups.groups.len(), usize::MAX);
+    // `zeros`: per point of the start group (by its place in `points`), a
+    // neighbor whose plane holds it.
+    let mut rest = &by_start[..];
+    while let Some(&(start, _)) = rest.first() {
+        let run = rest.iter().take_while(|entry| entry.0 == start).count();
+        ks.clear();
+        ks.extend(rest[..run].iter().map(|entry| entry.1));
+        rest = &rest[run..];
         // D = 3: a point strictly inside the polygon of its facet's extreme
         // vertices is in the facet's relative interior, so it lies on no
         // other facet's plane and is not extreme (design §3). It is on the
         // boundary, and neither the walk nor the facet's extremes need it
         // (#504).
         if hull.input.dim() == 3 {
-            if let Some(inner) = facet_polygon(hull, groups, start)? {
+            if let Some(inner) = facet_polygon(hull, groups, start, polygon_rows)? {
                 #[cfg(debug_assertions)]
                 for &k in ks.iter() {
                     let p = others[k as usize];
@@ -785,7 +970,7 @@ fn distance_zeros(
             sides.resize(points.len(), None);
             if let Some(cull) = simplex.cull() {
                 let origin = hull.input.point(simplex.vertices()[0]);
-                cull.mark_sides(origin, rows, stride, &points, &mut sides);
+                cull.mark_sides(origin, rows, stride, points, sides);
             }
             for (i, &p) in points.iter().enumerate() {
                 let side = match sides[i] {
@@ -864,14 +1049,15 @@ fn distance_zeros(
         }
     }
     zero_pairs.sort_unstable();
-    let mut zero_points = Lists::with_capacity(groups.groups.len(), zero_pairs.len());
+    zero_points.clear();
+    zero_points.reserve(groups.groups.len(), zero_pairs.len());
     let mut rest = &zero_pairs[..];
     for g in 0..groups.groups.len() as u32 {
         let take = rest.iter().take_while(|&&(group, _)| group == g).count();
         zero_points.push_iter(rest[..take].iter().map(|&(_, p)| p));
         rest = &rest[take..];
     }
-    Ok((on_boundary, zero_points))
+    Ok(())
 }
 
 /// The polygon of the extreme vertices of a facet of D = 3, in two of the
@@ -900,6 +1086,7 @@ fn facet_polygon(
     hull: &SimplicialHull<'_>,
     groups: &LogicalFacets,
     g: u32,
+    rows: &mut Vec<f64>,
 ) -> Result<Option<FacetPolygon>, ConvexHullError> {
     let Some(simplex) = groups.groups[g as usize]
         .simplices
@@ -935,12 +1122,10 @@ fn facet_polygon(
             continue;
         }
         let vertices = groups.vertices.get(g as usize);
-        let rows: Vec<f64> = vertices
-            .iter()
-            .flat_map(|&v| project(hull.input.point(v)))
-            .collect();
+        rows.clear();
+        rows.extend(vertices.iter().flat_map(|&v| project(hull.input.point(v))));
         return Ok(
-            polygon::extremes_polygon(Rows(&rows), vertices.len() as u32)?
+            polygon::extremes_polygon(Rows(rows), vertices.len() as u32)?
                 .map(|edges| FacetPolygon { axes, edges }),
         );
     }
@@ -950,28 +1135,39 @@ fn facet_polygon(
 
 /// Per point of `others`, the group of a simplex of the final complex whose
 /// plane number construction recorded for that point, if any.
+#[cfg(test)]
 fn recorded_groups(
     hull: &SimplicialHull<'_>,
     groups: &LogicalFacets,
     others: &[u32],
 ) -> Vec<Option<u32>> {
-    let mut starts = vec![None; others.len()];
+    let mut starts = Vec::new();
+    recorded_groups_into(hull, groups, others, &mut starts, &mut Vec::new());
+    starts
+}
+
+/// [`recorded_groups`] into `starts`, with `numbers` as its scratch.
+fn recorded_groups_into(
+    hull: &SimplicialHull<'_>,
+    groups: &LogicalFacets,
+    others: &[u32],
+    starts: &mut Vec<Option<u32>>,
+    numbers: &mut Vec<(u32, u32)>,
+) {
+    starts.clear();
+    starts.resize(others.len(), None);
     if hull.records.is_empty() {
-        return starts;
+        return;
     }
     // Simplices with one number lie in one plane, so in one logical facet.
-    let mut numbers: Vec<(u32, u32)> = groups
-        .groups
-        .iter()
-        .enumerate()
-        .flat_map(|(g, group)| {
-            group
-                .simplices
-                .iter()
-                .filter_map(|id| hull.facets.get(*id))
-                .map(move |s| (s.number(), g as u32))
-        })
-        .collect();
+    numbers.clear();
+    numbers.extend(groups.groups.iter().enumerate().flat_map(|(g, group)| {
+        group
+            .simplices
+            .iter()
+            .filter_map(|id| hull.facets.get(*id))
+            .map(move |s| (s.number(), g as u32))
+    }));
     numbers.sort_unstable();
     for (start, &p) in starts.iter_mut().zip(others) {
         *start = hull.records.numbers(p).find_map(|n| {
@@ -981,7 +1177,6 @@ fn recorded_groups(
                 .map(|i| numbers[i].1)
         });
     }
-    starts
 }
 
 /// Extreme points of `candidates`, which lie on the hyperplane through the
@@ -991,7 +1186,28 @@ fn face_extremes(
     plane: &[u32],
     candidates: &[u32],
     faces: &mut FoundFaces,
+    level: &mut Level,
     global: Option<&[u32]>,
+    extremes: &mut Vec<u32>,
+) -> Result<(), ConvexHullError> {
+    let mut key = core::mem::take(&mut level.key);
+    let result = face_extremes_with(
+        input, plane, candidates, faces, level, global, &mut key, extremes,
+    );
+    level.key = key;
+    result
+}
+
+/// [`face_extremes`] with `key` as the buffer of the face's key.
+#[allow(clippy::too_many_arguments)]
+fn face_extremes_with(
+    input: &Input<'_>,
+    plane: &[u32],
+    candidates: &[u32],
+    faces: &mut FoundFaces,
+    level: &mut Level,
+    global: Option<&[u32]>,
+    key: &mut Vec<u32>,
     extremes: &mut Vec<u32>,
 ) -> Result<(), ConvexHullError> {
     let d = input.dim();
@@ -1005,11 +1221,12 @@ fn face_extremes(
     // level is reached once, from its own facet, so only the faces below it
     // are remembered, and only a level whose sub-hull classifies faces of
     // its own (D - 1 >= 3) needs the key as its map to the input.
-    let key: Vec<u32> = match global {
-        Some(global) => candidates.iter().map(|&c| global[c as usize]).collect(),
-        None if d >= 4 => candidates.to_vec(),
-        None => Vec::new(),
-    };
+    key.clear();
+    match global {
+        Some(global) => key.extend(candidates.iter().map(|&c| global[c as usize])),
+        None if d >= 4 => key.extend_from_slice(candidates),
+        None => {}
+    }
     debug_assert!(key.is_sorted(), "a face's key ascends");
     // Tests compare the published result with and without the memo.
     #[cfg(test)]
@@ -1018,7 +1235,7 @@ fn face_extremes(
     let forget = false;
     let remember = global.is_some() && !forget;
     if remember {
-        if let Some(found) = faces.extremes.get(&key) {
+        if let Some(found) = faces.extremes.get(key) {
             // Back to this level's indices, through the key's order.
             extremes.extend(found.iter().map(|v| {
                 let at = key.binary_search(v);
@@ -1050,7 +1267,7 @@ fn face_extremes(
         extremes.extend_from_slice(candidates);
         return Ok(());
     };
-    let mut projected = core::mem::take(&mut faces.projected);
+    let mut projected = core::mem::take(&mut level.projected);
     projected.clear();
     projected.extend(candidates.iter().flat_map(|&p| {
         input
@@ -1060,15 +1277,14 @@ fn face_extremes(
             .filter(|&(j, _)| j != axis)
             .map(|(_, &x)| x)
     }));
-    let placed = sub_extremes(d - 1, &projected, faces, &key)
+    let placed = sub_extremes(d - 1, &projected, faces, level, key)
         .map(|places| extremes.extend(places.iter().map(|&i| candidates[i as usize])));
-    faces.projected = projected;
+    level.projected = projected;
     placed?;
     if remember {
-        faces.extremes.insert(
-            key,
-            extremes.iter().map(|&v| global_of(global, v)).collect(),
-        );
+        faces
+            .extremes
+            .insert(key, extremes.iter().map(|&v| global_of(global, v)));
     }
     Ok(())
 }
@@ -1086,6 +1302,7 @@ fn sub_extremes<'f>(
     d: usize,
     projected: &[f64],
     faces: &'f mut FoundFaces,
+    level: &mut Level,
     key: &[u32],
 ) -> Result<&'f [u32], ConvexHullError> {
     if d == 2 {
@@ -1108,9 +1325,7 @@ fn sub_extremes<'f>(
             );
         }
     } else {
-        let sub = sub_vertices(accept(d, projected)?, faces, key)?;
-        faces.places.clear();
-        faces.places.extend_from_slice(&sub);
+        sub_vertices(d, projected, faces, level, key)?;
     }
     Ok(&faces.places)
 }
@@ -2954,7 +3169,7 @@ pub(crate) mod tests {
                 RECORDED_SIGNS.with(core::cell::Cell::get) > 0,
                 "{name}: insertion took no sign from a record"
             );
-            let groups = merge(&recorded).unwrap();
+            let groups = crate::hull::merge::merge(&recorded).unwrap();
             let others: Vec<u32> = classify_built(built(), &mut FoundFaces::default())
                 .unwrap()
                 .coplanar_points;
@@ -2978,7 +3193,7 @@ pub(crate) mod tests {
             let mut left_out = 0;
             for (g, (with, without)) in zeros_with.iter().zip(zeros_without.iter()).enumerate() {
                 let polygon = if *dim == 3 {
-                    facet_polygon(&recorded, &groups, g as u32).unwrap()
+                    facet_polygon(&recorded, &groups, g as u32, &mut Vec::new()).unwrap()
                 } else {
                     None
                 };

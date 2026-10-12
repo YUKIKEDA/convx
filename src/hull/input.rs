@@ -25,7 +25,71 @@ pub(crate) struct Input<'a> {
     pub(crate) spanning_points: Vec<u32>,
 }
 
+/// The lists of an [`Input`], for the next one to be made in (#531).
+#[derive(Default)]
+pub(crate) struct InputWork {
+    representative: Vec<u32>,
+    representatives: Vec<u32>,
+    spanning_points: Vec<u32>,
+}
+
 impl<'a> Input<'a> {
+    /// The input of the points `points` (dimension `dim`), which are finite
+    /// and distinct and span dimension `dim`, each its own representative,
+    /// in the storage of `work`. The projected candidates of a face are
+    /// such points: the projection is one to one on the face's hyperplane,
+    /// and the face's basis keeps them from a lower dimension. [`accept`]
+    /// has nothing to find on them, and allocated for each face (#531).
+    /// `rows` is the scratch of the basis.
+    pub(crate) fn of_distinct(
+        dim: usize,
+        points: &'a [f64],
+        work: InputWork,
+        rows: &mut Vec<f64>,
+    ) -> Result<Self, ConvexHullError> {
+        let InputWork {
+            mut representative,
+            mut representatives,
+            mut spanning_points,
+        } = work;
+        let count = (points.len() / dim) as u32;
+        representative.clear();
+        representative.extend(0..count);
+        representatives.clear();
+        representatives.extend(0..count);
+        let basis = minimum_basis_with(dim, &representatives, self::rows(dim, points), rows)?;
+        debug_assert_eq!(basis.len(), dim + 1, "a face spans its hyperplane");
+        spanning_points.clear();
+        spanning_points.extend_from_slice(&basis);
+        let input = Self {
+            dim,
+            points,
+            representative,
+            representatives,
+            chain: None,
+            spanning_points,
+        };
+        #[cfg(debug_assertions)]
+        {
+            let accepted = accept(dim, points)?;
+            debug_assert!(
+                accepted.representative == input.representative
+                    && accepted.spanning_points == input.spanning_points,
+                "acceptance finds nothing on the candidates of a face"
+            );
+        }
+        Ok(input)
+    }
+
+    /// The lists of the input, for the next one.
+    pub(crate) fn into_work(self) -> InputWork {
+        InputWork {
+            representative: self.representative,
+            representatives: self.representatives,
+            spanning_points: self.spanning_points,
+        }
+    }
+
     /// The input of the points `points` (dimension `dim`), all distinct and
     /// each its own representative, with the affine basis `spanning_points`:
     /// the copy in space order that construction of D = 3 runs on (ADR 0009,

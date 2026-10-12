@@ -78,6 +78,13 @@ fn abort_if_full(slots: usize) {
     }
 }
 
+impl Default for FacetStore {
+    /// A store with no facet, to be [`FacetStore::reset`] before use.
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
 impl FacetStore {
     pub(crate) fn new(dim: usize) -> Self {
         Self {
@@ -101,6 +108,28 @@ impl FacetStore {
     }
 
     /// Number of live facets.
+    /// Empties the store for a hull of dimension `dim`. Every row keeps
+    /// its storage: a hull built for one face after another allocates its
+    /// facets once (#531).
+    pub(crate) fn reset(&mut self, dim: usize) {
+        self.dim = dim;
+        self.links = if dim == 1 { 0 } else { dim };
+        self.rows.clear();
+        self.planes.clear();
+        self.kinds.clear();
+        self.numbers.clear();
+        self.issued = 0;
+        self.outward.clear();
+        self.generations.clear();
+        self.live.clear();
+        self.outside.clear();
+        self.candidates.clear();
+        self.pool.clear();
+        self.garbage = 0;
+        self.free.clear();
+        self.len = 0;
+    }
+
     pub(crate) fn len(&self) -> usize {
         self.len
     }
