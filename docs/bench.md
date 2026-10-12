@@ -5499,7 +5499,7 @@ Against the references from the points instead, 27 sets would be met at 1.05 and
 
 Delaunay `cube` D3 (1.09 to 1.12) is reported: the price of the cospherical groups (ADR 0006).
 
-## Inputs whose structure grows: faces and cospherical groups of many points, PRs #535, #542, #543, #547, #549, #552, #553 (#531, #533, #534, #539, #540, #541, #548, #551)
+## Inputs whose structure grows: faces and cospherical groups of many points, PRs #535, #542, #543, #547, #549, #552, #553, #555 (#531, #533, #534, #539, #540, #541, #548, #551, #185)
 
 ### Why these inputs
 
@@ -5703,7 +5703,7 @@ Three costs found on the way and removed, each on a guard that read slower in a 
 | `cubesurf` D3, 10^6 points | 309.8 and 314.4 ms | 306.2 and 314.5 ms | 0.99 |
 | `cube` D3, 100,000 points (below the threshold) | 12.23 and 12.77 ms | 12.51 and 12.55 ms | 1.02 |
 
-**The exact stage over heap integers (#185):** found by a scan of 90 inputs at two sizes after #551 (every builder; points, faces, cospherical groups, and uncertified planes growing; D = 2 to 6): the one input whose count grew per item was the generator's `cube` with its first coordinate scaled by 1e150 and the others by 1e-150. The exponents of one determinant are then about 1,000 apart, more than the 1,024 bits of the integers on the stack, and the heap integers take it, reserving every buffer in every call. They run on a workspace kept per thread now. Base `main` at `94d9d5c`, head `66a0346`.
+**The exact stage over heap integers, PR #555 (#185):** found by a scan of 90 inputs at two sizes after #551 (every builder; points, faces, cospherical groups, and uncertified planes growing; D = 2 to 6): the one input whose count grew per item was the generator's `cube` with its first coordinate scaled by 1e150 and the others by 1e-150. The exponents of one determinant are then about 1,000 apart, more than the 1,024 bits of the integers on the stack, and the heap integers take it, reserving every buffer in every call. They run on a workspace kept per thread now. Base `main` at `94d9d5c`, head `66a0346`.
 
 Allocations of one `build()`:
 
