@@ -62,7 +62,7 @@ pub(crate) struct SimplicialHull<'a> {
 /// The storage of a hull, for the next one to be built in: its facets, its
 /// lists, and the working lists of its build. A sub-hull is built for each
 /// face that is not a simplex, and built from nothing it allocated about a
-/// hundred times a face (#531).
+/// hundred times a face (`docs/bench.md`, #531).
 #[derive(Default)]
 pub(crate) struct HullWork {
     facets: FacetStore,

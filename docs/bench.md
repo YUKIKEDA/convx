@@ -5499,7 +5499,7 @@ Against the references from the points instead, 27 sets would be met at 1.05 and
 
 Delaunay `cube` D3 (1.09 to 1.12) is reported: the price of the cospherical groups (ADR 0006).
 
-## Inputs whose structure grows: faces and cospherical groups of many points, PRs #535, #542, #543, #547 (#531, #533, #534, #539, #540, #541)
+## Inputs whose structure grows: faces and cospherical groups of many points, PRs #535, #542, #543, #547, #549 (#531, #533, #534, #539, #540, #541)
 
 ### Why these inputs
 
@@ -5635,6 +5635,53 @@ The first walks through the many ridges of one face of a prism before it reaches
 
 With one codegen unit on both sides the three rows at 1.02 and 1.03 read 1.01, 1.00, and 1.00.
 
+### The sub-hull of a face in kept storage, PR #549 (#531)
+
+A face that is not a simplex is classified through a hull of one dimension less. In D >= 4 that hull was built from nothing for each face, about a hundred allocations a face over about 70 call sites, each once per sub-hull (heap profiles by call site at k = 32 and 256, `dhat`, scratch). It is now built in the storage of the one before (design, the allocation contract).
+
+Allocations of one `build()`, at the small and the large size of `tests/alloc.rs`, base #547's head, head `6ac7b6d`:
+
+| Case | Before | After |
+| --- | --- | --- |
+| Hull, a k-gon times a square, k = 8 and 128 | 1,305 and 13,186 | 225 and 319 |
+| Hull `cubesurf` D4 | 1,076 and 1,267 | 328 and 368 |
+| Hull `grid` D4 | 1,700 and 1,700 | 276 and 274 |
+| Hull `cluster` D4 | 16,345 and 13,884 | 2,740 and 1,960 |
+| Hull `cluster` D3 | 477 and 436 | 234 and 227 |
+
+Over the 44 cases the allocations at the large size fall from 42,197 to 14,002 in sum. Of the 3,393 left on hull `cluster` D4, 2,404 are the exact direction of a plane, two per call (#548).
+
+Time, pinned and alternated, the minimum of eight rounds, one pair of builds, the same hash of the whole result on both sides in every row:
+
+| Input | Before | After | Ratio |
+| --- | ---: | ---: | ---: |
+| Hull D = 4, a 2,048-gon times a square | 165.9 ms | 150.0 ms | 0.90 |
+| Hull D = 4, a 256-gon times a square | 20.18 ms | 18.22 ms | 0.90 |
+| Hull D = 4, a 16-gon times a square | 1.336 ms | 1.185 ms | 0.89 |
+| Hull `cube` D2, 200,000 points | 9.853 ms | 9.921 ms | 1.01 |
+| Hull `cube` D3, 200,000 points | 26.96 ms | 26.52 ms | 0.98 |
+| Hull `cube` D4, 30,000 points | 11.01 ms | 11.29 ms | 1.03 |
+| Hull `cube` D5, 5,000 points | 34.84 ms | 34.49 ms | 0.99 |
+| Hull `sphere` D3, 100,000 points | 252.3 ms | 256.1 ms | 1.02 |
+| Hull `cubesurf` D3, 100,000 points | 30.83 ms | 30.22 ms | 0.98 |
+| Hull `cubesurf` D4, 20,000 points | 36.76 ms | 37.51 ms | 1.02 |
+| Hull `grid` D3, 100,000 points (64 distinct) | 1.181 ms | 1.279 ms | 1.08 |
+| Hull D = 3, a prism over a 2,048-gon | 9.826 ms | 9.961 ms | 1.01 |
+| Delaunay `cube` D3, 30,000 points | 116.6 ms | 115.4 ms | 0.99 |
+| Voronoi `cube` D3, 20,000 points | 213.6 ms | 213.4 ms | 1.00 |
+| Delaunay D = 3, a sphere of 6,630 points and a site outside | 87.55 ms | 88.33 ms | 1.01 |
+| Delaunay full grid 16^3 | 67.59 ms | 66.38 ms | 0.98 |
+
+**Hull `grid` D3** reads 1.08 by the minimum. Over 20 alternated launches its median is 1.297 ms before and 1.281 ms after, and its first quartile 1.274 and 1.269; the base has a few faster launches (1.17 ms) that the head did not show (1.25 ms at best). With timers inside the build, construction read 114 to 125 us on the head against 125 to 169 us, and classification 158 to 170 us against 164 to 297 us. The rest of that build is acceptance of the 100,000 points, which the change does not touch. The gap of the minimum is not explained.
+
+Three costs found on the way and removed, each on a guard that read slower in a first version:
+
+| Guard | What cost | Read | After |
+| --- | --- | ---: | ---: |
+| Hull `cubesurf` D3, 100,000 points | a sort of (start group, point) pairs where a list per group had been; now a counting sort | 1.04 to 1.06 | 1.00 |
+| Hull `grid` D3, 100,000 points | a list of flags per point kept with the level, so the lists after it found no freed storage of that size | median 1.04 | below |
+| Hull `grid` D3, 100,000 points | flags written over every page of three lists, where a zeroed allocation touches only the pages it sets | median 1.04 | median 0.99 |
+
 ### Reading
 
-Each of the four steps was quadratic or cubic in the points of one face or group, and is linear on these inputs in the given order. Shuffled, the sphere grows a little faster than linearly under the search of #547 (2.8 times the time for 2.3 times the sites). What the profile of the k-gon times a square shows next is the sub-hull of each face and classification, which is #531.
+Each of the four steps was quadratic or cubic in the points of one face or group, and is linear on these inputs in the given order. Shuffled, the sphere grows a little faster than linearly under the search of #547 (2.8 times the time for 2.3 times the sites). The sub-hull of each face then stopped allocating for each face (#531), which took another tenth off the k-gon times a square.

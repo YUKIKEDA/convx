@@ -757,9 +757,9 @@ type Zeros = (Vec<bool>, Lists<u32>);
 /// `flags` as `count` flags, none set. A list that has the room is cleared
 /// in place. One that has not is allocated zeroed: a hull of 100,000
 /// points of which 64 are distinct sets a few of its flags, and writing
-/// every flag of three such lists touched every page of them, 8% of that
-/// build, where pages that come zeroed are touched only where a flag is
-/// set.
+/// every flag of such lists touched every page of them, 4% of that build
+/// by the median (`docs/bench.md`, #531), where pages that come zeroed are
+/// touched only where a flag is set.
 fn clear_flags(flags: &mut Vec<bool>, count: usize) {
     if flags.capacity() < count {
         *flags = vec![false; count];
@@ -932,7 +932,7 @@ fn distance_zeros_into(
     // The places of the points of each start group, ascending, the groups
     // in their order, by a counting sort: a list per group allocated per
     // group (#531), and a sort of the pairs cost 5% of a hull whose points
-    // lie on its faces.
+    // lie on its faces (`docs/bench.md`).
     let count = groups.groups.len();
     offsets.clear();
     offsets.resize(count + 2, 0);
