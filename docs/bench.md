@@ -6442,6 +6442,52 @@ Against the run of #577 (its second readings):
 - With these thirteen rows in place of theirs in the run of #577, and the other 25 as that run read them, 37 of the 38 judged sets are met at 1.05 and 30 at 1.00. That is two runs put together, two hours and two commits apart (`ce01e84` and `d9b6725`, which differ by #580, the tools of #581, and documents), and not one run.
 - Five of the thirteen sit between 1.02 and 1.05: Delaunay `cube` D2 10^4, D4 10^4, and D5 10^4, Delaunay `sphere` D2 10^5, and hull `sphere` D3 10^6. A run can put any of them on either side.
 
+## The placing search at every dimension the complex reaches, PR #587 (#565)
+
+The spike #563 found 15.9% of the hull of the corners of a cube in D = 8 in `Placing::scan`. The search on the surface of #540 started only once the complex had the dimension of all the points; the corners of a cube in index order reach dimension k at corner 2^(k - 1), so the first half of a facet's points were placed by the scan of every boundary ridge. The search now starts after each point that raises the complex to three dimensions or more, and stops at the next point that raises it.
+
+**The same simplices in the same order:** the whole `Debug` form of the result has the same hash on both sides on every input below.
+
+The hull of the corners of a cube, base `d9b6725`, head `2fc0452`, one `build()`:
+
+| D | Corners | Windows, pinned, before | After | WSL, pinned, before | After |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 5 | 32 | 2.42 ms | 2.50 ms | – | – |
+| 6 | 64 | 43.6 ms | 46.6 ms | – | – |
+| 7 | 128 | 647 ms | 631 ms | 586 ms | 578 ms (0.99) |
+| 8 | 256 | 9.04 s | 7.65 s (0.85) | 8.19 s | 6.99 s (0.85) |
+
+D = 5 to 7 on Windows are the minimum of three alternated runs of 20, 5, and 2 builds (in D = 6 the three read 43.6, 48.6, and 48.4 ms before and 46.6, 47.0, and 47.7 after); D = 8 the minimum of three.
+
+Inside the placing, by timers in scratch copies, Windows, one build:
+
+| D | Commit | `build()` | The scan | The search |
+| ---: | --- | ---: | ---: | ---: |
+| 7 | `d9b6725` | 643 ms | 11 ms (1.8%) | 161 ms (25.0%) |
+| 7 | `2fc0452` | 615 ms | 1 ms (0.1%) | 166 ms (27.0%) |
+| 8 | `d9b6725` | 8,473 ms | 1,390 ms (16.4%) | 1,693 ms (20.0%) |
+| 8 | `2fc0452` | 7,208 ms | 6 ms (0.1%) | 1,910 ms (26.5%) |
+
+The guards, pinned and alternated, minimum and median in ms, with the ratios of the head to the base:
+
+| Input | Windows, base | Windows, head | WSL, base | WSL, head |
+| --- | ---: | ---: | ---: | ---: |
+| Hull, a 1,024-gon times a square, D4 | 79.7, 82.8 | 80.3, 82.6 (1.01, 1.00) | 70.3, 73.3 | 70.5, 73.3 (1.00, 1.00) |
+| Hull, a 256-gon times a cube, D5 | 455.2, 483.3 | 450.8, 476.5 (0.99, 0.99) | 409.7, 426.3 | 418.6, 426.2 (1.02, 1.00) |
+| Delaunay, the integer points of a sphere and a site outside, 1,921 sites, D3 | 23.74, 24.42 | 23.58, 23.96 (0.99, 0.98) | 21.99, 22.83 | 20.90, 22.34 (0.95, 0.98) |
+| Delaunay, the full grid of side 8, D4 | 737.4, 761.5 | 732.8, 765.7 (0.99, 1.01) | 700.4, 718.2 | 695.9, 716.2 (0.99, 1.00) |
+| Hull `cube` D4 10^5 | 34.89, 36.78 | 34.95, 36.69 (1.00, 1.00) | 31.16, 33.71 | 31.12, 33.28 (1.00, 0.99) |
+| Hull `sphere` D3 10^5 | 273.0, 296.2 | 268.7, 287.3 (0.98, 0.97) | 248.3, 256.7 | 252.2, 262.6 (1.02, 1.02) |
+| Hull `sphere` D3 10^4 | – | – | 18.74, 20.13 | 18.73, 20.05 (1.00, 1.00) |
+| Hull `cubesurf` D4, 20,000 points | 39.98, 41.89 | 39.04, 42.80 (0.98, 1.02) | 37.71, 40.79 | 36.45, 40.72 (0.97, 1.00) |
+| Hull `grid` D6 10^4 | 256.3, 278.6 | 257.0, 271.2 (1.00, 0.97) | 223.9, 232.3 | 224.4, 230.9 (1.00, 0.99) |
+| Delaunay of 20,000 `lattice` points, D3 | 2.479, 2.781 | 2.503, 2.805 (1.01, 1.01) | 2.093, 2.264 | 2.098, 2.305 (1.00, 1.02) |
+| Delaunay of 3,000 `lattice` points, D4 | 77.79, 86.04 | 79.94, 85.31 (1.03, 0.99) | 72.43, 75.37 | 72.78, 75.03 (1.00, 1.00) |
+
+5 to 12 rounds. The Windows columns and the first WSL sitting were timed on `0e44b0d`; the head differs from it in a test only. Hull `sphere` D3 10^5 reads 1.02 and 1.02 under WSL over 10 rounds of 2 builds, 0.98 and 0.97 on Windows, and 1.04 and 0.96 in an earlier WSL sitting of 6 rounds that started while the machine was still busy from the tests; at 10^4 it reads 1.00 over 12 rounds of 5. A hull of `sphere` D3 has no face of more than three points and never enters the placing. In that earlier sitting the 1,024-gon times a square read 1.09 and 1.21 and hull `cube` D4 1.05 and 1.02; the table has their second sitting.
+
+`tests/alloc.rs` passes with no record moved.
+
 ## The last rows of P7: two withdrawn after measurement, and the lifted underflow terms removed, PR #588 (#323, #400, #355)
 
 ### P7-8 and P7-31, withdrawn
