@@ -5859,7 +5859,7 @@ Points and allocations, `points:allocations`:
 
 Each of the four steps was quadratic or cubic in the points of one face or group, and is linear on these inputs in the given order. Shuffled, the sphere grows a little faster than linearly under the search of #547 (2.8 times the time for 2.3 times the sites). The sub-hull of each face then stopped allocating for each face (#531), which took another tenth off the k-gon times a square.
 
-## A parity run after the allocation rows, and hull `sphere` D2 slower since #549 (#569)
+## A parity run after the allocation rows, and hull `sphere` D2 slower since #549, PR #572 (#569)
 
 Between the final P7 run and this one, the rows of the allocation contract merged (#527 to #568). Each was timed on its own inputs and guards, and none was run against the references. This run asks where the sets stand now.
 
