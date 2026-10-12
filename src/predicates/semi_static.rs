@@ -358,12 +358,11 @@ fn minors2_of_four(rows: [[f64; 2]; 4]) -> [(f64, f64); 6] {
 
 /// The 4 x 4 determinant of rows `a, b, c, d`, expanded along column 3 over
 /// the 3 x 3 minors of columns 0 to 2 ([`minor3`]):
-/// `(b3 M_acd - a3 M_bcd) + (d3 M_abc - c3 M_abd)`. Returns it, its
-/// permanent, and each minor's permanent, in the order of the rows left
-/// out. A monomial carries the 8 roundings of its minor, the roundings of
-/// its column-3 entry, the product, and two sums.
+/// `(b3 M_acd - a3 M_bcd) + (d3 M_abc - c3 M_abd)`. Returns it and its
+/// permanent. A monomial carries the 8 roundings of its minor, the
+/// roundings of its column-3 entry, the product, and two sums.
 #[inline(always)]
-fn expand4(rows: [[f64; 3]; 4], column: [f64; 4]) -> (f64, f64, [f64; 4]) {
+fn expand4(rows: [[f64; 3]; 4], column: [f64; 4]) -> (f64, f64) {
     let [a, b, c, d] = rows;
     let [ab, ac, ad, bc, bd, cd] = minors2_of_four(rows.map(first2));
     let m_bcd = minor3((b, c, d), (cd, bd, bc));
@@ -374,7 +373,7 @@ fn expand4(rows: [[f64; 3]; 4], column: [f64; 4]) -> (f64, f64, [f64; 4]) {
     let det = (b3 * m_acd.0 - a3 * m_bcd.0) + (d3 * m_abc.0 - c3 * m_abd.0);
     let permanent =
         (b3.abs() * m_acd.1 + a3.abs() * m_bcd.1) + (d3.abs() * m_abc.1 + c3.abs() * m_abd.1);
-    (det, permanent, [m_bcd.1, m_acd.1, m_abd.1, m_abc.1])
+    (det, permanent)
 }
 
 /// Orientation, k = 4: [`expand4`] with column 3 a leaf, `n = 12`. Each
@@ -384,7 +383,7 @@ fn expand4(rows: [[f64; 3]; 4], column: [f64; 4]) -> (f64, f64, [f64; 4]) {
 /// `η / 2`. So `X = (|a3| + |b3| + |c3| + |d3|) (Z + 2) + 2`.
 fn orient4(a: [f64; 4], b: [f64; 4], c: [f64; 4], d: [f64; 4]) -> Estimate {
     let rows = [a, b, c, d];
-    let (det, permanent, _) = expand4(rows.map(first3), rows.map(|r| r[3]));
+    let (det, permanent) = expand4(rows.map(first3), rows.map(|r| r[3]));
     let z = (a[2].abs() + b[2].abs()) + (c[2].abs() + d[2].abs());
     let s = (a[3].abs() + b[3].abs()) + (c[3].abs() + d[3].abs());
     Estimate::new(det, relative(12), permanent, s * (z + 2.0) + 2.0)
@@ -392,22 +391,51 @@ fn orient4(a: [f64; 4], b: [f64; 4], c: [f64; 4], d: [f64; 4]) -> Estimate {
 
 /// Lifted orientation, D = 1: rows `(a, a^2)` and `(b, b^2)`,
 /// `det = a b^2 - a^2 b`. A square carries 3 roundings, a product 5, the
-/// difference 6. Each square underflows by at most `η / 2`, scaled by the
-/// other coordinate; each product by `η / 2`. So `X = |a| + |b| + 1`.
+/// difference 6. Each of the two products underflows by at most `η / 2`,
+/// so `X = 1`.
+///
+/// The underflow of a square needs no term (#355). Take `a^2`; `b^2` is
+/// the same with the names exchanged. Its error `e` is zero unless
+/// `|a| < 2^-511`, it is at most `η / 2`, and it is `a^2` itself when
+/// `a^2 < η / 4`, where the square rounds to zero. It reaches the
+/// determinant as `e |b|`.
+///
+/// - `|b| <= 2`: `e |b| <= η`. With the products' `η` that is `2 η`, and
+///   `4 η X` leaves a factor of two for the roundings. The two squares do
+///   not both count: a square underflows only for a coordinate below
+///   `2^-511`, and then the other square's error is scaled by it.
+/// - `|b| > 2` and `e |b| <= η / 2`: the same, with `3 η / 2`.
+/// - `|b| > 2` and `e |b| > η / 2`: the relative term covers it. First,
+///   `|a| b^2 > 2^-536`: for `|a| >= 2^-538` because `b^2 > 4`; below it
+///   `e = a^2`, so `a^2 |b| > η / 2` gives `|a| |b| > 2^-537`. That
+///   monomial of the permanent is a normal number, so
+///   `P̂ >= |a| b^2 (1 - u)^3`, and `(n + 1) u P̂` exceeds the rounding
+///   error `γ_n P` by at least `u P̂ / 2 >= u |a| b^2 / 4`. That is at
+///   least `e |b|`: for `|a| >= 2^-538`, `u |a| |b| / 4 > 2^-592 > e`;
+///   below it, `e = a^2` and `|a| < 2^-538 < u |b| / 4`.
 fn lifted1(a: f64, b: f64) -> Estimate {
     let (la, lb) = (a * a, b * b);
     let (p, q) = (a * lb, la * b);
-    let x = a.abs() + b.abs() + 1.0;
-    Estimate::new(p - q, relative(6), p.abs() + q.abs(), x)
+    Estimate::new(p - q, relative(6), p.abs() + q.abs(), 1.0)
 }
 
 /// Lifted orientation, D = 2: rows `(x, y, x^2 + y^2)`, expanded along the
 /// lifted column over the minors of the coordinates (the in-circle test).
 /// A lifted entry carries 4 roundings, a minor 4, a term 9, and two sums
-/// make `n = 11`. A lifted entry underflows by at most `η`, scaled by its
-/// minor; a minor by `η`, scaled by its lifted entry; each outer product
-/// by `η / 2`. So `X` is the sum of the minors' permanents, of the lifted
-/// entries, and 2.
+/// make `n = 11`. A minor underflows by at most `η`, scaled by its lifted
+/// entry; each outer product by `η / 2`. So `X` is the sum of the lifted
+/// entries and 2.
+///
+/// The underflow of the lifted entries needs no term (#355). A lifted
+/// entry underflows by at most `η`, scaled by its minor, which is at most
+/// the minor's permanent. For rows `i` and `j` that permanent is
+/// `|x_i y_j| + |y_i x_j| <= (x_i^2 + y_j^2) / 2 + (y_i^2 + x_j^2) / 2`,
+/// half the sum of the two rows' lifted entries. Each row is in two of the
+/// three minors, so the three permanents add up to at most the sum `L` of
+/// the lifted entries, and the whole underflow is at most
+/// `η (2 L + 3/2)`. The computed entries are within `(1 - u)^4` and `η`
+/// each of the exact ones, so `4 η X = 4 η (L̂ + 2)` covers it with a
+/// factor near two left for the roundings.
 #[inline(always)]
 fn lifted2(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> Estimate {
     let lift = |p: [f64; 2]| p[0] * p[0] + p[1] * p[1];
@@ -415,26 +443,37 @@ fn lifted2(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> Estimate {
     let (bc, ac, ab) = (minor2(b, c), minor2(a, c), minor2(a, b));
     let det = (la * bc.0 - lb * ac.0) + lc * ab.0;
     let permanent = (la * bc.1 + lb * ac.1) + lc * ab.1;
-    let x = ((bc.1 + ac.1) + ab.1) + ((la + lb) + lc) + 2.0;
+    let x = ((la + lb) + lc) + 2.0;
     Estimate::new(det, relative(11), permanent, x)
 }
 
 /// Lifted orientation, D = 3: [`expand4`] with column 3 the lifted entries
 /// `(x^2 + y^2) + z^2` (the in-sphere test). A lifted entry carries 5
-/// roundings, a term 14, and two sums make `n = 16`. A lifted entry
-/// underflows by at most `3 η / 2`, scaled by its minor's permanent; a minor
-/// as in [`orient4`], scaled by its lifted entry; each outer product by
-/// `η / 2`. So `X = 2 (sum of the minors' permanents) + (sum of the lifted
-/// entries) (Z + 2) + 2`.
+/// roundings, a term 14, and two sums make `n = 16`. A minor underflows
+/// as in [`orient4`], by at most `η (Z + 3/2)`, scaled by its lifted
+/// entry; each outer product by `η / 2`. So
+/// `X = (sum of the lifted entries) (Z + 2) + 2`.
+///
+/// The underflow of the lifted entries needs no term (#355). A lifted
+/// entry underflows by at most `3 η / 2`, scaled by its minor, which is at
+/// most the minor's permanent. Expand that permanent along column 2: the
+/// row `r` that gives `|z_r|` leaves the permanent of the other two rows
+/// in the coordinates `x` and `y`, at most half the sum of their lifted
+/// entries, as in [`lifted2`]. Over the four minors, each row `r` meets
+/// each other row in two of them, so the four permanents add up to at
+/// most `sum_r |z_r| (L - l_r) <= Z L`, with `L` the sum of the lifted
+/// entries. The whole underflow is then at most
+/// `η (3 Z L / 2 + L (Z + 3/2) + 2) <= η (5 Z L / 2 + 3 L / 2 + 2)`, and
+/// `4 η X = η (4 Z L̂ + 8 L̂ + 8)` covers it with a factor of 1.6 left for
+/// the roundings and for `L̂` against `L`.
 #[inline(always)]
 fn lifted3(a: [f64; 3], b: [f64; 3], c: [f64; 3], d: [f64; 3]) -> Estimate {
     let rows = [a, b, c, d];
     let lifts = rows.map(|p| (p[0] * p[0] + p[1] * p[1]) + p[2] * p[2]);
-    let (det, permanent, minors) = expand4(rows, lifts);
+    let (det, permanent) = expand4(rows, lifts);
     let z = (a[2].abs() + b[2].abs()) + (c[2].abs() + d[2].abs());
     let l = (lifts[0] + lifts[1]) + (lifts[2] + lifts[3]);
-    let m = (minors[0] + minors[1]) + (minors[2] + minors[3]);
-    Estimate::new(det, relative(16), permanent, 2.0 * m + l * (z + 2.0) + 2.0)
+    Estimate::new(det, relative(16), permanent, l * (z + 2.0) + 2.0)
 }
 
 /// The sum of `terms` (at most 5), added pairwise in a tree of depth
@@ -1174,6 +1213,82 @@ pub(super) mod tests {
         (0..count(dim, lifted))
             .map(|_| (0..dim).map(|_| rng.unit() * scale).collect())
             .collect()
+    }
+
+    /// Rows of one point each at its own scale, from the smallest
+    /// subnormal to `2^300`, with coordinates that are zero and mantissas
+    /// of a few bits among them: the lifted entry of one row underflows
+    /// while the minors of the others are large, which the families of
+    /// [`the_bound_keeps_its_measured_margin`] do not reach.
+    fn mixed_scales(rng: &mut Rng, dim: usize, lifted: bool, trial: usize) -> Vec<Vec<f64>> {
+        const EXPONENTS: [i32; 14] = [
+            -1074, -1060, -800, -545, -538, -537, -536, -530, -512, -300, -100, 0, 100, 300,
+        ];
+        let exponent = |rng: &mut Rng| EXPONENTS[rng.below(EXPONENTS.len() as u64) as usize];
+        let mut points = vec![vec![0.0; dim]];
+        for _ in 1..count(dim, lifted) {
+            let of_row = exponent(rng);
+            let row = (0..dim)
+                .map(|_| {
+                    if rng.below(6) == 0 {
+                        return 0.0;
+                    }
+                    let e = if trial.is_multiple_of(3) {
+                        exponent(rng)
+                    } else {
+                        of_row
+                    };
+                    let e = (e + rng.below(9) as i32 - 4).clamp(-1074, 500);
+                    let mantissa = if rng.below(3) == 0 {
+                        1.0 + rng.below(8) as f64 / 8.0
+                    } else {
+                        1.0 + rng.unit().abs()
+                    };
+                    let value = mantissa * two_to(e);
+                    if rng.below(2) == 0 {
+                        value
+                    } else {
+                        -value
+                    }
+                })
+                .collect();
+            points.push(row);
+        }
+        points
+    }
+
+    /// The lifted formulas of k up to 4 bound the underflow without a term
+    /// for their lifted entries (#355), and the bound stays twice the exact
+    /// error of the computed determinant where a lifted entry underflows
+    /// beside large minors. Every sign certified there is the exact sign.
+    ///
+    /// The terms that stay are needed: with the sum of the lifted entries
+    /// out of `X`, 14% of these inputs of D = 2 and 18% of D = 3 had an
+    /// error above the bound, and some certified a wrong sign.
+    #[test]
+    fn lifted_rows_of_mixed_scales_are_covered() {
+        let mut rng = Rng(355);
+        for dim in 1..=3 {
+            let mut counted = 0;
+            let mut tally = Tally::default();
+            for trial in 0..4000 {
+                let points = mixed_scales(&mut rng, dim, true, trial);
+                let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+                let finite = estimate(refs[0], &refs[1..], true)
+                    .is_some_and(|e| e.det.is_finite() && e.bound().is_finite());
+                if !finite {
+                    continue;
+                }
+                counted += 1;
+                let (error, bound) = error_and_bound(&points, true);
+                assert!(covers(&bound, &error, 2), "D = {dim}: {points:?}");
+                check(&points, true, &mut tally, "mixed scales");
+            }
+            assert!(
+                counted > 3900 && tally.certified > 500 && tally.open > 100,
+                "D = {dim}: {counted} {tally:?}"
+            );
+        }
     }
 
     /// The bound of the common path is never below `fl(s + fl(4 η x))`,
