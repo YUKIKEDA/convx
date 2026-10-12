@@ -1,7 +1,7 @@
 //! A list of lists in two flat arrays (#254).
 //!
 //! The values of every list follow one another in one array, and a second
-//! array holds where each list starts. Building one costs no allocation per
+//! array holds where each list ends. Building one costs no allocation per
 //! list, and reading list `i` is two loads. Merged groups, classified faces,
 //! and the published results keep their per-item lists this way.
 
@@ -9,28 +9,28 @@
 #[derive(Clone, Debug)]
 pub(crate) struct Lists<T> {
     values: Vec<T>,
-    /// `starts[i]..starts[i + 1]` is list `i`; one more entry than lists,
-    /// or none before the first list: a default value allocates nothing,
-    /// so a workspace that holds lists costs nothing until it is used
-    /// (#531).
-    starts: Vec<u32>,
+    /// `ends[i - 1]..ends[i]` is list `i`, and list 0 starts at 0: one
+    /// entry per list. A default value allocates nothing, so a workspace
+    /// that holds lists costs nothing until it is used (#531), and a push
+    /// writes one entry with nothing to test first. With a leading start
+    /// kept in the array, an empty value had to write it in its first push,
+    /// and the test for that slowed every push (#570, #578).
+    ends: Vec<u32>,
 }
 
 impl<T> Default for Lists<T> {
     fn default() -> Self {
         Self {
             values: Vec::new(),
-            starts: Vec::new(),
+            ends: Vec::new(),
         }
     }
 }
 
 impl<T: PartialEq> PartialEq for Lists<T> {
-    /// The same lists in the same order, whether or not either has
-    /// written its first start.
+    /// The same lists in the same order.
     fn eq(&self, other: &Self) -> bool {
-        self.values == other.values
-            && self.starts.get(1..).unwrap_or(&[]) == other.starts.get(1..).unwrap_or(&[])
+        self.values == other.values && self.ends == other.ends
     }
 }
 
@@ -39,17 +39,15 @@ impl<T: Eq> Eq for Lists<T> {}
 impl<T: Copy> Lists<T> {
     /// No lists, with room for `lists` lists of `values` values in all.
     pub(crate) fn with_capacity(lists: usize, values: usize) -> Self {
-        let mut starts = Vec::with_capacity(lists + 1);
-        starts.push(0);
         Self {
             values: Vec::with_capacity(values),
-            starts,
+            ends: Vec::with_capacity(lists),
         }
     }
 
     /// Number of lists.
     pub(crate) fn len(&self) -> usize {
-        self.starts.len().saturating_sub(1)
+        self.ends.len()
     }
 
     /// Whether there are no lists.
@@ -61,12 +59,12 @@ impl<T: Copy> Lists<T> {
     /// one item to the next.
     pub(crate) fn clear(&mut self) {
         self.values.clear();
-        self.starts.truncate(1);
+        self.ends.clear();
     }
 
     /// Room for `lists` more lists holding `values` more values in all.
     pub(crate) fn reserve(&mut self, lists: usize, values: usize) {
-        self.starts.reserve(lists);
+        self.ends.reserve(lists);
         self.values.reserve(values);
     }
 
@@ -82,39 +80,36 @@ impl<T: Copy> Lists<T> {
         self.close();
     }
 
-    /// Writes the first start, which a default value does not have. It is
-    /// out of line and cold: written in [`Self::close`], it made every push
-    /// of a list slower, 8 to 10% of a hull of D = 2 whose points are all
-    /// extreme (#570).
-    #[cold]
-    #[inline(never)]
-    fn open(&mut self) {
-        self.starts.push(0);
-    }
-
     /// Ends the list that the values pushed since the last one form.
     #[inline]
     fn close(&mut self) {
-        if self.starts.is_empty() {
-            self.open();
-        }
         // Values are indexed by `u32`; more is an exhaustion of the index
         // space, which aborts like an allocation failure (design §3).
         let Ok(end) = u32::try_from(self.values.len()) else {
             std::process::abort();
         };
-        self.starts.push(end);
+        self.ends.push(end);
+    }
+
+    /// Where list `i` starts: the end of the list before it, or 0 for the
+    /// first. The lookup one before the first is out of bounds and reads
+    /// as 0, so the first list costs no test of its own.
+    #[inline]
+    fn start(&self, i: usize) -> usize {
+        self.ends
+            .get(i.wrapping_sub(1))
+            .map_or(0, |&end| end as usize)
     }
 
     /// List `i`. Panics past the end, like slice indexing; callers pass a
     /// number below [`Self::len`].
     pub(crate) fn get(&self, i: usize) -> &[T] {
-        &self.values[self.starts[i] as usize..self.starts[i + 1] as usize]
+        &self.values[self.start(i)..self.ends[i] as usize]
     }
 
     /// List `i`, to be changed in place.
     pub(crate) fn get_mut(&mut self, i: usize) -> &mut [T] {
-        let (start, end) = (self.starts[i] as usize, self.starts[i + 1] as usize);
+        let (start, end) = (self.start(i), self.ends[i] as usize);
         &mut self.values[start..end]
     }
 
