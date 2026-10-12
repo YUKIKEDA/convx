@@ -44,6 +44,7 @@ The current row's ID lives only in [docs/roadmap.md](docs/roadmap.md).
 | `.cursor/rules/spec-checks.mdc`          | Check the full statement and fixed orders; every documented rule has a code path               |
 | `.cursor/rules/dev-docs.mdc`             | Mermaid and LaTeX in the design spec                                                           |
 | `.cursor/rules/review-comments.mdc`     | A review finding is about that pull request's head                                              |
+| `.cursor/rules/publish.mdc`             | The owner runs `cargo publish`. No benchmark before the code it measures is final              |
 
 Grill, when the design branches: [`.agents/skills/grilling/SKILL.md`](.agents/skills/grilling/SKILL.md).
 
