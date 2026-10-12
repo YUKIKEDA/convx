@@ -282,7 +282,6 @@ impl FaceMemo {
 #[derive(Default)]
 struct Level {
     merge: MergeWork,
-    skipped: Vec<bool>,
     zeros: ZerosWork,
     zero_points: Lists<u32>,
     candidates: Vec<u32>,
@@ -527,7 +526,11 @@ fn found_at(
     // Distance signs of the other representatives against every group.
     // Points construction proved strictly inside are interior already
     // (design §3) and skip the scan.
-    let skipped = &mut level.skipped;
+    // The marks are kept in `is_vertex`, which is filled only at the end:
+    // a list of its own, kept with the level, left the lists that follow
+    // this function without the storage it used to free, and a hull of
+    // 100,000 points that are 64 distinct ones read 8% slower.
+    let skipped = &mut *is_vertex;
     skipped.clear();
     skipped.resize(points, false);
     for &p in &hull.proved_interior {
