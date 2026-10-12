@@ -6678,7 +6678,7 @@ Not timed on Windows at scale 1 beyond the first column of the tables above, whi
 
 A parity run follows this change (the owner's order: no benchmark before the code it measures is final).
 
-## The parity run after the input's exact scaling (#609)
+## The parity run after the input's exact scaling, PR #610 (#609)
 
 One run of the 41 sets on `main` at `327e5a1`, after #606. No parity set is scaled: their coordinates are in [-1, 1) or small integers. The run checks that what #606 put before acceptance costs nothing that shows. Method: `docs/verification.md`, `benches/parity/`; WSL2, Qhull 2020.2, CGAL 5.4, `rustc` 1.99.0, `g++` 11.4.0.
 
