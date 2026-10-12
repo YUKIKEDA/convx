@@ -127,7 +127,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-48 | Spike | Where does hull sphere time go at D = 3 to D = 6?                                                         | #199  | Done                     |
 | P5-49 | Spike | Why is the low-dimension cube hull slower than Qhull's compute time?                                      | #200  | Done                     |
 | P5-50 | Bug   | Run the filtered elimination under AVX2, not AVX-512 (the D = 8 lifted 9 x 9 was 24x slower)              | #195  | Done                     |
-| P5-51 | Feat  | Vectorize the filtered elimination of size 10 and up (heap rows)                                          | #203  | Not started              |
+| P5-51 | Feat  | Vectorize the filtered elimination of size 10 and up (heap rows)                                          | #203  | Closed: done by #554     |
 | P5-52 | Feat  | Cut the copies and cache lines of the simplex record that hull construction writes and walks              | #209  | Done                     |
 | P5-53 | Docs  | Publish the certified cofactor direction as every facet's unit normal                                     | #210  | Done                     |
 | P5-54 | Feat  | Publish the certified cofactor direction and remove the published QR                                      | #212  | Done                     |
