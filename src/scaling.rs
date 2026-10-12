@@ -96,3 +96,87 @@ pub(crate) fn scaled_copy(points: &[f64], from: i32) -> Option<Vec<f64>> {
 fn far_from_one(largest: f64, from: i32) -> bool {
     largest.is_finite() && largest != 0.0 && binary_exponent(largest).abs() > from
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn two(e: i32) -> f64 {
+        scale_by_power_of_two(1.0, e)
+    }
+
+    /// Ordinary coordinates are left alone, on both sides of the threshold's
+    /// edge; beyond it the copy is the input times one power of two, exactly,
+    /// with its largest magnitude in [1, 2).
+    #[test]
+    fn a_copy_is_the_input_times_one_power_of_two() {
+        // The largest magnitude has the binary exponent 0.
+        let base = [0.75, -0.5, 0.0, 0.3, -0.0, 0.123, 1.0 / 3.0, -1.999];
+        for from in [HULL_FROM, SITES_FROM] {
+            for e in [0, 1, from, -from] {
+                let points: Vec<f64> = base.iter().map(|x| x * two(e)).collect();
+                assert!(scaled_copy(&points, from).is_none(), "2^{e} from {from}");
+            }
+            for e in [from + 2, -from - 2, 300, -300, 1000, -1000, -1060] {
+                let points: Vec<f64> = base.iter().map(|x| x * two(e)).collect();
+                let copy = scaled_copy(&points, from).unwrap();
+                let largest = copy.iter().fold(0.0_f64, |m, x| m.max(x.abs()));
+                assert!((1.0..2.0).contains(&largest), "2^{e}: {largest}");
+                let shift = binary_exponent(copy[0]) - binary_exponent(points[0]);
+                for (y, x) in copy.iter().zip(&points) {
+                    // The same product, and nothing lost by it.
+                    assert_eq!(y.to_bits(), scale_by_power_of_two(*x, shift).to_bits());
+                    assert_eq!(scale_by_power_of_two(*y, -shift).to_bits(), x.to_bits());
+                }
+            }
+        }
+    }
+
+    /// Subnormal coordinates scale up exactly. Huge coordinates beside one
+    /// that a scale down would push below the normal range are left alone,
+    /// and so is an input with a coordinate that is not finite, or with no
+    /// nonzero coordinate.
+    #[test]
+    fn a_scale_that_would_round_is_not_taken() {
+        let tiny = [
+            f64::from_bits(1),
+            f64::from_bits(3),
+            -f64::from_bits(7),
+            0.0,
+        ];
+        let copy = scaled_copy(&tiny, HULL_FROM).unwrap();
+        assert_eq!(copy, [0.25, 0.75, -1.75, 0.0]);
+
+        let huge = two(1000);
+        // 2^-22 times 2^-1000 is the smallest normal number: still exact.
+        assert!(scaled_copy(&[huge, two(-22)], HULL_FROM).is_some());
+        // 1.5 * 2^-23 would land below the normal range and lose a bit.
+        assert!(scaled_copy(&[huge, 1.5 * two(-23)], HULL_FROM).is_none());
+        assert!(scaled_copy(&[huge, f64::from_bits(1)], HULL_FROM).is_none());
+
+        assert!(scaled_copy(&[huge, f64::NAN], HULL_FROM).is_none());
+        assert!(scaled_copy(&[huge, f64::INFINITY], HULL_FROM).is_none());
+        assert!(scaled_copy(&[0.0, -0.0], HULL_FROM).is_none());
+        assert!(scaled_copy(&[], HULL_FROM).is_none());
+    }
+
+    /// The sample decides only whether the input is read in full: an input
+    /// whose sampled coordinates are ordinary is left alone, and one whose
+    /// sample is far from 1 is scaled by its largest coordinate, sampled or
+    /// not.
+    #[test]
+    fn the_sample_does_not_choose_the_scale() {
+        let n = 4 * SAMPLE;
+        let step = n / SAMPLE;
+        // Far from 1 everywhere, and the largest between two samples.
+        let mut points = vec![two(-900); n];
+        points[step + 1] = two(-890);
+        let copy = scaled_copy(&points, HULL_FROM).unwrap();
+        assert_eq!(copy[step + 1], 1.0);
+        assert_eq!(copy[0], two(-10));
+        // Ordinary where sampled, with one huge coordinate between samples.
+        let mut points = vec![0.5; n];
+        points[step + 1] = two(900);
+        assert!(scaled_copy(&points, HULL_FROM).is_none());
+    }
+}
