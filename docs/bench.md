@@ -6442,7 +6442,7 @@ Against the run of #577 (its second readings):
 - With these thirteen rows in place of theirs in the run of #577, and the other 25 as that run read them, 37 of the 38 judged sets are met at 1.05 and 30 at 1.00. That is two runs put together, two hours and two commits apart (`ce01e84` and `d9b6725`, which differ by #580, the tools of #581, and documents), and not one run.
 - Five of the thirteen sit between 1.02 and 1.05: Delaunay `cube` D2 10^4, D4 10^4, and D5 10^4, Delaunay `sphere` D2 10^5, and hull `sphere` D3 10^6. A run can put any of them on either side.
 
-## The last rows of P7: two withdrawn after measurement, and the lifted underflow terms removed (#323, #400, #355)
+## The last rows of P7: two withdrawn after measurement, and the lifted underflow terms removed, PR #588 (#323, #400, #355)
 
 ### P7-8 and P7-31, withdrawn
 
