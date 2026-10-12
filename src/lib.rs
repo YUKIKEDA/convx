@@ -13,6 +13,7 @@ mod lists;
 mod morton;
 mod normal;
 mod predicates;
+mod scaling;
 mod small;
 mod static_api;
 mod voronoi;

@@ -52,8 +52,14 @@ impl<'a> ConvexHullBuilder<'a> {
     /// there, and [`ConvexHullError::ExactEvaluationExhausted`]. The planes
     /// of the facets are not computed here ([`ConvexHull::planes`]).
     pub fn build(self) -> Result<ConvexHull, ConvexHullError> {
-        let input = accept(self.dim, self.points)?;
-        let hull = publish(classify(input)?);
+        // An input far from 1 is built on a copy scaled exactly (#589);
+        // the hull keeps the coordinates of the input itself.
+        let scaled = crate::scaling::scaled_copy(self.points);
+        let input = accept(self.dim, scaled.as_deref().unwrap_or(self.points))?;
+        let mut hull = publish(classify(input)?);
+        if scaled.is_some() {
+            hull.take_coordinates_from(self.points);
+        }
         #[cfg(debug_assertions)]
         {
             if let Err(violation) = super::invariants::check(&hull, self.points) {
@@ -432,6 +438,20 @@ impl ConvexHull {
     #[must_use]
     pub fn representative(&self) -> &[u32] {
         &self.representative
+    }
+
+    /// Replaces the coordinates of the extreme points by those of
+    /// `points`, the input the hull was asked for, after a build on a
+    /// scaled copy of it.
+    fn take_coordinates_from(&mut self, points: &[f64]) {
+        let d = self.dim;
+        for (row, &v) in self
+            .vertex_coordinates
+            .chunks_exact_mut(d)
+            .zip(&self.vertices)
+        {
+            row.copy_from_slice(&points[v as usize * d..(v as usize + 1) * d]);
+        }
     }
 
     /// Extreme points, ascending.
