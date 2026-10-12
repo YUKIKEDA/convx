@@ -36,7 +36,10 @@
 //! each face (#531), and the exact direction of a plane, per call (#548).
 //! The copy in space order of a sub-hull of 2^17 points or more (#551) is
 //! kept too; no case here reaches it, and a unit test of the hull's
-//! storage covers it with the threshold lowered.
+//! storage covers it with the threshold lowered. One is known and not
+//! removed: the exact stage over heap integers allocates in every call
+//! (#185). No case here reaches it either: it takes coordinates whose
+//! exponents are far apart, or D > 10.
 //!
 //! Debug builds run invariant checks inside every build, and those allocate
 //! freely, so the counts hold for release builds only. `just test` runs this
