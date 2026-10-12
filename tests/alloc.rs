@@ -34,8 +34,9 @@
 //! per point of a collinear prefix (#530), the pulling triangulation per
 //! site (#539), the sub-hull of a face in D >= 4, built from nothing for
 //! each face (#531), and the exact direction of a plane, per call (#548).
-//! One known is left: the copy in space order of a sub-hull of 2^17
-//! points or more (#551), which no case here reaches.
+//! The copy in space order of a sub-hull of 2^17 points or more (#551) is
+//! kept too; no case here reaches it, and a unit test of the hull's
+//! storage covers it with the threshold lowered.
 //!
 //! Debug builds run invariant checks inside every build, and those allocate
 //! freely, so the counts hold for release builds only. `just test` runs this

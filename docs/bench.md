@@ -5693,6 +5693,16 @@ Three costs found on the way and removed, each on a guard that read slower in a 
 | Hull `grid` D3, 100,000 points | a list of flags per point kept with the level, so the lists after it found no freed storage of that size | median 1.04 | below |
 | Hull `grid` D3, 100,000 points | flags written over every page of three lists, where a zeroed allocation touches only the pages it sets | median 1.04 | median 0.99 |
 
+**The copy in space order (#551):** a hull of D = 3 with 2^17 representatives or more is built on a copy of its points in Morton order, and its lists are now kept with the hull's storage. The path at the top level, base #552's head, head `de4bcfe`, pinned and alternated, six rounds, the same hash of the result on both sides:
+
+| Hull | Before, minimum and median | After, minimum and median | Ratio of the minimum |
+| --- | ---: | ---: | ---: |
+| `sphere` D3, 10^6 points | 3,346 and 3,494 ms | 3,284 and 3,489 ms | 0.98 |
+| `sphere` D3, 200,000 points | 536.9 and 542.3 ms | 533.7 and 549.8 ms | 0.99 |
+| `cube` D3, 10^6 points | 165.8 and 172.8 ms | 164.8 and 169.7 ms | 0.99 |
+| `cubesurf` D3, 10^6 points | 309.8 and 314.4 ms | 306.2 and 314.5 ms | 0.99 |
+| `cube` D3, 100,000 points (below the threshold) | 12.23 and 12.77 ms | 12.51 and 12.55 ms | 1.02 |
+
 ### Reading
 
 Each of the four steps was quadratic or cubic in the points of one face or group, and is linear on these inputs in the given order. Shuffled, the sphere grows a little faster than linearly under the search of #547 (2.8 times the time for 2.3 times the sites). The sub-hull of each face then stopped allocating for each face (#531), which took another tenth off the k-gon times a square.
