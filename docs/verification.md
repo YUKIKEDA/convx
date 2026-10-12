@@ -192,5 +192,6 @@ The run that judges a set against ADR 0006. It times convx, CGAL, and Qhull on e
   - Per set, one unrecorded convx build first.
   - Then per round: convx (the plain copy, then the marked copy), then CGAL, then Qhull, each pinned with `taskset -c 2`.
   - A set whose slowest judged build is 1.5 times its fastest or more is run again after the run, and both readings are recorded (#577).
+  - The judged builds are default release builds, as a user's `cargo build --release` makes them (the owner's decision of 2026-10-12, #578). When two commits read a few percent apart with no change on the path, the same sets are also built with `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1`: a difference that goes away there is where the compiler put the code, not work. That reading is reported beside the judgement.
   - 5 rounds of 3 builds when that first build took under 1.5 s, otherwise 3 rounds of 1.
 - **Report.** Per set: the median and the min–max of each tool, the phase shares of `build()`, the ratio to each reference, whether each ratio is judged or a reference value, and whether the set is met: within 1.05 of each judged reference, and, counted apart, at most 1.00 (ADR 0006, amendment of 2026-10-10). The counts of the three tools are compared, and a disagreement is reported next to the set.

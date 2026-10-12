@@ -6273,3 +6273,127 @@ Every commit between the two that touches `src`, 12 alternated rounds of 5 build
 - The rows since the final P7 run cost two parity sets: hull `sphere` D2 by 8 to 10%, found and fixed (#570), and hull `sphere` D3 10^4 by about 3.5%, found here and open (#578). A set that sat at 0.99 had no room for either.
 - A ratio of 1.02 to 1.03 between two commits is not "inside the spread" when the minimum and the median agree; it takes more rounds, not a verdict. `bench.mdc` has the rule for a set that reads slower on the same side as an earlier run, and it applied.
 - A parity run on this machine is disturbed in stretches of minutes whatever I leave alone. Sets whose slowest build is 1.5 times the fastest are run again before they are judged.
+
+## Hull `sphere` D3 10^4: the flat lists keep where each list ends, PR #580 (#578)
+
+The run of #577 left hull `sphere` D3 10^4 outside 1.05, and `main` built it 3.5% slower than the final P7 run's commit.
+
+### Where the time went
+
+The phases of one `build()` of hull `sphere` D3 10^4, summed by timers in scratch copies, under WSL, pinned and alternated, 14 runs of 10 builds; the minimum of `build()` over the runs, and the medians of the runs' means, in ms:
+
+| Commit | `build()` (minimum, median) | Acceptance | Construction | Classification | Publication |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `b6934d5`, the final P7 run | 17.95, 20.22 | 0.10 | 16.73 | 2.84 | 0.40 |
+| `accd8ce`, before #549 | 17.75, 20.33 | 0.10 | 16.76 | 2.86 | 0.49 |
+| `6713f61` (#549) | 18.41, 20.63 | 0.11 | 16.83 | 3.30 | 0.49 |
+| `c7180d5` (#555) | 18.13, 20.57 | 0.11 | 16.72 | 3.14 | 0.42 |
+| `f1893ad` (#556) | 18.67, 20.83 | 0.10 | 16.97 | 3.11 | 0.48 |
+| `ce01e84`, `main` | 18.68, 20.38 | 0.11 | 16.70 | 3.12 | 0.48 |
+
+**Classification** rose by 16% at #549 and stayed 10% above. **Publication** reads 0.40 to 0.42 ms on two commits and 0.48 to 0.49 on four, in no order of time: it follows the build, not a change. **Construction** shows no step in this table; #556, which the timing by commit of #577 pointed at, does not show here.
+
+With two more timers inside classification, in a second sitting (the medians of 14 runs):
+
+| Commit | Classification | The merge | The rest of finding the vertices | After it |
+| --- | ---: | ---: | ---: | ---: |
+| `accd8ce`, before #549 | 2.72 | 1.72 | 0.33 | 0.68 |
+| `ce01e84`, `main` | 2.91 | 1.76 | 0.38 | 0.77 |
+| `e1b3775`, this change | 2.86 | 1.71 | 0.34 | 0.81 |
+
+The last column does not compare across #549: since it, the buffers of the merge and of the sub-hulls are kept in a workspace that is dropped after the vertices are found, and before it they were dropped inside the first two columns.
+
+### The change
+
+Since #549 the logical facets of the merge are flat lists (`Lists`), and so are the faces written at the end. A `Lists` held a leading start, and #549 let a default value allocate nothing by writing that start in the first push; #573 moved the write out of line and left the test. The array now holds the end of each list and no leading start: a default value allocates nothing, a push writes one entry and tests nothing, and reading list `i` takes the end of the list before it, where the lookup one before the first list is out of bounds and reads as 0. A read is two bounds-checked loads, as before.
+
+### Time
+
+The final P7 run's commit, `main`, and the change, plain builds under WSL, pinned and alternated, minimum and median in ms, with the ratios to the first column; 5 to 14 rounds:
+
+| Set | `b6934d5` | `ce01e84`, `main` | `e1b3775`, this change |
+| --- | ---: | ---: | ---: |
+| Hull `sphere` D3 10^4 | 18.55, 20.19 | 18.66, 21.01 (1.01, 1.04) | 18.43, 20.48 (0.99, 1.01) |
+| Hull `sphere` D2 10^4 | 0.718, 0.796 | 0.699, 0.778 (0.97, 0.98) | 0.686, 0.776 (0.96, 0.98) |
+| Hull `sphere` D2 10^5 | 8.85, 9.83 | 8.45, 9.68 (0.95, 0.98) | 8.48, 9.49 (0.96, 0.97) |
+| Hull `sphere` D3 10^5 | 242.5, 260.0 | 255.4, 261.2 (1.05, 1.00) | 244.0, 259.7 (1.01, 1.00) |
+| Hull `cube` D3 10^5 | 9.45, 10.43 | 9.24, 10.25 (0.98, 0.98) | 9.33, 10.47 (0.99, 1.00) |
+| Hull `cubesurf` D3 10^5 | 26.71, 28.84 | 26.82, 28.71 (1.00, 1.00) | 25.93, 28.58 (0.97, 0.99) |
+| Hull `cube` D2 10^6 | 58.8, 61.1 | 50.9, 54.7 (0.87, 0.90) | 52.2, 56.5 (0.89, 0.93) |
+| Hull `sphere` D4 10^4 | 86.5, 91.4 | 86.5, 93.3 (1.00, 1.02) | 89.7, 92.8 (1.04, 1.01) |
+| Hull `grid` D6 10^4 | 241.4, 251.1 | 231.7, 239.0 (0.96, 0.95) | 230.7, 240.0 (0.96, 0.96) |
+| Delaunay `sphere` D2 10^4 | 4.62, 5.16 | 4.95, 5.26 (1.07, 1.02) | 4.82, 5.33 (1.04, 1.03) |
+| Delaunay `cube` D2 10^4 | 4.93, 5.42 | 4.91, 5.48 (1.00, 1.01) | 4.82, 5.41 (0.98, 1.00) |
+| Delaunay `cube` D2 10^5 | 50.7, 53.4 | 53.6, 55.7 (1.06, 1.04) | 52.4, 55.6 (1.03, 1.04) |
+| Delaunay `sphere` D3 10^4 | 67.5, 71.8 | 66.6, 71.3 (0.99, 0.99) | 67.9, 72.2 (1.01, 1.01) |
+| Delaunay `cube` D3 10^5 | 400.8, 409.3 | 388.5, 394.9 (0.97, 0.97) | 392.1, 399.8 (0.98, 0.98) |
+
+Hull `sphere` D3 10^4 reads 1.01 by the median and 0.99 by the minimum against the final P7 run's commit, where `main` reads 1.04 and 1.01 in this sitting and read 1.035 and 1.039 over 14 rounds in the sitting of #577. In the timing by phase its `build()` reads 19.21, 19.99, and 19.46 ms by the median for `accd8ce`, `main`, and the change (1.04 and 1.01). About one percent is left in these builds; the section on one codegen unit below places it.
+
+**Delaunay `cube` D2 10^5** reads 1.03 to 1.06 of the final P7 run's commit on `main` and with the change, and Delaunay `sphere` D2 10^4 1.02 to 1.07. The next two sections say what that is.
+
+On Windows, `main` against the change, 4 to 12 rounds:
+
+| Set | `ce01e84`, `main` | `e1b3775`, this change |
+| --- | ---: | ---: |
+| Hull `sphere` D3 10^4 | 20.46, 22.44 | 20.19, 22.54 (0.99, 1.00) |
+| Hull `sphere` D2 10^4 | 0.974, 1.064 | 0.956, 1.056 (0.98, 0.99) |
+| Hull `sphere` D2 10^5 | 9.43, 10.29 | 9.41, 10.43 (1.00, 1.01) |
+| Hull `sphere` D3 10^5 | 243.9, 259.2 | 247.5, 259.2 (1.02, 1.00) |
+| Hull `cube` D3 10^6 | 140.8, 151.4 | 140.0, 149.1 (0.99, 0.99) |
+| Hull `cubesurf` D3 10^5 | 27.96, 29.87 | 27.70, 29.59 (0.99, 0.99) |
+| Hull `cube` D4 10^5 | 32.5, 34.5 | 32.1, 34.1 (0.99, 0.99) |
+| Hull `grid` D6 10^4 | 241.0, 256.9 | 245.5, 252.5 (1.02, 0.98) |
+| Delaunay `cube` D2 10^5 | 52.1, 55.5 | 51.9, 53.8 (1.00, 0.97) |
+| Delaunay `sphere` D2 10^5 | 43.7, 48.2 | 44.3, 47.3 (1.01, 0.98) |
+| Delaunay `cube` D3 10^5 | 388.1, 414.0 | 398.3, 410.1 (1.03, 0.99) |
+| Delaunay of 20,000 `lattice` points, D3 | 2.48, 2.74 | 2.48, 2.77 (1.00, 1.01) |
+| Voronoi `cube` D3, 30,000 points | 315.6, 339.7 | 309.2, 337.0 (0.98, 0.99) |
+
+### Delaunay D2 by commit
+
+Every commit since the final P7 run that touches `src`, and this change, plain builds under WSL, 16 alternated rounds of 2 builds (10^5) and of 8 (10^4), minimum and median in ms, with the ratios to `b6934d5`:
+
+| Commit | `cube` D2 10^5 | `sphere` D2 10^5 | `cube` D2 10^4 | `sphere` D2 10^4 |
+| --- | ---: | ---: | ---: | ---: |
+| `b6934d5` | 50.53, 54.11 | 39.83, 43.36 | 4.64, 4.99 | 4.46, 4.78 |
+| `42bfbfa` (#527) | 50.14, 54.01 (0.99, 1.00) | 39.40, 43.53 (0.99, 1.00) | 4.67, 5.03 (1.01, 1.01) | 4.48, 4.73 (1.00, 0.99) |
+| `9c824dc` (#528) | 50.29, 53.36 (1.00, 0.99) | 39.20, 43.06 (0.98, 0.99) | 4.65, 4.92 (1.00, 0.99) | 4.46, 4.76 (1.00, 1.00) |
+| `384b73f` (#532) | 50.13, 53.83 (0.99, 0.99) | 39.63, 43.20 (1.00, 1.00) | 4.67, 4.95 (1.01, 0.99) | 4.47, 4.76 (1.00, 1.00) |
+| `356c8ee` (#535) | 51.54, 53.89 (1.02, 1.00) | 40.21, 43.77 (1.01, 1.01) | 4.67, 4.99 (1.01, 1.00) | 4.45, 4.84 (1.00, 1.01) |
+| `6b5fa06` (#542) | 50.25, 53.94 (0.99, 1.00) | 40.56, 43.18 (1.02, 1.00) | 4.65, 4.88 (1.00, 0.98) | 4.46, 4.75 (1.00, 0.99) |
+| `1467557` (#543) | 52.13, 54.69 (1.03, 1.01) | 41.38, 44.32 (1.04, 1.02) | 4.77, 5.06 (1.03, 1.01) | 4.63, 4.94 (1.04, 1.03) |
+| `accd8ce` (#547) | 50.91, 53.64 (1.01, 0.99) | 40.29, 43.14 (1.01, 0.99) | 4.64, 4.96 (1.00, 0.99) | 4.49, 4.73 (1.00, 0.99) |
+| `6713f61` (#549) | 50.32, 54.80 (1.00, 1.01) | 40.25, 43.38 (1.01, 1.00) | 4.66, 5.02 (1.00, 1.00) | 4.49, 4.77 (1.01, 1.00) |
+| `9feb3db` (#552) | 50.66, 54.77 (1.00, 1.01) | 40.36, 43.63 (1.01, 1.01) | 4.74, 4.98 (1.02, 1.00) | 4.50, 4.72 (1.01, 0.99) |
+| `94d9d5c` (#553) | 50.78, 54.48 (1.00, 1.01) | 39.90, 42.49 (1.00, 0.98) | 4.62, 4.89 (1.00, 0.98) | 4.46, 4.72 (1.00, 0.99) |
+| `c7180d5` (#555) | 51.30, 54.04 (1.02, 1.00) | 40.54, 43.41 (1.02, 1.00) | 4.69, 4.99 (1.01, 1.00) | 4.47, 4.76 (1.00, 1.00) |
+| `f1893ad` (#556) | 50.66, 54.70 (1.00, 1.01) | 39.99, 42.89 (1.00, 0.99) | 4.71, 4.96 (1.01, 0.99) | 4.52, 4.74 (1.01, 0.99) |
+| `b0d288d` (#566) | 50.94, 54.84 (1.01, 1.01) | 40.89, 45.05 (1.03, 1.04) | 4.69, 5.02 (1.01, 1.01) | 4.61, 4.81 (1.03, 1.01) |
+| `ce01e84`, `main` | 51.00, 55.33 (1.01, 1.02) | 41.55, 44.01 (1.04, 1.02) | 4.80, 5.00 (1.03, 1.00) | 4.58, 4.83 (1.03, 1.01) |
+| `e1b3775`, this change | 51.12, 54.37 (1.01, 1.00) | 40.88, 43.79 (1.03, 1.01) | 4.74, 5.04 (1.02, 1.01) | 4.55, 4.89 (1.02, 1.02) |
+
+Two things stand out, and neither is work added to a Delaunay build:
+
+- `1467557` reads 1.03 to 1.04 by the minimum on all four sets and the commit after it reads 1.00 again. It changed how a Voronoi build finds the facets of a cospherical group, which a Delaunay build does not run.
+- From `b0d288d` on, the `sphere` sets read 1.03 to 1.04 by the minimum. It changed the linking of the D + 2 initial cells, which runs once in a build.
+
+### With one codegen unit
+
+The same sets built with `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1`, where the compiler lays the crate out as one unit, 16 alternated rounds, minimum and median in ms, with the ratios to `b6934d5`:
+
+| Set | `b6934d5` | `f1893ad` (#556) | `b0d288d` (#566) | `ce01e84`, `main` | `e1b3775`, this change |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Delaunay `cube` D2 10^5 | 51.06, 54.87 | 50.65, 53.25 (0.99, 0.97) | 51.02, 54.10 (1.00, 0.99) | 50.34, 54.02 (0.99, 0.98) | – |
+| Delaunay `sphere` D2 10^5 | 40.08, 43.33 | 39.24, 43.49 (0.98, 1.00) | 40.20, 43.10 (1.00, 0.99) | 40.25, 42.48 (1.00, 0.98) | – |
+| Delaunay `cube` D2 10^4 | 4.69, 4.95 | 4.63, 4.93 (0.99, 1.00) | 4.71, 4.93 (1.00, 1.00) | 4.57, 4.98 (0.97, 1.01) | – |
+| Delaunay `sphere` D2 10^4 | 4.44, 4.68 | 4.48, 4.75 (1.01, 1.02) | 4.47, 4.81 (1.01, 1.03) | 4.45, 4.68 (1.00, 1.00) | – |
+| Hull `sphere` D3 10^4 | 16.97, 18.75 | – | – | 17.16, 18.98 (1.01, 1.01) | 17.03, 18.81 (1.00, 1.00) |
+| Hull `sphere` D2 10^5 | 8.34, 9.68 | – | – | 8.32, 9.87 (1.00, 1.02) | 8.46, 9.63 (1.02, 0.99) |
+| Hull `sphere` D3 10^5 (one build a round) | 230.4, 238.8 | – | – | 228.6, 252.9 (0.99, 1.06) | 236.8, 247.1 (1.03, 1.03) |
+
+- **The Delaunay sets of D = 2 are where they were at the final P7 run**: `main` reads 0.97 to 1.01 of it. The 1.02 to 1.07 of the default builds is where the compiler put the code in those builds, not what the code does. The rows since P7 did not slow Delaunay D2.
+- **Hull `sphere` D3 10^4 is back**: `main` reads 1.01 by the minimum and by the median, and the change 1.00 and 1.00. The percent left in the default builds is layout too.
+- **One codegen unit is itself 6 to 8% faster on hull `sphere` D3 10^4**: 16.97 to 17.16 ms by the minimum, against 17.9 to 18.7 ms in the default builds of the same commits. The parity run judges the default build, as a user's `cargo build --release` makes it, and it stays so: the owner decided on 2026-10-12 to keep judging the default build (#578). A reading with one codegen unit is a way to tell layout from work, and is reported beside the judgement, not in its place.
+
+**Not timed:** the hulls of D = 9 and 10 of #556. The change is in `src/lists.rs` alone and #556's lists are not `Lists`. The set was not judged against Qhull and CGAL again.
