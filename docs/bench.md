@@ -6034,7 +6034,7 @@ Delaunay `cube` D4 10^4 reads 1.03, from 1.06, and is met; directly its two comm
 
 Of the rows since the final run, one changed a parity set beyond the spread: #549, on hull `sphere` D2. No other set moved against convx in the direct timing, where the largest other ratios are 1.03 (hull `sphere` D3 10^4 and D4 10^5) and 1.05 by the minimum with 1.02 by the median (Delaunay `cube` D2 10^4). The guards of a pull request did not cover the path it changed: `build()` reaches the D = 2 hull through code that #549 touched, and a guard of D = 2 was not in its list.
 
-## Hull `sphere` D2: the first start of a list out of the push (#570)
+## Hull `sphere` D2: the first start of a list out of the push, PR #573 (#570)
 
 The parity run of #569 found hull `sphere` D2 8 to 10% slower since PR #549, under WSL.
 
