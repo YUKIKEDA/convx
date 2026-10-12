@@ -44,8 +44,8 @@
 //! thread that needs them, so a later build on that thread counts fewer.
 //! A hull of D = 9 or 10 allocated for every simplex it planned (#554);
 //! hulls of D = 8 to 10 and Delaunay of D = 8 and 9 are counted at two
-//! numbers of points. One is known and not removed: in D >= 11 the lists
-//! whose length follows the dimension are on the heap (#554).
+//! numbers of points. The contract reaches D = 10: in D >= 11 the lists
+//! whose length follows the dimension are on the heap, by design (#554).
 //!
 //! Debug builds run invariant checks inside every build, and those allocate
 //! freely, so the counts hold for release builds only. `just test` runs this
