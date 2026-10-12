@@ -82,10 +82,21 @@ impl<T: Copy> Lists<T> {
         self.close();
     }
 
+    /// Writes the first start, which a default value does not have. It is
+    /// out of line and cold: written in [`Self::close`], it made every push
+    /// of a list slower, 8 to 10% of a hull of D = 2 whose points are all
+    /// extreme (#570).
+    #[cold]
+    #[inline(never)]
+    fn open(&mut self) {
+        self.starts.push(0);
+    }
+
     /// Ends the list that the values pushed since the last one form.
+    #[inline]
     fn close(&mut self) {
         if self.starts.is_empty() {
-            self.starts.push(0);
+            self.open();
         }
         // Values are indexed by `u32`; more is an exhaustion of the index
         // space, which aborts like an allocation failure (design §3).
