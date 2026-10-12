@@ -836,7 +836,7 @@ struct Pulled {
 /// face. Intersecting every face with every facet of the hull, by a search
 /// per vertex of the face, was quadratic in the sites: 411 ms for 6,630
 /// integer points of a sphere in D = 3, with a list allocated per facet
-/// (#539).
+/// (`docs/bench.md`, #539).
 fn pulled_cells<'p>(
     d: usize,
     sites: &[u32],

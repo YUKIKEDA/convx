@@ -1262,7 +1262,7 @@ impl Placing {
     ///
     /// The general method tests each point against every boundary ridge,
     /// about k^2 / 2 orientations for k points: the hull of a prism over a
-    /// 2,048-gon took 138 ms, nearly all of it there (#533).
+    /// 2,048-gon took 138 ms, nearly all of it there (`docs/bench.md`, #533).
     fn in_a_plane<'p>(
         &mut self,
         d: usize,
@@ -1478,7 +1478,8 @@ impl Placing {
     ///
     /// The scan tests each point against every boundary ridge, about n^2
     /// orientations for n points: the hull of a 1,024-gon times a square
-    /// took 889 ms, and a cospherical group of 6,630 sites 1.9 s (#531).
+    /// took 889 ms, and a cospherical group of 6,630 sites 1.9 s
+    /// (`docs/bench.md`, #540).
     fn on_the_surface<'p>(
         &mut self,
         point: &impl Fn(u32) -> &'p [f64],
