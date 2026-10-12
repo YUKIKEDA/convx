@@ -6525,7 +6525,7 @@ The guards, pinned and alternated, minimum and median in ms, with the ratios of 
 
 5 to 16 rounds. Three Windows rows are a second sitting of 14 to 16 rounds: in the first, of 8, Delaunay `cube` D3 10^5 read 1.04 and 1.04, `cube` D2 10^5 1.02 and 1.03, and `sphere` D2 10^5 0.99 and 1.05. The last three WSL rows were disturbed (their medians stand far above their minima on both sides). The change takes three operations out of an in-circle test and five out of an in-sphere test, and no set moves beyond the spread: it is not a speed change and claims none.
 
-## The full parity run after the last rows of P7 (#591)
+## The full parity run after the last rows of P7, PR #603 (#591)
 
 One run of the 41 sets on `main` at `df80378`, which has the placing search at every dimension (#587) and the lifted formulas without their redundant underflow terms (#588). The count of 37 of 38 in the section of #583 was two runs put together; this is one. Method: `docs/verification.md`, with `benches/parity/` as committed; WSL2, Qhull 2020.2, CGAL 5.4, `rustc` 1.99.0, `g++` 11.4.0.
 
