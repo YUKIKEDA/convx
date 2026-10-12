@@ -1001,7 +1001,8 @@ fn facets_by_every_site(
 /// the polytope is an edge of a tile, and only those pairs are asked. The
 /// facets holding a pair are read from the facets at each of its sites.
 /// Asking every pair of the group's sites against every facet is cubic in
-/// the sites: 17.6 s for 1,920 sites on one sphere in D = 3 (#541).
+/// the sites: 17.6 s for 1,920 sites on one sphere in D = 3
+/// (`docs/bench.md`, #541).
 fn edges_of_facets(
     d: usize,
     sites: &[u32],
