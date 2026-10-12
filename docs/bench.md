@@ -6398,7 +6398,7 @@ The same sets built with `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1`, where the comp
 
 **Not timed:** the hulls of D = 9 and 10 of #556. The change is in `src/lists.rs` alone and #556's lists are not `Lists`. The set was not judged against Qhull and CGAL again.
 
-## The placing search at every dimension the complex reaches (#565)
+## The placing search at every dimension the complex reaches, PR #587 (#565)
 
 The spike #563 found 15.9% of the hull of the corners of a cube in D = 8 in `Placing::scan`. The search on the surface of #540 started only once the complex had the dimension of all the points; the corners of a cube in index order reach dimension k at corner 2^(k - 1), so the first half of a facet's points were placed by the scan of every boundary ridge. The search now starts after each point that raises the complex to three dimensions or more, and stops at the next point that raises it.
 
