@@ -6274,7 +6274,7 @@ Every commit between the two that touches `src`, 12 alternated rounds of 5 build
 - A ratio of 1.02 to 1.03 between two commits is not "inside the spread" when the minimum and the median agree; it takes more rounds, not a verdict. `bench.mdc` has the rule for a set that reads slower on the same side as an earlier run, and it applied.
 - A parity run on this machine is disturbed in stretches of minutes whatever I leave alone. Sets whose slowest build is 1.5 times the fastest are run again before they are judged.
 
-## Hull `sphere` D3 10^4: the flat lists keep where each list ends (#578)
+## Hull `sphere` D3 10^4: the flat lists keep where each list ends, PR #580 (#578)
 
 The run of #577 left hull `sphere` D3 10^4 outside 1.05, and `main` built it 3.5% slower than the final P7 run's commit.
 
