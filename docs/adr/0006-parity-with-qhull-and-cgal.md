@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Amended on 2026-10-10: a set is met within 5% of each judged reference. Amended on 2026-10-11: CGAL's Delaunay reference, and its D = 2 hull reference, give the same output as convx (Amendments below). Amended again on 2026-10-11: Delaunay `cube` D3 is reported against CGAL, not judged, for the price of the cospherical groups.
+Accepted. Amended on 2026-10-10: a set is met within 5% of each judged reference. Amended on 2026-10-11: CGAL's Delaunay reference, and its D = 2 hull reference, give the same output as convx (Amendments below). Amended again on 2026-10-11: Delaunay `cube` D3 is reported against CGAL, not judged, for the price of the cospherical groups. Amended on 2026-10-12: the judged build is the default release build.
 
 ## Date
 
@@ -154,3 +154,17 @@ Issue: #483 (P7-60), from the spike P7-71 (#509). Decided by the owner on 2026-1
 - **The cavity work is CGAL's.** The in-sphere tests per site agree within 4%, and no predicate leaves the first stage.
 
 **What it does not change.** Every other set, the method, the references, and the judgement at 1.05 and at 1.00. Delaunay D2 10^4 and the other D3 sets stay judged.
+
+## Amendment of 2026-10-12: the judged build is the default release build
+
+Issue: #578. Decided by the owner on 2026-10-12.
+
+**What is decided.** A parity run judges convx as `cargo build --release` builds it, with the profile's default codegen units, as every run so far has.
+
+**Why it was asked.** Built with one codegen unit, hull `sphere` D3 10^4 took 17.0 ms against 17.9 to 18.7 ms in the default builds of the same commits, 6 to 8% less, and readings of 1.02 to 1.07 between commits on Delaunay D2 went to 0.97 to 1.01 (`docs/bench.md`). Judging that build would steady the judgement and move it in convx's favour.
+
+**Why the default stays.** It is the build a user gets. A crate does not set its users' profile, so a time that needs one codegen unit is not what they have.
+
+**What is reported.** Where a difference between commits may be layout, the same sets are also timed with one codegen unit, and that reading stands beside the judgement, not in its place (`docs/verification.md`).
+
+**What it does not change.** The sets, the references, the method, and the judgement at 1.05 and at 1.00.
