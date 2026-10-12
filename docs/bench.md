@@ -6525,7 +6525,7 @@ The guards, pinned and alternated, minimum and median in ms, with the ratios of 
 
 5 to 16 rounds. Three Windows rows are a second sitting of 14 to 16 rounds: in the first, of 8, Delaunay `cube` D3 10^5 read 1.04 and 1.04, `cube` D2 10^5 1.02 and 1.03, and `sphere` D2 10^5 0.99 and 1.05. The last three WSL rows were disturbed (their medians stand far above their minima on both sides). The change takes three operations out of an in-circle test and five out of an in-sphere test, and no set moves beyond the spread: it is not a speed change and claims none.
 
-## Inputs far from 1: one exact scaling of the whole input (#589)
+## Inputs far from 1: one exact scaling of the whole input, PR #606 (#589)
 
 ### What was slow, and how widely
 
