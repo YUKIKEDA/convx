@@ -107,7 +107,7 @@ ADR files use Status, Date, Issue, Context, and Decision. Create `docs/adr/` wit
 
 The `justfile` arrives with the crate. The names are fixed now.
 
-- `just lint` = `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`
+- `just lint` = `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`, in the debug and in the release profile
 - `just test` = `cargo test`
 
 CI (`.github/workflows/ci.yml`) runs `just lint` and the tests on stable, and the tests on the MSRV. A pull request is ready when its checks pass. A missing run is not a pass.

@@ -3,6 +3,8 @@
 lint:
     cargo fmt --check
     cargo clippy --all-targets -- -D warnings
+    # An item that only a debug check uses is dead in a release build (#571).
+    cargo clippy --release --all-targets -- -D warnings
 
 test:
     cargo test

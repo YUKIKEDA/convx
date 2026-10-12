@@ -373,6 +373,7 @@ fn singletons(
 
 /// Whether `a` and `b` have the same groups, member for member, and the same
 /// vertex and neighbor lists. A debug check of [`singletons`].
+#[cfg(any(test, debug_assertions))]
 fn same_groups(a: &LogicalFacets, b: &LogicalFacets) -> bool {
     a.groups.iter().eq(b.groups.iter())
         && a.vertices.iter().eq(b.vertices.iter())
