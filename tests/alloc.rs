@@ -42,6 +42,8 @@
 //! heap integers allocated in every call, and runs on a workspace kept
 //! per thread (#185): its buffers are reserved by the first build of a
 //! thread that needs them, so a later build on that thread counts fewer.
+//! One is known and not removed: a hull of D >= 9 allocates for every
+//! simplex it plans (#554). No case here is of D >= 7.
 //!
 //! Debug builds run invariant checks inside every build, and those allocate
 //! freely, so the counts hold for release builds only. `just test` runs this
