@@ -244,8 +244,7 @@ impl Dense {
 }
 
 /// The groups of [`merge_except`] from the joined ridges in `sets`, over the
-/// live simplices `ids` in arena order.
-/// The groups of `sets` into `facets`, which is empty.
+/// live simplices `ids` in arena order, into `facets`, which is empty.
 fn grouped(
     hull: &SimplicialHull<'_>,
     ids: &[FacetId],
