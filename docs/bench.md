@@ -5831,7 +5831,14 @@ Points and allocations, `points:allocations`:
 
 **Hull `nearsphere`** rises the most: 326 to 686 between 200 and 400 points in D = 7. It levels off, 767 at 800 and 812 at 1,600, and in D = 5 it stays at 571 to 580 from 3,200 points on. Its distinct points are a fixed set, so its faces stop growing; the rise is the buffers of deeper levels of faces being reserved as those faces first appear.
 
-**Not run**, because one build takes from ten minutes to more than an hour: the hull of the corners of a 10-cube; a k-gon times a cube in D = 9 and 10; clusters on a sphere in D = 8; Delaunay of the full grid in D = 7. Builds that end in an error were not counted either.
+**Not run**, because one build takes from ten minutes to more than an hour: the hull of the corners of a 10-cube; a k-gon times a cube in D = 9 and 10; clusters on a sphere in D = 8; Delaunay of the full grid in D = 7.
+
+**The first call of `planes()` and builds that end in an error** were counted afterwards (#567), on `main` with #566, release:
+
+- `planes()`, apart from the build, on `cube`, `sphere`, `cubesurf`, `cluster`, and `grid` in D = 2 to 5 at 500 and 8,000 points: 5 or 6 allocations, for 4 facets and for 238,164.
+- A build that fails, for each builder, in D = 2 to 5 at 200 and 3,200 points: 5 to 17 allocations for points in a hyperplane or on a line (`DegenerateDimension`), 5 to 10 for one point repeated (`InsufficientPoints`), 2 for a NaN in the last point (`NonFiniteCoordinate`); the same at both sizes.
+
+`tests/alloc.rs` holds both to the ratchet and to the growth check from #567 on: six cases of `planes()` and seven failing builds.
 
 **Seen on the way, and not a growth per item:**
 
