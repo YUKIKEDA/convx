@@ -6524,3 +6524,68 @@ The guards, pinned and alternated, minimum and median in ms, with the ratios of 
 | Hull `cube` D3 10^5 | 12.0, 19.4 | 11.8, 16.6 (0.98, 0.86) | 11.3, 12.2 | 11.0, 12.4 (0.98, 1.01) |
 
 5 to 16 rounds. Three Windows rows are a second sitting of 14 to 16 rounds: in the first, of 8, Delaunay `cube` D3 10^5 read 1.04 and 1.04, `cube` D2 10^5 1.02 and 1.03, and `sphere` D2 10^5 0.99 and 1.05. The last three WSL rows were disturbed (their medians stand far above their minima on both sides). The change takes three operations out of an in-circle test and five out of an in-sphere test, and no set moves beyond the spread: it is not a speed change and claims none.
+
+## Inputs far from 1: one exact scaling of the whole input (#589)
+
+### What was slow, and how widely
+
+`main` at `df80378`, release, Windows, pinned, the best of 2 to 5 builds; the generator's points with every coordinate multiplied by the scale (a power of two is an exact scaling; `1e300` and `1e-300` are not, and give other points of the same shape):
+
+| Input | Scale 1 | 2^-1000 | 1e-300 | 2^-200 | 2^-98 | 2^24 | 2^60 | 1e300 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Hull `cube` D2, 100,000 points | 5.0 ms | 71.9 | 81.0 | 4.7 | 4.6 | 5.0 | 5.2 | 80.4 |
+| Hull `sphere` D3, 20,000 | 46.4 ms | 127.7 | 124.3 | 56.5 | 59.5 | 46.4 | 44.1 | 61.0 |
+| Hull `cubesurf` D3, 20,000 | 6.0 ms | 63.1 | 67.6 | 6.0 | 5.7 | 5.6 | 6.1 | 10.6 |
+| Hull `cube` D5, 5,000 | 37.6 ms | 95.6 | 93.0 | 36.1 | 36.0 | 41.7 | 38.6 | 37.6 |
+| Delaunay `cube` D2, 20,000 | 11.3 ms | 122.4 | 117.6 | 10.6 | 10.6 | 11.4 | 17.0 | 118.4 |
+| Delaunay `cube` D3, 20,000 | 78.3 ms | 1,153.7 | 1,166.7 | 148.5 | 77.8 | 108.2 | 105.1 | 1,212.4 |
+| Delaunay `cube` D4, 3,000 | 189.9 ms | 2,610.1 | 2,516.6 | 2,392.5 | 182.2 | 221.4 | 227.6 | 2,520.7 |
+| Voronoi `cube` D2, 20,000 | 32.6 ms | 157.8 | 167.5 | 35.5 | 35.2 | 34.4 | 40.6 | 160.8 |
+
+- At the ends of the range a build took 2.5 to 16 times its time. The Issue had measured one hull at 3.3 times.
+- **It is not only the ends.** A Delaunay build of D = 3 reads 1.4 times its time with coordinates near `2^24`, sixteen million, and of D = 4 1.2 times; a second series put the start at `2^16` (1.08 for D = 3, 1.14 for D = 4), and nothing down to `2^-24`. The lifted entries are squares, and the first stage's bound leaves its common form once the sum in its underflow term passes `2^60`.
+- Counted at 1e-300: of the predicates that reach the last decision, nearly all go to the exact stage on the hull of D = 2 and on Delaunay (1,052,048 of 1,052,049; 1,338,612 of 1,338,614 in D = 3), but hull `cube` D3 takes 5 times its time with six predicates there. The rest of a build works on the same coordinates: the cull scans, the fixed-size planes of D = 3 and 4 (edges in `[2^-100, 2^100]` only), the lifted heights.
+
+### The method of the Grill on #179, tried and withdrawn
+
+Scaling the entries of one predicate where the filter left its sign open: no predicate reached the exact stage any more, and at 1e-300 Delaunay `cube` D3 went from 1,158 to 238 ms (scale 1: 79), Delaunay D2 from 123 to 43 ms (11), hull `cube` D2 from 116 to 79 ms (5.5), and the hulls of D = 3 and 5 did not move. Each predicate ran its first stage, failed, and ran again. The owner took the other method on 2026-10-12.
+
+### The change
+
+Before acceptance, an input whose largest coordinate is far from 1 is copied times the power of two that brings that coordinate into [1, 2), when the product is exact for every coordinate; the build runs on the copy. Signs do not change, so what is published as indices is the same; the hull's vertex coordinates (from which its planes and its volume come) and the vertices of a Voronoi diagram are taken from the input itself. A sample of 1,024 coordinates decides whether the input is read in full, so an ordinary input pays for the sample only. The thresholds: `2^12` for sites, `2^64` for the points of a hull, `2^300` for a hull of D = 2.
+
+The same table with the change. The row of the hull of D = 2 is from the head, `2bb0004`; the others are from `36d2bae`, which differs from the head in the threshold of the hull of D = 2 alone:
+
+| Input | Scale 1 | 2^-1000 | 1e-300 | 2^-200 | 2^-98 | 2^24 | 2^60 | 1e300 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Hull `cube` D2, 100,000 points | 5.1 ms | 5.7 | 5.7 | 5.0 | 4.7 | 5.0 | 5.1 | 6.4 |
+| Hull `sphere` D3, 20,000 | 46.7 ms | 44.5 | 46.6 | 47.0 | 47.1 | 45.5 | 45.9 | 46.1 |
+| Hull `cubesurf` D3, 20,000 | 6.0 ms | 5.6 | 6.2 | 6.1 | 5.6 | 5.5 | 5.6 | 6.6 |
+| Hull `cube` D5, 5,000 | 38.2 ms | 35.7 | 36.1 | 35.6 | 36.2 | 40.1 | 39.0 | 37.0 |
+| Delaunay `cube` D2, 20,000 | 11.2 ms | 11.5 | 10.7 | 11.4 | 10.8 | 11.0 | 11.7 | 10.9 |
+| Delaunay `cube` D3, 20,000 | 80.4 ms | 79.5 | 76.8 | 79.3 | 77.6 | 79.1 | 78.1 | 78.5 |
+| Delaunay `cube` D4, 3,000 | 194.7 ms | 189.5 | 186.0 | 184.2 | 183.2 | 180.6 | 183.4 | 184.8 |
+| Voronoi `cube` D2, 20,000 | 34.9 ms | 33.0 | 33.3 | 33.1 | 33.3 | 32.1 | 33.1 | 33.3 |
+
+Every build is at its time of scale 1, but the hull of D = 2 at the ends, which reads 1.1 to 1.25 of it: the copy and its passes over the coordinates, on a build that otherwise reads every point once. The whole `Debug` form of a Delaunay triangulation and the vertices, facets, and coplanar points of a hull had the same hash at every scale, before and after.
+
+**The hull of D = 2 has a threshold of its own.** With `2^64` its copy cost 0.7 ms of a 5 ms build at `2^-98` and `2^-200` (5.4 and 5.5 ms against 4.6 and 4.7), where `main` was not slow: its determinants are products of two differences and underflow only near `2^-511`. It is scaled from `2^300`.
+
+### Ordinary inputs
+
+Scale 1, where nothing is scaled, `df80378` against `36d2bae` under WSL, pinned and alternated, 5 to 10 rounds, the ratios of the minimum and of the median: hull `sphere` D2 10^4 1.02 and 1.00, 10^5 1.06 and 1.03; hull `cube` D2 10^6 1.00 and 1.01; hull `sphere` D3 10^4 1.02 and 1.02; hull `cube` D3 10^5 0.97 and 1.00; hull `cubesurf` D3 10^5 0.99 and 0.99; hull `cube` D4 10^5 0.99 and 0.98; hull `grid` D6 10^4 1.00 and 1.02; Delaunay `cube` D2 10^4 1.00 and 1.02, `sphere` D2 10^4 1.01 and 1.00, `cube` D2 10^5 0.98 and 0.99, `cube` D3 10^4 1.00 and 1.02, 10^5 0.99 and 0.98; Voronoi `cube` D2 10^5 1.04 and 1.03.
+
+The four that read above 1.02 were timed again over 10 to 14 rounds, in default builds and with one codegen unit:
+
+| Set | Default build | One codegen unit |
+| --- | ---: | ---: |
+| Hull `sphere` D2 10^5 | 0.97, 1.01 | 1.01, 1.03 |
+| Voronoi `cube` D2 10^5 | 1.02, 1.00 | 0.99, 1.01 |
+| Hull `sphere` D3 10^4 | 0.98, 1.01 | 0.99, 1.00 |
+| Delaunay `cube` D3 10^4 | 1.01, 1.01 | 1.00, 1.01 |
+
+Not timed on Windows at scale 1 beyond the first column of the tables above, which reads the same on both sides.
+
+`tests/alloc.rs`: the two cases whose coordinates have exponents far apart are scaled (their largest coordinate is near 1e150 and one scale holds the smallest), and count one allocation more at the small size, 145 for 144 and 121 for 120, inside the allowance. No record is changed.
+
+A parity run follows this change (the owner's order: no benchmark before the code it measures is final).

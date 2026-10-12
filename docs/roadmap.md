@@ -139,7 +139,7 @@ After a correct sequential hull. These rows do not block P4.
 | P5-60 | Feat  | Build every D = 2 hull by the filtered strict chain                                                        | #232  | Done                     |
 | P5-61 | Spike | Extremes of a coplanar face come from recursive sub-hulls: where does that time go?                       | #237  | Done                     |
 | P5-62 | Spike | What does hull construction in general position pay per simplex, at 10^4 and at 10^6 points?              | #247  | Done                     |
-| P5-63 | Feat  | Predicates: the filter scales one predicate's entries by an exact power of two                            | #589  | Not started              |
+| P5-63 | Feat  | Predicates: the filter scales one predicate's entries by an exact power of two                            | #589  | Done                     |
 
 ## P6
 
