@@ -5835,8 +5835,18 @@ Points and allocations, `points:allocations`:
 
 **Seen on the way, and not a growth per item:**
 
-- A Delaunay build allocates a fixed number of times that rises with the dimension, whatever the sites: 1,591 in D = 5, 2,840 in D = 6, 4,670 in D = 7, 7,354 in D = 8, 11,066 in D = 9. It has not been traced.
-- The hull of the 512 corners of a 9-cube took 406 s, and of 256 corners in D = 8 10 s. A cube has 2^k k! chains of faces down to its vertices, and each face that is not a simplex is classified through a sub-hull; whether the time is that count and nothing more has not been profiled.
+- A Delaunay build allocates a fixed number of times that rises with the dimension, whatever the sites: 1,591 in D = 5, 2,840 in D = 6, 4,670 in D = 7, 7,354 in D = 8, 11,066 in D = 9. The spike #562 traced it (heap profiles by call site at D = 3, 5, 7, and 9): 73% to 99.6% of a build's blocks were in `Mesh::link_initial`, which built a sorted list for both faces of each of its (D + 2)(D + 1)^3 comparisons. With each face sorted once (#564), base `main` at `fcd029c`:
+
+  | Delaunay `cube` | Before | After |
+  | --- | ---: | ---: |
+  | D = 2 | 154 | 47 |
+  | D = 3 | 376 | 57 |
+  | D = 4 | 806 | 57 |
+  | D = 8 | 7,354 | 65 |
+  | D = 9 | 11,066 | 67 |
+
+  Over the 53 cases of `tests/alloc.rs` the allocations at the large size fall from 31,870 to 7,935 in sum.
+- The hull of the 512 corners of a 9-cube took 406 s, and of 256 corners in D = 8 10 s. The spike #563 counted and profiled it: the sub-hulls built are the distinct faces of the cube, each once (in D = 8: 1,792 of dimension 3, 1,120 of 4, 448 of 5, 112 of 6, 16 of 7, which is C(k, j) 2^(k - j)), and every other request is answered by the memo. The time is predicates on points that are as degenerate as points get. Of the 10.6 s of D = 8, the sub-hulls and their classification are 44.8% (the planes of their new simplices about 32%), the placing triangulation on the surface 16.5%, the placing triangulation before a facet's complex has its dimension 15.9% (#565), and the construction of the top hull 12.6%.
 
 ### Reading
 
