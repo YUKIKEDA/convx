@@ -3,13 +3,13 @@
 # ~/convx-compare/data), and a line per file: its dimension, its points,
 # and how many of them are distinct. Nothing is committed (publish.mdc).
 #
-# usage: make.sh rbox
+# usage: make.sh <rbox|pbbs|scans>
 set -e
 set -o pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="${COMPARE_HOME:-$HOME/convx-compare}/data"
 mkdir -p "$OUT"
-case "${1:?usage: make.sh rbox}" in
+case "${1:?usage: make.sh <rbox|pbbs|scans>}" in
   rbox)
     grep -v '^#' "$HERE/rbox.txt" | while read -r name dim count args; do
       [ -z "$name" ] && continue
@@ -24,6 +24,17 @@ case "${1:?usage: make.sh rbox}" in
       distinct="$(tail -n +3 "$OUT/$name.txt" | sort -u | wc -l)"
       echo "$name D$d points $n distinct $distinct"
     done
+    ;;
+  pbbs)
+    grep -v '^#' "$HERE/pbbs.txt" | while read -r name dim count dist seed; do
+      [ -z "$name" ] && continue
+      python3 "$HERE/pbbs.py" "$dist" "$dim" "$count" "$seed" "$OUT/$name.txt"
+      distinct="$(tail -n +3 "$OUT/$name.txt" | sort -u | wc -l)"
+      echo "$name D$dim points $count distinct $distinct"
+    done
+    ;;
+  scans)
+    python3 "$HERE/scans.py" "$OUT"
     ;;
   *)
     echo "unknown tier: $1" >&2
