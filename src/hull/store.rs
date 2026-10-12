@@ -107,7 +107,6 @@ impl FacetStore {
         }
     }
 
-    /// Number of live facets.
     /// Empties the store for a hull of dimension `dim`. Every row keeps
     /// its storage: a hull built for one face after another allocates its
     /// facets once (#531).
@@ -130,6 +129,7 @@ impl FacetStore {
         self.len = 0;
     }
 
+    /// Number of live facets.
     pub(crate) fn len(&self) -> usize {
         self.len
     }
