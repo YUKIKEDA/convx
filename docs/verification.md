@@ -170,23 +170,23 @@ The parity run below runs on every set after every third merged speed row of P7 
 
 ### Parity run of P7
 
-The run that judges a set against ADR 0006. It times convx, CGAL, and Qhull on every set of the ADR on one machine, and splits convx's `build()` into its phases.
+The run that judges a set against ADR 0006. It times convx, CGAL, and Qhull on every set of the ADR on one machine, and splits convx's `build()` into its phases. Its tools are in `benches/parity/`, with a README of the steps (#581).
 
 - **Points.** `export_qhull_sets` writes every set of the ADR (filters `d2`, `d3`, `d4-n10000`, `d4-n100000`, `d5-n10000`, `d5-n100000`, `d6-n10000`, `d6-n100000`, `cubesurf`, `grid-d6`), and every tool reads those files.
-- **convx.** A scratch copy of the measured commit is used. A scratch example reads a file and prints, per build:
+- **convx.** A scratch copy of the measured commit is used. An example copied into it (`benches/parity/parity_time.rs`) reads a file and prints, per build:
   - `build()`;
   - the vertex and facet counts (sites and simplices for Delaunay);
   - for the hull, the time of `planes()` after `build()`.
 
-  A scratch mark function prints the time at four points:
+  A mark function, written into the copy by `benches/parity/marks.py`, prints the time at four points:
   - the start and the end of `SimplicialHull::build` in `classify`;
   - the start and the end of `publish` in `ConvexHullBuilder::build`;
   - for Delaunay, around `insert::brio` and `insert::Mesh::build`, and around `publish`.
 
-  Construction, the pass after it, and publication come from those marks. A sub-hull of a coplanar face marks again, and the first marks of a build are the outer build's. Neither the example nor the marks are committed (`.cursor/rules/bench.mdc`). Their code is on the Issue that ran them (#275, #310).
+  Construction, the pass after it, and publication come from those marks. A sub-hull of a coplanar face marks again, and the first marks of a build are the outer build's. The marks are never in `src` (`.cursor/rules/bench.mdc`): the script writes them into the copy. Until #581 neither the example nor the script was committed, and their code was on the Issues that ran them (#275, #310).
 
   The judged `build()` comes from a second copy of the measured commit, with the same example and without the marks. Each mark writes a line to standard error inside `build()`: on hull `sphere` D2 10^4 the marks were 7% of the build, and 1 to 2% on the other sets of 10^4 (#518). In each round the plain copy runs first and the marked copy right after it, for the phases only.
-- **CGAL.** The program of #215, with the Delaunay reference of #455 and the D = 2 hull of #456, built as above.
+- **CGAL.** The program of #215, with the Delaunay reference of #455 and the D = 2 hull of #456 (`benches/parity/cgal_time.cpp`), built as above.
 - **Qhull.** `qconvex` or `qdelaunay` `i s TI <file> TO <out>`, its compute time and work counters read from the summary, and the whole process timed.
 - **Runner.**
   - Per set, one unrecorded convx build first.

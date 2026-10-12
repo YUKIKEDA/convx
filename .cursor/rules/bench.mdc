@@ -119,7 +119,7 @@ A keep criterion names a set only where the saving the profile predicts exceeds 
 
 When a change moves work to first use, the timer stops when `build()` returns, and any read of the result comes after it. The first harness of #337 read `facets().len()` inside the timed section, which would have charged the head for the numbering it moved to first use.
 
-A timing names what its timed section contains. Reuse buffers across repetitions. Keep work common to every variant outside the section. Name the inputs: set, seed, repetitions, toolchain, and cores. Timers or profiling hooks added to measure are not committed; the PR records the method instead.
+A timing names what its timed section contains. Reuse buffers across repetitions. Keep work common to every variant outside the section. Name the inputs: set, seed, repetitions, toolchain, and cores. Timers or profiling hooks added to measure are not committed; the PR records the method instead. The parity run's tools are the exception the owner decided on 2026-10-12 (#581): they are kept in `benches/parity/`, and its phase marks are a script that writes them into a scratch copy, not code in `src`. After a run its build trees and point files are removed, and the tools stay.
 
 ```text
 # BAD — "ns/point" that includes a fresh Vec and the scalar cull test on every level
