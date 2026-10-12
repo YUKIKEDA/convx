@@ -183,7 +183,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-5 | Task  | Profile Delaunay D2 and D3 after P7-4 and name the next rows                            | #317  | Done        |
 | P7-6 | Feat  | Hull: D2 facets in cycle order and the facet numbering on first use                     | #321  | Done        |
 | P7-7 | Feat  | Hull D2: a faster sort of the chain's points                                            | #322  | Done        |
-| P7-8 | Feat  | Acceptance: faster duplicate detection                                                  | #323  | Not started |
+| P7-8 | Feat  | Acceptance: faster duplicate detection                                                  | #323  | Withdrawn after measurement (#323) |
 | P7-9 | Feat  | Hull D2: a faster discard before the chain                                              | #324  | Done        |
 | P7-10 | Feat | Delaunay: link the cavity's new simplices without turning around ridges                  | #329  | Done        |
 | P7-11 | Docs | Delaunay: what `build()` computes; the public order of the simplices                     | #330  | Done        |
@@ -193,7 +193,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-15 | Docs | Predicates: a double-double stage between the first stage and the exact stage            | #349  | Done        |
 | P7-16 | Feat | Predicates: a first stage for determinants of size 5 and 6                               | #350  | Done        |
 | P7-17 | Feat | Predicates: a double-double stage for the dedicated formulas                             | #352  | Done        |
-| P7-18 | Fix  | Predicates: the lifted underflow terms of the first-stage formulas of k ≤ 4              | #355  | Not started |
+| P7-18 | Fix  | Predicates: the lifted underflow terms of the first-stage formulas of k ≤ 4              | #355  | Done        |
 | P7-19 | Feat | Delaunay: the pass after the insertion at the cost of its tests                         | #362  | Done        |
 | P7-20 | Spike | Delaunay D2: the insertion's own work against CGAL's                                   | #363  | Done        |
 | P7-21 | Feat | Delaunay: the sites in the order of their insertion                                      | #366  | Done        |
@@ -206,7 +206,7 @@ Parity with Qhull and CGAL: `build()` at most the time of each reference with th
 | P7-28 | Feat  | Hull: a cull plane from the exact direction when the filtered cofactors fail            | #392  | Done        |
 | P7-29 | Feat  | Hull: placing keeps the boundary ridges across points                                   | #393  | Done        |
 | P7-30 | Feat  | Hull: each face of the lattice classified once                                          | #394  | Done        |
-| P7-31 | Feat  | Predicates: the exact direction's error bound from its derivation                       | #400  | Not started |
+| P7-31 | Feat  | Predicates: the exact direction's error bound from its derivation                       | #400  | Withdrawn after measurement (#400) |
 | P7-32 | Spike | Where the time goes on the general sets left: Delaunay D2 and D3, hull sphere D2 to D4  | #408  | Done        |
 | P7-33 | Feat  | Hull: planes of D = 3 and 4 by a fixed-size path                                        | #409  | Done        |
 | P7-34 | Feat  | Hull: the coplanar merge on an input with no zero sign recorded                         | #410  | Withdrawn after measurement (#471) |
