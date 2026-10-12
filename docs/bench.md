@@ -5499,7 +5499,7 @@ Against the references from the points instead, 27 sets would be met at 1.05 and
 
 Delaunay `cube` D3 (1.09 to 1.12) is reported: the price of the cospherical groups (ADR 0006).
 
-## Inputs whose structure grows: faces and cospherical groups of many points, PRs #535, #542, #543, #547, #549 (#531, #533, #534, #539, #540, #541)
+## Inputs whose structure grows: faces and cospherical groups of many points, PRs #535, #542, #543, #547, #549, #552 (#531, #533, #534, #539, #540, #541, #548)
 
 ### Why these inputs
 
@@ -5651,7 +5651,7 @@ Allocations of one `build()`, at the small and the large size of `tests/alloc.rs
 
 Over the 44 cases the allocations at the large size fall from 42,197 to 14,002 in sum. Of the 3,393 left on hull `cluster` D4, 2,404 are the exact direction of a plane, two per call (#548).
 
-**The exact direction (#548):** returned inline. The generator's `cluster` has eight clusters however many points are drawn, so its count was fixed; clusters that grow show the growth (k points of `sphere`, each with the 2^D points at 0 or 2^-30 from it along every axis; a simplex with two vertices of one cluster is a sliver, which the cofactors in `f64` do not certify). Base #549's head, head `06104b5`:
+**The exact direction, PR #552 (#548):** returned inline. The generator's `cluster` has eight clusters however many points are drawn, so its count was fixed; clusters that grow show the growth (k points of `sphere`, each with the 2^D points at 0 or 2^-30 from it along every axis; a simplex with two vertices of one cluster is a sliver, which the cofactors in `f64` do not certify). Base #549's head, head `06104b5`:
 
 | Case | Before | After |
 | --- | --- | --- |
