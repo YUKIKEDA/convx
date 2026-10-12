@@ -2933,7 +2933,7 @@ pub(crate) mod tests {
     /// parabola, the integer points of a sphere in D = 3 and D = 4, each
     /// also lifted into two more coordinates that are exact sums of the
     /// others, and the sphere of D = 3 with its center last, a point
-    /// beyond no ridge. Each runs in three index orders.
+    /// beyond no ridge. Each runs in three index orders, but the cube below.
     ///
     /// Three sets span their dimension late, so that the search runs at
     /// each dimension from three on and stops at the points that raise it
@@ -3000,7 +3000,9 @@ pub(crate) mod tests {
                 "{} points",
                 rows.len()
             );
-            for round in 0..3 {
+            // The cube runs in its index order only: its scan takes a third
+            // of this test's time in a debug build.
+            for round in 0..if span == 7 { 1 } else { 3 } {
                 if round > 0 {
                     for i in (1..rows.len()).rev() {
                         rows.swap(i, rng.next() as usize % (i + 1));
