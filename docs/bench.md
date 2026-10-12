@@ -5499,7 +5499,7 @@ Against the references from the points instead, 27 sets would be met at 1.05 and
 
 Delaunay `cube` D3 (1.09 to 1.12) is reported: the price of the cospherical groups (ADR 0006).
 
-## Inputs whose structure grows: faces and cospherical groups of many points, PRs #535, #542, #543, #547, #549, #552 (#531, #533, #534, #539, #540, #541, #548)
+## Inputs whose structure grows: faces and cospherical groups of many points, PRs #535, #542, #543, #547, #549, #552, #553 (#531, #533, #534, #539, #540, #541, #548, #551)
 
 ### Why these inputs
 
@@ -5692,6 +5692,16 @@ Three costs found on the way and removed, each on a guard that read slower in a 
 | Hull `cubesurf` D3, 100,000 points | a sort of (start group, point) pairs where a list per group had been; now a counting sort | 1.04 to 1.06 | 1.00 |
 | Hull `grid` D3, 100,000 points | a list of flags per point kept with the level, so the lists after it found no freed storage of that size | median 1.04 | below |
 | Hull `grid` D3, 100,000 points | flags written over every page of three lists, where a zeroed allocation touches only the pages it sets | median 1.04 | median 0.99 |
+
+**The copy in space order, PR #553 (#551):** a hull of D = 3 with 2^17 representatives or more is built on a copy of its points in Morton order, and its lists are now kept with the hull's storage. The path at the top level, base #552's head, head `de4bcfe`, pinned and alternated, six rounds, the same hash of the result on both sides:
+
+| Hull | Before, minimum and median | After, minimum and median | Ratio of the minimum |
+| --- | ---: | ---: | ---: |
+| `sphere` D3, 10^6 points | 3,346 and 3,494 ms | 3,284 and 3,489 ms | 0.98 |
+| `sphere` D3, 200,000 points | 536.9 and 542.3 ms | 533.7 and 549.8 ms | 0.99 |
+| `cube` D3, 10^6 points | 165.8 and 172.8 ms | 164.8 and 169.7 ms | 0.99 |
+| `cubesurf` D3, 10^6 points | 309.8 and 314.4 ms | 306.2 and 314.5 ms | 0.99 |
+| `cube` D3, 100,000 points (below the threshold) | 12.23 and 12.77 ms | 12.51 and 12.55 ms | 1.02 |
 
 ### Reading
 

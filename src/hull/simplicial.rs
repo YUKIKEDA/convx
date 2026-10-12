@@ -23,7 +23,7 @@
 
 use std::collections::VecDeque;
 
-use super::input::Input;
+use super::input::{Input, InputWork};
 use super::polygon::{self, clearly_inside, Chain, Rows};
 use super::records::Records;
 use super::ridge::{fingerprint, pair_equal_keys_into};
@@ -93,6 +93,24 @@ struct BuildScratch {
     strict: Vec<bool>,
     sides: Vec<Option<Sign>>,
     outside: Vec<u32>,
+    space: SpaceWork,
+}
+
+/// The lists of a build in space order ([`SimplicialHull::build`] of D = 3
+/// on a copy): the Morton codes and their counts, the order, the copied
+/// rows, the local number of each point, the lists of the copy's input, and
+/// the spare list of the records' renaming. A sub-hull of 2^17 points or
+/// more is built on such a copy, and allocated each of them for its face
+/// (#551).
+#[derive(Default)]
+struct SpaceWork {
+    codes: Vec<u32>,
+    at: Vec<u32>,
+    order: Vec<u32>,
+    copy: Vec<f64>,
+    local_of: Vec<u32>,
+    input: InputWork,
+    starts: Vec<u32>,
 }
 
 /// What decides the side of a point against a simplex: its vertices, its
@@ -184,33 +202,55 @@ impl<'a> SimplicialHull<'a> {
     /// built hull is renamed back to the input's indices, so classification
     /// and publication read the input as before. The published hull does not
     /// depend on the order of construction.
-    fn build_in_space_order(input: Input<'a>, work: HullWork) -> Result<Self, ConvexHullError> {
-        let order = space_order(&input);
-        let mut copy: Vec<f64> = Vec::with_capacity(order.len() * 3);
-        let mut local_of = vec![u32::MAX; input.representative.len()];
+    fn build_in_space_order(input: Input<'a>, mut work: HullWork) -> Result<Self, ConvexHullError> {
+        let SpaceWork {
+            mut codes,
+            mut at,
+            mut order,
+            mut copy,
+            mut local_of,
+            input: lists,
+            mut starts,
+        } = core::mem::take(&mut work.scratch.space);
+        space_order(&input, &mut codes, &mut at, &mut order);
+        copy.clear();
+        copy.reserve(order.len() * 3);
+        // Read below for the spanning points only, which are in the order
+        // and so are written first: what an earlier build left is not read.
+        local_of.resize(input.representative.len(), u32::MAX);
         for (local, &p) in order.iter().enumerate() {
             copy.extend_from_slice(input.point(p));
             local_of[p as usize] = local as u32;
         }
-        let spanning = input
-            .spanning_points
-            .iter()
-            .map(|&p| local_of[p as usize])
-            .collect();
-        let built =
-            SimplicialHull::build_in_input_order(Input::relabeled(3, &copy, spanning), work)?;
+        let spanning = input.spanning_points.iter().map(|&p| local_of[p as usize]);
+        let built = SimplicialHull::build_in_input_order(
+            Input::relabeled(3, &copy, spanning, lists),
+            work,
+        )?;
         let SimplicialHull {
+            input: copied,
             mut facets,
-            proved_interior,
+            mut proved_interior,
             strict_edges,
             polygon,
             records,
-            scratch,
-            ..
+            mut scratch,
         } = built;
+        let lists = copied.into_work();
         facets.relabel(&order);
-        let proved_interior = proved_interior.iter().map(|&l| order[l as usize]).collect();
-        let records = records.relabeled(&order, input.representative.len());
+        for point in &mut proved_interior {
+            *point = order[*point as usize];
+        }
+        let records = records.relabeled(&order, input.representative.len(), &mut starts);
+        scratch.space = SpaceWork {
+            codes,
+            at,
+            order,
+            copy,
+            local_of,
+            input: lists,
+            starts,
+        };
         Ok(Self {
             input,
             facets,
@@ -1491,7 +1531,7 @@ fn space_order_from() -> usize {
 /// on average, and the points of a cell keep the order of their indices. A
 /// sort of a key per point cost more than it saved on inputs whose points
 /// are mostly discarded early (#489).
-fn space_order(input: &Input<'_>) -> Vec<u32> {
+fn space_order(input: &Input<'_>, codes: &mut Vec<u32>, at: &mut Vec<u32>, order: &mut Vec<u32>) {
     let reps = &input.representatives;
     let mut low = [f64::INFINITY; 3];
     let mut high = [f64::NEG_INFINITY; 3];
@@ -1512,28 +1552,26 @@ fn space_order(input: &Input<'_>) -> Vec<u32> {
             0
         }
     };
-    let codes: Vec<u32> = reps
-        .iter()
-        .map(|&p| {
-            let x = input.point(p);
-            (spread3(cell(x[0], 0)) << 2 | spread3(cell(x[1], 1)) << 1 | spread3(cell(x[2], 2)))
-                as u32
-        })
-        .collect();
-    let mut at = vec![0_u32; 1 << (3 * bits)];
-    for &code in &codes {
+    codes.clear();
+    codes.extend(reps.iter().map(|&p| {
+        let x = input.point(p);
+        (spread3(cell(x[0], 0)) << 2 | spread3(cell(x[1], 1)) << 1 | spread3(cell(x[2], 2))) as u32
+    }));
+    at.clear();
+    at.resize(1 << (3 * bits), 0);
+    for &code in codes.iter() {
         at[code as usize] += 1;
     }
     let mut sum = 0;
-    for slot in &mut at {
+    for slot in at.iter_mut() {
         (*slot, sum) = (sum, sum + *slot);
     }
-    let mut order = vec![0_u32; reps.len()];
-    for (&p, &code) in reps.iter().zip(&codes) {
+    order.clear();
+    order.resize(reps.len(), 0);
+    for (&p, &code) in reps.iter().zip(codes.iter()) {
         order[at[code as usize] as usize] = p;
         at[code as usize] += 1;
     }
-    order
 }
 
 #[cfg(test)]
@@ -1562,7 +1600,10 @@ pub(crate) mod tests {
     /// neighbors, signs, plane numbers, outside sets and candidates, the
     /// same points proved interior, the same polygon, and the same records.
     /// The storage passes through hulls of D = 1 to 5, larger and smaller,
-    /// degenerate and not, so each list is reused after a longer one.
+    /// degenerate and not, so each list is reused after a longer one. The
+    /// same holds when the hulls of D = 3 are built on a copy in space
+    /// order (#551), whose lists then stay where they are: a second build
+    /// of fewer points moves none of them.
     #[test]
     fn a_hull_in_the_storage_of_another_is_the_hull_built_from_nothing() {
         type Row = (Vec<u32>, Vec<FacetId>, Sign, u32, Vec<u32>, Option<u32>);
@@ -1596,7 +1637,15 @@ pub(crate) mod tests {
         let mut rng = Rng(531);
         let mut work = HullWork::default();
         let mut built = 0;
-        for round in 0..3 {
+        for round in 0..6 {
+            // The last three rounds build every hull of D = 3 in space order.
+            SPACE_ORDER_FROM.with(|c| {
+                c.set(if round < 3 {
+                    super::SPACE_ORDER_FROM
+                } else {
+                    4
+                })
+            });
             for (dim, count, grid) in [
                 (4, 400, true),
                 (3, 60, false),
@@ -1622,7 +1671,38 @@ pub(crate) mod tests {
                 built += 1;
             }
         }
-        assert!(built >= 22, "{built} hulls");
+        assert!(built >= 44, "{built} hulls");
+        // Kept: after 900 points, 60 points in space order leave each list
+        // of the copy where it was.
+        let places = |work: &HullWork| {
+            let space = &work.scratch.space;
+            (
+                (
+                    space.codes.as_ptr(),
+                    space.at.as_ptr(),
+                    space.order.as_ptr(),
+                ),
+                (space.copy.as_ptr(), space.local_of.as_ptr()),
+                (space.codes.capacity(), space.copy.capacity()),
+            )
+        };
+        let large = drawn(&mut rng, 3, 900, false);
+        work = SimplicialHull::build_with(accept(3, &large).unwrap(), work)
+            .unwrap()
+            .into_work()
+            .1;
+        let before = places(&work);
+        assert!(
+            before.2 .0 >= 900 && before.2 .1 >= 2700,
+            "the copy was made"
+        );
+        let small = drawn(&mut rng, 3, 60, false);
+        work = SimplicialHull::build_with(accept(3, &small).unwrap(), work)
+            .unwrap()
+            .into_work()
+            .1;
+        assert_eq!(places(&work), before);
+        SPACE_ORDER_FROM.with(|c| c.set(super::SPACE_ORDER_FROM));
     }
 
     thread_local! {

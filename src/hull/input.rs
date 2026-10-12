@@ -94,15 +94,33 @@ impl<'a> Input<'a> {
     /// each its own representative, with the affine basis `spanning_points`:
     /// the copy in space order that construction of D = 3 runs on (ADR 0009,
     /// #489).
-    pub(crate) fn relabeled(dim: usize, points: &'a [f64], spanning_points: Vec<u32>) -> Self {
-        let ids: Vec<u32> = (0..(points.len() / dim) as u32).collect();
+    /// The lists are those of `work`, kept from one such copy to the next
+    /// (#551).
+    pub(crate) fn relabeled(
+        dim: usize,
+        points: &'a [f64],
+        spanning_points: impl Iterator<Item = u32>,
+        work: InputWork,
+    ) -> Self {
+        let InputWork {
+            mut representative,
+            mut representatives,
+            spanning_points: mut spanning,
+        } = work;
+        let count = (points.len() / dim) as u32;
+        representative.clear();
+        representative.extend(0..count);
+        representatives.clear();
+        representatives.extend(0..count);
+        spanning.clear();
+        spanning.extend(spanning_points);
         Self {
             dim,
             points,
-            representative: ids.clone(),
-            representatives: ids,
+            representative,
+            representatives,
             chain: None,
-            spanning_points,
+            spanning_points: spanning,
         }
     }
 
