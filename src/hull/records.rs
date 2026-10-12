@@ -37,8 +37,6 @@ impl Records {
         }
     }
 
-    /// The record with each point `p` renamed `label[p]`, over `points`
-    /// points (ADR 0009, #489).
     /// Forgets every record, for a hull of `points` points. The lists
     /// keep their storage (#531).
     pub(crate) fn reset(&mut self, points: usize) {
@@ -47,6 +45,8 @@ impl Records {
         self.points = points;
     }
 
+    /// The record with each point `p` renamed `label[p]`, over `points`
+    /// points (ADR 0009, #489).
     pub(crate) fn relabeled(self, label: &[u32], points: usize) -> Self {
         if self.starts.is_empty() {
             return Self {
