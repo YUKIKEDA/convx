@@ -68,7 +68,9 @@ A second Issue that builds on an open PR gets its own branch and PR, based on th
 # GOOD — branch from the open PR's head, open a PR whose base is that branch
 ```
 
-When a PR is opened on top of another, its base is the earlier branch. Open it as soon as the branch is pushed. A stacked PR is merged only when its base is `main`, and the first line of its body says so. Create an Issue before its number is written anywhere: in code, a branch name, or another Issue. Issue and pull request numbers share one sequence, and the next one is not predictable. In #477 and #489 a number guessed before the Issue existed was off by one, and code, a branch, and a comment had to be renamed.
+When a PR is opened on top of another, its base is the earlier branch. Open it as soon as the branch is pushed. A stacked PR is merged only when its base is `main`, and the first line of its body says so. Create an Issue before its number is written anywhere: in code, a branch name, or another Issue. Issue and pull request numbers share one sequence, and the next one is not predictable. In #477 and #489 a number guessed before the Issue existed was off by one, and code, a branch, and a comment had to be renamed. A pull request's own number goes into a file by a commit made after `gh pr create` returns it; #552's bench section was first written with the number expected.
+
+Read a pull request's state before pushing to its branch. A commit pushed after the merge is on the branch and not on `main`. Carry it into the next pull request in the same turn, and say so there. A correction to #553 was pushed after its merge, and `main` kept the sentence it corrected until #555.
 
 When a pull request does less than its Issue names, edit the Issue's title and Definition of done in the same turn, and put what was left out in the roadmap with when it returns (`.cursor/rules/defer.mdc`). #516 left out the second part of #515, and the review found the Issue still promising it.
 

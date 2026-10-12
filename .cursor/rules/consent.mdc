@@ -36,3 +36,5 @@ When listing options:
 6. The reason for the recommendation is the library concept, its goal, or a requirement that realizes them. Implementation ease and code volume are not reasons (`.cursor/rules/scope.mdc`)
 
 「次に進んで」 and 「進めなさい」 are the current roadmap row only. They are not consent to add rows, file extra Issues, or expand an open design question. The current row's ID lives only in `docs/roadmap.md`.
+
+A Grill's answer covers the method it named. When the work shows that a different method is needed, the difference is put to the owner before the pull request opens, with the reason and the numbers, as a new question. A note in the pull request's body is not that question. In #547 the Grill of #531 had chosen a ridge kept per waiting point; the prototype searched for the ridge when the point was placed instead, and the pull request opened with the difference stated but not asked.
