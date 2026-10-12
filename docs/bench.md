@@ -5703,6 +5703,37 @@ Three costs found on the way and removed, each on a guard that read slower in a 
 | `cubesurf` D3, 10^6 points | 309.8 and 314.4 ms | 306.2 and 314.5 ms | 0.99 |
 | `cube` D3, 100,000 points (below the threshold) | 12.23 and 12.77 ms | 12.51 and 12.55 ms | 1.02 |
 
+**The exact stage over heap integers (#185):** found by a scan of 90 inputs at two sizes after #551 (every builder; points, faces, cospherical groups, and uncertified planes growing; D = 2 to 6): the one input whose count grew per item was the generator's `cube` with its first coordinate scaled by 1e150 and the others by 1e-150. The exponents of one determinant are then about 1,000 apart, more than the 1,024 bits of the integers on the stack, and the heap integers take it, reserving every buffer in every call. They run on a workspace kept per thread now. Base `main` at `94d9d5c`, head `66a0346`.
+
+Allocations of one `build()`:
+
+| Hull | Points | Before | After |
+| --- | ---: | ---: | ---: |
+| D = 3 | 100 | 17,864 | 144 |
+| D = 3 | 1,600 | 69,384 | 120 |
+| D = 4 | 50 | 132,838 | 120 |
+| D = 4 | 800 | 840,505 | 128 |
+
+The counts after are those of `tests/alloc.rs`, where the small size runs first on the thread and reserves the workspace.
+
+Time, pinned and alternated, five rounds, the same hash of the result on both sides:
+
+| Hull | Before, minimum and median | After, minimum and median | Ratio of the minimum |
+| --- | ---: | ---: | ---: |
+| D = 3, 400 such points | 5.33 and 5.80 ms | 3.39 and 3.47 ms | 0.64 |
+| D = 3, 1,600 such points | 7.21 and 7.62 ms | 5.09 and 5.18 ms | 0.71 |
+| D = 4, 200 such points | 67.6 and 74.8 ms | 52.1 and 53.9 ms | 0.77 |
+| D = 4, 400 such points | 142.1 and 150.2 ms | 96.7 and 103.4 ms | 0.68 |
+| D = 5, 100 such points | 719.8 and 744.4 ms | 589.6 and 611.3 ms | 0.82 |
+| `cube` D3, 200,000 points | 26.75 and 28.64 ms | 26.93 and 28.81 ms | 1.01 |
+| `cube` D4, 30,000 points | 11.31 and 12.39 ms | 12.37 and 12.49 ms | 1.09 |
+| `sphere` D3, 100,000 points | 264.0 and 267.0 ms | 263.9 and 264.7 ms | 1.00 |
+| `cubesurf` D4, 20,000 points | 37.67 and 38.03 ms | 36.62 and 37.28 ms | 0.97 |
+| clusters on a sphere D4, k = 256 | 28.04 and 28.27 ms | 27.59 and 27.95 ms | 0.98 |
+| Delaunay `cube` D3, 30,000 points | 117.5 and 121.9 ms | 117.4 and 118.2 ms | 1.00 |
+
+`cube` D4 reads 1.09 by the minimum and 1.01 by the median: one launch of the base was faster than its others. It does not reach the heap integers.
+
 ### Reading
 
 Each of the four steps was quadratic or cubic in the points of one face or group, and is linear on these inputs in the given order. Shuffled, the sphere grows a little faster than linearly under the search of #547 (2.8 times the time for 2.3 times the sites). The sub-hull of each face then stopped allocating for each face (#531), which took another tenth off the k-gon times a square.
