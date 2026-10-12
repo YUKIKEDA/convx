@@ -40,7 +40,7 @@ A correction the user gives during the work, as an ongoing constraint, is a rule
 
 Named now. The `justfile` arrives with the crate.
 
-- `just lint` is `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`
+- `just lint` is `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`, in the debug and in the release profile
 - `just test` is `cargo test`
 
 `just bench` is not a gate until a measurement tool exists. Speedup numbers wait until the sequential core exists and Qhull has been measured. See `.cursor/rules/bench.mdc`.

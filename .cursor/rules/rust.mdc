@@ -10,7 +10,7 @@ Sources: Clippy restriction lints; Rust API Guidelines C-VALIDATE, C-GOOD-ERR. B
 
 - Library paths: no `unwrap`, `expect`, `panic`, or `dbg`. Return the error type the design names. Tests may use `unwrap` and `expect`.
 - When `Cargo.toml` exists, deny `clippy::unwrap_used`, `clippy::expect_used`, `clippy::panic`, and `clippy::dbg_macro`. `clippy.toml` allows them in tests.
-- `just lint` uses `-D warnings`. Do not deny `clippy::pedantic` as a group. Allow one pedantic lint only with a comment that cites the requirement.
+- `just lint` uses `-D warnings`, in the debug and in the release profile. An item that only a `debug_assert!` or a `#[cfg(debug_assertions)]` block uses carries `#[cfg(any(test, debug_assertions))]`: without it a release build warns that it is unused, which the debug lint alone did not see (#571). Do not deny `clippy::pedantic` as a group. Allow one pedantic lint only with a comment that cites the requirement.
 - No `unsafe` in convx's own code. Dependencies may use it. Lifting the ban is a design change that records the invariant in `docs/design.ja.md` first. After that, every `unsafe` block has a `# Safety` section and a next-line invariant comment.
 - No logging. Failures use the error types in the design. Do not add a log facade.
 - `debug_assert!` only for an internal invariant that means a convx bug. Not for caller input.
