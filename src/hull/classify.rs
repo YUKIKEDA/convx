@@ -1443,6 +1443,13 @@ pub(crate) struct Placing {
     /// The projected rows of one orientation; a `Vec` per row was most of
     /// the time left after the boundary was kept (#393).
     rows: Vec<f64>,
+    /// The rows of the test for a point that raises the dimension, where
+    /// the search on the surface holds `rows`.
+    raising: Vec<f64>,
+    /// How many times [`Self::general`] went to the search on the surface
+    /// in its last run, for the test that it does so at every dimension.
+    #[cfg(test)]
+    searches: usize,
     /// For points that span a plane ([`Self::in_a_plane`]): their two
     /// coordinates, the chain that orders them around their polygon, and
     /// each point's neighbors in that cycle.
@@ -1590,8 +1597,12 @@ impl Placing {
 
     /// [`Self::run`] for any points: each point against every boundary
     /// ridge of the complex built so far. With `span`, the affine dimension
-    /// of the points, the points left once the complex has that dimension
-    /// go to [`Self::on_the_surface`], when there are enough of them.
+    /// of the points, the points that follow a point that raised the
+    /// complex to three dimensions or more go to [`Self::on_the_surface`],
+    /// when there are enough of them, until one raises the dimension again
+    /// (#565): points that span their dimension late, like the corners of a
+    /// cube in index order, were all placed by the scan, which is quadratic
+    /// in them.
     fn general<'p>(
         &mut self,
         d: usize,
@@ -1599,20 +1610,39 @@ impl Placing {
         point: &impl Fn(u32) -> &'p [f64],
         extreme: &[u32],
     ) -> Result<(usize, &[u32]), ConvexHullError> {
-        if let Some(from) = self.scan(d, span, point, extreme)? {
-            self.on_the_surface(point, &extreme[from..])?;
+        #[cfg(test)]
+        {
+            self.searches = 0;
+        }
+        let mut from = self.scan(d, span, point, extreme, 0)?;
+        while let Some(at) = from {
+            #[cfg(test)]
+            {
+                self.searches += 1;
+            }
+            let whole = span == Some(self.axes.len());
+            let next = at + self.on_the_surface(d, whole, point, &extreme[at..])?;
+            if next == extreme.len() {
+                break;
+            }
+            // The point at `next` raises the dimension: the scan cones the
+            // complex with it and gathers the boundary again.
+            from = self.scan(d, span, point, extreme, next)?;
         }
         Ok((self.len, &self.simplices))
     }
 
-    /// [`Self::general`] by the scan. `Some` is the place in `extreme` of
-    /// the first point left to [`Self::on_the_surface`].
+    /// [`Self::general`] by the scan, from the point at `start` of
+    /// `extreme`: 0 starts a complex, and a later place goes on with the
+    /// one built so far, at a point that raises the dimension. `Some` is
+    /// the place of the first point left to [`Self::on_the_surface`].
     fn scan<'p>(
         &mut self,
         d: usize,
         span: Option<usize>,
         point: &impl Fn(u32) -> &'p [f64],
         extreme: &[u32],
+        start: usize,
     ) -> Result<Option<usize>, ConvexHullError> {
         let Self {
             simplices,
@@ -1624,18 +1654,23 @@ impl Placing {
             axes,
             basis,
             rows,
+            raising,
             ..
         } = self;
-        simplices.clear();
-        *len = 1;
-        axes.clear();
-        basis.clear();
-        boundary.clear();
-        let Some((&first, rest)) = extreme.split_first() else {
+        let Some(&first) = extreme.first() else {
+            simplices.clear();
+            *len = 1;
             return Ok(None);
         };
-        simplices.push(first);
-        basis.push(first);
+        if start == 0 {
+            simplices.clear();
+            *len = 1;
+            axes.clear();
+            basis.clear();
+            boundary.clear();
+            simplices.push(first);
+            basis.push(first);
+        }
         // The orientation of `vertices` projected onto `axes`.
         let mut projected_sign = |vertices: &mut dyn Iterator<Item = u32>,
                                   axes: &[usize]|
@@ -1648,19 +1683,13 @@ impl Placing {
             let refs: Small<&[f64], 11> = rows.chunks_exact(axes.len()).collect();
             Ok(orient(&refs)?)
         };
-        toggle(boundary, simplices);
-        for (at, &p) in rest.iter().enumerate() {
+        if start == 0 {
+            toggle(boundary, simplices);
+        }
+        for at in start.max(1)..extreme.len() {
+            let p = extreme[at];
             // Does p raise the affine dimension?
-            let mut raise = None;
-            for j in (0..d).filter(|j| !axes.contains(j)) {
-                let with_j: Small<usize, 11> = axes.iter().copied().chain([j]).collect();
-                let mut vertices = basis.iter().copied().chain([p]);
-                if projected_sign(&mut vertices, &with_j)? != Sign::Zero {
-                    raise = Some(j);
-                    break;
-                }
-            }
-            if let Some(j) = raise {
+            if let Some(j) = raising_axis(d, axes, basis, point, p, raising)? {
                 axes.push(j);
                 basis.push(p);
                 raised.clear();
@@ -1674,8 +1703,8 @@ impl Placing {
                 for simplex in simplices.chunks_exact(*len) {
                     toggle(boundary, simplex);
                 }
-                if span == Some(axes.len()) && rest.len() - at > SURFACE_FROM {
-                    return Ok(Some(at + 2));
+                if span.is_some() && axes.len() >= 3 && extreme.len() - at > SURFACE_FROM {
+                    return Ok(Some(at + 1));
                 }
                 continue;
             }
@@ -1714,10 +1743,13 @@ impl Placing {
         Ok(None)
     }
 
-    /// The rest of [`Self::general`] once the complex has the dimension of
-    /// the points: each point of `rest` adds a simplex on each boundary
-    /// ridge it is beyond, and those ridges are reached through their
-    /// neighbors and not by a scan of the boundary (#540).
+    /// The points of `rest` that keep the dimension of the complex, which
+    /// is three or more: each adds a simplex on each boundary ridge it is
+    /// beyond, and those ridges are reached through their neighbors and not
+    /// by a scan of the boundary (#540). It stops at the first point that
+    /// raises the dimension and returns how many points it placed; `whole`
+    /// says the complex has the dimension of all the points, so that none
+    /// does and none is tested.
     ///
     /// The points are in convex position, so the complex is the hull of
     /// the points placed, and the ridges a point is beyond are connected
@@ -1742,9 +1774,11 @@ impl Placing {
     /// (`docs/bench.md`, #540).
     fn on_the_surface<'p>(
         &mut self,
+        d: usize,
+        whole: bool,
         point: &impl Fn(u32) -> &'p [f64],
         rest: &[u32],
-    ) -> Result<(), ConvexHullError> {
+    ) -> Result<usize, ConvexHullError> {
         let Self {
             simplices,
             len,
@@ -1754,6 +1788,7 @@ impl Placing {
             axes,
             basis,
             rows,
+            raising,
             surface,
             ..
         } = self;
@@ -1842,7 +1877,10 @@ impl Placing {
 
         let mut stamp = 0_u32;
         let mut last = 0_u32;
-        for &p in rest {
+        for (placed, &p) in rest.iter().enumerate() {
+            if !whole && raising_axis(d, axes, basis, point, p, raising)?.is_some() {
+                return Ok(placed);
+            }
             stamp += 1;
             let x: Small<f64, 11> = axes.iter().map(|&a| point(p)[a]).collect();
             // Highest first: the least volume with the point over the
@@ -2000,8 +2038,33 @@ impl Placing {
             pair_faces(s, vertices, links, across);
             free.extend_from_slice(visible);
         }
-        Ok(())
+        Ok(rest.len())
     }
+}
+
+/// The first coordinate outside `axes` on which `p` and the points of
+/// `basis` are affinely independent, when `p` raises the affine dimension
+/// of the points placed; `rows` is scratch.
+fn raising_axis<'p>(
+    d: usize,
+    axes: &[usize],
+    basis: &[u32],
+    point: &impl Fn(u32) -> &'p [f64],
+    p: u32,
+    rows: &mut Vec<f64>,
+) -> Result<Option<usize>, ConvexHullError> {
+    for j in (0..d).filter(|j| !axes.contains(j)) {
+        rows.clear();
+        for v in basis.iter().copied().chain([p]) {
+            let x = point(v);
+            rows.extend(axes.iter().map(|&a| x[a]).chain([x[j]]));
+        }
+        let refs: Small<&[f64], 11> = rows.chunks_exact(axes.len() + 1).collect();
+        if orient(&refs)? != Sign::Zero {
+            return Ok(Some(j));
+        }
+    }
+    Ok(None)
 }
 
 /// From how many points left [`Placing::general`] hands them to
@@ -2870,7 +2933,13 @@ pub(crate) mod tests {
     /// parabola, the integer points of a sphere in D = 3 and D = 4, each
     /// also lifted into two more coordinates that are exact sums of the
     /// others, and the sphere of D = 3 with its center last, a point
-    /// beyond no ridge. Each runs in three index orders.
+    /// beyond no ridge. Each runs in three index orders, but the cube below.
+    ///
+    /// Three sets span their dimension late, so that the search runs at
+    /// each dimension from three on and stops at the points that raise it
+    /// (#565): the corners of a cube of D = 7 in index order, which reach
+    /// dimension k at corner 2^(k - 1); the sphere of D = 4 with the points
+    /// of its hyperplane `w = 0` first; and that set lifted.
     #[test]
     fn the_surface_places_as_the_scan() {
         fn sphere(d: usize, squared: i64) -> Vec<Vec<f64>> {
@@ -2905,7 +2974,16 @@ pub(crate) mod tests {
                 })
                 .collect()
         };
+        let cube: Vec<Vec<f64>> = (0..128_u32)
+            .map(|i| (0..7).map(|a| f64::from((i >> a) & 1)).collect())
+            .collect();
+        let mut late = sphere(4, 10);
+        late.sort_by_key(|x| x[3] != 0.0);
+        assert!(late.iter().take_while(|x| x[3] == 0.0).count() > SURFACE_FROM + 4);
         let sets = [
+            (7, cube),
+            (4, late.clone()),
+            (4, lifted(&late)),
             (3, prism.clone()),
             (3, lifted(&prism)),
             (3, sphere(3, 101)),
@@ -2922,7 +3000,9 @@ pub(crate) mod tests {
                 "{} points",
                 rows.len()
             );
-            for round in 0..3 {
+            // The cube runs in its index order only: its scan takes a third
+            // of this test's time in a debug build.
+            for round in 0..if span == 7 { 1 } else { 3 } {
                 if round > 0 {
                     for i in (1..rows.len()).rev() {
                         rows.swap(i, rng.next() as usize % (i + 1));
@@ -2942,6 +3022,12 @@ pub(crate) mod tests {
                     "span {span} in D = {d}, {} points, round {round}",
                     rows.len()
                 );
+                // In the given order the cube's corners raise the dimension
+                // at 8, 16, 32, and 64, and the sphere's hyperplane comes
+                // first: the search runs once for each dimension from 3.
+                if round == 0 && (span == 7 || rows[0][d - 1] == 0.0 && span == 4) {
+                    assert_eq!(workspace.searches, span - 2, "span {span} in D = {d}");
+                }
             }
         }
     }
