@@ -31,7 +31,7 @@ A speed PR reports the wall time on the exact input its Issue names, next to tha
 
 Build both sides of a comparison with the same profile and the same flags (debug info included). Pin them to one core and alternate them. A difference inside the spread of repeated runs is not a result.
 
-A before-and-after table has both sides measured on every row. A size timed on one side only is timed on the other or left out. #535's table gave the new time at four sizes and the old time at two. Every row comes from one pair of builds. #543's row at 2,880 sites took its old time from an earlier scratch state than the rows around it.
+A before-and-after table has both sides measured on every row. A size timed on one side only is timed on the other or left out. #535's table gave the new time at four sizes and the old time at two. Every row comes from one pair of builds. Cargo rebuilds by the time of a file: a source restored from the repository into a scratch copy is older than the build of the edited one, and the old binary stays. Touch the restored file, or check the binary for what the edit added, before a number is read. In #549 a base was timed with the marks of an earlier experiment still in it. #543's row at 2,880 sites took its old time from an earlier scratch state than the rows around it.
 
 Before a pinned timing, list the processes of earlier experiments and stop them. Stopping a background task may leave its children running. A timing that overlapped one is discarded and run again. In #395 a comparison loop, stopped as a background task, kept launching unpinned builds through the first pair of timings.
 
