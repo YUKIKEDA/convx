@@ -6398,7 +6398,7 @@ The same sets built with `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1`, where the comp
 
 **Not timed:** the hulls of D = 9 and 10 of #556. The change is in `src/lists.rs` alone and #556's lists are not `Lists`. The set was not judged against Qhull and CGAL again.
 
-## The sets not met or at the edge, judged again after #580 (#583)
+## The sets not met or at the edge, judged again after #580, PR #584 (#583)
 
 The run of #577 left three sets outside 1.05 and several within a few hundredths of it. #580 then brought hull `sphere` D3 10^4 back to its time at the final P7 run. These thirteen sets are judged again on `main` at `d9b6725`, by the method of that run, with the tools of `benches/parity/` as committed (their first use for a record). No set's slowest build reached 1.5 times its fastest (the largest 1.44), so none was run again.
 
