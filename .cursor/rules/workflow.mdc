@@ -42,6 +42,9 @@ Each PR sets its own roadmap row's status to `Done` and updates **Current work**
 - Starting implementation without an Issue number and a branch
 - Ending the turn on a branch that is not the head of an open pull request for its Issue
 - Leaving a local or remote branch after its pull request has merged
+- Ending a turn on a report while the next approved row has not been started and nothing is running. A report is not a place to wait: the next row starts in the same turn. After the record of #583 the work stood still with nothing to wait for, and the owner asked what it was waiting for (2026-10-12)
+- Naming an Issue or a pull request by a number its creating command has not returned yet. #583 was written in a report while `gh issue create` ran in the background
+- Making the timing of a regression wait behind confirmation runs of a rare fault. A parity run waited behind 200 runs of a test that failed four times in a day on CI (#575, #577); the owner put the regression first. The confirmation is stopped, the timing runs, and the confirmation is finished afterwards
 - Copying acceptance text onto the roadmap. The roadmap keeps ID, title, Issue, and status. Acceptance text stays on the Issue and in the design
 - Writing pass/fail numbers, formats, or file layouts into the roadmap before Grill on that row finishes
 - Adding or removing a roadmap row, or editing **Intentionally out of scope**, without Grill → Issue (`.cursor/rules/consent.mdc`)
