@@ -27,3 +27,9 @@ stats_alloc = "0.1.10"
 # The fixture test runs its records on rayon's pool; the library has no
 # parallel path (design §6).
 rayon = "1"
+
+# Its own program: the harness's thread allocates beside the counted build
+# (#575).
+[[test]]
+name = "alloc"
+harness = false

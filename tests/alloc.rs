@@ -16,6 +16,11 @@
 //!   of `planes()` and builds that end in an error are held to the same
 //!   two checks (#567).
 //!
+//! The counter counts every thread of the process, so this test is its own
+//! program, with no harness (`harness = false` in `Cargo.toml`, #575): the
+//! harness runs a test on a thread beside its own, and four allocations
+//! above a record showed on CI now and then, in the first cases.
+//!
 //! The generator's degenerate families (`grid`, `lattice`, `cluster`) keep
 //! a fixed number of distinct points however many are drawn. Their faces
 //! and cospherical groups do not grow, so an allocation per face shows
@@ -359,10 +364,10 @@ const CASES: &[Case] = &[
     Case { kind: Kind::Hull, points: Points::Duoprism(8), dim: 4, small: (225, 361), large: (305, 689) },
 ];
 
-#[test]
-fn builds_keep_the_allocation_contract() {
+fn main() {
     if cfg!(debug_assertions) {
         // Debug builds run invariant checks that allocate (module docs).
+        println!("alloc: not counted in a debug build");
         return;
     }
     // The counter is live: a vector of one element allocates once.
@@ -403,4 +408,7 @@ fn builds_keep_the_allocation_contract() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+    if !record {
+        println!("alloc: {} cases keep the allocation contract", CASES.len());
+    }
 }
