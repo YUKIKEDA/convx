@@ -513,8 +513,7 @@ fn found_at(
 
     // Simplicial vertices.
     let points = hull.input.representative.len();
-    on_complex.clear();
-    on_complex.resize(points, false);
+    clear_flags(on_complex, points);
     for g in 0..groups.groups.len() {
         for vertices in members(g) {
             for &v in vertices {
@@ -526,13 +525,10 @@ fn found_at(
     // Distance signs of the other representatives against every group.
     // Points construction proved strictly inside are interior already
     // (design §3) and skip the scan.
-    // The marks are kept in `is_vertex`, which is filled only at the end:
-    // a list of its own, kept with the level, left the lists that follow
-    // this function without the storage it used to free, and a hull of
-    // 100,000 points that are 64 distinct ones read 8% slower.
+    // The marks are kept in `is_vertex`, which is filled only at the end,
+    // and are taken back there.
     let skipped = &mut *is_vertex;
-    skipped.clear();
-    skipped.resize(points, false);
+    clear_flags(skipped, points);
     for &p in &hull.proved_interior {
         debug_assert!(!on_complex[p as usize], "a dropped point is not a vertex");
         // A point leaves every outside set when it is proved interior, and
@@ -594,8 +590,10 @@ fn found_at(
     level.candidates = candidates;
     level.found = found;
 
-    is_vertex.clear();
-    is_vertex.resize(points, false);
+    for &p in &hull.proved_interior {
+        is_vertex[p as usize] = false;
+    }
+    debug_assert!(is_vertex.iter().all(|&flag| !flag), "no mark is left");
     for g in 0..count {
         for &v in extremes.get(g).unwrap_or(groups.vertices.get(g)) {
             is_vertex[v as usize] = true;
@@ -755,6 +753,21 @@ fn classify_built<'a>(
 /// polygon (D = 3) is on the boundary and in no list (#504).
 #[cfg(test)]
 type Zeros = (Vec<bool>, Lists<u32>);
+
+/// `flags` as `count` flags, none set. A list that has the room is cleared
+/// in place. One that has not is allocated zeroed: a hull of 100,000
+/// points of which 64 are distinct sets a few of its flags, and writing
+/// every flag of three such lists touched every page of them, 8% of that
+/// build, where pages that come zeroed are touched only where a flag is
+/// set.
+fn clear_flags(flags: &mut Vec<bool>, count: usize) {
+    if flags.capacity() < count {
+        *flags = vec![false; count];
+    } else {
+        flags.clear();
+        flags.resize(count, false);
+    }
+}
 
 /// The working lists of [`distance_zeros_into`], kept from one hull to the
 /// next (#531).

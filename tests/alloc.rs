@@ -196,12 +196,12 @@ const CASES: &[Case] = &[
     Case { kind: Kind::Hull, points: Points::Drawn(Family::Sphere, 1000), dim: 4, small: (143, 434), large: (173, 780) },
     Case { kind: Kind::Hull, points: Points::Drawn(Family::Grid, 1000), dim: 2, small: (40, 5), large: (40, 5) },
     Case { kind: Kind::Hull, points: Points::Drawn(Family::Grid, 1000), dim: 3, small: (151, 141), large: (151, 141) },
-    Case { kind: Kind::Hull, points: Points::Drawn(Family::Grid, 1000), dim: 4, small: (274, 422), large: (274, 414) },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::Grid, 1000), dim: 4, small: (276, 420), large: (274, 414) },
     Case { kind: Kind::Hull, points: Points::Drawn(Family::CubeSurf, 1000), dim: 3, small: (187, 282), large: (192, 319) },
-    Case { kind: Kind::Hull, points: Points::Drawn(Family::CubeSurf, 1000), dim: 4, small: (320, 721), large: (360, 981) },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::CubeSurf, 1000), dim: 4, small: (328, 719), large: (368, 979) },
     Case { kind: Kind::Hull, points: Points::Drawn(Family::Cluster, 1000), dim: 2, small: (40, 16), large: (40, 16) },
     Case { kind: Kind::Hull, points: Points::Drawn(Family::Cluster, 1000), dim: 3, small: (234, 257), large: (227, 230) },
-    Case { kind: Kind::Hull, points: Points::Drawn(Family::Cluster, 1000), dim: 4, small: (2734, 654), large: (1958, 623) },
+    Case { kind: Kind::Hull, points: Points::Drawn(Family::Cluster, 1000), dim: 4, small: (2740, 650), large: (1960, 621) },
     Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Cube, 1000), dim: 2, small: (154, 37), large: (154, 54) },
     Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Cube, 1000), dim: 3, small: (376, 71), large: (376, 91) },
     Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Sphere, 1000), dim: 2, small: (154, 38), large: (154, 55) },
@@ -231,7 +231,7 @@ const CASES: &[Case] = &[
     Case { kind: Kind::Voronoi, points: Points::Sphere(1001, 1_221_025), dim: 3, small: (348, 803), large: (416, 1576) },
     Case { kind: Kind::Delaunay, points: Points::SphereAndOutside(1001, 1_221_025), dim: 3, small: (408, 222), large: (408, 307) },
     Case { kind: Kind::Voronoi, points: Points::SphereAndOutside(1001, 1_221_025), dim: 3, small: (627, 725), large: (664, 1235) },
-    Case { kind: Kind::Hull, points: Points::Duoprism(8), dim: 4, small: (223, 363), large: (319, 689) },
+    Case { kind: Kind::Hull, points: Points::Duoprism(8), dim: 4, small: (225, 361), large: (319, 689) },
 ];
 
 #[test]
