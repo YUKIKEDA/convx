@@ -28,12 +28,21 @@ pub(crate) struct Records {
 
 impl Records {
     /// No records, for points numbered below `points`.
+    #[cfg(test)]
     pub(crate) fn new(points: usize) -> Self {
         Self {
             starts: Vec::new(),
             entries: Vec::new(),
             points,
         }
+    }
+
+    /// Forgets every record, for a hull of `points` points. The lists
+    /// keep their storage (#531).
+    pub(crate) fn reset(&mut self, points: usize) {
+        self.starts.clear();
+        self.entries.clear();
+        self.points = points;
     }
 
     /// The record with each point `p` renamed `label[p]`, over `points`

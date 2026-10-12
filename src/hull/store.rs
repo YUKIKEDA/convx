@@ -78,6 +78,13 @@ fn abort_if_full(slots: usize) {
     }
 }
 
+impl Default for FacetStore {
+    /// A store with no facet, to be [`FacetStore::reset`] before use.
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
 impl FacetStore {
     pub(crate) fn new(dim: usize) -> Self {
         Self {
@@ -98,6 +105,28 @@ impl FacetStore {
             free: Vec::new(),
             len: 0,
         }
+    }
+
+    /// Empties the store for a hull of dimension `dim`. Every row keeps
+    /// its storage: a hull built for one face after another allocates its
+    /// facets once (#531).
+    pub(crate) fn reset(&mut self, dim: usize) {
+        self.dim = dim;
+        self.links = if dim == 1 { 0 } else { dim };
+        self.rows.clear();
+        self.planes.clear();
+        self.kinds.clear();
+        self.numbers.clear();
+        self.issued = 0;
+        self.outward.clear();
+        self.generations.clear();
+        self.live.clear();
+        self.outside.clear();
+        self.candidates.clear();
+        self.pool.clear();
+        self.garbage = 0;
+        self.free.clear();
+        self.len = 0;
     }
 
     /// Number of live facets.
@@ -389,6 +418,35 @@ mod tests {
         assert_eq!(store.len(), 2);
         let order: Vec<u32> = store.iter().map(|(_, f)| f.slot()).collect();
         assert_eq!(order, vec![a, b], "iteration is in slot order");
+    }
+
+    /// A store emptied for another hull (#531) is a new store of that
+    /// dimension: no facet, no free slot, no outside point, and plane
+    /// numbers from zero, whatever it held and whichever slots were free.
+    #[test]
+    fn a_reset_store_is_a_new_store() {
+        let mut store = FacetStore::new(2);
+        let a = store.alloc(&[0, 1], Sign::Positive, store.fresh_number());
+        let b = store.alloc(&[1, 2], Sign::Negative, store.fresh_number());
+        store.set_outside(a, &[5, 7], Some((7, Some(1.5))));
+        store.set_plane(b, Some((&[0.0, 1.0], (1e-15, 1e-300))));
+        let old = store.id(b);
+        store.remove(a);
+        store.reset(3);
+        assert_eq!(
+            (store.len(), store.slots(), store.fresh_number()),
+            (0, 0, 0)
+        );
+        assert!(store.get(old).is_none());
+        assert_eq!(store.iter().count(), 0);
+        let c = store.alloc(&[4, 5, 6], Sign::Positive, store.fresh_number());
+        let d = store.alloc(&[5, 6, 7], Sign::Positive, store.fresh_number());
+        assert_eq!((c, d), (0, 1), "no slot of the old store is free");
+        assert_eq!(store.facet(c).vertices(), &[4, 5, 6]);
+        assert_eq!(store.facet(c).neighbors().count(), 3);
+        assert!(store.facet(c).outside().is_empty() && store.facet(c).farthest().is_none());
+        assert!(store.facet(d).cull().is_none());
+        assert_eq!((store.facet(c).number(), store.facet(d).number()), (0, 1));
     }
 
     #[test]

@@ -9,6 +9,7 @@
 //! (#496).
 
 use crate::predicates::{orient, orient2_filter, ExactEvaluationExhausted, Sign};
+use crate::small::Small;
 
 /// The most points [`discard_edges`] samples.
 const DISCARD_SAMPLE: usize = 1024;
@@ -83,15 +84,29 @@ pub(crate) fn discard_edges(
 
 /// The edges of the polygon of the farthest of the `count` points of
 /// `rows` in each of eight directions, as [`discard_edges`] builds it,
-/// counterclockwise; `None` when it has fewer than three vertices.
-/// Classification of D = 3 builds it inside a facet, on the facet's
-/// vertices projected to a coordinate plane (#504).
+/// counterclockwise, into `edges`; `false` when it has fewer than three
+/// vertices. Classification of D = 3 builds it inside a facet, on the
+/// facet's vertices projected to a coordinate plane (#504), through the
+/// buffers of `chain`: built from nothing it allocated for each facet with
+/// a point on it (#531).
 pub(crate) fn extremes_polygon(
     rows: Rows<'_>,
     count: u32,
-) -> Result<Option<Vec<Edge>>, ExactEvaluationExhausted> {
-    let cycle = discard_polygon(rows, 0..count)?;
-    Ok((!cycle.is_empty()).then(|| edges_of(rows, &cycle)))
+    chain: &mut ChainWork,
+    edges: &mut Vec<Edge>,
+) -> Result<bool, ExactEvaluationExhausted> {
+    let extremes = discard_extremes(rows, 0..count);
+    let cycle = chain.strict_cycle(rows, extremes.iter().copied())?;
+    edges.clear();
+    if cycle.len() < 3 {
+        return Ok(false);
+    }
+    let n = cycle.len();
+    edges.extend((0..n).map(|i| {
+        let (a, b) = (rows.point(cycle[i]), rows.point(cycle[(i + 1) % n]));
+        [[a[0], a[1]], [b[0], b[1]]]
+    }));
+    Ok(true)
 }
 
 /// The polygon of [`discard_edges`]. Fewer than three vertices mean no
@@ -104,6 +119,14 @@ fn discard_polygon(
     rows: Rows<'_>,
     points: impl Iterator<Item = u32>,
 ) -> Result<Vec<u32>, ExactEvaluationExhausted> {
+    let extremes = discard_extremes(rows, points).to_vec();
+    let cycle = strict_cycle_of_sorted(rows, sorted_by_coordinates(rows, extremes))?;
+    Ok(if cycle.len() < 3 { Vec::new() } else { cycle })
+}
+
+/// The farthest of `points` in each of the eight directions of
+/// [`discard_polygon`], ascending, each once.
+fn discard_extremes(rows: Rows<'_>, points: impl Iterator<Item = u32>) -> Small<u32, 8> {
     let mut best = [f64::NEG_INFINITY; 8];
     let mut farthest = [None; 8];
     for r in points {
@@ -119,11 +142,20 @@ fn discard_polygon(
             }
         }
     }
-    let mut extremes: Vec<u32> = farthest.into_iter().flatten().collect();
-    extremes.sort_unstable();
-    extremes.dedup();
-    let cycle = strict_cycle_of_sorted(rows, sorted_by_coordinates(rows, extremes))?;
-    Ok(if cycle.len() < 3 { Vec::new() } else { cycle })
+    let mut found: [u32; 8] = [0; 8];
+    let mut count = 0;
+    for r in farthest.into_iter().flatten() {
+        found[count] = r;
+        count += 1;
+    }
+    found[..count].sort_unstable();
+    let mut extremes = Small::new();
+    for (i, &r) in found[..count].iter().enumerate() {
+        if i == 0 || found[i - 1] != r {
+            extremes.push(r);
+        }
+    }
+    extremes
 }
 
 /// The edges of the counterclockwise convex `cycle`, each as the

@@ -55,6 +55,44 @@ pub(crate) struct SimplicialHull<'a> {
     /// The plane numbers each point was found on (design §3). D = 1 and
     /// D = 2 record nothing.
     pub(crate) records: Records,
+    /// The working lists of the build, kept for [`Self::into_work`].
+    scratch: BuildScratch,
+}
+
+/// The storage of a hull, for the next one to be built in: its facets, its
+/// lists, and the working lists of its build. A sub-hull is built for each
+/// face that is not a simplex, and built from nothing it allocated about a
+/// hundred times a face (`docs/bench.md`, #531).
+#[derive(Default)]
+pub(crate) struct HullWork {
+    facets: FacetStore,
+    proved_interior: Vec<u32>,
+    polygon: Vec<u32>,
+    records: Records,
+    scratch: BuildScratch,
+}
+
+/// The working lists of one build: the queue, the marks of a walk, the
+/// plan of an insertion, and the lists of the initial simplex and of the
+/// assignment of the points to it. Each is cleared where it is filled.
+#[derive(Default)]
+struct BuildScratch {
+    pending: Candidates,
+    visited: Marks,
+    cone: Cone,
+    slots: Vec<u32>,
+    planes: Planes,
+    /// The initial simplex: its facets' vertices, their signs, and their
+    /// slots.
+    flat: Vec<u32>,
+    signs: Vec<Sign>,
+    initial: Vec<u32>,
+    /// The points assigned to the initial simplex, and the scratch of that
+    /// assignment.
+    candidates: Vec<u32>,
+    strict: Vec<bool>,
+    sides: Vec<Option<Sign>>,
+    outside: Vec<u32>,
 }
 
 /// What decides the side of a point against a simplex: its vertices, its
@@ -116,10 +154,27 @@ impl Planes {
 impl<'a> SimplicialHull<'a> {
     /// Builds the simplicial hull of an accepted input.
     pub(crate) fn build(input: Input<'a>) -> Result<Self, ConvexHullError> {
+        Self::build_with(input, HullWork::default())
+    }
+
+    /// [`Self::build`] in the storage of `work`.
+    pub(crate) fn build_with(input: Input<'a>, work: HullWork) -> Result<Self, ConvexHullError> {
         if input.dim() == 3 && input.representatives.len() >= space_order_from() {
-            return Self::build_in_space_order(input);
+            return Self::build_in_space_order(input, work);
         }
-        Self::build_in_input_order(input)
+        Self::build_in_input_order(input, work)
+    }
+
+    /// The input and the storage of the hull, for the next build.
+    pub(crate) fn into_work(self) -> (Input<'a>, HullWork) {
+        let work = HullWork {
+            facets: self.facets,
+            proved_interior: self.proved_interior,
+            polygon: self.polygon,
+            records: self.records,
+            scratch: self.scratch,
+        };
+        (self.input, work)
     }
 
     /// [`Self::build`] of D = 3 on a copy of the representatives in Morton
@@ -129,7 +184,7 @@ impl<'a> SimplicialHull<'a> {
     /// built hull is renamed back to the input's indices, so classification
     /// and publication read the input as before. The published hull does not
     /// depend on the order of construction.
-    fn build_in_space_order(input: Input<'a>) -> Result<Self, ConvexHullError> {
+    fn build_in_space_order(input: Input<'a>, work: HullWork) -> Result<Self, ConvexHullError> {
         let order = space_order(&input);
         let mut copy: Vec<f64> = Vec::with_capacity(order.len() * 3);
         let mut local_of = vec![u32::MAX; input.representative.len()];
@@ -142,13 +197,15 @@ impl<'a> SimplicialHull<'a> {
             .iter()
             .map(|&p| local_of[p as usize])
             .collect();
-        let built = SimplicialHull::build_in_input_order(Input::relabeled(3, &copy, spanning))?;
+        let built =
+            SimplicialHull::build_in_input_order(Input::relabeled(3, &copy, spanning), work)?;
         let SimplicialHull {
             mut facets,
             proved_interior,
             strict_edges,
             polygon,
             records,
+            scratch,
             ..
         } = built;
         facets.relabel(&order);
@@ -161,34 +218,39 @@ impl<'a> SimplicialHull<'a> {
             strict_edges,
             polygon,
             records,
+            scratch,
         })
     }
 
-    fn build_in_input_order(input: Input<'a>) -> Result<Self, ConvexHullError> {
+    fn build_in_input_order(input: Input<'a>, work: HullWork) -> Result<Self, ConvexHullError> {
         let dim = input.dim();
-        let records = Records::new(input.representative.len());
+        let HullWork {
+            mut facets,
+            mut proved_interior,
+            mut polygon,
+            mut records,
+            scratch,
+        } = work;
+        facets.reset(dim);
+        proved_interior.clear();
+        polygon.clear();
+        records.reset(input.representative.len());
         let mut hull = Self {
             input,
-            facets: FacetStore::new(dim),
-            proved_interior: Vec::new(),
+            facets,
+            proved_interior,
             strict_edges: false,
-            polygon: Vec::new(),
+            polygon,
             records,
+            scratch,
         };
         if dim == 1 {
             hull.build_segment()?;
         } else if dim == 2 {
             hull.build_polygon()?;
         } else {
-            let initial = hull.initial_simplex()?;
-            let candidates: Vec<u32> = hull
-                .input
-                .representatives
-                .iter()
-                .copied()
-                .filter(|p| !hull.input.spanning_points.contains(p))
-                .collect();
-            hull.assign(candidates, &initial)?;
+            hull.initial_simplex()?;
+            hull.assign()?;
             hull.absorb_in_place()?;
         }
         Ok(hull)
@@ -320,17 +382,18 @@ impl<'a> SimplicialHull<'a> {
     }
 
     /// Adds simplices on `vertices` (D per simplex) with the outward signs
-    /// `outward` and their planes, and returns their slots. Their neighbors
-    /// are left for the caller.
+    /// `outward` and their planes, and writes their slots to `slots`,
+    /// cleared first. Their neighbors are left for the caller.
     fn add_simplices(
         &mut self,
         vertices: &[u32],
         outward: &[Sign],
-    ) -> Result<Vec<u32>, ConvexHullError> {
+        slots: &mut Vec<u32>,
+    ) -> Result<(), ConvexHullError> {
         let d = self.input.dim();
-        let mut planes = Planes::default();
+        let mut planes = core::mem::take(&mut self.scratch.planes);
         self.plan_planes(vertices, outward, &mut planes)?;
-        let mut slots = Vec::with_capacity(outward.len());
+        slots.clear();
         for (k, (vertices, &outward)) in vertices.chunks_exact(d).zip(outward).enumerate() {
             let slot = self
                 .facets
@@ -338,7 +401,8 @@ impl<'a> SimplicialHull<'a> {
             planes.store(k, d, &mut self.facets, slot);
             slots.push(slot);
         }
-        Ok(slots)
+        self.scratch.planes = planes;
+        Ok(())
     }
 
     /// D = 1: the hull is the two extreme representatives.
@@ -355,7 +419,9 @@ impl<'a> SimplicialHull<'a> {
                 high = r;
             }
         }
-        self.add_simplices(&[low, high], &[Sign::Negative, Sign::Positive])?;
+        let mut slots = core::mem::take(&mut self.scratch.initial);
+        self.add_simplices(&[low, high], &[Sign::Negative, Sign::Positive], &mut slots)?;
+        self.scratch.initial = slots;
         Ok(())
     }
 
@@ -409,24 +475,29 @@ impl<'a> SimplicialHull<'a> {
     }
 
     /// The D + 1 facets of the simplex on `spanning_points`, each ordered so
-    /// that the opposite vertex is on the negative side, as slots.
-    fn initial_simplex(&mut self) -> Result<Vec<u32>, ConvexHullError> {
-        let simplex = self.input.spanning_points.clone();
-        let mut ordered: Vec<Vec<u32>> = Vec::with_capacity(simplex.len());
-        for &apex in &simplex {
-            let mut vertices: Vec<u32> = simplex.iter().copied().filter(|&v| v != apex).collect();
-            let mut indices = vertices.clone();
-            indices.push(apex);
+    /// that the opposite vertex is on the negative side; their slots go to
+    /// the scratch's `initial`.
+    fn initial_simplex(&mut self) -> Result<(), ConvexHullError> {
+        let simplex: Small<u32, 11> = self.input.spanning_points.iter().copied().collect();
+        let d = self.input.dim();
+        let mut flat = core::mem::take(&mut self.scratch.flat);
+        flat.clear();
+        for &apex in simplex.iter() {
+            let start = flat.len();
+            flat.extend(simplex.iter().copied().filter(|&v| v != apex));
+            let indices: Small<u32, 11> = flat[start..].iter().copied().chain([apex]).collect();
             if self.input.orient(&indices)? == Sign::Positive {
-                vertices.swap(0, 1);
+                flat.swap(start, start + 1);
             }
-            ordered.push(vertices);
         }
-        let flat: Vec<u32> = ordered.iter().flatten().copied().collect();
-        let slots = self.add_simplices(&flat, &vec![Sign::Positive; ordered.len()])?;
+        let mut signs = core::mem::take(&mut self.scratch.signs);
+        signs.clear();
+        signs.resize(simplex.len(), Sign::Positive);
+        let mut slots = core::mem::take(&mut self.scratch.initial);
+        self.add_simplices(&flat, &signs, &mut slots)?;
         // The facet omitting simplex[i] is slots[i]; across the ridge
         // opposite vertex v lies the facet omitting v.
-        for (i, vertices) in ordered.iter().enumerate() {
+        for (i, vertices) in flat.chunks_exact(d).enumerate() {
             for (slot, v) in vertices.iter().enumerate() {
                 let omitted = simplex.iter().position(|s| s == v);
                 debug_assert!(omitted.is_some(), "a facet's vertex is in the simplex");
@@ -434,19 +505,34 @@ impl<'a> SimplicialHull<'a> {
                 self.facets.neighbors_mut(slots[i])[slot] = across;
             }
         }
-        Ok(slots)
+        self.scratch.flat = flat;
+        self.scratch.signs = signs;
+        self.scratch.initial = slots;
+        Ok(())
     }
 
-    /// Assigns each candidate to the first facet in `facets`, every facet of
-    /// the initial simplex, that it is strictly outside. Candidates outside
+    /// Assigns each representative off the initial simplex to the first of
+    /// that simplex's facets that it is strictly outside. Those outside
     /// none are dropped: they are inside the current hull or on its
     /// boundary. Those strictly inside every facet are recorded in
     /// [`Self::proved_interior`].
-    fn assign(&mut self, mut remaining: Vec<u32>, facets: &[u32]) -> Result<(), ConvexHullError> {
-        let mut strict = vec![true; remaining.len()];
-        let mut sides = Vec::new();
-        let mut outside = Vec::new();
-        for &slot in facets {
+    fn assign(&mut self) -> Result<(), ConvexHullError> {
+        let mut remaining = core::mem::take(&mut self.scratch.candidates);
+        remaining.clear();
+        remaining.extend(
+            self.input
+                .representatives
+                .iter()
+                .copied()
+                .filter(|p| !self.input.spanning_points.contains(p)),
+        );
+        let mut strict = core::mem::take(&mut self.scratch.strict);
+        strict.clear();
+        strict.resize(remaining.len(), true);
+        let mut sides = core::mem::take(&mut self.scratch.sides);
+        let mut outside = core::mem::take(&mut self.scratch.outside);
+        let facets = core::mem::take(&mut self.scratch.initial);
+        for &slot in &facets {
             if remaining.is_empty() {
                 break;
             }
@@ -470,13 +556,23 @@ impl<'a> SimplicialHull<'a> {
                 .filter(|&(_, &s)| s)
                 .map(|(&p, _)| p),
         );
+        self.scratch.candidates = remaining;
+        self.scratch.strict = strict;
+        self.scratch.sides = sides;
+        self.scratch.outside = outside;
+        self.scratch.initial = facets;
         Ok(())
     }
 
     /// The candidate of every facet with outside points, for the queue of
-    /// [`Self::absorb_in_place`].
-    fn all_candidates(&self) -> Candidates {
-        let mut pending = Candidates::default();
+    /// [`Self::absorb_in_place`], in the storage of `pending`: the queue of
+    /// an earlier build, which that build emptied. Its buckets stay, empty,
+    /// and are filled again.
+    fn all_candidates(&self, mut pending: Candidates) -> Candidates {
+        debug_assert!(
+            pending.rest.is_empty() && pending.buckets.iter().all(Vec::is_empty),
+            "a build empties its queue"
+        );
         for (id, facet) in self.facets.iter() {
             if let Some((point, distance)) = facet.farthest() {
                 pending.push(Pending {
@@ -498,10 +594,11 @@ impl<'a> SimplicialHull<'a> {
     /// are taken. A live facet's candidate never changes, because its
     /// outside set is final (see [`take_outside`]).
     fn absorb_in_place(&mut self) -> Result<(), ConvexHullError> {
-        let mut pending = self.all_candidates();
-        let mut visited = Marks::default();
-        let mut cone = Cone::default();
-        let mut slots = Vec::new();
+        let pending = core::mem::take(&mut self.scratch.pending);
+        let mut pending = self.all_candidates(pending);
+        let mut visited = core::mem::take(&mut self.scratch.visited);
+        let mut cone = core::mem::take(&mut self.scratch.cone);
+        let mut slots = core::mem::take(&mut self.scratch.slots);
         // The plans read the hull and write the records.
         let mut records = core::mem::take(&mut self.records);
         while let Some(candidate) = next_candidate(&mut pending) {
@@ -515,6 +612,10 @@ impl<'a> SimplicialHull<'a> {
             self.push_candidates(&slots, &mut pending);
         }
         self.records = records;
+        self.scratch.pending = pending;
+        self.scratch.visited = visited;
+        self.scratch.cone = cone;
+        self.scratch.slots = slots;
         Ok(())
     }
 
@@ -1441,6 +1542,89 @@ pub(crate) mod tests {
     use crate::hull::input::accept;
     use crate::predicates::orient;
 
+    /// Points of dimension `dim` for the tests of kept storage: `count`
+    /// draws, on a grid of four values a side when `grid`, so that faces
+    /// hold many points, or in general position.
+    pub(crate) fn drawn(rng: &mut Rng, dim: usize, count: usize, grid: bool) -> Vec<f64> {
+        (0..dim * count)
+            .map(|_| {
+                if grid {
+                    (rng.next() % 4) as f64
+                } else {
+                    rng.unit()
+                }
+            })
+            .collect()
+    }
+
+    /// A hull built in the storage of an earlier one (#531) is the hull
+    /// built from nothing: the same facets in the same slots with the same
+    /// neighbors, signs, plane numbers, outside sets and candidates, the
+    /// same points proved interior, the same polygon, and the same records.
+    /// The storage passes through hulls of D = 1 to 5, larger and smaller,
+    /// degenerate and not, so each list is reused after a longer one.
+    #[test]
+    fn a_hull_in_the_storage_of_another_is_the_hull_built_from_nothing() {
+        type Row = (Vec<u32>, Vec<FacetId>, Sign, u32, Vec<u32>, Option<u32>);
+        type Read = (Vec<Row>, Vec<u32>, bool, Vec<u32>, Vec<Vec<u32>>);
+        fn read(hull: &SimplicialHull<'_>) -> Read {
+            let rows = hull
+                .facets
+                .iter()
+                .map(|(_, facet)| {
+                    (
+                        facet.vertices().to_vec(),
+                        facet.neighbors().collect(),
+                        facet.outward(),
+                        facet.number(),
+                        facet.outside().to_vec(),
+                        facet.farthest().map(|(point, _)| point),
+                    )
+                })
+                .collect();
+            let records = (0..hull.input.representative.len() as u32)
+                .map(|p| hull.records.numbers(p).collect())
+                .collect();
+            (
+                rows,
+                hull.proved_interior.clone(),
+                hull.strict_edges,
+                hull.polygon.clone(),
+                records,
+            )
+        }
+        let mut rng = Rng(531);
+        let mut work = HullWork::default();
+        let mut built = 0;
+        for round in 0..3 {
+            for (dim, count, grid) in [
+                (4, 400, true),
+                (3, 60, false),
+                (5, 300, true),
+                (2, 500, false),
+                (3, 900, true),
+                (1, 40, false),
+                (4, 90, false),
+                (3, 12, true),
+            ] {
+                let points = drawn(&mut rng, dim, count, grid);
+                let Ok(input) = accept(dim, &points) else {
+                    continue;
+                };
+                let fresh = SimplicialHull::build(accept(dim, &points).unwrap()).unwrap();
+                let reused = SimplicialHull::build_with(input, work).unwrap();
+                assert_eq!(
+                    read(&reused),
+                    read(&fresh),
+                    "D = {dim}, {count} points, round {round}"
+                );
+                work = reused.into_work().1;
+                built += 1;
+            }
+        }
+        assert!(built >= 22, "{built} hulls");
+    }
+
     thread_local! {
         /// Overrides [`super::SPACE_ORDER_FROM`] on this thread, to build
         /// small inputs in space order and in the input's order.
@@ -1640,16 +1824,10 @@ pub(crate) mod tests {
             strict_edges: false,
             polygon: Vec::new(),
             records,
+            scratch: BuildScratch::default(),
         };
-        let initial = hull.initial_simplex().unwrap();
-        let candidates: Vec<u32> = hull
-            .input
-            .representatives
-            .iter()
-            .copied()
-            .filter(|p| !hull.input.spanning_points.contains(p))
-            .collect();
-        hull.assign(candidates, &initial).unwrap();
+        hull.initial_simplex().unwrap();
+        hull.assign().unwrap();
         hull
     }
 
@@ -1752,7 +1930,7 @@ pub(crate) mod tests {
             0.0, 0.0, 4.0, 0.0, 0.0, 4.0, 0.5, -1.0, 2.0, -3.0, 3.0, -3.0,
         ];
         let hull = initial(2, &points);
-        let candidates = hull.all_candidates().into_vec();
+        let candidates = hull.all_candidates(Candidates::default()).into_vec();
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].point, 4);
         assert_eq!(candidates[0].distance, Some(3.0));
