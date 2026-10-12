@@ -593,24 +593,36 @@ impl<'a, S: Shape> Mesh<'a, S> {
     /// Links the initial simplex and its D + 1 outside simplices: two of
     /// them are neighbors across the face they share. There are D + 2, so
     /// comparing every pair of faces costs nothing that grows with the input.
+    ///
+    /// Each face is sorted once into one list, D sites a face. A sorted
+    /// list built for both faces of every comparison was (D + 2)(D + 1)^3
+    /// allocations, 33,000 in D = 9 and nearly all of a build's
+    /// (`docs/bench.md`, #562).
     fn link_initial(&mut self, cells: &[u32]) {
         let k = self.shape.k();
-        let face = |mesh: &Self, c: u32, slot: usize| -> Vec<u32> {
-            let mut face: Vec<u32> = mesh
-                .vertices_of(c)
-                .iter()
-                .enumerate()
-                .filter(|&(i, _)| i != slot)
-                .map(|(_, &v)| v)
-                .collect();
-            face.sort_unstable();
-            face
-        };
+        let d = k - 1;
+        let mut faces: Vec<u32> = Vec::with_capacity(cells.len() * k * d);
+        for &c in cells {
+            for slot in 0..k {
+                let start = faces.len();
+                faces.extend(
+                    self.vertices_of(c)
+                        .iter()
+                        .enumerate()
+                        .filter(|&(i, _)| i != slot)
+                        .map(|(_, &v)| v),
+                );
+                faces[start..].sort_unstable();
+            }
+        }
+        // The face of the cell at place `i` in `cells` without its vertex
+        // at `slot`.
+        let face = |i: usize, slot: usize| &faces[(i * k + slot) * d..(i * k + slot + 1) * d];
         for (i, &a) in cells.iter().enumerate() {
-            for &b in &cells[i + 1..] {
+            for (j, &b) in cells.iter().enumerate().skip(i + 1) {
                 for sa in 0..k {
                     for sb in 0..k {
-                        if face(self, a, sa) == face(self, b, sb) {
+                        if face(i, sa) == face(j, sb) {
                             self.set_neighbor(a, sa, b);
                             self.set_neighbor(b, sb, a);
                         }
