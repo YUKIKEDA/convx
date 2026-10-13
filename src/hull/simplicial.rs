@@ -82,8 +82,9 @@ struct BuildScratch {
     cone: Cone,
     slots: Vec<u32>,
     planes: Planes,
-    /// The initial simplex: its facets' vertices, their signs, and their
-    /// slots.
+    /// The initial simplex: its vertices, its facets' vertices, their
+    /// signs, and their slots.
+    first: Small<u32, 11>,
     flat: Vec<u32>,
     signs: Vec<Sign>,
     initial: Vec<u32>,
@@ -168,6 +169,11 @@ impl Planes {
         facets.set_plane(slot, plane);
     }
 }
+
+/// The most representatives [`SimplicialHull::first_simplex`] reads to
+/// choose the first simplex. Extremes of a sample hold most of an input as
+/// the extremes of the whole do, and a larger input pays nothing more.
+const FIRST_SIMPLEX_SAMPLE: usize = 4096;
 
 impl<'a> SimplicialHull<'a> {
     /// Builds the simplicial hull of an accepted input.
@@ -514,11 +520,92 @@ impl<'a> SimplicialHull<'a> {
         Ok(())
     }
 
-    /// The D + 1 facets of the simplex on `spanning_points`, each ordered so
-    /// that the opposite vertex is on the negative side; their slots go to
-    /// the scratch's `initial`.
+    /// The vertices of the first simplex, D >= 3: extreme points of a sample
+    /// of the representatives, or `spanning_points` (#624).
+    ///
+    /// The simplex on `spanning_points`, the first points by index that span
+    /// the space, can be small and anywhere. On points dense about a center
+    /// it lies inside the crowd, nearly every point is outside one of its
+    /// facets, and the scans of construction read the input eight times
+    /// where four would do (#622). A simplex of extreme points holds most of
+    /// such an input, and a point inside it is proved interior by its D + 1
+    /// facets and is not read again.
+    ///
+    /// The rule, on at most [`FIRST_SIMPLEX_SAMPLE`] representatives taken
+    /// at one stride from the first: the least and the greatest of
+    /// coordinate 0, then, D - 1 times, the point farthest from the flat
+    /// through those chosen so far. Distances are in `f64`, by the part of
+    /// `p - first` orthogonal to an orthonormal basis of the flat, and a tie
+    /// goes to the earlier point of the sample. They choose and prove
+    /// nothing: the simplex is taken only when its exact orientation is not
+    /// zero. When a distance is zero or not finite, or the orientation is
+    /// zero, the simplex is the one on `spanning_points`, which spans.
+    ///
+    /// The published hull does not depend on the first simplex (design §5).
+    fn first_simplex(&self) -> Result<Small<u32, 11>, ConvexHullError> {
+        let spanning: Small<u32, 11> = self.input.spanning_points.iter().copied().collect();
+        let d = self.input.dim();
+        let reps = &self.input.representatives;
+        let stride = reps.len().div_ceil(FIRST_SIMPLEX_SAMPLE).max(1);
+        let sample = || reps.iter().step_by(stride).copied();
+        let point = |p: u32| self.input.point(p);
+        let (Some(first), Some(last)) = (
+            sample().reduce(|a, b| if point(b)[0] < point(a)[0] { b } else { a }),
+            sample().reduce(|a, b| if point(b)[0] > point(a)[0] { b } else { a }),
+        ) else {
+            return Ok(spanning);
+        };
+        let origin = point(first);
+        let mut chosen: Small<u32, 11> = Small::new();
+        chosen.push(first);
+        // An orthonormal basis of the flat through the chosen points, D
+        // numbers a vector, and the part of `p - origin` orthogonal to it.
+        let mut basis: Small<f64, 128> = Small::new();
+        let mut rest: Small<f64, 16> = Small::new();
+        let residual = |basis: &[f64], p: u32, rest: &mut Small<f64, 16>| -> f64 {
+            *rest = point(p).iter().zip(origin).map(|(x, o)| x - o).collect();
+            for b in basis.chunks_exact(d) {
+                let along: f64 = rest.iter().zip(b).map(|(r, b)| r * b).sum();
+                for (r, b) in rest.iter_mut().zip(b) {
+                    *r -= along * b;
+                }
+            }
+            rest.iter().map(|r| r * r).sum()
+        };
+        let mut next = last;
+        for _ in 0..d {
+            let squared = residual(&basis, next, &mut rest);
+            if !(squared > 0.0 && squared.is_finite()) {
+                return Ok(spanning);
+            }
+            let length = squared.sqrt();
+            for r in rest.iter() {
+                basis.push(r / length);
+            }
+            chosen.push(next);
+            if chosen.len() > d {
+                break;
+            }
+            let mut farthest = (0.0, next);
+            for p in sample() {
+                let squared = residual(&basis, p, &mut rest);
+                if squared > farthest.0 {
+                    farthest = (squared, p);
+                }
+            }
+            next = farthest.1;
+        }
+        if chosen.len() != d + 1 || self.input.orient(&chosen)? == Sign::Zero {
+            return Ok(spanning);
+        }
+        Ok(chosen)
+    }
+
+    /// The D + 1 facets of the first simplex ([`Self::first_simplex`]), each
+    /// ordered so that the opposite vertex is on the negative side; their
+    /// slots go to the scratch's `initial`.
     fn initial_simplex(&mut self) -> Result<(), ConvexHullError> {
-        let simplex: Small<u32, 11> = self.input.spanning_points.iter().copied().collect();
+        let simplex = self.first_simplex()?;
         let d = self.input.dim();
         let mut flat = core::mem::take(&mut self.scratch.flat);
         flat.clear();
@@ -545,6 +632,7 @@ impl<'a> SimplicialHull<'a> {
                 self.facets.neighbors_mut(slots[i])[slot] = across;
             }
         }
+        self.scratch.first = simplex;
         self.scratch.flat = flat;
         self.scratch.signs = signs;
         self.scratch.initial = slots;
@@ -564,7 +652,7 @@ impl<'a> SimplicialHull<'a> {
                 .representatives
                 .iter()
                 .copied()
-                .filter(|p| !self.input.spanning_points.contains(p)),
+                .filter(|p| !self.scratch.first.contains(p)),
         );
         let mut strict = core::mem::take(&mut self.scratch.strict);
         strict.clear();
