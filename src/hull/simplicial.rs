@@ -546,7 +546,11 @@ impl<'a> SimplicialHull<'a> {
         let spanning: Small<u32, 11> = self.input.spanning_points.iter().copied().collect();
         let d = self.input.dim();
         let reps = &self.input.representatives;
-        let stride = reps.len().div_ceil(FIRST_SIMPLEX_SAMPLE).max(1);
+        let most = first_simplex_sample();
+        if most == 0 {
+            return Ok(spanning);
+        }
+        let stride = reps.len().div_ceil(most).max(1);
         let sample = || reps.iter().step_by(stride).copied();
         let point = |p: u32| self.input.point(p);
         let (Some(first), Some(last)) = (
@@ -1600,6 +1604,19 @@ fn candidate_before(a: (u32, Option<f64>), b: (u32, Option<f64>)) -> bool {
     }
 }
 
+/// [`FIRST_SIMPLEX_SAMPLE`], or a test's override on this thread; at zero
+/// the first simplex is the one on `spanning_points`.
+fn first_simplex_sample() -> usize {
+    #[cfg(test)]
+    {
+        tests::FIRST_SIMPLEX_SAMPLE.with(core::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        FIRST_SIMPLEX_SAMPLE
+    }
+}
+
 /// From this many representatives, D = 3 builds on a copy in space order
 /// (ADR 0009, #489).
 const SPACE_ORDER_FROM: usize = 1 << 17;
@@ -1800,6 +1817,10 @@ pub(crate) mod tests {
         /// small inputs in space order and in the input's order.
         pub(crate) static SPACE_ORDER_FROM: core::cell::Cell<usize> =
             const { core::cell::Cell::new(super::SPACE_ORDER_FROM) };
+        /// Overrides [`super::FIRST_SIMPLEX_SAMPLE`] on this thread: zero
+        /// builds from the simplex on `spanning_points`.
+        pub(crate) static FIRST_SIMPLEX_SAMPLE: core::cell::Cell<usize> =
+            const { core::cell::Cell::new(super::FIRST_SIMPLEX_SAMPLE) };
     }
 
     /// What the hull publishes, read through the public API: vertices,
@@ -1819,7 +1840,19 @@ pub(crate) mod tests {
         SPACE_ORDER_FROM.with(|c| c.set(from));
         let hull = crate::ConvexHullBuilder::new(3, points).build();
         SPACE_ORDER_FROM.with(|c| c.set(super::SPACE_ORDER_FROM));
-        let hull = hull.unwrap();
+        published_of(&hull.unwrap())
+    }
+
+    /// [`published_of`] the hull built with a first simplex chosen among
+    /// `sample` representatives, or on `spanning_points` at zero.
+    fn published_with_sample(dim: usize, points: &[f64], sample: usize) -> Published {
+        FIRST_SIMPLEX_SAMPLE.with(|c| c.set(sample));
+        let hull = crate::ConvexHullBuilder::new(dim, points).build();
+        FIRST_SIMPLEX_SAMPLE.with(|c| c.set(super::FIRST_SIMPLEX_SAMPLE));
+        published_of(&hull.unwrap())
+    }
+
+    fn published_of(hull: &crate::ConvexHull) -> Published {
         (
             hull.vertices().to_vec(),
             hull.coplanar_points().to_vec(),
@@ -1881,6 +1914,148 @@ pub(crate) mod tests {
             }
         }
         assert_eq!(cases, 15);
+    }
+
+    /// The first simplex of the build of `points` with a sample of `sample`.
+    fn first_of(dim: usize, points: &[f64], sample: usize) -> Vec<u32> {
+        FIRST_SIMPLEX_SAMPLE.with(|c| c.set(sample));
+        let first = build(dim, points).scratch.first.to_vec();
+        FIRST_SIMPLEX_SAMPLE.with(|c| c.set(super::FIRST_SIMPLEX_SAMPLE));
+        first
+    }
+
+    /// A first simplex of extreme points publishes what the simplex on
+    /// `spanning_points` does (#624), in D = 3 to 6: random points in a
+    /// cube, points on a sphere, an integer grid with duplicates and
+    /// coplanar points, and points dense about the origin with a long tail.
+    /// The sample is the whole input, every third point, and none (the
+    /// simplex on `spanning_points`). The simplex chosen is not that one on
+    /// most inputs, so the comparison is of two builds.
+    #[test]
+    fn the_first_simplex_changes_nothing_published() {
+        let mut rng = Rng(624);
+        let (mut cases, mut chosen) = (0, 0);
+        for dim in 3..=6 {
+            let count = [0, 0, 0, 200, 60, 30, 16][dim];
+            for family in ["cube", "sphere", "grid", "tail"] {
+                let mut points = Vec::with_capacity(count * dim);
+                for _ in 0..count {
+                    let mut v: Vec<f64> = (0..dim).map(|_| rng.unit()).collect();
+                    match family {
+                        "sphere" => {
+                            let norm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
+                            v.iter_mut().for_each(|x| *x /= norm);
+                        }
+                        "grid" => v.iter_mut().for_each(|x| *x = (*x * 2.0).round()),
+                        "tail" => {
+                            let radius = (0.5 - 0.5 * rng.unit()).powi(-3);
+                            v.iter_mut().for_each(|x| *x *= radius);
+                        }
+                        _ => {}
+                    }
+                    points.extend(v);
+                }
+                let what = format!("{family}, D = {dim}");
+                let spanning = published_with_sample(dim, &points, 0);
+                assert!(
+                    published_with_sample(dim, &points, usize::MAX) == spanning,
+                    "{what}"
+                );
+                assert!(
+                    published_with_sample(dim, &points, count / 3) == spanning,
+                    "{what}"
+                );
+                let input = accept(dim, &points).unwrap();
+                assert_eq!(first_of(dim, &points, 0), input.spanning_points, "{what}");
+                let first = first_of(dim, &points, usize::MAX);
+                assert_eq!(first.len(), dim + 1, "{what}");
+                assert_ne!(input.orient(&first).unwrap(), Sign::Zero, "{what}");
+                chosen += usize::from(first != input.spanning_points);
+                cases += 1;
+            }
+        }
+        assert_eq!(cases, 16);
+        assert!(chosen >= 14, "{chosen}");
+    }
+
+    /// The first simplex of D = 3 against the rule computed another way:
+    /// the least and the greatest first coordinate, the point farthest from
+    /// their line by the cross product, and the point farthest from that
+    /// plane by the triple product. Each chosen point reaches the largest
+    /// distance of its step to a few rounding errors.
+    #[test]
+    fn the_first_simplex_is_of_extreme_points() {
+        let mut rng = Rng(6240);
+        for _ in 0..20 {
+            let points: Vec<f64> = (0..3 * 500)
+                .map(|_| rng.unit() * (0.5 - 0.5 * rng.unit()).powi(-2))
+                .collect();
+            let p = |i: u32| {
+                let i = i as usize * 3;
+                [points[i], points[i + 1], points[i + 2]]
+            };
+            let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+            let cross = |a: [f64; 3], b: [f64; 3]| {
+                [
+                    a[1] * b[2] - a[2] * b[1],
+                    a[2] * b[0] - a[0] * b[2],
+                    a[0] * b[1] - a[1] * b[0],
+                ]
+            };
+            let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+            let first = first_of(3, &points, usize::MAX);
+            let all = 0..500_u32;
+            let least = all.clone().map(|i| p(i)[0]).fold(f64::INFINITY, f64::min);
+            let greatest = all
+                .clone()
+                .map(|i| p(i)[0])
+                .fold(f64::NEG_INFINITY, f64::max);
+            assert_eq!(p(first[0])[0], least);
+            assert_eq!(p(first[1])[0], greatest);
+            let edge = sub(p(first[1]), p(first[0]));
+            let from_line = |i: u32| {
+                let c = cross(edge, sub(p(i), p(first[0])));
+                dot(c, c).sqrt()
+            };
+            let widest = all.clone().map(from_line).fold(0.0, f64::max);
+            assert!(from_line(first[2]) >= widest * (1.0 - 1e-12));
+            let normal = cross(edge, sub(p(first[2]), p(first[0])));
+            let from_plane = |i: u32| dot(normal, sub(p(i), p(first[0]))).abs();
+            let highest = all.clone().map(from_plane).fold(0.0, f64::max);
+            assert!(from_plane(first[3]) >= highest * (1.0 - 1e-12));
+        }
+    }
+
+    /// Where the points chosen do not span, the first simplex is the one on
+    /// `spanning_points`. The sample is every second point, and those lie
+    /// on the plane x + y + z = 0 exactly: their distances from the plane
+    /// through three of them are rounding errors and not zero, and the
+    /// exact orientation refuses the simplex. With the points of one line
+    /// as the sample, a distance is zero.
+    #[test]
+    fn a_first_simplex_that_does_not_span_is_not_taken() {
+        let mut rng = Rng(6241);
+        let integer = |rng: &mut Rng| (rng.unit() * 50.0).round();
+        let mut plane = Vec::new();
+        let mut line = Vec::new();
+        for i in 0..200 {
+            let (a, b) = (integer(&mut rng), integer(&mut rng));
+            if i % 2 == 0 {
+                plane.extend([a, b, -(a + b)]);
+                line.extend([f64::from(i), 0.0, 0.0]);
+            } else {
+                plane.extend([a, b, integer(&mut rng) + 0.5]);
+                line.extend([a, b + 0.5, integer(&mut rng) + 0.5]);
+            }
+        }
+        for points in [plane, line] {
+            let input = accept(3, &points).unwrap();
+            let sample = input.representatives.len().div_ceil(2);
+            assert_eq!(first_of(3, &points, sample), input.spanning_points);
+            assert!(
+                published_with_sample(3, &points, sample) == published_with_sample(3, &points, 0)
+            );
+        }
     }
 
     pub(crate) struct Rng(pub(crate) u64);
