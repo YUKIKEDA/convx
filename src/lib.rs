@@ -1,8 +1,7 @@
-//! N-dimensional convex hulls, Delaunay triangulations, and Voronoi diagrams
-//! whose topology is decided by exact predicate signs.
-//!
-//! The specification is `docs/design.md` (canonical: `docs/design.ja.md`).
-
+// The crate's documentation is the README: what is computed, an example of
+// each result, what is promised and what is not, and the limits. Its
+// examples run as doctests.
+#![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 
 mod arena;
@@ -29,6 +28,12 @@ pub use voronoi::{
     VoronoiBuilder, VoronoiCell, VoronoiCells, VoronoiDiagram, VoronoiInterface, VoronoiInterfaces,
     VoronoiRay, VoronoiRays, VoronoiVertex, VoronoiVertices,
 };
+
+/// The examples of the Japanese README, run as doctests like those of the
+/// English one, which is the crate's documentation.
+#[cfg(doctest)]
+#[doc = include_str!("../README.ja.md")]
+struct JapaneseReadme;
 
 #[cfg(test)]
 mod phase1;
