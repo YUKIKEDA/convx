@@ -337,6 +337,11 @@ fn representatives_by_hash<'p>(
     count: usize,
     point: &impl Fn(u32) -> &'p [f64],
 ) -> Option<Vec<u32>> {
+    if count >= BUCKETS_FROM {
+        // About a thousand points a bucket.
+        let bits = (count / 1024).max(1).ilog2().min(16);
+        return representatives_in_buckets(count, point, bits);
+    }
     // At most half full.
     let slots = (2 * count).next_power_of_two().max(2);
     let mask = slots - 1;
@@ -377,6 +382,97 @@ fn point_hash(p: &[f64]) -> u64 {
     // Final mix, so the low bits that pick the slot depend on every bit.
     h = (h ^ (h >> 30)).wrapping_mul(0x94d0_49bb_1331_11eb);
     h ^ (h >> 31)
+}
+
+/// From this many points the duplicates are found in buckets of the hash
+/// ([`representatives_in_buckets`]). Below it the one table is in the
+/// cache and is the faster of the two.
+const BUCKETS_FROM: usize = 1 << 18;
+
+/// [`representatives_by_hash`] bucket by bucket of the hash (#647): the
+/// points are scattered, as the low half of their hash and their index,
+/// into `2^bits` buckets by the top bits of the hash, in index order, and
+/// each bucket is searched in a table of its own size.
+///
+/// One table of twice the points is read at a random place for each point,
+/// and at 10^6 points nearly every read leaves the cache: the duplicates
+/// were the largest part of a hull whose points are nearly all inside, 34
+/// ms of 10^6 points in D = 2 (#644). A bucket of about a thousand points
+/// and its table stay in the first-level cache, the scatter writes each
+/// bucket in order, and a point's coordinates are read again only when the
+/// low half of its hash is met in its bucket.
+///
+/// The representatives are those of the one table. Equal points have equal
+/// hashes, so they share a bucket; the scatter keeps the order of the
+/// indices within a bucket, so the first of equal points to enter its
+/// bucket's table is the smallest index. A probe sequence longer than
+/// [`MAX_PROBES`] gives up as the one table does: points made to collide
+/// share a bucket and fill its table.
+///
+/// The scatter is a list of eight bytes a point, what the one table took.
+fn representatives_in_buckets<'p>(
+    count: usize,
+    point: &impl Fn(u32) -> &'p [f64],
+    bits: u32,
+) -> Option<Vec<u32>> {
+    let buckets = 1_usize << bits;
+    let bucket_of = |hash: u64| {
+        if bits == 0 {
+            0
+        } else {
+            (hash >> (64 - bits)) as usize
+        }
+    };
+    // Where each bucket's next point goes: its start, and after the scatter
+    // its end.
+    let mut next = vec![0_u32; buckets];
+    for i in 0..count as u32 {
+        next[bucket_of(point_hash(point(i)))] += 1;
+    }
+    let mut start = 0;
+    for slot in next.iter_mut() {
+        (*slot, start) = (start, start + *slot);
+    }
+    let mut scattered = vec![(0_u32, 0_u32); count];
+    for i in 0..count as u32 {
+        let hash = point_hash(point(i));
+        let place = &mut next[bucket_of(hash)];
+        scattered[*place as usize] = (hash as u32, i);
+        *place += 1;
+    }
+    let mut representative = vec![0_u32; count];
+    let mut table: Vec<u32> = Vec::new();
+    let mut from = 0;
+    for &to in &next {
+        let bucket = &scattered[from..to as usize];
+        from = to as usize;
+        // At most half full; an entry is a place in the bucket.
+        let slots = (2 * bucket.len()).next_power_of_two().max(2);
+        let mask = slots - 1;
+        table.clear();
+        table.resize(slots, u32::MAX);
+        for (place, &(low, i)) in bucket.iter().enumerate() {
+            let mut slot = (low as usize) & mask;
+            let mut probes = 0;
+            representative[i as usize] = loop {
+                let entry = table[slot];
+                if entry == u32::MAX {
+                    table[slot] = place as u32;
+                    break i;
+                }
+                let (other_low, other) = bucket[entry as usize];
+                if other_low == low && compare_points(point(other), point(i)) == Ordering::Equal {
+                    break other;
+                }
+                probes += 1;
+                if probes > MAX_PROBES {
+                    return None;
+                }
+                slot = (slot + 1) & mask;
+            };
+        }
+    }
+    Some(representative)
 }
 
 /// [`representatives_of`] by sorting the indices by coordinates.
@@ -552,6 +648,84 @@ mod tests {
             expected.sort_by(|&a, &b| compare_points(point(a), point(b)).then(a.cmp(&b)));
             assert_eq!(sorted, expected, "count {count}");
         }
+    }
+
+    /// The duplicates found in buckets are those of the sort (#647): with
+    /// one bucket, with a few, and with more buckets than points; on inputs
+    /// of many duplicates with both zeros, in D = 1 to 4; and the
+    /// representative of equal points is the smallest index.
+    #[test]
+    fn buckets_and_sorting_give_the_same_representatives() {
+        for dim in 1..=4 {
+            for count in [1, 2, 7, 100, 5000] {
+                let points = duplicate_heavy(dim, count, 0x6470 + (dim * count) as u64);
+                let point = |i: u32| &points[i as usize * dim..(i as usize + 1) * dim];
+                let by_sort = representatives_by_sort(count, point);
+                for bits in [0, 1, 3, 6, 14] {
+                    let in_buckets = representatives_in_buckets(count, &point, bits)
+                        .expect("ordinary input stays within the probe bound");
+                    assert_eq!(in_buckets, by_sort, "dim {dim}, count {count}, bits {bits}");
+                }
+            }
+        }
+        // Distinct points and a few duplicates, as an input of the size the
+        // buckets start from has them: through the entry that chooses.
+        let count = BUCKETS_FROM + 1000;
+        let mut state = 0x6471_u64;
+        let mut points: Vec<f64> = (0..2 * count)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                (state >> 11) as f64
+            })
+            .collect();
+        for i in (0..count).step_by(1013).skip(1) {
+            let source = i / 3;
+            points[2 * i] = points[2 * source];
+            points[2 * i + 1] = points[2 * source + 1];
+        }
+        let point = |i: u32| &points[i as usize * 2..i as usize * 2 + 2];
+        let chosen = representatives_by_hash(count, &point).unwrap();
+        assert_eq!(chosen, representatives_by_sort(count, point));
+        assert!(
+            chosen
+                .iter()
+                .enumerate()
+                .filter(|&(i, &r)| r as usize != i)
+                .count()
+                > 200
+        );
+    }
+
+    /// Points made to collide give up in buckets as in the one table, and
+    /// the sort answers.
+    #[test]
+    fn colliding_hashes_in_a_bucket_fall_back_to_the_sort() {
+        // Distinct points whose hashes agree in their top three bits and in
+        // the low bits that pick the slot of a table of their number: one
+        // bucket of eight holds them all, and every one probes from the
+        // same slot.
+        let count = 4 * MAX_PROBES;
+        let slots = (2 * count).next_power_of_two();
+        let mut points = Vec::new();
+        let mut candidate = 0.0_f64;
+        while points.len() < count {
+            candidate += 1.0;
+            let hash = point_hash(&[candidate]);
+            if hash >> 61 == 5 && hash as u32 as usize & (slots - 1) == 0 {
+                points.push(candidate);
+            }
+        }
+        let point = |i: u32| &points[i as usize..i as usize + 1];
+        assert!(representatives_in_buckets(count, &point, 3).is_none());
+        // Spread over the buckets by other bits, they are found.
+        let spread: Vec<f64> = (0..count).map(|i| i as f64 + 0.5).collect();
+        let point = |i: u32| &spread[i as usize..i as usize + 1];
+        assert_eq!(
+            representatives_in_buckets(count, &point, 3),
+            Some(representatives_by_sort(count, point))
+        );
     }
 
     #[test]
