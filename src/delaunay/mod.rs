@@ -735,6 +735,7 @@ fn inserted<S: insert::Shape>(
         let point = |i: u32| input.point(i);
         // One workspace and one list of sites for every group (#524).
         let mut placing = Placing::default();
+        let mut translates = Translates::default();
         let mut group: Vec<u32> = Vec::new();
         for run in members.chunk_by(|x, y| x.0 == y.0) {
             if let (3, &[(_, a), (_, b)]) = (k, run) {
@@ -757,12 +758,22 @@ fn inserted<S: insert::Shape>(
             );
             group.sort_unstable();
             group.dedup();
+            let number = draft.begin_group(&group);
+            if let Some(placed) = translates.find(point, &group) {
+                // The cells of the group placed before, by the place of
+                // each site in its group, and their signs.
+                for (cell, negative) in translates.cells(placed, k) {
+                    let cell: Small<u32, 11> = cell.iter().map(|&at| group[at as usize]).collect();
+                    draft.push_cell(number, &cell, negative);
+                }
+                continue;
+            }
             let (len, split) = placing.run(d, Some(d), point, &group)?;
             debug_assert_eq!(
                 len, k,
                 "a lower facet projects onto a full-dimensional region"
             );
-            let number = draft.begin_group(&group);
+            let first = draft.len();
             for cell in split.chunks_exact(len) {
                 // Each cell as its ascending vertex list and whether that
                 // order has negative orientation, as `oriented` gives it.
@@ -772,10 +783,147 @@ fn inserted<S: insert::Shape>(
                 let negative = orient(&points)? == Sign::Negative;
                 draft.push_cell(number, &cell, negative);
             }
+            translates.keep(&group, &draft.rows[first * k..], &draft.negative[first..]);
         }
     }
     drop(mesh);
     Ok(draft.finish(d, input.representative.clone()))
+}
+
+/// The most groups [`Translates`] keeps.
+const TRANSLATES: usize = 16;
+
+/// The cospherical groups placed so far in one build, by the differences of
+/// their sites from their first site: a group that is an exact translate of
+/// one of them takes its cells without the placing (#637).
+///
+/// Every unit cell of a lattice is the same points up to a translation, in
+/// the same order of indices, and the placing asked its 45 orientations for
+/// the corners of each cube of a lattice of D = 3, 36% of the build (#617).
+///
+/// The proof. The key of a group is, for each site after the first in
+/// ascending index, its difference from the first site, coordinate by
+/// coordinate, and it is taken only when every such subtraction is exact:
+/// the error term of its two-sum is zero (as in the first stage's exact
+/// zero, #615). Two groups with the same key then have the same real
+/// differences, so the sites of one are those of the other plus one real
+/// vector, each site matched to the site of the same place in ascending
+/// index. The placing reads its points in that order and decides by the
+/// exact signs of orientations of some of them and by the order of their
+/// coordinates along an axis, and a cell's sign is the exact orientation of
+/// its sites: none of these changes under a translation. So the placing
+/// takes the same steps on both, and writes the same cells by place, with
+/// the same signs. A difference that rounds proves nothing, and the group
+/// is placed.
+///
+/// The table holds [`TRANSLATES`] groups and takes no more: an input whose
+/// groups are all different would otherwise add a group for each, and a
+/// build's allocations do not grow with its groups (design §9). Once a group
+/// is not found in a full table the table is given up, and no later group
+/// pays for its key.
+#[derive(Default)]
+struct Translates {
+    /// The key of the group being looked up, and whether it was taken
+    /// whole: it is the key [`Self::keep`] stores.
+    key: Vec<u64>,
+    exact: bool,
+    given_up: bool,
+    /// The keys kept, one after another, and where each ends.
+    keys: Vec<u64>,
+    key_ends: Vec<usize>,
+    /// The cells of each group kept, as places in the group, each
+    /// ascending, their signs, and where each group's cells end.
+    cells: Vec<u32>,
+    negative: Vec<bool>,
+    cell_ends: Vec<usize>,
+}
+
+impl Translates {
+    /// The number of the group kept of which `group` (its sites ascending)
+    /// is an exact translate, if any. The key of `group` is left for
+    /// [`Self::keep`].
+    fn find<'p>(&mut self, point: impl Fn(u32) -> &'p [f64], group: &[u32]) -> Option<usize> {
+        self.exact = false;
+        if self.given_up || translates_off() {
+            return None;
+        }
+        let (&first, rest) = group.split_first()?;
+        let origin = point(first);
+        self.key.clear();
+        for &site in rest {
+            for (&x, &o) in point(site).iter().zip(origin) {
+                let difference = x - o;
+                // Knuth's two-sum of `x + (-o)`: its error term is zero
+                // exactly when `difference` is the difference.
+                let c = -o;
+                let x_back = difference - c;
+                let c_back = difference - x_back;
+                if (x - x_back) + (c - c_back) != 0.0 {
+                    return None;
+                }
+                // One key for the two zeros.
+                self.key.push((difference + 0.0).to_bits());
+            }
+        }
+        self.exact = true;
+        let mut start = 0;
+        for (number, &end) in self.key_ends.iter().enumerate() {
+            if self.keys[start..end] == self.key[..] {
+                #[cfg(test)]
+                tests::TRANSLATES_FOUND.with(|c| c.set(c.get() + 1));
+                return Some(number);
+            }
+            start = end;
+        }
+        if self.key_ends.len() == TRANSLATES {
+            self.given_up = true;
+            self.exact = false;
+        }
+        None
+    }
+
+    /// The cells of group `number`, `k` places each, with their signs.
+    fn cells(&self, number: usize, k: usize) -> impl Iterator<Item = (&[u32], bool)> {
+        let start = number
+            .checked_sub(1)
+            .map_or(0, |before| self.cell_ends[before]);
+        let end = self.cell_ends[number];
+        self.cells[start * k..end * k]
+            .chunks_exact(k)
+            .zip(self.negative[start..end].iter().copied())
+    }
+
+    /// Keeps the group last looked up, when its key was taken, which it is
+    /// not once the table is full: `rows` are its cells as sites of `group`,
+    /// each ascending, and `negative` their signs.
+    fn keep(&mut self, group: &[u32], rows: &[u32], negative: &[bool]) {
+        if !self.exact {
+            return;
+        }
+        self.exact = false;
+        self.keys.extend_from_slice(&self.key);
+        self.key_ends.push(self.keys.len());
+        // A site's place in its group: the group is ascending.
+        self.cells.extend(
+            rows.iter()
+                .map(|site| group.binary_search(site).unwrap_or(0) as u32),
+        );
+        self.negative.extend_from_slice(negative);
+        self.cell_ends.push(self.negative.len());
+    }
+}
+
+/// Whether a test turned the table of translates off on this thread, to
+/// compare a build with it and without.
+fn translates_off() -> bool {
+    #[cfg(test)]
+    {
+        tests::TRANSLATES_OFF.with(core::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
 }
 
 /// The placing triangulation of a group of two triangles of D = 2, without
