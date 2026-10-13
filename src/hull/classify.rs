@@ -181,19 +181,28 @@ pub(crate) struct Classified<'a> {
 /// The two chains of a strict polygon, read in its cycle: the lower chain
 /// from the least vertex to the greatest by the key the chain sorted the
 /// points by ([`polygon::coordinate_key`]), and the upper chain back from
-/// the greatest to the least. Nothing is copied: a hull whose every point is
-/// a vertex has as many vertices as points and locates none (#630).
+/// the greatest to the least.
+///
+/// The keys of the vertices are copied when asked, and read from the input
+/// otherwise. A hull whose every point is a vertex has as many vertices as
+/// points and locates none, and the copy cost it 13 to 36% of its build;
+/// read from the input, the keys of a disc's 343 vertices cost a tenth of
+/// the build of its 10^6 points (#630). The caller asks for the copy when
+/// it has at least as many points to locate as the cycle has vertices.
 struct Chains<'a> {
     /// The extreme vertices counterclockwise from the least.
     cycle: &'a [u32],
     /// The number of edges of the lower chain.
     along: usize,
+    /// The key of each vertex of `cycle`, or nothing.
+    keys: Vec<(u64, u64)>,
 }
 
 impl<'a> Chains<'a> {
     /// The chains of `cycle`, the extreme vertices counterclockwise from
-    /// the least, as the chain publishes them.
-    fn of(input: &Input<'_>, cycle: &'a [u32]) -> Self {
+    /// the least, as the chain publishes them, with the keys copied when
+    /// `copied`.
+    fn of(input: &Input<'_>, cycle: &'a [u32], copied: bool) -> Self {
         let n = cycle.len();
         let key = |i: usize| polygon::coordinate_key(input.point(cycle[i % n]));
         debug_assert!(
@@ -216,7 +225,16 @@ impl<'a> Chains<'a> {
             (0..lo).all(|i| key(i) < key(i + 1)) && (lo..n).all(|i| key(i) > key(i + 1)),
             "the keys ascend to the greatest vertex and descend from it"
         );
-        Self { cycle, along: lo }
+        let keys = if copied {
+            (0..n).map(key).collect()
+        } else {
+            Vec::new()
+        };
+        Self {
+            cycle,
+            along: lo,
+            keys,
+        }
     }
 
     /// The vertex `steps` edges counterclockwise from the least.
@@ -249,8 +267,11 @@ impl<'a> Chains<'a> {
     /// one of the two chains, the vertical ones at either end included.
     fn on_an_edge(&self, input: &Input<'_>, point: u32) -> Result<bool, ConvexHullError> {
         let key = polygon::coordinate_key(input.point(point));
-        let key_of = |steps: usize| polygon::coordinate_key(input.point(self.vertex(steps)));
         let n = self.cycle.len();
+        let key_of = |steps: usize| match self.keys.get(steps % n) {
+            Some(&key) => key,
+            None => polygon::coordinate_key(input.point(self.vertex(steps))),
+        };
         debug_assert!(
             key_of(0) < key && key < key_of(self.along),
             "a point off the cycle lies between its least and greatest vertex"
@@ -454,7 +475,9 @@ fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
     // points off it are sized up front; a list collected through a filter
     // grew by reallocation (#440).
     let representatives = &hull.input.representatives;
-    let chains = Chains::of(&hull.input, &hull.polygon);
+    // Every representative is a vertex, proved interior, or located.
+    let located = representatives.len() - n - hull.proved_interior.len();
+    let chains = Chains::of(&hull.input, &hull.polygon, located >= n);
     let mut vertices = Vec::with_capacity(n);
     let mut coplanar_points = Vec::new();
     let mut interior_points = Vec::with_capacity(representatives.len().saturating_sub(n));
@@ -2468,18 +2491,22 @@ pub(crate) mod tests {
         for (name, points) in &inputs {
             let hull = SimplicialHull::build(accept(2, points).unwrap()).unwrap();
             assert!(hull.strict_edges, "{name}");
-            let chains = Chains::of(&hull.input, &hull.polygon);
+            // With the keys read from the input, and with them copied.
+            let chains = [false, true].map(|copied| Chains::of(&hull.input, &hull.polygon, copied));
+            assert!(chains[0].keys.is_empty() && chains[1].keys.len() == hull.polygon.len());
             let (mut here_on, mut here_inside) = (0, 0);
             for &p in &hull.input.representatives {
                 if hull.polygon.contains(&p) {
                     continue;
                 }
                 let expected = polygon_edge(&hull.input, &hull.polygon, p).is_some();
-                assert_eq!(
-                    chains.on_an_edge(&hull.input, p).unwrap(),
-                    expected,
-                    "{name}: point {p}"
-                );
+                for chains in &chains {
+                    assert_eq!(
+                        chains.on_an_edge(&hull.input, p).unwrap(),
+                        expected,
+                        "{name}: point {p}"
+                    );
+                }
                 here_on += usize::from(expected);
                 here_inside += usize::from(!expected);
             }
