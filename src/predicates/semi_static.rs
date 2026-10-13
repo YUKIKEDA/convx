@@ -272,7 +272,8 @@ const EXACT_ZERO_RANGE: i32 = 150;
 pub(super) fn exact_zero(origin: &[f64], points: &[&[f64]], lifted: bool) -> bool {
     let k = points.len();
     let dim = origin.len();
-    if !(2..FACTORIAL_BITS.len()).contains(&k) || dim > 4 {
+    // A lifted entry has D squares, and the two bits below are for D <= 4.
+    if !(2..FACTORIAL_BITS.len()).contains(&k) || (lifted && dim > 4) {
         return false;
     }
     let mut lowest = i32::MAX;
@@ -1317,6 +1318,134 @@ pub(super) mod tests {
         (0..count(dim, lifted))
             .map(|_| (0..dim).map(|_| rng.unit() * scale).collect())
             .collect()
+    }
+
+    /// Points with integer coordinates in `[-reach, reach]` times `2^q`,
+    /// about `origin`: lattices, where a determinant is often zero.
+    fn dyadic(
+        rng: &mut Rng,
+        dim: usize,
+        lifted: bool,
+        reach: u64,
+        q: i32,
+        origin: f64,
+    ) -> Vec<Vec<f64>> {
+        let unit = two_to(q);
+        (0..count(dim, lifted))
+            .map(|_| {
+                (0..dim)
+                    .map(|_| origin + (rng.below(2 * reach + 1) as f64 - reach as f64) * unit)
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn proved_zero(points: &[Vec<f64>], lifted: bool) -> bool {
+        let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+        exact_zero(refs[0], &refs[1..], lifted)
+    }
+
+    /// A zero the first stage proves by its exact arithmetic is a zero of
+    /// the exact stage (#615), and inside its condition it proves the
+    /// zeros there are.
+    ///
+    /// The families: integers of a few bits times `2^q`, for powers from
+    /// `2^-140` to `2^100` and about origins that keep the differences
+    /// exact; the same about an origin of `2^54`, where every difference
+    /// rounds to the origin and the computed determinant is zero whatever
+    /// the points are; integers too wide for the bound; powers of two
+    /// beyond the range, where a product underflows; and determinants of
+    /// consecutive Fibonacci numbers, which are 1 or -1 and compute to zero
+    /// once the products pass `2^53`.
+    #[test]
+    fn a_zero_proved_by_exact_arithmetic_is_a_zero() {
+        let mut rng = Rng(615);
+        for (dim, lifted) in FORMULAS {
+            let (mut zeros, mut proved, mut nonzero) = (0, 0, 0);
+            for trial in 0..3000 {
+                let reach = [1, 2, 3, 8][trial % 4];
+                let q = [0, -30, 40, -140, 100, -1][trial / 4 % 6];
+                let origin = [0.0, 7.0, -3.0][trial / 24 % 3] * two_to(q);
+                let points = dyadic(&mut rng, dim, lifted, reach, q, origin);
+                let exact = exact_of(&points, lifted);
+                let claim = proved_zero(&points, lifted);
+                assert!(!claim || exact == Sign::Zero, "{points:?}");
+                zeros += usize::from(exact == Sign::Zero);
+                proved += usize::from(claim);
+                nonzero += usize::from(exact != Sign::Zero);
+            }
+            // Within the condition every zero is proved, and both signs
+            // and zeros were met.
+            assert_eq!(proved, zeros, "dim {dim}, lifted {lifted}");
+            assert!(
+                zeros > 50 && nonzero > 50,
+                "dim {dim}, lifted {lifted}: {zeros} {nonzero}"
+            );
+
+            // Inputs whose computed determinant is zero and whose
+            // determinant is not.
+            let mut trapped = 0;
+            for trial in 0..400 {
+                // Differences that round: the computed determinant is zero
+                // whatever the points are, and nothing is proved by it.
+                let far = dyadic(&mut rng, dim, lifted, 3, 0, 0.0)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, p)| if i == 0 { vec![two_to(54); dim] } else { p })
+                    .collect::<Vec<_>>();
+                let exact = exact_of(&far, lifted);
+                assert!(!proved_zero(&far, lifted) || exact == Sign::Zero, "{far:?}");
+                let refs: Vec<&[f64]> = far.iter().map(Vec::as_slice).collect();
+                let computed = estimate(refs[0], &refs[1..], lifted).unwrap().det;
+                trapped += usize::from(computed == 0.0 && exact != Sign::Zero);
+                // Too wide for the bound, and beyond the range of powers.
+                let wide = dyadic(&mut rng, dim, lifted, 1 << 20, 0, 0.0);
+                assert!(!proved_zero(&wide, lifted) || exact_of(&wide, lifted) == Sign::Zero);
+                let q = if trial % 2 == 0 { -300 } else { 200 };
+                let tiny = dyadic(&mut rng, dim, lifted, 2, q, 0.0);
+                let all_equal = tiny.iter().all(|p| p == &tiny[0]);
+                assert!(all_equal || !proved_zero(&tiny, lifted), "{tiny:?}");
+            }
+            assert!(trapped > 40, "dim {dim}, lifted {lifted}: {trapped}");
+        }
+        // F(n) F(n + 2) - F(n + 1)^2 is 1 or -1. From n = 38 the products
+        // pass 2^53 and the first stage computes zero.
+        let mut fib = vec![1.0_f64, 1.0];
+        while fib.len() < 60 {
+            fib.push(fib[fib.len() - 1] + fib[fib.len() - 2]);
+        }
+        let mut computed_zero = 0;
+        for n in 20..56 {
+            let points = vec![
+                vec![0.0, 0.0],
+                vec![fib[n], fib[n + 1]],
+                vec![fib[n + 1], fib[n + 2]],
+            ];
+            assert_ne!(exact_of(&points, false), Sign::Zero);
+            assert!(!proved_zero(&points, false), "n = {n}");
+            let refs: Vec<&[f64]> = points.iter().map(Vec::as_slice).collect();
+            computed_zero += usize::from(estimate(refs[0], &refs[1..], false).unwrap().det == 0.0);
+        }
+        assert!(computed_zero > 5, "{computed_zero}");
+        // The widest differences the bound takes, in units of their lowest
+        // bit: 11 bits for the in-circle test, 9 for the in-sphere test. A
+        // side that is a power of two has one bit, whatever its size.
+        let square = |m: f64| vec![vec![0.0, 0.0], vec![m, 0.0], vec![m, m], vec![0.0, m]];
+        assert!(proved_zero(&square(2047.0), true));
+        assert!(!proved_zero(&square(4095.0), true));
+        assert_eq!(exact_of(&square(4095.0), true), Sign::Zero);
+        assert!(proved_zero(&square(two_to(40)), true));
+        let cube = |m: f64| {
+            vec![
+                vec![0.0, 0.0, 0.0],
+                vec![m, 0.0, 0.0],
+                vec![0.0, m, 0.0],
+                vec![0.0, 0.0, m],
+                vec![m, m, m],
+            ]
+        };
+        assert!(proved_zero(&cube(511.0), true));
+        assert!(!proved_zero(&cube(1023.0), true));
     }
 
     /// Rows of one point each at its own scale, from the smallest
