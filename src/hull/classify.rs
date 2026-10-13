@@ -178,36 +178,50 @@ pub(crate) struct Classified<'a> {
     pub(crate) interior_points: Vec<u32>,
 }
 
-/// The two chains of a strict polygon, each as its vertices with the key the
-/// chain sorted them by ([`polygon::coordinate_key`]), ascending: the lower
-/// chain from the least vertex to the greatest, and the upper chain between
-/// the same two.
-struct Chains {
-    lower: Vec<((u64, u64), u32)>,
-    upper: Vec<((u64, u64), u32)>,
+/// The two chains of a strict polygon, read in its cycle: the lower chain
+/// from the least vertex to the greatest by the key the chain sorted the
+/// points by ([`polygon::coordinate_key`]), and the upper chain back from
+/// the greatest to the least. Nothing is copied: a hull whose every point is
+/// a vertex has as many vertices as points and locates none (#630).
+struct Chains<'a> {
+    /// The extreme vertices counterclockwise from the least.
+    cycle: &'a [u32],
+    /// The number of edges of the lower chain.
+    along: usize,
 }
 
-impl Chains {
-    /// The chains of `cycle`, the extreme vertices counterclockwise.
-    fn of(input: &Input<'_>, cycle: &[u32]) -> Self {
+impl<'a> Chains<'a> {
+    /// The chains of `cycle`, the extreme vertices counterclockwise from
+    /// the least, as the chain publishes them.
+    fn of(input: &Input<'_>, cycle: &'a [u32]) -> Self {
         let n = cycle.len();
-        let keyed = |i: usize| {
-            let v = cycle[i % n];
-            (polygon::coordinate_key(input.point(v)), v)
-        };
-        let least = (0..n).min_by_key(|&i| keyed(i)).unwrap_or(0);
-        let greatest = (0..n).max_by_key(|&i| keyed(i)).unwrap_or(0);
-        // Counterclockwise from the least vertex the cycle runs along the
-        // lower chain to the greatest, and back along the upper chain.
-        let along = (greatest + n - least) % n;
-        let lower: Vec<_> = (0..=along).map(|step| keyed(least + step)).collect();
-        let mut upper: Vec<_> = (along..=n).map(|step| keyed(least + step)).collect();
-        upper.reverse();
+        let key = |i: usize| polygon::coordinate_key(input.point(cycle[i % n]));
         debug_assert!(
-            lower.is_sorted() && upper.is_sorted(),
-            "each chain ascends by the chain's key"
+            (1..n).all(|i| key(0) < key(i)),
+            "the cycle starts at its least vertex"
         );
-        Self { lower, upper }
+        // From the least vertex the keys ascend along the lower chain to
+        // the greatest and descend along the upper chain: the first place
+        // whose successor is smaller is the greatest.
+        let (mut lo, mut hi) = (0, n - 1);
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            if key(mid) < key(mid + 1) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        debug_assert!(
+            (0..lo).all(|i| key(i) < key(i + 1)) && (lo..n).all(|i| key(i) > key(i + 1)),
+            "the keys ascend to the greatest vertex and descend from it"
+        );
+        Self { cycle, along: lo }
+    }
+
+    /// The vertex `steps` edges counterclockwise from the least.
+    fn vertex(&self, steps: usize) -> u32 {
+        self.cycle[steps % self.cycle.len()]
     }
 
     /// Whether `point`, a representative of the polygon that is not one of
@@ -235,24 +249,41 @@ impl Chains {
     /// one of the two chains, the vertical ones at either end included.
     fn on_an_edge(&self, input: &Input<'_>, point: u32) -> Result<bool, ConvexHullError> {
         let key = polygon::coordinate_key(input.point(point));
-        // The interior of the polygon is to the left of a lower edge taken
-        // by ascending key, and to the right of an upper one.
-        for (chain, inside) in [(&self.lower, Sign::Positive), (&self.upper, Sign::Negative)] {
-            let after = chain.partition_point(|&(k, _)| k < key);
-            debug_assert!(
-                0 < after && after < chain.len(),
-                "a point off the cycle lies between its least and greatest vertex"
-            );
-            let (Some(&(_, from)), Some(&(_, to))) =
-                (chain.get(after.wrapping_sub(1)), chain.get(after))
-            else {
-                continue;
-            };
-            let side = input.orient(&[from, to, point])?;
+        let key_of = |steps: usize| polygon::coordinate_key(input.point(self.vertex(steps)));
+        let n = self.cycle.len();
+        debug_assert!(
+            key_of(0) < key && key < key_of(self.along),
+            "a point off the cycle lies between its least and greatest vertex"
+        );
+        // The first step of each chain whose vertex is past the point: the
+        // keys ascend over the steps of the lower chain and descend over
+        // those of the upper one. Both edges are taken counterclockwise,
+        // so the interior of the polygon is to their left.
+        let (mut lo, mut hi) = (1, self.along);
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            if key_of(mid) < key {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        let lower = lo;
+        let (mut lo, mut hi) = (self.along + 1, n);
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            if key_of(mid) > key {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        for to in [lower, lo] {
+            let side = input.orient(&[self.vertex(to - 1), self.vertex(to), point])?;
             if side == Sign::Zero {
                 return Ok(true);
             }
-            debug_assert_eq!(side, inside, "a point is outside the polygon");
+            debug_assert_eq!(side, Sign::Positive, "a point is outside the polygon");
         }
         Ok(false)
     }
