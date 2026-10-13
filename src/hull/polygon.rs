@@ -117,7 +117,7 @@ pub(crate) fn extremes_polygon(
 /// takes.
 fn discard_polygon(
     rows: Rows<'_>,
-    points: impl Iterator<Item = u32>,
+    points: impl Iterator<Item = u32> + Clone,
 ) -> Result<Vec<u32>, ExactEvaluationExhausted> {
     let extremes = discard_extremes(rows, points).to_vec();
     let cycle = strict_cycle_of_sorted(rows, sorted_by_coordinates(rows, extremes))?;
@@ -126,19 +126,43 @@ fn discard_polygon(
 
 /// The farthest of `points` in each of the eight directions of
 /// [`discard_polygon`], ascending, each once.
-fn discard_extremes(rows: Rows<'_>, points: impl Iterator<Item = u32>) -> Small<u32, 8> {
-    let mut best = [f64::NEG_INFINITY; 8];
-    let mut farthest = [None; 8];
-    for r in points {
+fn discard_extremes(rows: Rows<'_>, points: impl Iterator<Item = u32> + Clone) -> Small<u32, 8> {
+    // The eight keys of a point: its coordinates and their sums and
+    // differences, each greatest at the farthest point of one direction.
+    let keys = |r: u32| {
         let p = rows.point(r);
         let (x, y) = (p[0], p[1]);
-        let keys = [x, -x, y, -y, x + y, x - y, y - x, -x - y];
-        for ((key, best), farthest) in keys.into_iter().zip(&mut best).zip(&mut farthest) {
-            // The points ascend, so a strict test keeps the smaller index
-            // on a tie.
-            if key > *best {
-                *best = key;
+        [x, -x, y, -y, x + y, x - y, y - x, -x - y]
+    };
+    // The greatest of each key first, and then the first point that reaches
+    // each (#645). One pass that kept each maximum with its index tested
+    // and stored eight times a point, 11 ms of the hull of 10^6 points; a
+    // pass of maxima alone is eight of them side by side, and the second
+    // pass stops at the last of the eight points (#644). The points are
+    // those of the one pass: the first, in the order of `points`, whose key
+    // is the greatest, so the smaller index on a tie, as the points ascend.
+    let mut best = [f64::NEG_INFINITY; 8];
+    for r in points.clone() {
+        for (key, best) in keys(r).into_iter().zip(&mut best) {
+            *best = best.max(key);
+        }
+    }
+    let mut farthest = [None; 8];
+    let mut missing = best.iter().filter(|b| **b > f64::NEG_INFINITY).count();
+    for r in points {
+        if missing == 0 {
+            break;
+        }
+        let keys = keys(r);
+        if !keys.iter().zip(&best).any(|(key, best)| key == best) {
+            continue;
+        }
+        for ((key, best), farthest) in keys.into_iter().zip(&best).zip(&mut farthest) {
+            // A key that is nowhere above negative infinity has no farthest
+            // point, as in the one pass, whose test was strict.
+            if key == *best && key > f64::NEG_INFINITY && farthest.is_none() {
                 *farthest = Some(r);
+                missing -= 1;
             }
         }
     }
@@ -384,6 +408,90 @@ fn total_key(x: f64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The farthest points before #645: one pass that keeps each maximum
+    /// with its index, a strict test keeping the smaller index on a tie.
+    fn farthest_in_one_pass(rows: Rows<'_>, points: impl Iterator<Item = u32>) -> Vec<u32> {
+        let mut best = [f64::NEG_INFINITY; 8];
+        let mut farthest = [None; 8];
+        for r in points {
+            let p = rows.point(r);
+            let (x, y) = (p[0], p[1]);
+            let keys = [x, -x, y, -y, x + y, x - y, y - x, -x - y];
+            for ((key, best), farthest) in keys.into_iter().zip(&mut best).zip(&mut farthest) {
+                if key > *best {
+                    *best = key;
+                    *farthest = Some(r);
+                }
+            }
+        }
+        let mut found: Vec<u32> = farthest.into_iter().flatten().collect();
+        found.sort_unstable();
+        found.dedup();
+        found
+    }
+
+    /// The farthest points by the maxima first are those of the one pass
+    /// (#645): on random points; on small grids, where every direction has
+    /// many ties and the smaller index is to be kept; on points that are all
+    /// one point, on one point, and on none; with both zeros; on every
+    /// third point of a set; and on coordinates so large that a sum
+    /// overflows, to an infinity on one side and, for the opposite
+    /// direction, to a key that no point is above.
+    #[test]
+    fn the_farthest_points_are_those_of_one_pass() {
+        let mut state = 0x6450_0001_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let mut sets: Vec<Vec<f64>> = Vec::new();
+        for count in [1_usize, 2, 3, 9, 100, 5000] {
+            sets.push(
+                (0..2 * count)
+                    .map(|_| (next() >> 11) as f64 / (1_u64 << 53) as f64 - 0.5)
+                    .collect(),
+            );
+            sets.push((0..2 * count).map(|_| (next() % 4) as f64).collect());
+            sets.push(
+                (0..2 * count)
+                    .map(|_| (next() % 3) as f64 - 1.0)
+                    .map(|x| x * 0.0)
+                    .collect(),
+            );
+        }
+        sets.push(Vec::new());
+        sets.push([7.5, -2.0].repeat(50));
+        // Every sum of the two coordinates overflows: `x + y` is positive
+        // infinity for all, and `-x - y` negative infinity for all.
+        sets.push(
+            (0..40)
+                .flat_map(|i| [1.0e308 + f64::from(i) * 1.0e292, 1.5e308])
+                .collect(),
+        );
+        // Some do and some do not.
+        sets.push(
+            (0..40)
+                .flat_map(|i| [f64::from(i % 5) * 4.0e307, f64::from(i % 3) * 8.0e307])
+                .collect(),
+        );
+        let mut differing = 0;
+        for points in &sets {
+            let rows = Rows(points);
+            let count = (points.len() / 2) as u32;
+            let every = farthest_in_one_pass(rows, 0..count);
+            assert_eq!(discard_extremes(rows, 0..count).to_vec(), every);
+            let third = || (0..count).step_by(3);
+            let of_third = farthest_in_one_pass(rows, third());
+            assert_eq!(discard_extremes(rows, third()).to_vec(), of_third);
+            differing += usize::from(every != of_third);
+        }
+        // The points given decide the answer: a third of them has other
+        // farthest points on most sets.
+        assert!(differing > 8, "{differing}");
+    }
 
     /// The chain before #515: a lower and an upper chain over every point.
     fn two_passes(rows: Rows<'_>, sorted: &[u32]) -> Vec<u32> {
