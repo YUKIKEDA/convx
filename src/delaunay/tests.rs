@@ -17,6 +17,214 @@ thread_local! {
     /// orientation that decides most of them (#451).
     pub(super) static EVERY_UNKNOWN_FACE_LIFTED: core::cell::Cell<bool> =
         const { core::cell::Cell::new(false) };
+    /// Turns the table of translates off on this thread, to compare a
+    /// build with it and without (#637).
+    pub(super) static TRANSLATES_OFF: core::cell::Cell<bool> =
+        const { core::cell::Cell::new(false) };
+    /// How many groups took the cells of a group placed before, on this
+    /// thread.
+    pub(super) static TRANSLATES_FOUND: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
+/// The triangulation of `points` with the table of translates and without
+/// it, and how many groups took the cells of another.
+fn with_and_without_translates(
+    dim: usize,
+    points: &[f64],
+) -> (DelaunayTriangulation, DelaunayTriangulation, usize) {
+    TRANSLATES_FOUND.with(|c| c.set(0));
+    let with = DelaunayBuilder::new(dim, points).build().unwrap();
+    let found = TRANSLATES_FOUND.with(core::cell::Cell::get);
+    TRANSLATES_OFF.with(|c| c.set(true));
+    let without = DelaunayBuilder::new(dim, points).build();
+    TRANSLATES_OFF.with(|c| c.set(false));
+    (with, without.unwrap(), found)
+}
+
+/// Every point of the integer lattice of `side` points a side in `dim`
+/// dimensions, sheared by `shear` along the first coordinate, times `scale`,
+/// plus `shift`.
+fn lattice_points(dim: usize, side: usize, shear: f64, scale: f64, shift: f64) -> Vec<f64> {
+    let mut points = Vec::new();
+    for i in 0..side.pow(dim as u32) {
+        let mut cell: Vec<f64> = (0..dim)
+            .map(|a| ((i / side.pow(a as u32)) % side) as f64)
+            .collect();
+        cell[0] += shear * cell[1];
+        points.extend(cell.iter().map(|x| x * scale + shift));
+    }
+    points
+}
+
+/// A group that is an exact translate of one placed before takes its cells
+/// (#637), and the triangulation published is the one of placing every
+/// group. Lattices of D = 3 and 4, plain, sheared, scaled by a power of two
+/// and moved; a lattice times 0.1 and one moved by 0.3, whose differences
+/// round and whose groups are placed; a lattice among random sites; boxes
+/// of forty different shapes, more than the table holds; and in D = 2
+/// copies of the eight integer points of a circle, groups of more than four
+/// sites. On a lattice of exact coordinates every group but the first is
+/// found.
+#[test]
+fn a_translate_of_a_placed_group_takes_its_cells() {
+    let mut state = 637_u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        (state >> 11) as f64 / (1_u64 << 53) as f64
+    };
+    // The name, the dimension, the points, and the fewest and the most
+    // groups that take the cells of another. A sheared lattice has groups
+    // of other shapes than its unit cells; a difference of two neighboring
+    // values is often exact where the values are not round, so some groups
+    // of a lattice times 0.1 are found as well, rightly: with exact
+    // differences they are translates.
+    // A lattice of s points a side has (s - 1)^D unit cells, one group each,
+    // and all but the first placed are found.
+    let mut cases: Vec<(&str, usize, Vec<f64>, usize, usize)> = vec![(
+        "lattice D3",
+        3,
+        lattice_points(3, 6, 0.0, 1.0, 0.0),
+        124,
+        124,
+    )];
+    cases.push((
+        "sheared D3",
+        3,
+        lattice_points(3, 5, 1.0, 1.0, 0.0),
+        1,
+        usize::MAX,
+    ));
+    cases.push((
+        "scaled and moved D3",
+        3,
+        lattice_points(3, 5, 0.0, 0.25, 1024.0),
+        63,
+        63,
+    ));
+    cases.push(("lattice D4", 4, lattice_points(4, 4, 0.0, 1.0, 0.0), 80, 80));
+    // Differences that round: 0.1 has no finite binary form, and 0.3 moves
+    // every site off the lattice by a rounding of its own.
+    cases.push((
+        "times 0.1 D3",
+        3,
+        lattice_points(3, 5, 0.0, 0.1, 0.0),
+        0,
+        63,
+    ));
+    cases.push((
+        "moved by 0.3 D3",
+        3,
+        lattice_points(3, 5, 0.0, 1.0, 0.3),
+        0,
+        63,
+    ));
+    let mut mixed = lattice_points(3, 5, 0.0, 1.0, 0.0);
+    mixed.extend((0..120).map(|_| 6.0 + 4.0 * next()));
+    cases.push(("lattice and random sites", 3, mixed, 40, 63));
+    // Boxes of forty shapes, far apart: the corners of each are one group.
+    let mut boxes = Vec::new();
+    for j in 0..40 {
+        let height = 1.0 + j as f64;
+        for corner in 0..8 {
+            boxes.extend([
+                1000.0 * j as f64 + f64::from(corner & 1),
+                f64::from(corner >> 1 & 1) * 2.0,
+                f64::from(corner >> 2 & 1) * height,
+            ]);
+        }
+    }
+    cases.push(("forty boxes", 3, boxes, 0, 40));
+    // The eight integer points of the circle of radius 5 through (5, 0)
+    // and (3, 4), copied along a row, far enough apart to stay groups.
+    let octagon = [
+        [5.0, 0.0],
+        [3.0, 4.0],
+        [-3.0, 4.0],
+        [-5.0, 0.0],
+        [-3.0, -4.0],
+        [3.0, -4.0],
+        [0.0, 5.0],
+        [0.0, -5.0],
+    ];
+    let mut circles = Vec::new();
+    for copy in 0..12 {
+        for corner in octagon {
+            circles.extend([corner[0] + 64.0 * f64::from(copy), corner[1]]);
+        }
+    }
+    cases.push(("circles D2", 2, circles, 11, 11));
+    for (name, dim, points, fewest, most) in cases {
+        let (with, without, found) = with_and_without_translates(dim, &points);
+        assert!(with == without, "{name}");
+        assert!(
+            (fewest..=most).contains(&found),
+            "{name}: {found} groups found"
+        );
+    }
+}
+
+/// The table of translates by itself: a group is found when its
+/// differences are those of a group kept, in the same order; a group whose
+/// difference rounds to them is not; the table keeps sixteen groups and is
+/// given up at the seventeenth it does not hold.
+#[test]
+fn the_table_of_translates_takes_exact_differences_and_a_fixed_number_of_groups() {
+    let points: Vec<[f64; 2]> = vec![
+        [0.0, 0.0],
+        [1e16, 3.0],
+        [5.0, 1.0],
+        // The same three moved by (2, 2): exact differences.
+        [2.0, 2.0],
+        [1e16 + 2.0, 5.0],
+        [7.0, 3.0],
+        // From (1, 0) the first difference is 1e16 - 1, which rounds to
+        // 1e16, and the others are those of the first group.
+        [1.0, 0.0],
+        [1e16, 3.0],
+        [6.0, 1.0],
+        // The first group with its last two sites exchanged.
+        [0.0, 0.0],
+        [5.0, 1.0],
+        [1e16, 3.0],
+    ];
+    let point = |i: u32| &points[i as usize][..];
+    let cells = [0_u32, 1, 2];
+    let mut table = Translates::default();
+    assert_eq!(table.find(point, &[0, 1, 2]), None);
+    table.keep(&[0, 1, 2], &cells, &[true]);
+    assert_eq!(table.find(point, &[3, 4, 5]), Some(0));
+    let kept: Vec<(Vec<u32>, bool)> = table.cells(0, 3).map(|(c, n)| (c.to_vec(), n)).collect();
+    assert_eq!(kept, [(vec![0, 1, 2], true)]);
+    assert_eq!(table.find(point, &[6, 7, 8]), None);
+    // Not kept either: its key was not taken.
+    table.keep(&[6, 7, 8], &[6, 7, 8], &[false]);
+    assert_eq!(table.key_ends.len(), 1);
+    assert_eq!(table.find(point, &[9, 10, 11]), None);
+    // Cells with a site that is not of the group are not kept.
+    table.keep(&[9, 10, 11], &[9, 10, 3], &[false]);
+    assert_eq!(table.key_ends.len(), 1);
+    assert_eq!(table.cells, [0, 1, 2]);
+    // Sixteen groups, each of another shape, then a seventeenth.
+    let shapes: Vec<[f64; 2]> = (0..40)
+        .flat_map(|j| [[0.0, 0.0], [1.0, f64::from(j)]])
+        .collect();
+    let shape = |i: u32| &shapes[i as usize][..];
+    let mut table = Translates::default();
+    for j in 0..16_u32 {
+        assert_eq!(table.find(shape, &[2 * j, 2 * j + 1]), None);
+        table.keep(&[2 * j, 2 * j + 1], &[2 * j, 2 * j + 1], &[false]);
+    }
+    assert_eq!(table.key_ends.len(), TRANSLATES);
+    assert_eq!(table.find(shape, &[10, 11]), Some(5));
+    assert!(!table.given_up);
+    assert_eq!(table.find(shape, &[32, 33]), None);
+    assert!(table.given_up);
+    table.keep(&[32, 33], &[32, 33], &[false]);
+    assert_eq!(table.key_ends.len(), TRANSLATES);
+    assert_eq!(table.find(shape, &[10, 11]), None);
 }
 
 /// A group of two triangles of D = 2 is written as the placing writes it

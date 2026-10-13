@@ -7325,3 +7325,38 @@ The spike's sentence that the links would give "part of the 31 ms" of D = 3, and
 
 - **Translates.** The proof of the key: two groups with the same exact differences, in the same order of indices, are translates, the sign of every orientation among their sites is the same, and so is every step of the placing; a difference that rounds takes the group out. The table must not grow with the groups: on sites whose groups are all different (sites drawn near a sphere) the prototype would add an entry a group, which the allocation contract forbids, so the table holds a fixed number of entries and stops taking new ones.
 - **Links.** The prototype matches every pair of a group's cells, which is quadratic in them: right for a cube's six cells, not for a group of a thousand. The row takes the links from the placing itself, which knows the two simplices on every ridge it keeps, or matches a large group's faces by a sort of that group alone.
+
+## A group that is an exact translate of one placed before takes its cells, PR #638 (#637)
+
+The prototype of #634 measured the lattices of D = 3 at 0.62 of their time with a table of the groups placed, by the exact differences of their sites from their first site. This is that change in the crate.
+
+### The change
+
+A group that would go to the placing is looked up by its differences, each formed without a rounding (a group with a difference that rounds is placed). A group found takes the cells of the one placed before, by the place of each site in its group, and their signs. The table holds sixteen groups and is given up when it is full and a group is not in it, so it does not grow with the groups. The proof is at `Translates` and the rule in design §7.
+
+### Time
+
+Under WSL, pinned and alternated, on an idle machine, `cacf885` (the branch's base, the crate of `9174fa4`) against `ec334f3`, and CGAL's program on the same file between them; ms, the minimum, and the ratios of the minimum and of the median to `cacf885`:
+
+| Delaunay of | Builds a side | `cacf885` | `ec334f3` | Ratios | CGAL | convx / CGAL |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rbox 27000 M3,4,5 D3` | 12 | 216.88 | 132.71 | 0.61, 0.61 | 129.58 | 1.02 |
+| `rbox 10000 M1,0 D4` | 4 | 668.93 | 478.75 | 0.72, 0.73 | 707.94 | 0.68 |
+| `rbox 10000 M3,4 D2` | 80 | 7.40 | 7.36 | 0.99, 1.01 | 4.97 | 1.48 |
+| `rbox 99856 M3,4 D2` | 16 | 90.97 | 89.48 | 0.98, 1.01 | 55.94 | 1.60 |
+| 10^5 Kuzmin sites, D2 | 24 | 58.92 | 57.55 | 0.98, 1.00 | 51.79 | 1.11 |
+| `cube` D2 10^4 | 96 | 4.81 | 4.82 | 1.00, 1.05 | | |
+| `sphere` D2 10^4 | 96 | 4.78 | 4.77 | 1.00, 0.94 | | |
+| `cube` D2 10^5 | 24 | 51.98 | 52.41 | 1.01, 1.01 | | |
+| `sphere` D2 10^5 | 20 | 42.20 | 41.88 | 0.99, 1.01 | | |
+| `cube` D3 10^4 | 24 | 34.42 | 33.84 | 0.98, 1.01 | | |
+| `sphere` D3 10^4 | 16 | 67.21 | 67.08 | 1.00, 1.02 | | |
+| `grid` D3 10^4 (integers in [0, 3]) | 24 | 0.73 | 0.73 | 1.00, 0.98 | | |
+| `lattice` D3 10^4 (integers in [-2, 2]) | 24 | 1.10 | 1.10 | 1.00, 1.00 | | |
+| `cube` D4 3,000 | 5 | 187.70 | 186.37 | 0.99, 0.99 | | |
+
+The lattice of D = 3 is at 1.02 of CGAL, from 1.67 in this run, and that of D = 4 at 0.68. The lattices of D = 2 are not touched: their groups of four sites do not go to the placing (#633). The medians of `cube` and `sphere` D2 at 10^4 read 1.05 and 0.94 with their minimums at 1.00; neither build has a group.
+
+### `tests/alloc.rs`
+
+The table's lists are allocated when a build has a group that goes to the placing: six allocations and about nineteen reallocations more on the cases with such groups (Delaunay `grid` D3 80 and 131 for 74 and 112), the same at the small and the large size. The Delaunay cases of D = 2 whose groups have four sites count twelve fewer, the placing's own buffers (#633: `lattice` D2 54 for 66). A hull of D = 2 counts one more, the keys of its cycle (#630). Every record is set to the counts of this commit.
