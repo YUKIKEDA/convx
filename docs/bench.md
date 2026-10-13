@@ -6863,3 +6863,114 @@ The first form of the test (`317cda2`) read every difference before its bound re
 With the zeros proved, the insertion on a lattice takes the time it takes on as many uniform sites. The rest of the excess (10 ms against 5.2 in D = 2, 82 against 37 in D = 3 on Windows) is the cospherical groups themselves: collecting and sorting a group's sites, the placing of each group (about a third of that block; 33 of 87 ms in D = 3), and the finish of the draft, about 3.7 and 2.0 ms of the build in D = 2 by the scratch timers. It is put to the owner whether a row reduces it before the comparison is published.
 
 The parity sets gain two Delaunay lattices, reported and not judged (ADR 0006, amendment of 2026-10-13). A parity run follows this change.
+
+## The comparison's data screened once against CGAL and Qhull, #618
+
+Every data file of `benches/compare/data` (rbox, the distributions of PBBS, the Stanford scans) through `benches/compare/runner.py` once, on `cdfa5a5` (the head of #616; `main` at `883ca77` has the same crate), under WSL, pinned. Times are the best build in ms: 15 builds a library under 1.5 s a build, 3 above. It is a screening, taken to find what to look at before the comparison is run, and nothing of it is published: the machine was not idle for all of it (another process used a quarter to a half of the CPU at times), and a row of three builds read up to 0.15 off when it was timed again.
+
+A ratio above 1.05, the parity's margin, is in bold (the owner's word of 2026-10-13: a row at 1.2 is looked at too).
+
+| Hull of | convx | CGAL | Qhull | convx / the faster | Peak memory, MB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `cube-d2-n10000` | 0.35 | 0.70 | 0.61 | 0.57 | 8 / 8 / 8 |
+| `cube-d2-n100000` | 3.13 | 8.06 | 5.27 | 0.59 | 9 / 10 / 9 |
+| `cube-d2-n1000000` | 52.0 | 57.9 | 56.6 | 0.92 | 56 / 55 / 32 |
+| `insphere-d2-n100000` | 7.50 | 4.21 | 6.14 | **1.78** | 9 / 9 / 9 |
+| `insphere-d2-n1000000` | 103 | 63.9 | 73.2 | **1.60** | 55 / 53 / 32 |
+| `kuzmin-d2-n100000` | 2.51 | 0.89 | 3.77 | **2.81** | 9 / 9 / 9 |
+| `kuzmin-d2-n1000000` | 54.4 | 11.4 | 45.8 | **4.76** | 55 / 43 / 25 |
+| `kuzmin-d2-n10000000` | 531 | 2,181 | 390 | **1.36** | 527 / 644 / 308 |
+| `lattice-d2-n10000` | 0.36 | 0.11 | 0.46 | **3.30** | 8 / 8 / 8 |
+| `near-d2-n10000` | 0.35 | 0.66 | 0.58 | 0.61 | 8 / 8 / 8 |
+| `sphere-d2-n10000` | 0.82 | 0.78 | 7.27 | **1.05** | 8 / 8 / 8 |
+| `sphere-d2-n100000` | 8.54 | 9.32 | 106 | 0.92 | 13 / 12 / 29 |
+| `sphere-d2-n1000000` | 99.5 | 163 | 2,159 | 0.61 | 104 / 80 / 299 |
+| `armadillo-d3-n172974` | 28.2 | 54.9 | 22.2 | **1.27** | 22 / 21 / 9 |
+| `buddha-d3-n543652` | 102 | 190 | 70.8 | **1.45** | 70 / 55 / 25 |
+| `bunny-d3-n35947` | 7.73 | 10.8 | 7.84 | 0.99 | 9 / 9 / 9 |
+| `cube-d3-n10000` | 1.41 | 2.70 | 1.52 | 0.93 | 8 / 8 / 8 |
+| `cube-d3-n100000` | 10.4 | 26.9 | 10.6 | 0.99 | 10 / 14 / 9 |
+| `cube-d3-n1000000` | 158 | 723 | 123 | **1.29** | 108 / 96 / 42 |
+| `dragon-d3-n437645` | 67.2 | 129 | 48.9 | **1.37** | 53 / 45 / 20 |
+| `insphere-d3-n100000` | 16.3 | 35.5 | 16.6 | 0.99 | 10 / 15 / 9 |
+| `insphere-d3-n1000000` | 241 | 1,300 | 256 | 0.94 | 115 / 98 / 45 |
+| `lattice-d3-n27000` | 2.46 | 4.10 | 1.99 | **1.24** | 9 / 9 / 9 |
+| `near-d3-n10000` | 1.37 | 2.70 | 1.61 | 0.85 | 8 / 8 / 8 |
+| `near-d3-n100000` | 9.98 | 23.3 | 10.5 | 0.95 | 10 / 14 / 9 |
+| `plummer-d3-n100000` | 10.3 | 15.6 | 5.04 | **2.05** | 10 / 14 / 9 |
+| `plummer-d3-n1000000` | 191 | 346 | 52.4 | **3.64** | 109 / 96 / 41 |
+| `sphere-d3-n10000` | 21.0 | 25.7 | 21.8 | 0.96 | 10 / 11 / 8 |
+| `sphere-d3-n100000` | 246 | 394 | 236 | 1.04 | 72 / 80 / 53 |
+| `sphere-d3-n1000000` | 3,930 | 9,869 | 3,937 | 1.00 | 710 / 734 / 505 |
+| `cube-d4-n10000` | 5.20 | 49.2 | 6.85 | 0.76 | 8 / 11 / 8 |
+| `cube-d4-n100000` | 29.5 | 567 | 31.4 | 0.94 | 13 / 55 / 9 |
+| `lattice-d4-n10000` | 3.99 | 53.3 | 1.93 | **2.07** | 8 / 13 / 8 |
+| `sphere-d4-n10000` | 105 | 125 | 130 | 0.85 | 29 / 31 / 19 |
+| `sphere-d4-n100000` | 1,229 | 1,249 | 1,446 | 0.98 | 243 / 270 / 172 |
+| `cube-d5-n10000` | 54.2 | 243 | 110 | 0.49 | 12 / 30 / 10 |
+| `cube-d5-n100000` | 207 | 1,761 | 397 | 0.52 | 30 / 132 / 25 |
+| `sphere-d5-n10000` | 869 | 1,051 | 930 | 0.93 | 112 / 165 / 81 |
+| `cube-d6-n10000` | 649 | 2,386 | 2,592 | 0.27 | 76 / 220 / 75 |
+| `sphere-d6-n10000` | 7,304 | 10,083 | 9,056 | 0.81 | 611 / 1087 / 450 |
+| `cube-d7-n1000` | 908 | - | 2,989 | 0.30 | 104 / 104 |
+| `cube-d8-n1000` | 9,864 | - | 37,960 | 0.26 | 642 / 650 |
+
+| Delaunay of | convx | CGAL | Qhull | convx / the faster | Peak memory, MB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `cube-d2-n10000` | 5.32 | 4.91 | 21.7 | **1.08** | 8 / 8 / 8 |
+| `cube-d2-n100000` | 52.7 | 51.4 | 404 | 1.02 | 33 / 43 / 62 |
+| `cube-d2-n1000000` | 563 | 728 | 5,916 | 0.77 | 276 / 385 / 599 |
+| `insphere-d2-n100000` | 52.2 | 51.6 | 235 | 1.01 | 33 / 43 / 53 |
+| `insphere-d2-n1000000` | 557 | 710 | 3,660 | 0.79 | 276 / 384 / 505 |
+| `kuzmin-d2-n100000` | 59.5 | 52.7 | 636 | **1.13** | 33 / 43 / 41 |
+| `kuzmin-d2-n1000000` | 2,922 | 773 | 5,035 | **3.78** | 279 / 384 / 93 |
+| `lattice-d2-n10000` | 10.2 | 5.55 | 44.2 | **1.83** | 8 / 8 / 10 |
+| `near-d2-n10000` | 5.58 | 5.21 | 34.9 | **1.07** | 8 / 8 / 8 |
+| `sphere-d2-n10000` | 5.23 | 4.91 | 30.6 | **1.07** | 8 / 8 / 8 |
+| `sphere-d2-n100000` | 41.6 | 39.1 | 342 | **1.06** | 28 / 40 / 61 |
+| `sphere-d2-n1000000` | 416 | 524 | 5,239 | 0.79 | 234 / 355 / 591 |
+| `armadillo-d3-n172974` | 685 | 618 | 2,397 | **1.11** | 155 / 239 / 303 |
+| `buddha-d3-n543652` | 2,541 | 2,122 | 14,390 | **1.20** | 504 / 760 / 1189 |
+| `bunny-d3-n35947` | 129 | 118 | 415 | **1.09** | 35 / 53 / 65 |
+| `cube-d3-n10000` | 34.4 | 31.5 | 93.1 | **1.09** | 11 / 17 / 19 |
+| `cube-d3-n100000` | 374 | 343 | 2,213 | **1.09** | 92 / 136 / 209 |
+| `cube-d3-n1000000` | 4,191 | 3,827 | 27,100 | **1.10** | 824 / 1314 / 2078 |
+| `dragon-d3-n437645` | 2,114 | 1,769 | 9,469 | **1.20** | 396 / 613 / 793 |
+| `insphere-d3-n100000` | 374 | 351 | 1,326 | **1.07** | 92 / 136 / 172 |
+| `insphere-d3-n1000000` | 4,249 | 3,830 | 16,420 | **1.11** | 823 / 1313 / 1696 |
+| `lattice-d3-n27000` | 212 | 131 | 890 | **1.63** | 53 / 35 / 36 |
+| `near-d3-n10000` | 36.0 | 35.4 | 141 | 1.01 | 11 / 17 / 22 |
+| `near-d3-n100000` | 386 | 374 | 2,149 | 1.03 | 89 / 132 / 206 |
+| `plummer-d3-n100000` | 397 | 369 | 2,208 | **1.08** | 91 / 137 / 206 |
+| `plummer-d3-n1000000` | 4,350 | 4,109 | 30,870 | **1.06** | 826 / 1317 / 2082 |
+| `sphere-d3-n10000` | 66.8 | 119 | 118 | 0.57 | 9 / 14 / 21 |
+| `sphere-d3-n100000` | 622 | 817 | 1,669 | 0.76 | 58 / 101 / 185 |
+| `sphere-d3-n1000000` | 5,648 | 6,063 | 21,780 | 0.93 | 542 / 961 / 1827 |
+| `cube-d4-n10000` | 699 | 671 | 856 | 1.04 | 41 / 68 / 80 |
+| `cube-d4-n100000` | 8,856 | 7,555 | 23,760 | **1.17** | 399 / 655 / 1128 |
+| `lattice-d4-n10000` | 660 | 692 | 1,691 | 0.95 | 69 / 45 / 44 |
+| `sphere-d4-n10000` | 865 | 2,437 | 1,344 | 0.64 | 28 / 45 / 97 |
+| `cube-d5-n10000` | 8,371 | 7,152 | 8,981 | **1.17** | 228 / 391 / 449 |
+
+The Delaunay triangulation of `kuzmin-d2-n10000000` is not in the table: one build of convx had not ended after 17 minutes, and the row was stopped. CGAL built it in 11.0 s.
+
+Counts. convx and CGAL, both exact, give the same sites and simplices on every triangulation, and the same vertices and facets on every hull but three. Where the facets differ, CGAL counts what convx merges: triangles for a facet of four coplanar points (Buddha: 12,358 against 12,357; the lattice of D = 3: 12 against 6), and in D = 4 the lattice's coplanar points as vertices (5,904 against 16). Qhull reports fewer vertices, facets, or regions on 35 rows, as the comparison's README says it can; on the lattices its regions are the merged ones (9,801 for 19,602 triangles).
+
+### What is above 1.05, by kind
+
+**1. Delaunay of Kuzmin sites, D = 2: more than linear.** 1.13 of CGAL at 10^5, 3.78 at 10^6, and no end at 10^7. The insertion order sorts each round by a Morton code of the coordinates quantized on a uniform grid over the bounding box (2^21 cells an axis in D = 2). Kuzmin's radius has a long tail: the box of 10^6 sites is about 10^6 wide, half the sites are within a radius of 1.7, and they fall into a few cells, where the order is by index. A scratch copy with counters: 105 steps of the walk a site at 10^6, against 5.5 on uniform sites. A scratch copy whose cells are the ranks of the coordinates, which follow the density, built the 10^6 in 749 ms for 2,881 (Windows; CGAL 773 ms under WSL), and cost 2 to 16% on uniform sites for its two sorts. So the cause is the grid, and the fix is an order that refines a crowded cell, at no cost where no cell is crowded.
+
+**2. Delaunay in D = 3, uniform and scans: 1.04 to 1.18 of CGAL.** Uniform sites read 1.06 to 1.10 from 10^4 to 10^6 (three sizes that read 1.16 to 1.24 with three builds read 1.08, 1.07, and 1.15 with six, and 437,645 sites read 1.04 in a second run of six). It is the gap of the parity's reported set, Delaunay `cube` D3 (ADR 0006). The two large scans are above it: Dragon 1.13 and Buddha 1.18 with six builds a side, beside 1.04 for as many uniform sites. Not exact zeros: of Dragon's predicates, 32,151 are left open by the first stage, 31,865 of them decided by a zero column, and 275 reach the exact stage. The walk takes 9.8 steps a site for 8.7 on uniform sites and a cavity has 21.8 simplices for 20.3. The rank order of kind 1 does not help (2,016 ms for 1,962). What the rest is, is not found here; a CPU profile beside CGAL would say. D = 4 and 5 read 1.17 on three builds (`cube-d4-n100000`, `cube-d5-n10000`) and 1.04 at `cube-d4-n10000`.
+
+**3. Hulls of inputs whose points are nearly all deep inside: 1.3 to 4.8 of the faster.** Kuzmin D2 (2.8 at 10^5, 4.8 at 10^6, 1.4 at 10^7), a ball D2 (1.8, 1.6), Plummer D3 (2.1, 3.6), `cube` D3 at 10^6 (1.29), the scans (1.27 to 1.45 of Qhull). convx takes on them what it takes on a cube of the same size (52 to 54 ms for 10^6 points of D = 2); CGAL and Qhull are fast there, 11 ms for the Kuzmin, because a point inside the first few facets costs them one rejection. convx reads every point more than once before construction: it finds the duplicates of every point (design §3: the published hull has each point's representative, and its interior and coplanar points) and scales and culls. What that floor is made of by part, and whether a point culled strictly inside could skip the rest, is not measured here.
+
+**4. Lattices.** Delaunay 1.83 in D = 2 and 1.63 in D = 3 after #615, 0.95 in D = 4: the cospherical groups (#617). The hull of the lattice of D = 2 reads 3.3 of CGAL (0.36 ms for 0.11) and of D = 4 2.1 of Qhull (4.0 ms for 1.9), on outputs of 4 and 16 vertices; D = 3 1.24. Small times, the same floor as kind 3.
+
+**5. Small sets of D = 2, Delaunay: 1.06 to 1.08** (`cube`, `near`, `sphere` at 10^4 and `sphere` at 10^5). The two parity sets that are not met (Delaunay `cube` and `sphere` D2 10^4); at 10^6 convx reads 0.77 to 0.79 of CGAL.
+
+At or under 1.05: the hulls of D = 4 to 8 (0.26 to 0.98), the hulls of `cube`, `sphere`, `near`, and a ball in D = 3 up to 10^5 (0.85 to 1.04), the triangulations of D = 2 at 10^5 to 10^6 but Kuzmin (0.77 to 1.02), and of sites on a sphere in D = 3 and 4 (0.57 to 0.93). Peak memory is under CGAL's on every triangulation but the lattices (level in D = 2, above in D = 3 and 4).
+
+### Not covered, and why
+
+- **A Voronoi diagram.** Qhull builds one (`qvoronoi`), and CGAL in D = 2; neither produces what convx publishes (cells, interfaces, and rays as lists), so a row would time different outputs. It is for the comparison's document to say, not for a row.
+- **Sites that nearly coincide** beyond `near` (five within 1e-8), and **D >= 7** beyond two hulls of 1,000 points: no data file.
