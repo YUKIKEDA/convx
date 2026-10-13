@@ -288,7 +288,7 @@ The owner opened this phase on 2026-10-12 (Grill on #592). The comparison it pub
 | R1-27 | Spike | Hull D2 of points nearly all inside: what is left beside the duplicates | #644 | Done |
 | R1-28 | Feat | Hull D2: the farthest points of the discard polygon by the maxima first | #645 | Done |
 | R1-29 | Feat | Hull D2: a point inside a box inside the discard polygon is discarded without the edges | #646 | Done |
-| R1-30 | Feat | Input: the duplicates found bucket by bucket of the hash | #647 | Not started |
+| R1-30 | Feat | Input: the duplicates found bucket by bucket of the hash | #647 | Done |
 
 ## Intentionally out of scope
 

@@ -7581,3 +7581,44 @@ Under WSL, pinned, five builds of the crate taking turns with CGAL's program on 
 A cube of D = 2 is at 0.63 to 0.77 of its time and a ball at 0.89 to 0.95. Kuzmin points at 10^5 are at 0.89.
 
 The first form of the box was about the mean of the polygon's vertices alone (`adb04f3`). A polygon that a few far points stretch has no such box, and 10^5 Kuzmin points then paid for the box's test and the edges: 2.01 ms for 1.87 in the run before this one, and a cube at 10^5 0.81 of its time where the box on the sample gives 0.65.
+
+## The duplicates found bucket by bucket of the hash, PR for #647
+
+The duplicates of every point were found in one table of twice the points, read at a random place for each: the largest part of a hull whose points are nearly all inside (#622, #644). From 2^19 points they are now found in buckets: the points are scattered, as the low half of their hash and their index, into buckets of about a thousand by the top bits of the hash, in index order, and each bucket is searched in a table of its own size. The scatter takes eight bytes a point, what the one table took. The representatives are the same.
+
+Under WSL, pinned, five builds of the crate taking turns with CGAL's program on the files: `bb6d622` (`main`), the same built a second time as the control, and the three rows of #644 one on another (`0153e36`, `77b172a`, `c7ddd9b`). The processor read 3% before the run and 16% after. ms, the minimum; the ratios are of the minimum and of the median, of the row to the commit before it, and of the control to `main`.
+
+| Hull of | Builds a side | `77b172a` | `c7ddd9b` | Ratios | Control | CGAL |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10^6 Kuzmin points, D2 | 40 | 27.97 | 20.62 | 0.74, 0.86 | 1.01, 1.00 | 9.83 |
+| 10^5 Kuzmin points, D2 | 80 | 1.67 | 1.71 | 1.03, 1.03 | 1.02, 0.99 | 0.90 |
+| 10^6 points in a ball, D2 | 40 | 57.58 | 47.75 | 0.83, 0.87 | 1.00, 0.99 | 57.81 |
+| 10^5 points in a ball, D2 | 80 | 4.16 | 4.19 | 1.01, 1.02 | 0.99, 0.99 | 4.35 |
+| `rbox 10000 M3,4 D2` | 96 | 0.23 | 0.22 | 0.99, 1.00 | 1.00, 1.01 | 0.10 |
+| 10^6 Plummer points, D3 | 40 | 75.34 | 63.29 | 0.84, 0.91 | 1.01, 0.98 | 270.3 |
+| `cube` D2 10^4 | 96 | 0.19 | 0.20 | 1.02, 1.04 | 1.00, 0.99 |  |
+| `cube` D2 10^5 | 80 | 2.03 | 2.07 | 1.02, 0.99 | 1.02, 1.01 |  |
+| `cube` D2 3 x 10^5 | 40 | 6.98 | 7.15 | 1.02, 1.05 | 0.97, 1.00 |  |
+| `cube` D2 6 x 10^5 | 40 | 17.00 | 14.01 | 0.82, 0.89 | 1.05, 1.00 |  |
+| `cube` D2 10^6 | 40 | 33.87 | 26.05 | 0.77, 0.71 | 0.98, 0.97 |  |
+| `sphere` D2 10^5 | 40 | 8.39 | 8.14 | 0.97, 1.00 | 1.04, 1.02 |  |
+| `sphere` D2 10^6 | 18 | 88.18 | 90.78 | 1.03, 1.02 | 1.04, 1.07 |  |
+| `grid` D2 10^6 (sixteen distinct points) | 30 | 9.03 | 9.19 | 1.02, 1.01 | 1.00, 1.02 |  |
+| `cube` D3 10^5 | 40 | 8.30 | 8.48 | 1.02, 1.01 | 0.99, 0.97 |  |
+| `cube` D3 3 x 10^5 | 30 | 28.99 | 29.26 | 1.01, 0.98 | 1.00, 1.05 |  |
+| `cube` D3 10^6 | 24 | 124.4 | 117.2 | 0.94, 0.97 | 1.04, 1.01 |  |
+| `sphere` D3 10^5 | 10 | 261.5 | 255.7 | 0.98, 1.03 | 1.02, 1.01 |  |
+| `cubesurf` D3 10^5 | 30 | 24.80 | 25.74 | 1.04, 1.00 | 1.00, 0.99 |  |
+| `cubesurf` D3 10^6 | 10 | 308.8 | 296.6 | 0.96, 0.97 | 1.00, 1.00 |  |
+| `cube` D4 10^6 | 10 | 365.0 | 364.2 | 1.00, 0.97 | 0.99, 1.01 |  |
+| Delaunay `cube` D2 10^6 | 5 | 577.2 | 563.6 | 0.98, 0.98 | 0.99, 0.97 |  |
+| Delaunay `cube` D3 3 x 10^5 | 4 | 1,284.4 | 1,261.3 | 0.98, 0.97 | 0.95, 0.98 |  |
+
+From 2^19 points a hull of D = 2 is at 0.74 to 0.83 of its time, Plummer points of D = 3 at 0.84, a cube of D = 3 at 10^6 at 0.94. Below 2^19 the one table is kept, and those sets read as the control does.
+
+Two things the first form (`1ce0a18`, from 2^18 points, every input) showed in the run before this one, and what was done:
+
+- **Points that are mostly duplicates.** `grid` D2 at 10^6 took 18.65 ms in buckets for 8.71: sixteen distinct points fill a few buckets, and the one table they keep small is the faster. A sample of 1,024 points decides: when fewer than three quarters of its hashes are distinct, the one table is used. `grid` reads 1.02 here.
+- **Where the buckets start.** At 3 x 10^5 points a cube of D = 2 took 10.12 ms in buckets for 9.49 in the one table; they start at 2^19, and at 6 x 10^5 points they read 0.82 here.
+
+With the three rows, against `main`: 10^6 Kuzmin points 35.17 to 20.62 ms (0.59; CGAL 9.83), 10^6 points in a ball 67.08 to 47.75 (0.71; CGAL 57.81), a cube of D = 2 at 10^6 54.42 to 26.05 (0.48). The Kuzmin hull stays above CGAL by its duplicates, which the build keeps (#622).
