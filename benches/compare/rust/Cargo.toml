@@ -8,6 +8,11 @@ publish = false
 
 [dependencies]
 convx = { path = "../../.." }
+delaunator = "1.1.0"
+delaunay = "0.8.2"
+geo = "0.33.1"
+parry3d-f64 = "0.31.1"
+spade = "2.15.1"
 
 [profile.release]
 debug = true

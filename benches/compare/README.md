@@ -34,8 +34,15 @@ Each is a program `<name> <hull|delaunay> <file> <reps>`, or is driven as one.
 | convx | `rust/src/bin/convx_run.rs` | What `build()` returns: for a hull its vertices, its facets with their vertex lists and neighbors, the coplanar and the interior points; for a triangulation its simplices with their neighbors. Exact signs |
 | CGAL | `benches/parity/cgal_time.cpp` | The same output as convx where CGAL has it (ADR 0006): the hull's surface; the triangulation's cells and neighbors written to flat arrays. Exact predicates on `f64` (`Epick`, `Epick_d` above D = 3) |
 | Qhull | `qconvex`, `qdelaunay` with `i s TI <file> TO <out>` | The facets by their vertices, written to a file; its own "CPU seconds to compute hull (after input)". One build a process. Qhull merges facets within a tolerance and is not exact: on the same points it can report fewer vertices, facets, or regions, and the report shows where |
+| `spade` 2.15.1 | `rust/src/bin/spade_run.rs` | The Delaunay triangulation of D = 2, loaded in bulk: vertices, edges, and faces with their adjacency. Exact predicates |
+| `delaunator` 1.1.0 | `rust/src/bin/delaunator_run.rs` | The Delaunay triangulation of D = 2 as triangles and half-edges. Robust orientation tests; equal points are not merged, so its first count is the points given |
+| `delaunay` 0.8.2 | `rust/src/bin/delaunay_run.rs` | The Delaunay triangulation of D = 2 to 5, with its default options (the PL-manifold guarantee, which validates as it inserts). Exact predicates. It enters rows of 1,000 points only: it took 0.5 s for 1,000 points of D = 2 and 43 s for 10,000. Its lightest options returned an error on these files (the adapter's documentation has the case) |
+| `parry3d-f64` 0.31.1 | `rust/src/bin/parry_run.rs` | The hull of D = 3 as vertices and triangles. Not exact: it can report fewer vertices. A facet of more than three points comes out as several triangles, so its second count is triangles |
+| `geo` 0.33.1 | `rust/src/bin/geo_run.rs` | The hull of D = 2 as a polygon. Robust orientation tests |
 
-The Rust adapters are one package, `rust/`, with a manifest and a lock file of its own: its dependencies are not convx's, and nothing of it ships. Other crates join it in R1-7.
+The Rust adapters are one package, `rust/`, with a manifest and a lock file of its own: its dependencies are not convx's, and nothing of it ships. It needs Rust 1.98.1, which the `delaunay` crate asks for; convx's own MSRV is not touched.
+
+Each crate enters the rows of its own dimension only, on one or two data files of a tier and two sizes; the full grid of data is for Qhull and CGAL (the owner's decision on #599). Not compared: `qhull` (bindings to Qhull, which is here itself), `chull`, `tritet`, `startin`, `voronoice`, `voronator`.
 
 ## Data
 
