@@ -7507,3 +7507,37 @@ With the box, 436 points of the lattice were kept for 492. The 56 are points tha
 ### What follows
 
 Three rows, by the owner's word of 2026-10-13: the farthest points by the maxima first (#645), the box, with the filter's zero product (#646), and the duplicates in buckets (#647). The hull of Kuzmin points will still be above CGAL by the duplicates, which stay in the build.
+
+## The farthest points of the discard polygon by the maxima first, PR for #645
+
+The polygon that discards interior points of a hull of D = 2 is the strict cycle of the farthest points in eight directions. One pass kept each maximum with its index, eight tests and stores a point: 10 to 11 ms of 10^6 points (#644). The eight maxima are now found first, a pass of maxima alone, and then the first point that reaches each, a pass that stops at the last of the eight. The points are those of the one pass, so the polygon and what it discards are the same.
+
+Under WSL, pinned, five builds of the crate taking turns with CGAL's program on the files: `bb6d622` (`main`), the same built a second time as the control, and the three rows of #644 one on another (`0153e36`, `77b172a`, `c7ddd9b`). The processor read 3% before the run and 16% after. ms, the minimum; the ratios are of the minimum and of the median, of the row to the commit before it, and of the control to `main`.
+
+| Hull of | Builds a side | `bb6d622` | `0153e36` | Ratios | Control | CGAL |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10^6 Kuzmin points, D2 | 40 | 35.17 | 28.89 | 0.82, 0.83 | 1.01, 1.00 | 9.83 |
+| 10^5 Kuzmin points, D2 | 80 | 2.39 | 1.87 | 0.78, 0.76 | 1.02, 0.99 | 0.90 |
+| 10^6 points in a ball, D2 | 40 | 67.08 | 60.33 | 0.90, 0.91 | 1.00, 0.99 | 57.81 |
+| 10^5 points in a ball, D2 | 80 | 5.13 | 4.69 | 0.91, 0.88 | 0.99, 0.99 | 4.35 |
+| `rbox 10000 M3,4 D2` | 96 | 0.28 | 0.23 | 0.80, 0.81 | 1.00, 1.01 | 0.10 |
+| 10^6 Plummer points, D3 | 40 | 72.97 | 73.80 | 1.01, 1.02 | 1.01, 0.98 | 270.3 |
+| `cube` D2 10^4 | 96 | 0.35 | 0.29 | 0.83, 0.83 | 1.00, 0.99 |  |
+| `cube` D2 10^5 | 80 | 3.62 | 3.13 | 0.86, 0.84 | 1.02, 1.01 |  |
+| `cube` D2 3 x 10^5 | 40 | 13.30 | 11.03 | 0.83, 0.84 | 0.97, 1.00 |  |
+| `cube` D2 6 x 10^5 | 40 | 27.25 | 24.82 | 0.91, 0.87 | 1.05, 1.00 |  |
+| `cube` D2 10^6 | 40 | 54.42 | 44.18 | 0.81, 0.87 | 0.98, 0.97 |  |
+| `sphere` D2 10^5 | 40 | 9.08 | 8.52 | 0.94, 0.94 | 1.04, 1.02 |  |
+| `sphere` D2 10^6 | 18 | 94.86 | 94.10 | 0.99, 0.95 | 1.04, 1.07 |  |
+| `grid` D2 10^6 (sixteen distinct points) | 30 | 16.19 | 8.85 | 0.55, 0.60 | 1.00, 1.02 |  |
+| `cube` D3 10^5 | 40 | 8.44 | 8.41 | 1.00, 1.01 | 0.99, 0.97 |  |
+| `cube` D3 3 x 10^5 | 30 | 30.02 | 32.02 | 1.07, 1.06 | 1.00, 1.05 |  |
+| `cube` D3 10^6 | 24 | 118.3 | 124.2 | 1.05, 1.03 | 1.04, 1.01 |  |
+| `sphere` D3 10^5 | 10 | 255.9 | 259.0 | 1.01, 1.03 | 1.02, 1.01 |  |
+| `cubesurf` D3 10^5 | 30 | 26.50 | 26.21 | 0.99, 0.98 | 1.00, 0.99 |  |
+| `cubesurf` D3 10^6 | 10 | 320.2 | 316.9 | 0.99, 0.98 | 1.00, 1.00 |  |
+| `cube` D4 10^6 | 10 | 362.3 | 357.1 | 0.99, 1.00 | 0.99, 1.01 |  |
+| Delaunay `cube` D2 10^6 | 5 | 580.7 | 571.5 | 0.98, 1.03 | 0.99, 0.97 |  |
+| Delaunay `cube` D3 3 x 10^5 | 4 | 1,278.8 | 1,269.9 | 0.99, 1.00 | 0.95, 0.98 |  |
+
+Every hull of D = 2 that discards is at 0.78 to 0.91 of its time, and `grid` at 10^6, sixteen distinct points a million times, at 0.55: there the one pass stored at every point that tied a maximum. The hulls of D = 3 and 4 and the triangulations do not go through the change; `cube` D3 reads 1.07 and 1.05 at 3 x 10^5 and 10^6 with its control at 1.00 and 1.04 by the minimum and 1.05 and 1.01 by the median, and 0.97 and 1.05 again one commit on, which changes nothing there either.
