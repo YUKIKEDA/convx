@@ -7326,7 +7326,7 @@ The spike's sentence that the links would give "part of the 31 ms" of D = 3, and
 - **Translates.** The proof of the key: two groups with the same exact differences, in the same order of indices, are translates, the sign of every orientation among their sites is the same, and so is every step of the placing; a difference that rounds takes the group out. The table must not grow with the groups: on sites whose groups are all different (sites drawn near a sphere) the prototype would add an entry a group, which the allocation contract forbids, so the table holds a fixed number of entries and stops taking new ones.
 - **Links.** The prototype matches every pair of a group's cells, which is quadratic in them: right for a cube's six cells, not for a group of a thousand. The row takes the links from the placing itself, which knows the two simplices on every ridge it keeps, or matches a large group's faces by a sort of that group alone.
 
-## A group that is an exact translate of one placed before takes its cells, PR for #637
+## A group that is an exact translate of one placed before takes its cells, PR #638 (#637)
 
 The prototype of #634 measured the lattices of D = 3 at 0.62 of their time with a table of the groups placed, by the exact differences of their sites from their first site. This is that change in the crate.
 
