@@ -7177,7 +7177,7 @@ CGAL's `convex_hull_2` (Akl and Toussaint) discards against a quadrilateral of f
 
 What could be done: the cycle is the lower chain and the upper chain, each sorted by the coordinates the chain sorted the points by. A point is between two consecutive vertices of each by a bisection on those coordinates, without a predicate, and one orientation against the edge of each chain there decides whether it is inside, on the lower edge, or on the upper one: two exact signs a point for eleven, and no change to what is published. Expected: about 30 of the 35 ms, and the 10^6 ball at about 1.1 of CGAL from 1.6. It is put to the owner.
 
-## A point off the chain located by its coordinates, PR for #630
+## A point off the chain located by its coordinates, PR #631 (#630)
 
 The spike #628 found the hull of points in a ball of D = 2 locating 99,366 of 10^6 points on its polygon by about eleven exact-sign calls each, a bisection of the fan from the first vertex by orientation: 35 ms of a 102 ms build.
 
