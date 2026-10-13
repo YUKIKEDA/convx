@@ -200,35 +200,75 @@ fn edges_of(rows: Rows<'_>, cycle: &[u32]) -> Vec<Edge> {
 /// polygon: a box inside the polygon first, and the polygon's edges for a
 /// point outside the box (#646).
 ///
-/// The box is tried at a few sizes about the mean of the polygon's
-/// vertices, each a share of the polygon's extent, and taken when its four
-/// corners are clearly inside by the edges. The inside of a convex polygon
-/// is convex, so a box whose corners are strictly inside lies strictly
-/// inside, and so does a point strictly inside the box. Four comparisons
-/// then stand for up to eight filtered orientations: a quarter of the pass
-/// over 10^6 points spread in a square (#644). When no size is inside, as
-/// for a thin polygon or one that a few far points make lopsided, the box
-/// is empty and the edges decide every point.
+/// A box is taken when its four corners are clearly inside by the edges.
+/// The inside of a convex polygon is convex, so a box whose corners are
+/// strictly inside lies strictly inside, and so does a point strictly
+/// inside the box. Four comparisons then stand for up to eight filtered
+/// orientations: a quarter of the pass over 10^6 points spread in a square
+/// (#644).
+///
+/// Where the points are known ([`Self::about`]) the box is tried on them: a
+/// sample of the points gives, on each coordinate, the values that leave a
+/// share of the sample below and above, and the box between them is tried
+/// from the widest share inward. It then holds the points wherever they
+/// are dense, and not the middle of a polygon that a few far points
+/// stretch. Otherwise, and when none of those is inside, it is tried about
+/// the mean of the polygon's vertices at a few shares of the polygon's
+/// extent. When nothing is inside, as for a thin polygon, there is no box
+/// and the edges decide every point.
 pub(crate) struct Discard<'e> {
     edges: &'e [Edge],
-    /// The box as `[x low, x high, y low, y high]`; empty when the lows are
-    /// above the highs.
-    inner: [f64; 4],
+    /// The box as `[x low, x high, y low, y high]`, when there is one.
+    inner: Option<[f64; 4]>,
 }
 
-/// The shares of the polygon's extent tried for the box of [`Discard`],
-/// largest first.
+/// The shares of the polygon's extent tried for the box of [`Discard`]
+/// about the mean of its vertices, largest first.
 const BOX_SHARES: [f64; 6] = [0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
+
+/// The most points [`Discard::about`] samples, and the shares of the sample
+/// left outside the box on each side of a coordinate, smallest first.
+const BOX_SAMPLE: usize = 255;
+const BOX_TAILS: [f64; 6] = [0.03, 0.06, 0.12, 0.2, 0.3, 0.4];
 
 impl<'e> Discard<'e> {
     /// The test for the polygon of `edges`.
     pub(crate) fn new(edges: &'e [Edge]) -> Self {
-        const EMPTY: [f64; 4] = [
-            f64::INFINITY,
-            f64::NEG_INFINITY,
-            f64::INFINITY,
-            f64::NEG_INFINITY,
-        ];
+        Self {
+            edges,
+            inner: Self::about_the_vertices(edges),
+        }
+    }
+
+    /// The test for the polygon of `edges`, with a box about where
+    /// `points` are, read at one stride.
+    pub(crate) fn about(edges: &'e [Edge], rows: Rows<'_>, points: &[u32]) -> Self {
+        let stride = points.len().div_ceil(BOX_SAMPLE).max(1);
+        let (mut xs, mut ys) = ([0.0; BOX_SAMPLE], [0.0; BOX_SAMPLE]);
+        let mut count = 0;
+        for &r in points.iter().step_by(stride).take(BOX_SAMPLE) {
+            let p = rows.point(r);
+            (xs[count], ys[count]) = (p[0], p[1]);
+            count += 1;
+        }
+        let (xs, ys) = (&mut xs[..count], &mut ys[..count]);
+        xs.sort_unstable_by(f64::total_cmp);
+        ys.sort_unstable_by(f64::total_cmp);
+        let inner = BOX_TAILS
+            .iter()
+            .filter_map(|tail| {
+                let low = (tail * count as f64) as usize;
+                let high = count.checked_sub(1 + low)?;
+                (low < high).then(|| [xs[low], xs[high], ys[low], ys[high]])
+            })
+            .find(|b| Self::holds_the_box(edges, b))
+            .or_else(|| Self::about_the_vertices(edges));
+        Self { edges, inner }
+    }
+
+    /// A box about the mean of the polygon's vertices, if one of
+    /// [`BOX_SHARES`] of its extent is inside.
+    fn about_the_vertices(edges: &[Edge]) -> Option<[f64; 4]> {
         let count = edges.len() as f64;
         let (mut cx, mut cy) = (0.0, 0.0);
         for [vertex, _] in edges {
@@ -240,7 +280,7 @@ impl<'e> Discard<'e> {
             hx = hx.max((vertex[0] - cx).abs());
             hy = hy.max((vertex[1] - cy).abs());
         }
-        let inner = BOX_SHARES
+        BOX_SHARES
             .iter()
             .map(|share| {
                 [
@@ -250,20 +290,22 @@ impl<'e> Discard<'e> {
                     cy + share * hy,
                 ]
             })
-            .find(|b| {
-                [[b[0], b[2]], [b[1], b[2]], [b[1], b[3]], [b[0], b[3]]]
-                    .iter()
-                    .all(|corner| clearly_inside(edges, corner))
-            })
-            .unwrap_or(EMPTY);
-        Self { edges, inner }
+            .find(|b| Self::holds_the_box(edges, b))
+    }
+
+    /// Whether the four corners of `b` are clearly inside the polygon.
+    fn holds_the_box(edges: &[Edge], b: &[f64; 4]) -> bool {
+        [[b[0], b[2]], [b[1], b[2]], [b[1], b[3]], [b[0], b[3]]]
+            .iter()
+            .all(|corner| clearly_inside(edges, corner))
     }
 
     /// Whether `point` is strictly inside the box.
     #[inline(always)]
     fn in_the_box(&self, point: &[f64]) -> bool {
-        let b = &self.inner;
-        (point[0] > b[0]) & (point[0] < b[1]) & (point[1] > b[2]) & (point[1] < b[3])
+        self.inner.is_some_and(|b| {
+            (point[0] > b[0]) & (point[0] < b[1]) & (point[1] > b[2]) & (point[1] < b[3])
+        })
     }
 
     /// Whether `point` is proved strictly inside the polygon.
@@ -536,8 +578,10 @@ mod tests {
     /// alone do (#646). Polygons of the farthest points of: points in a
     /// square, in a disc, a rotated integer lattice (points share coordinates
     /// with its vertices), points dense about the origin with a long tail,
-    /// and points near a segment, a polygon too thin for a box. The box is
-    /// found on the first three, and discards points wherever it is found.
+    /// and points near a segment, a polygon too thin for a box. The box
+    /// about the points is found on all but the thin one and holds a
+    /// quarter of the points or more; about the vertices it is found on the
+    /// first three.
     #[test]
     fn the_box_discards_only_points_strictly_inside() {
         let mut state = 0x6460_0001_u64;
@@ -579,15 +623,18 @@ mod tests {
             let cycle = discard_polygon(rows, 0..count).unwrap();
             assert!(cycle.len() >= 3, "{name}");
             let edges = edges_of(rows, &cycle);
-            let discard = Discard::new(&edges);
-            let has_box =
-                discard.inner[0] < discard.inner[1] && discard.inner[2] < discard.inner[3];
+            let all: Vec<u32> = (0..count).collect();
+            // About the vertices, a few far points leave no box on the long
+            // tail; about the points there is one.
+            let about_vertices = Discard::new(&edges);
             match *name {
-                "square" | "disc" | "lattice" => assert!(has_box, "{name}"),
-                "thin" => assert!(!has_box, "{name}: {:?}", discard.inner),
-                // A few far points make a lopsided polygon; either way.
-                _ => {}
+                "square" | "disc" | "lattice" => assert!(about_vertices.inner.is_some(), "{name}"),
+                "thin" | "tail" => assert!(about_vertices.inner.is_none(), "{name}"),
+                _ => unreachable!(),
             }
+            let discard = Discard::about(&edges, rows, &all);
+            let has_box = discard.inner.is_some();
+            assert_eq!(has_box, *name != "thin", "{name}: {:?}", discard.inner);
             let (mut by_the_box, mut by_the_box_alone) = (0, 0);
             for r in 0..count {
                 let p = rows.point(r);
@@ -612,6 +659,21 @@ mod tests {
                 );
             }
             assert_eq!(by_the_box > 0, has_box, "{name}");
+            // The box about the points holds a good share of them: a
+            // quarter at the least, on a disc, whose box is the smallest.
+            assert!(
+                !has_box || by_the_box * 4 > count as usize,
+                "{name}: {by_the_box}"
+            );
+            // The box about the vertices discards only points strictly
+            // inside as well.
+            for r in 0..count {
+                let p = rows.point(r);
+                assert!(
+                    !about_vertices.in_the_box(p) || clearly_inside(&edges, p),
+                    "{name}: point {r}"
+                );
+            }
             // With the filter's zero left product decided, the edges alone
             // discard what the box does.
             assert_eq!(by_the_box_alone, 0, "{name}");
