@@ -7136,3 +7136,43 @@ The spike's sentence that a few thousand points at most are ever outside a facet
 ### Left as it is
 
 The code is removed (`no-dead-code.mdc`); the branch's two commits are reverted. The 10^6 Plummer points stand at 70.6 ms against Qhull's 53.7 ms in this run (1.31; one run of `qconvex`), from 3.6 times in the screening.
+
+## The duplicates on demand, measured for the Grill, and the hull of a ball in D = 2 (#622, #628)
+
+### What the duplicates cost, by switching them off
+
+For the Grill on making `representative` and `interior_points` on demand. A scratch copy of `e782604` (the first simplex of #624) whose hash of every point can be switched off, on inputs without duplicates: the time without it is the most the change could give. Windows, pinned, the best of 5 to 10 builds, two rounds, ms:
+
+| Hull of | With the duplicates | Without | The faster other (WSL, #618 and #624) |
+| --- | ---: | ---: | ---: |
+| 10^6 Kuzmin points, D2 | 40.2, 41.3 | 23.2, 22.8 | CGAL 11.4 |
+| 10^6 points in a ball, D2 | 103.5, 106.8 | 81.4, 78.2 | CGAL 63.9 |
+| `cube` D2 10^6 | 54.4, 53.5 | 34.8, 36.1 | Qhull 56.6 |
+| `cube` D2 10^5 | 4.5, 4.7 | 3.5, 3.6 | |
+| `sphere` D2 10^6 | 105.7, 111.6 | 108.6, 106.9 | |
+| 10^6 Plummer points, D3 | 88.9, 87.3 | 64.8, 64.7 | Qhull 49 to 54 |
+| 10^6 points in a ball, D3 | 171.1, 166.8 | 149.7, 149.0 | Qhull 207 to 219 |
+| `cube` D3 10^6 | 145.5, 131.3 | 111.7, 106.5 | Qhull 122.6 |
+| `cube` D3 10^5 | 10.6, 10.3 | 8.6, 8.8 | |
+| `sphere` D3 10^5 | 256.6, 271.2 | 261.6, 267.8 | |
+| `cube` D4 10^5 | 26.6, 27.5 | 27.7, 25.1 | |
+| `cube` D5 10^5 | 225.1, 235.0 | 225.2, 215.8 | |
+
+17 to 25 ms for 10^6 points in D = 2 and 3, a fifth to two fifths of those builds, and nothing where the chain sorts every point, on a sphere, or from D = 4. It does not reach CGAL on the Kuzmin (23 ms against 11.4). A hull that kept a copy of the input to find the duplicates later would give part of it back.
+
+### The hull of points in a ball, D = 2 (#628)
+
+The same scratch copy with a count in the chain's classification; Windows, not pinned, the best of three builds:
+
+| Hull of | Vertices | Points located on the polygon | The loop that locates them | The build |
+| --- | ---: | ---: | ---: | ---: |
+| 10^6 points in a ball | 343 | 99,366 | 35.3 ms | 101.6 ms |
+| 10^5 points in a ball | 158 | 9,960 | 3.5 | 10.0 |
+| `cube` 10^6 | 39 | 1,262 | 2.7 | 57.0 |
+| `cube` 10^5 | 25 | 341 | 0.3 | 5.6 |
+
+The polygon of the farthest points in eight directions, which discards interior points before the chain, is an octagon: it holds nine tenths of a disc, and the tenth outside it is 99,366 points, none of them a vertex but 343. Each is then located on the hull by `polygon_edge`: two orientations against the fan's first and last edges, a bisection of the fan from the first vertex by orientation, and one orientation against the edge found. With 343 vertices that is about eleven exact-sign calls a point, 355 ns, and a third of the build. On a cube 1,262 points are located and it does not show.
+
+CGAL's `convex_hull_2` (Akl and Toussaint) discards against a quadrilateral of four extremes, sorts each of the four regions outside it, and scans each; a point that the scan drops is not looked at again, and it publishes the vertices only.
+
+What could be done: the cycle is the lower chain and the upper chain, each sorted by the coordinates the chain sorted the points by. A point is between two consecutive vertices of each by a bisection on those coordinates, without a predicate, and one orientation against the edge of each chain there decides whether it is inside, on the lower edge, or on the upper one: two exact signs a point for eleven, and no change to what is published. Expected: about 30 of the 35 ms, and the 10^6 ball at about 1.1 of CGAL from 1.6. It is put to the owner.
