@@ -129,11 +129,24 @@ pub(crate) fn first_stage_fixed<const D: usize, const R: usize>(
 /// opposite signs there is no cancellation, and the sign is immediate.
 /// Otherwise it is certified only when it exceeds
 /// `(3 + 16 ε) ε (|left| + |right|)`.
+///
+/// A left product that is exactly zero leaves the right one to decide
+/// (#646). A difference of two `f64` is zero exactly when they are equal and
+/// has the sign of the exact difference otherwise, so when a factor of the
+/// left product is zero that product is zero, the determinant is the right
+/// product negated, and its sign is that of the right product's factors.
+/// A point that shares a coordinate with an end of the edge is such a case:
+/// on a lattice of 10,000 points 56 of them were left to the exact
+/// orientation, each clearly on one side (#644). A left product that is zero
+/// with no factor zero has underflowed, and nothing is certified; neither
+/// is a determinant that is zero.
 #[inline(always)]
 pub(crate) fn orient2_filter(a: &[f64], b: &[f64], c: &[f64]) -> Option<Sign> {
     debug_assert!(a.len() >= 2 && b.len() >= 2 && c.len() >= 2);
-    let det_left = (a[0] - c[0]) * (b[1] - c[1]);
-    let det_right = (a[1] - c[1]) * (b[0] - c[0]);
+    let (left_x, left_y) = (a[0] - c[0], b[1] - c[1]);
+    let (right_y, right_x) = (a[1] - c[1], b[0] - c[0]);
+    let det_left = left_x * left_y;
+    let det_right = right_y * right_x;
     let det = det_left - det_right;
     let det_sum = if det_left > 0.0 {
         if det_right <= 0.0 {
@@ -146,6 +159,13 @@ pub(crate) fn orient2_filter(a: &[f64], b: &[f64], c: &[f64]) -> Option<Sign> {
         }
         -det_left - det_right
     } else {
+        if (left_x == 0.0 || left_y == 0.0) && right_y != 0.0 && right_x != 0.0 {
+            return Some(if (right_y > 0.0) == (right_x > 0.0) {
+                Sign::Negative
+            } else {
+                Sign::Positive
+            });
+        }
         return None;
     };
     let err = (3.0 + 16.0 * f64::EPSILON) * f64::EPSILON * det_sum;

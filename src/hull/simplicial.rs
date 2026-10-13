@@ -24,7 +24,7 @@
 use std::collections::VecDeque;
 
 use super::input::{Input, InputWork};
-use super::polygon::{self, clearly_inside, Chain, Rows};
+use super::polygon::{self, Chain, Discard, Rows};
 use super::records::Records;
 use super::ridge::{fingerprint, pair_equal_keys_into};
 use super::store::{Facet, FacetStore};
@@ -501,8 +501,9 @@ impl<'a> SimplicialHull<'a> {
             Chain::Every(sorted) => sorted,
             Chain::Discard(edges) => {
                 let mut kept = Vec::new();
+                let discard = Discard::about(&edges, rows, reps);
                 for &r in reps {
-                    if clearly_inside(&edges, self.input.point(r)) {
+                    if discard.clearly_inside(self.input.point(r)) {
                         self.proved_interior.push(r);
                     } else {
                         kept.push(r);
