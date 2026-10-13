@@ -755,8 +755,6 @@ fn inserted<S: insert::Shape>(
     // A simplex alone in its group keeps its mesh links. When a group
     // merged, `parent` is flattened so that it names each simplex's root,
     // the singles are numbered again, and the others are marked `UNKNOWN`.
-    // The simplices of merged groups, whose cells the placing writes.
-    let mut grouped = 0_usize;
     if merged {
         let mut size = vec![0_u32; slots];
         for c in mesh.finite_cells() {
@@ -770,18 +768,11 @@ fn inserted<S: insert::Shape>(
                 singles += 1;
                 singles - 1
             } else {
-                grouped += 1;
                 UNKNOWN
             };
         }
     }
-    // Room for the cells of the groups as well (#640): sized for the single
-    // simplices alone, the draft grew at the first cell of a group, and a
-    // build of 3.9 million simplices copied its lists to write the 28 cells
-    // of 14 groups (#639). The placing triangulation of a group may have
-    // more cells than the mesh had simplices of it, a cube six for five, so
-    // a quarter is added; beyond that the lists grow as they did.
-    let mut draft = Draft::new(k, singles as usize + grouped + grouped / 4);
+    let mut draft = Draft::new(k, singles as usize);
     for c in mesh.finite_cells() {
         if draft_of[c as usize] == UNKNOWN {
             continue;
