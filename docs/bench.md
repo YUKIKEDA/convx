@@ -7176,3 +7176,50 @@ The polygon of the farthest points in eight directions, which discards interior 
 CGAL's `convex_hull_2` (Akl and Toussaint) discards against a quadrilateral of four extremes, sorts each of the four regions outside it, and scans each; a point that the scan drops is not looked at again, and it publishes the vertices only.
 
 What could be done: the cycle is the lower chain and the upper chain, each sorted by the coordinates the chain sorted the points by. A point is between two consecutive vertices of each by a bisection on those coordinates, without a predicate, and one orientation against the edge of each chain there decides whether it is inside, on the lower edge, or on the upper one: two exact signs a point for eleven, and no change to what is published. Expected: about 30 of the 35 ms, and the 10^6 ball at about 1.1 of CGAL from 1.6. It is put to the owner.
+
+## A point off the chain located by its coordinates, PR for #630
+
+The spike #628 found the hull of points in a ball of D = 2 locating 99,366 of 10^6 points on its polygon by about eleven exact-sign calls each, a bisection of the fan from the first vertex by orientation: 35 ms of a 102 ms build.
+
+### The change
+
+The cycle is the lower chain and the upper chain, each ascending or descending by the key the chain sorted the points by. A point off the cycle is placed between two consecutive vertices of each chain by a bisection on that key, which asks no predicate, and one orientation against each of the two edges decides whether it is on an edge. What is published is as before; the search before it is kept as the reference of the test.
+
+The keys of the cycle's vertices are copied when at least as many points are to be located as the cycle has vertices, and read from the input otherwise.
+
+### Time
+
+Under WSL, pinned and alternated, `5067600` (the branch's base, the crate of `e782604`) against `e6c7c92`, and CGAL's program on the same file between them; ms, the minimum, and the ratios of the minimum and of the median to `5067600`:
+
+| Hull of, D2 | Builds a side | `5067600` | `e6c7c92` | Ratios | CGAL | convx / CGAL |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10^6 points in a ball | 40 | 88.12 | 64.61 | 0.73, 0.74 | 55.93 | 1.16 |
+| 10^5 points in a ball | 80 | 7.21 | 5.10 | 0.71, 0.71 | 4.19 | 1.22 |
+| 10^6 Kuzmin points | 70 | 34.14 | 34.45 | 1.01, 1.00 | 9.56 | 3.60 |
+| 10^5 Kuzmin points | 128 | 2.35 | 2.41 | 1.03, 0.99 | 0.88 | 2.74 |
+| `rbox 10000 M3,4 D2` | 128 | 0.30 | 0.29 | 0.98, 0.97 | 0.10 | 2.9 |
+| `cube` 10^4 | 128 | 0.39 | 0.38 | 0.97, 0.97 | | |
+| `cube` 10^5 | 128 | 3.67 | 3.66 | 1.00, 0.98 | | |
+| `cube` 10^6 | 70 | 46.97 | 47.22 | 1.01, 1.00 | | |
+| `sphere` 10^4 | 128 | 0.68 | 0.68 | 1.00, 1.01 | | |
+| `sphere` 10^5 | 70 | 8.13 | 8.01 | 0.99, 1.00 | | |
+| `sphere` 10^6 | 30 | 89.13 | 91.73 | 1.03, 0.99 | | |
+| `grid` 10^5 | 112 | 1.40 | 1.43 | 1.02, 1.01 | | |
+| `cube` D3 10^5 (not touched) | 50 | 8.00 | 8.10 | 1.01, 0.99 | | |
+
+The two whose minimum read above 1.02 were timed again, in the default build and with one codegen unit:
+
+| Set | Builds a side | Default build | One codegen unit |
+| --- | ---: | ---: | ---: |
+| 10^5 Kuzmin points | 192 | 0.99, 1.00 | 1.02, 1.00 |
+| `sphere` 10^6 | 48 | 1.05, 1.00 | 1.02, 1.01 |
+
+The medians are at 1.00. The minimum of `sphere` at 10^6 moves by 0.03 to 0.05 from one run to the next on both sides (its builds spread from 89 to 104 ms), and the change adds to that build a bisection of the cycle and nothing a point.
+
+The ball is at 1.16 and 1.22 of CGAL, from 1.58 and 1.72. The Kuzmin and the lattice are where they were: what they take is the duplicates of every point (#622), which stay in the build by the owner's decision of 2026-10-13.
+
+### Forms that were measured and left
+
+- **The keys of every vertex copied, always**: the ball at 0.70, and `sphere` D2 at 1.14, 1.14, and 1.36 of its time at 10^4, 10^5, and 10^6. A hull whose every point is a vertex has as many vertices as points and locates none.
+- **The keys read from the input, always**: `sphere` back at 1.00 to 1.05, the ball at 0.78.
+- **A remainder for each key read** (the place in the cycle taken modulo its length): with the keys copied where points are located, the ball stayed at 0.79 and 0.76; a division for each of about seventeen keys a point. Without it, and with the copied keys searched by the standard bisection of a slice, 0.73.
