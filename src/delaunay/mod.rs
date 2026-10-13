@@ -737,6 +737,19 @@ fn inserted<S: insert::Shape>(
         let mut placing = Placing::default();
         let mut group: Vec<u32> = Vec::new();
         for run in members.chunk_by(|x, y| x.0 == y.0) {
+            if let (3, &[(_, a), (_, b)]) = (k, run) {
+                let corners = |c: u32| -> [u32; 3] {
+                    let v = mesh.vertices_of(c);
+                    [site(v[0]), site(v[1]), site(v[2])]
+                };
+                let (sites, cells) = quadrilateral(corners(a), corners(b));
+                let number = draft.begin_group(&sites);
+                for cell in cells {
+                    let (sorted, _, negative) = ascending_fixed(cell);
+                    draft.push_cell(number, &sorted, negative);
+                }
+                continue;
+            }
             group.clear();
             group.extend(
                 run.iter()
@@ -763,6 +776,52 @@ fn inserted<S: insert::Shape>(
     }
     drop(mesh);
     Ok(draft.finish(d, input.representative.clone()))
+}
+
+/// The placing triangulation of a group of two triangles of D = 2, without
+/// the placing (#633): the four sites ascending, and the two cells, each
+/// counterclockwise, in the order the placing writes them.
+///
+/// `a` and `b` are the two triangles of the mesh, counterclockwise, which
+/// share an edge and are cocircular, so their four sites are in strictly
+/// convex position. The placing triangulation in index order (design §3)
+/// is the triangle of the three smallest sites, then the largest site
+/// joined to every edge of that triangle it is strictly beyond. A point
+/// outside a triangle in convex position with its corners is beyond
+/// exactly one edge, the one between its two neighbors around the
+/// quadrilateral. So the triangulation is the one whose diagonal joins the
+/// neighbors of the largest site, that is the diagonal that does not hold
+/// it, and its cells are the triangle without the largest site, then the
+/// one with it.
+///
+/// With `a = (x, p, q)` from its corner off the common edge and `y` the
+/// corner of `b` off it, the quadrilateral is `x, p, y, q`
+/// counterclockwise. The mesh's diagonal is `p q` and the other is `x y`,
+/// with the triangles `(x, p, y)` and `(x, y, q)`. No predicate is asked:
+/// a lattice of 100 x 100 sites has 9,801 such groups, and the placing ran
+/// its general procedure for each (#617).
+fn quadrilateral(a: [u32; 3], b: [u32; 3]) -> ([u32; 4], [[u32; 3]; 2]) {
+    let off = a.iter().position(|v| !b.contains(v)).unwrap_or(0);
+    let (x, p, q) = (a[off], a[(off + 1) % 3], a[(off + 2) % 3]);
+    let y = b.iter().copied().find(|v| !a.contains(v)).unwrap_or(x);
+    debug_assert!(
+        b.contains(&p) && b.contains(&q) && x != y,
+        "the two triangles share an edge"
+    );
+    let largest = x.max(p).max(y).max(q);
+    // The two cells of the diagonal that does not hold the largest site.
+    let cells = if largest == x || largest == y {
+        [a, b]
+    } else {
+        [[x, p, y], [x, y, q]]
+    };
+    let cells = if cells[0].contains(&largest) {
+        [cells[1], cells[0]]
+    } else {
+        cells
+    };
+    let (sites, _, _) = ascending_fixed([x, p, y, q]);
+    (sites, cells)
 }
 
 /// The triangulation of `complex`: its cells in their order, with the last
