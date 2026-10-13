@@ -18,6 +18,8 @@
 //!
 //! Before stage 2, and before the running bound wherever it runs, a matrix
 //! with a coordinate column of zeros decides zero ([`has_zero_column`]).
+//! After it, for k ≤ 5, a zero is decided where the first stage's own
+//! arithmetic is exact ([`semi_static::exact_zero`]).
 //!
 //! Every other predicate, and every degree above 6, evaluates in `f64` with
 //! the running bound and then exactly. When a bound certifies the sign,
@@ -403,6 +405,14 @@ fn filtered(rows: Rows<'_>, start: Start) -> Option<Sign> {
         }
         if has_zero_column(rows) {
             debug_assert_eq!(exact::sign_exact(rows), Ok(Sign::Zero), "a zero column");
+            return Some(Sign::Zero);
+        }
+        if k <= FIRST_STAGE_UP_TO && semi_static::exact_zero(rows.origin, rows.points, lifted) {
+            debug_assert_eq!(
+                exact::sign_exact(rows),
+                Ok(Sign::Zero),
+                "the first stage's exact arithmetic gave a zero"
+            );
             return Some(Sign::Zero);
         }
         if k > FIRST_STAGE_UP_TO {

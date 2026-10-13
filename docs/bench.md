@@ -6768,3 +6768,98 @@ Hull `sphere` D3 10^4 reads 1.046 against Qhull (1.10 in the first reading), Del
 ### A fault in the tools, fixed here
 
 The first attempt at this run did not start. #606 changed the first lines of the hull's and the triangulation's `build()`, and `benches/parity/marks.py` no longer found the two lines it writes its marks beside, as its README says can happen. My script that started the run piped the setup into `tail`, which hid the failure, and the runner then stopped on a missing program. The report I read next was the file of the run of #591, left in the scratch; its numbers equalled that run's to the digit, which is how it showed. `marks.py` finds the lines as they are now, and the run was started again with a check that both programs exist.
+
+## A zero proved by the first stage's own arithmetic, PR #616 (#615, spike #614)
+
+### What the spike found
+
+The trial of the comparison's adapters (#613) had a row no parity set has: the Delaunay triangulation of `rbox 10000 M3,4 D2`, a rotated 100 x 100 integer lattice, at 18.3 ms against CGAL's 5.8 ms, where 10^5 uniform sites are level. `main` at `04e1612`, release, Windows, pinned, a scratch copy with timers around the phases and counters in the predicates' last decision, the mean of 20 builds in ms (the timers cost time; the shares matter):
+
+| Input | Build | Acceptance | Insertion | Pass over the faces | Singles' draft | Placing of the groups | Finish |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10,000 uniform sites, D2 | 5.8 | 0.16 | 4.07 | 0.33 | 0.34 | 0 | 0.12 |
+| The lattice 100 x 100, D2 | 35.2 | 0.17 | 24.62 | 0.46 | 0.23 | 7.10 | 1.86 |
+| The same rotated by (3, 4) | 26.4 | 0.17 | 16.60 | 0.43 | 0.28 | 6.29 | 1.89 |
+| 10,648 uniform sites, D3 | 39.9 | 0.17 | 32.80 | 3.76 | 1.47 | 0 | 0.42 |
+| The lattice 22^3, D3 | 233.6 | 0.26 | 141.73 | 18.12 | 0.73 | 62.18 | 9.41 |
+
+Every predicate the exact stage decided on a lattice was a zero: four cocircular sites, or a site on a line or a plane of the lattice. No bound certifies a zero, so each one ran the first stage, the double-double stage, and the exact stage, about a microsecond. On the lattice of D = 3 those calls took 137 of the 234 ms.
+
+### The change
+
+Where the first stage left the sign open and no column is zero, a zero is returned when the stage's arithmetic was exact: every difference formed without a rounding, all of them integers times one power of two and `w` bits wide, with `ceil(log2 k!) + k w <= 52` for an orientation and `ceil(log2 k!) + 2 + (k + 1) w <= 52` for a lifted one (design §1; the proof is at `semi_static::exact_zero`). A path that certifies a sign does not reach it.
+
+Counts for one build, `8c8e008` and the head `cd05b1f`:
+
+| Input | Decided by the exact stage, before | After | Zeros proved by exactness | Zeros by a zero column |
+| --- | ---: | ---: | ---: | ---: |
+| Uniform sites, D2 and D3 | 0 | 0 | 0 | 0 |
+| Lattice 100 x 100, D2 | 17,337 | 0 | 17,337 | 13,795 |
+| Rotated by (3, 4) | 31,978 | 0 | 31,978 | 0 |
+| Lattice 316 x 316 rotated | 313,980 | 0 | 313,980 | 6 |
+| The same times 1000 | 313,980 | 5,974 | 308,006 | 6 |
+| Lattice 100 x 100 times 0.1 | 12,446 | 12,446 | 0 | 13,841 |
+| Lattice 22^3, D3 | 124,996 | 0 | 124,996 | 100,107 |
+| Lattice 22^3 rotated | 186,582 | 0 | 186,582 | 28,715 |
+| Lattice 8^4, D4 | 233,352 | 0 | 233,352 | 285,698 |
+| Hull, lattice 30^3 rotated | 4,269 | 0 | 4,269 | 3,191 |
+
+The before column of the rows the spike did not count is the sum of the two after it. A lattice times 0.1 has coordinates with 52 binary digits and is not helped; times 1000 its differences are wider by ten bits, and the widest leave the bound.
+
+### Time
+
+Windows, release, pinned, the best of 24 builds over three alternated rounds, `8c8e008` against the head's sources. The whole `Debug` form of every result has one hash on both sides.
+
+| Input | `8c8e008` | Head | Ratio |
+| --- | ---: | ---: | ---: |
+| Delaunay, 10,000 uniform sites, D2 | 5.20 ms | 5.22 | 1.00 |
+| Delaunay, lattice 100 x 100 | 15.49 | 9.85 | 0.64 |
+| The same rotated by (3, 4) | 17.22 | 10.18 | 0.59 |
+| The same times 0.1 | 16.30 | 16.50 | 1.01 |
+| Delaunay, lattice 316 x 316 rotated | 182.27 | 109.88 | 0.60 |
+| The same times 1000 | 183.29 | 112.61 | 0.61 |
+| Delaunay, 10,648 uniform sites, D3 | 37.55 | 37.38 | 1.00 |
+| Delaunay, lattice 22^3 | 175.59 | 82.20 | 0.47 |
+| The same rotated | 171.59 | 83.99 | 0.49 |
+| Delaunay, lattice 8^4, D4 | 675.50 | 240.47 | 0.36 |
+| Voronoi, lattice 100 x 100 | 24.40 | 18.59 | 0.76 |
+| Hull, lattice 30^3 rotated | 3.55 | 3.09 | 0.87 |
+| Hull, lattice 12^4, D4 | 8.10 | 7.16 | 0.88 |
+| Hull, 100,000 uniform points, D3 | 10.63 | 10.68 | 1.00 |
+| Delaunay, 100,000 uniform sites, D2 | 50.93 | 50.92 | 1.00 |
+
+Under WSL, pinned and alternated, `8c8e008` against `cd05b1f`, the ratios of the minimum and of the median. The lattices are `rbox 10000 M3,4 D2`, `rbox 27000 M3,4,5 D3`, and `rbox 10000 M1,0 D4`:
+
+| Set | Builds a side | `8c8e008` min | `cd05b1f` min | Ratios |
+| --- | ---: | ---: | ---: | ---: |
+| Delaunay lattice D2 | 64 | 15.66 ms | 9.18 | 0.59, 0.59 |
+| Delaunay lattice D3 | 12 | 464.0 | 215.5 | 0.46, 0.49 |
+| Delaunay lattice D4 | 4 | 1,819.4 | 673.1 | 0.37, 0.37 |
+| Hull of the lattice D3 | 48 | 2.67 | 2.35 | 0.88, 0.86 |
+| Delaunay `cube` D2 10^4 | 80 | 4.85 | 4.86 | 1.00, 1.00 |
+| Delaunay `sphere` D2 10^4 | 96 | 4.72 | 4.78 | 1.01, 1.02 |
+| Delaunay `cube` D2 10^5 | 16 | 52.37 | 51.71 | 0.99, 1.02 |
+| Delaunay `cube` D3 10^4 | 24 | 34.33 | 34.56 | 1.01, 0.98 |
+| Delaunay `cube` D3 10^5 | 6 | 388.5 | 385.0 | 0.99, 0.97 |
+| Delaunay `sphere` D3 10^4 | 20 | 67.34 | 67.71 | 1.01, 0.99 |
+| Hull `sphere` D3 10^4 | 50 | 19.02 | 19.04 | 1.00, 1.01 |
+| Hull `grid` D6 10^4 | 10 | 227.6 | 203.0 | 0.89, 0.91 |
+
+Four guards read above 1.02 in that run (Delaunay `cube` D4 3,000 1.04 and 1.03 over 5 builds, hull `sphere` D2 10^5 1.08 and 1.03, hull `cube` D3 10^5 1.04 and 1.02, hull `cubesurf` D3 10^5 1.02 and 1.06) and were timed again, in the default build and with one codegen unit:
+
+| Set | Builds a side | Default build | One codegen unit |
+| --- | ---: | ---: | ---: |
+| Delaunay `cube` D4 3,000 | 14 | 1.02, 0.99 | 0.98, 0.98 |
+| Hull `sphere` D2 10^5 | 70 | 1.01, 1.02 | 0.96, 0.98 |
+| Hull `cube` D3 10^5 | 70 | 1.02, 1.00 | 0.97, 0.99 |
+| Hull `cubesurf` D3 10^5 | 60 | 1.00, 1.01 | 1.00, 0.99 |
+
+### A slowdown of the first form, removed
+
+The first form of the test (`317cda2`) read every difference before its bound refused the width. A difference of two `f64` near each other is often exact, so coordinates with 52 binary digits passed the first check, and sites on a sphere, which fail the first stage at almost every in-sphere test, paid for the whole scan: Delaunay `sphere` D3 10^4 read 1.07 and 1.10 of `8c8e008` under WSL (12 builds a side) and hull `sphere` D3 10^4 1.04 and 1.04. The width is now tested at each difference against the widest the bound allows, and such an input leaves at its first nonzero difference; the rows above are of that form.
+
+### What remains on a lattice
+
+With the zeros proved, the insertion on a lattice takes the time it takes on as many uniform sites. The rest of the excess (10 ms against 5.2 in D = 2, 82 against 37 in D = 3 on Windows) is the cospherical groups themselves: collecting and sorting a group's sites, the placing of each group (about a third of that block; 33 of 87 ms in D = 3), and the finish of the draft, about 3.7 and 2.0 ms of the build in D = 2 by the scratch timers. It is put to the owner whether a row reduces it before the comparison is published.
+
+The parity sets gain two Delaunay lattices, reported and not judged (ADR 0006, amendment of 2026-10-13). A parity run follows this change.

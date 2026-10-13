@@ -11,7 +11,7 @@ import json
 import statistics as st
 import sys
 
-EXP = {"10000": "10^4", "100000": "10^5", "1000000": "10^6"}
+EXP = {"10000": "10^4", "100000": "10^5", "1000000": "10^6", "27000": "27,000"}
 
 
 def fmt(x):
@@ -43,8 +43,9 @@ def load(path):
         rows[r['set']] = dict(
             mode=mode, fam=fam, dim=dim, n=n, bm=bm, lo=min(b), hi=max(b), cg=cg, q=q, cp=cp,
             con=st.median(x['construct'] for x in r['convx']), rc=bm / cg, rq=bm / q, worst=worst, cref=cref, qref=qref,
-            # Delaunay `cube` D3 is reported, not judged (ADR 0006, #513).
-            reported=(mode == 'delaunay' and fam == 'cube' and dim == '3'),
+            # Delaunay `cube` D3 is reported, not judged (ADR 0006, #513),
+            # and so are the Delaunay lattices (amendment of 2026-10-13).
+            reported=(mode == 'delaunay' and (fam == 'cube' and dim == '3' or fam == 'lattice')),
             counts=(r['convx'][0]['counts'], r['cgal'][0]['counts'], [r['qhull'][0]['vertices'], r['qhull'][0]['facets']]))
     return rows
 

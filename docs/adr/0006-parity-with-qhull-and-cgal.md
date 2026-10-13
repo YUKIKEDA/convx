@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Amended on 2026-10-10: a set is met within 5% of each judged reference. Amended on 2026-10-11: CGAL's Delaunay reference, and its D = 2 hull reference, give the same output as convx (Amendments below). Amended again on 2026-10-11: Delaunay `cube` D3 is reported against CGAL, not judged, for the price of the cospherical groups. Amended on 2026-10-12: the judged build is the default release build.
+Accepted. Amended on 2026-10-10: a set is met within 5% of each judged reference. Amended on 2026-10-11: CGAL's Delaunay reference, and its D = 2 hull reference, give the same output as convx (Amendments below). Amended again on 2026-10-11: Delaunay `cube` D3 is reported against CGAL, not judged, for the price of the cospherical groups. Amended on 2026-10-12: the judged build is the default release build. Amended on 2026-10-13: two Delaunay lattices are reported.
 
 ## Date
 
@@ -168,3 +168,17 @@ Issue: #578. Decided by the owner on 2026-10-12.
 **What is reported.** Where a difference between commits may be layout, the same sets are also timed with one codegen unit, and that reading stands beside the judgement, not in its place (`docs/verification.md`).
 
 **What it does not change.** The sets, the references, the method, and the judgement at 1.05 and at 1.00.
+
+## Amendment of 2026-10-13: two Delaunay lattices, reported
+
+Issue: #615, from the spike #614. Decided by the owner on 2026-10-13.
+
+**What changes.** The parity run gains two sets: the Delaunay triangulation of `rbox 10000 M3,4 D2` and of `rbox 27000 M3,4,5 D3`, rotated integer lattices of 100 x 100 and 30 x 30 x 30 sites. They are reported against CGAL and Qhull and not judged.
+
+**Why.** The sets had no Delaunay input with cospherical groups: the hull had `cubesurf` and `grid`, and Delaunay had `cube` and `sphere` alone. The comparison's trial was the first to time one, and convx took three times CGAL's time on the lattice of D = 2. Most of it was exact zeros decided at the price of every stage (#614), which #615 removed; the rest is the merging and the placing of a group per unit cell, the price of an output CGAL's reference does not give, as for Delaunay `cube` D3 above.
+
+**Why reported.** Every finite simplex of these inputs is in a merged group, so the whole build is the work the amendment for Delaunay `cube` D3 left out of the judgement. They are in the run so that a change that makes them slower shows.
+
+**The points are rbox's**, not the crate's generator's: its `lattice` family draws few distinct points, and a full lattice is one command of `rbox`. `benches/parity/setup.sh` writes the two files.
+
+**What it does not change.** The 38 judged sets, the three reported sets of Delaunay `cube` D3, the references, the method, and the judgement.
