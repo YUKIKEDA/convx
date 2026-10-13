@@ -906,13 +906,18 @@ impl Translates {
             return;
         }
         self.exact = false;
+        // A site's place in its group: the group is ascending. A cell with
+        // a site that is not of the group is not kept.
+        let kept = self.cells.len();
+        for site in rows {
+            let Ok(place) = group.binary_search(site) else {
+                self.cells.truncate(kept);
+                return;
+            };
+            self.cells.push(place as u32);
+        }
         self.keys.extend_from_slice(&self.key);
         self.key_ends.push(self.keys.len());
-        // A site's place in its group: the group is ascending.
-        self.cells.extend(
-            rows.iter()
-                .map(|site| group.binary_search(site).unwrap_or(0) as u32),
-        );
         self.negative.extend_from_slice(negative);
         self.cell_ends.push(self.negative.len());
     }
