@@ -125,6 +125,11 @@ enum Points {
     /// of one determinant are about 1,000 apart, more than the integers
     /// on the stack hold, so the exact stage runs on heap integers (#185).
     Scaled(usize),
+    /// The generator's `cube`, `n` and `16 n` points, each point times
+    /// `(1 - u)^-6` for a `u` hashed from its index: sites dense about the
+    /// origin with a long tail. The insertion order's grid over their box
+    /// holds most of them in a few cells, which it orders again (#620).
+    Tail(usize),
     /// The generator's `cube` at two numbers of points, for the high
     /// dimensions, where sixteen times the points is out of reach: the
     /// facets grow about ten times between the two (#554).
@@ -152,6 +157,7 @@ impl Points {
             }
             Self::Clusters(k) => format!("clusters on a sphere D{dim} k={k}"),
             Self::Scaled(n) => format!("cube with exponents far apart D{dim} n={n}"),
+            Self::Tail(n) => format!("cube with a long tail D{dim} n={n}"),
             Self::Few(small, large) => format!("cube D{dim} n={small},{large}"),
             Self::Flat(n) => format!("cube in a hyperplane D{dim} n={n}"),
             Self::NanLast(n) => format!("cube with a NaN last D{dim} n={n}"),
@@ -179,6 +185,16 @@ impl Points {
                 let mut points = Family::Cube.points(dim, times * n, 521);
                 if let Some(last) = points.last_mut() {
                     *last = f64::NAN;
+                }
+                points
+            }
+            Self::Tail(n) => {
+                let mut points = Family::Cube.points(dim, times * n, 521);
+                for (i, point) in points.chunks_exact_mut(dim).enumerate() {
+                    let hash = (i as u64 + 1).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+                    let u = (hash >> 11) as f64 / (1_u64 << 53) as f64;
+                    let radius = (1.0 - u).powi(-6);
+                    point.iter_mut().for_each(|x| *x *= radius);
                 }
                 points
             }
@@ -320,6 +336,8 @@ const CASES: &[Case] = &[
     Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Lattice, 1000), dim: 3, small: (73, 130), large: (73, 130) },
     Case { kind: Kind::Delaunay, points: Points::Drawn(Family::NearSphere, 1000), dim: 2, small: (66, 76), large: (66, 76) },
     Case { kind: Kind::Delaunay, points: Points::Drawn(Family::NearSphere, 1000), dim: 3, small: (74, 128), large: (89, 181) },
+    Case { kind: Kind::Delaunay, points: Points::Tail(1000), dim: 2, small: (49, 38), large: (49, 56) },
+    Case { kind: Kind::Delaunay, points: Points::Tail(1000), dim: 3, small: (59, 71), large: (59, 89) },
     Case { kind: Kind::Delaunay, points: Points::Drawn(Family::Cube, 500), dim: 4, small: (57, 76), large: (57, 97) },
     Case { kind: Kind::Voronoi, points: Points::Drawn(Family::Cube, 250), dim: 2, small: (134, 112), large: (134, 159) },
     Case { kind: Kind::Voronoi, points: Points::Drawn(Family::Cube, 250), dim: 3, small: (223, 301), large: (240, 420) },

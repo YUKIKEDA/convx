@@ -4,7 +4,7 @@ What the parity run of `docs/verification.md` ("Parity run of P7") is made with.
 
 | File | What it is |
 | --- | --- |
-| `sets.txt` | The 43 sets of the run, one `mode family dim count` a line: the 41 of ADR 0006 from the crate's generator, and two Delaunay lattices that `setup.sh` makes with `rbox` |
+| `sets.txt` | The 44 sets of the run, one `mode family dim count` a line: the 41 of ADR 0006 from the crate's generator, two Delaunay lattices that `setup.sh` makes with `rbox`, and the Delaunay triangulation of Kuzmin sites that it makes with `benches/compare/data/pbbs.py` |
 | `setup.sh` | Builds two copies of the measured commit, the CGAL program, and the point files |
 | `parity_time.rs` | The example each copy is timed through: `build()`, the counts, and `planes()` |
 | `marks.py` | Writes the phase marks into one of the copies. They never go into `src` (`bench.mdc`) |

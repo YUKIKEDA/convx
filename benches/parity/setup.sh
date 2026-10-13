@@ -28,6 +28,9 @@ done
 # rotated integer lattices, every unit cell a cospherical group.
 rbox 10000 M3,4 D2 n > "$H/plain/.dev/perf/lattice-d2-n10000-s1.txt"
 rbox 27000 M3,4,5 D3 n > "$H/plain/.dev/perf/lattice-d3-n27000-s1.txt"
+# Kuzmin sites (amendment of 2026-10-13, #620): dense about the origin with a
+# long tail, by the comparison's generator of the PBBS distributions.
+python3 "$REPO/benches/compare/data/pbbs.py" kuzmin 2 1000000 1 "$H/plain/.dev/perf/kuzmin-d2-n1000000-s1.txt"
 g++ -std=c++17 -O3 -DNDEBUG -g -DCGAL_EIGEN3_ENABLED -I/usr/include/eigen3 -o "$H/cgal_time" "$HERE/cgal_time.cpp" -lgmp -lmpfr
 echo "$COMMIT" > "$H/commit"
 echo "point files: $(ls "$H/plain/.dev/perf" | wc -l)"

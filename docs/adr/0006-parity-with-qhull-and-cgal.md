@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Amended on 2026-10-10: a set is met within 5% of each judged reference. Amended on 2026-10-11: CGAL's Delaunay reference, and its D = 2 hull reference, give the same output as convx (Amendments below). Amended again on 2026-10-11: Delaunay `cube` D3 is reported against CGAL, not judged, for the price of the cospherical groups. Amended on 2026-10-12: the judged build is the default release build. Amended on 2026-10-13: two Delaunay lattices are reported.
+Accepted. Amended on 2026-10-10: a set is met within 5% of each judged reference. Amended on 2026-10-11: CGAL's Delaunay reference, and its D = 2 hull reference, give the same output as convx (Amendments below). Amended again on 2026-10-11: Delaunay `cube` D3 is reported against CGAL, not judged, for the price of the cospherical groups. Amended on 2026-10-12: the judged build is the default release build. Amended on 2026-10-13: two Delaunay lattices are reported, and so are Kuzmin sites in D = 2.
 
 ## Date
 
@@ -182,3 +182,15 @@ Issue: #615, from the spike #614. Decided by the owner on 2026-10-13.
 **The points are rbox's**, not the crate's generator's: its `lattice` family draws few distinct points, and a full lattice is one command of `rbox`. `benches/parity/setup.sh` writes the two files.
 
 **What it does not change.** The 38 judged sets, the three reported sets of Delaunay `cube` D3, the references, the method, and the judgement.
+
+## Amendment of 2026-10-13: Kuzmin sites, reported
+
+Issue: #620, from the screening #618. Decided by the owner on 2026-10-13.
+
+**What changes.** The parity run gains one set: the Delaunay triangulation of 10^6 sites of Kuzmin's distribution in D = 2 (a uniform direction times `sqrt(1 / (1 - s)^2 - 1)`, `s` uniform), made by `benches/compare/data/pbbs.py` with seed 1. It is reported against CGAL and Qhull and not judged.
+
+**Why.** Every Delaunay set had sites of one density, in a cube or on a sphere. On sites dense about a point with a long tail the insertion order's one grid held half the sites in a few cells, and a build took 3.8 times CGAL's time at 10^6 sites and did not end at 10^7 (#618). The order now refines a crowded cell (#620), and no set would show it if that were lost.
+
+**Why reported.** The judged sets are those of the ADR's generator and sizes, and the comparison with other libraries on such data is the published one (`benches/compare/`). This set is in the run so that a change that makes it slower shows. Qhull merges most of these sites away (81,805 of 10^6 in the screening), so its time is of another output.
+
+**What it does not change.** The 38 judged sets, the reported sets, the references, the method, and the judgement.

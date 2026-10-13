@@ -1184,22 +1184,89 @@ impl<'a, S: Shape> Mesh<'a, S> {
     }
 }
 
+/// The most sites of one round a cell of the insertion order's grid keeps
+/// in the order of their indices. A cell with more is ordered again on the
+/// bounding box of its own sites ([`brio`]).
+const CROWDED: usize = 16;
+
 /// The insertion order of `sites` (dimension `d`): biased randomized
 /// insertion order (BRIO) over rounds of geometric sizes, each round in
 /// Morton order of the coordinates quantized over the sites' bounding box.
 /// Deterministic: the round of a site comes from a hash of its index, and
 /// ties go to the smaller index.
+///
+/// A cell that holds more than [`CROWDED`] sites of a round is ordered
+/// again, by the Morton code on the bounding box of those sites, and so on
+/// while a cell is crowded (#620). One grid over the whole box does not
+/// follow the density: sites dense about a point with a long tail fall into
+/// a few cells, consecutive insertions are then far apart, and the walk
+/// between them grows with the sites (105 steps a site for 5.5 on 10^6
+/// Kuzmin sites, #618). Where no cell is crowded the order is that of the
+/// one grid.
+///
+/// It ends: a cell is ordered again only when it is a proper part of the
+/// sites ordered with it, so every range handed on is shorter than the one
+/// it came from. Distinct sites on a box whose widths are finite do part,
+/// since the least and the greatest of a coordinate take the first and the
+/// last cell.
 pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
     let d = rows.dim();
-    let mut low = vec![f64::INFINITY; d];
-    let mut high = vec![f64::NEG_INFINITY; d];
-    for &s in sites {
-        for (j, &x) in rows.point(s).iter().enumerate() {
+    let bits = (63 / d.max(1)).min(21) as u32;
+    let round = |s: u32| -> u32 {
+        // SplitMix64 of the index; about half the sites get 0 (the last
+        // round), a quarter 1, and so on.
+        let mut z = u64::from(s).wrapping_add(0x9e37_79b9_7f4a_7c15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^= z >> 31;
+        z.trailing_zeros().min(32)
+    };
+    // One key per site that orders as `(Reverse(round), code, site)`: the
+    // round is at most 32, the code below 2^63, the site a `u32` (#423).
+    // The code is written by `in_morton_order`.
+    let mut keys: Vec<u128> = sites
+        .iter()
+        .map(|&s| u128::from(32 - round(s)) << 96 | u128::from(s))
+        .collect();
+    // The box of the range being ordered, allocated once, and the ranges
+    // still to order after the whole: none where no cell is crowded, and
+    // then nothing is allocated for them.
+    let mut low = vec![0.0; d];
+    let mut high = vec![0.0; d];
+    let mut crowded: Vec<(usize, usize)> = Vec::new();
+    let mut whole = Some((0, keys.len()));
+    while let Some((from, to)) = whole.take().or_else(|| crowded.pop()) {
+        let range = &mut keys[from..to];
+        in_morton_order(rows, bits, range, &mut low, &mut high);
+        // The cells of one round with more than `CROWDED` sites.
+        let cell = |key: u128| key >> 32;
+        let mut start = 0;
+        for end in 1..=range.len() {
+            if end < range.len() && cell(range[end]) == cell(range[start]) {
+                continue;
+            }
+            if end - start > CROWDED && end - start < range.len() {
+                crowded.push((from + start, from + end));
+            }
+            start = end;
+        }
+    }
+    keys.into_iter().map(|key| key as u32).collect()
+}
+
+/// Writes into each key of `keys` the Morton code of its site on a grid of
+/// `bits` bits a coordinate over the bounding box of the sites of `keys`,
+/// and sorts them. `low` and `high` are scratch for the box.
+fn in_morton_order(rows: &Sites, bits: u32, keys: &mut [u128], low: &mut [f64], high: &mut [f64]) {
+    let d = rows.dim();
+    low.fill(f64::INFINITY);
+    high.fill(f64::NEG_INFINITY);
+    for &key in keys.iter() {
+        for (j, &x) in rows.point(key as u32).iter().enumerate() {
             low[j] = low[j].min(x);
             high[j] = high[j].max(x);
         }
     }
-    let bits = (63 / d.max(1)).min(21) as u32;
     let scale = if bits == 0 {
         0.0
     } else {
@@ -1242,23 +1309,11 @@ pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
             }
         }
     };
-    let round = |s: u32| -> u32 {
-        // SplitMix64 of the index; about half the sites get 0 (the last
-        // round), a quarter 1, and so on.
-        let mut z = u64::from(s).wrapping_add(0x9e37_79b9_7f4a_7c15);
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        z ^= z >> 31;
-        z.trailing_zeros().min(32)
-    };
-    // One key per site that orders as `(Reverse(round), code, site)`: the
-    // round is at most 32, the code below 2^63, the site a `u32` (#423).
-    let mut keys: Vec<u128> = sites
-        .iter()
-        .map(|&s| u128::from(32 - round(s)) << 96 | u128::from(morton(s)) << 32 | u128::from(s))
-        .collect();
+    const CODE: u128 = (u64::MAX as u128) << 32;
+    for key in keys.iter_mut() {
+        *key = *key & !CODE | u128::from(morton(*key as u32)) << 32;
+    }
     keys.sort_unstable();
-    keys.into_iter().map(|key| key as u32).collect()
 }
 
 #[cfg(test)]
@@ -1267,9 +1322,9 @@ mod tests {
     use crate::hull::input::accept_sites;
     use core::cmp::Ordering;
 
-    /// The BRIO order before #423: the bits interleaved one at a time,
-    /// and a sort of tuples. The reference of [`brio`]'s tests.
-    fn brio_by_tuples(rows: &Sites, sites: &[u32]) -> Vec<u32> {
+    /// The Morton code of each of `sites` on the grid over their bounding
+    /// box, the bits interleaved one at a time (the code before #423).
+    fn codes_by_loop(rows: &Sites, sites: &[u32]) -> Vec<u64> {
         let d = rows.dim();
         let mut low = vec![f64::INFINITY; d];
         let mut high = vec![f64::NEG_INFINITY; d];
@@ -1287,8 +1342,7 @@ mod tests {
         };
         let morton = |s: u32| -> u64 {
             let p = rows.point(s);
-            // On the stack for D <= 16, so the order allocates nothing per site.
-            let cell: Small<u64, 16> = (0..d)
+            let cell: Vec<u64> = (0..d)
                 .map(|j| {
                     let width = high[j] - low[j];
                     let t = if width > 0.0 {
@@ -1309,19 +1363,78 @@ mod tests {
             }
             code
         };
-        let round = |s: u32| -> u32 {
-            // SplitMix64 of the index; about half the sites get 0 (the last
-            // round), a quarter 1, and so on.
-            let mut z = u64::from(s).wrapping_add(0x9e37_79b9_7f4a_7c15);
-            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-            z ^= z >> 31;
-            z.trailing_zeros().min(32)
-        };
-        let mut keyed: Vec<(u32, u64, u32)> =
-            sites.iter().map(|&s| (round(s), morton(s), s)).collect();
+        sites.iter().map(|&s| morton(s)).collect()
+    }
+
+    /// The round of site `s`: SplitMix64 of the index; about half the sites
+    /// get 0 (the last round), a quarter 1, and so on.
+    fn round_of(s: u32) -> u32 {
+        let mut z = u64::from(s).wrapping_add(0x9e37_79b9_7f4a_7c15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^= z >> 31;
+        z.trailing_zeros().min(32)
+    }
+
+    /// The BRIO order on one grid, as it was before #620: a sort of tuples.
+    /// The reference of [`brio`] where no cell is crowded.
+    fn brio_by_tuples(rows: &Sites, sites: &[u32]) -> Vec<u32> {
+        let codes = codes_by_loop(rows, sites);
+        let mut keyed: Vec<(u32, u64, u32)> = sites
+            .iter()
+            .zip(codes)
+            .map(|(&s, m)| (round_of(s), m, s))
+            .collect();
         keyed.sort_unstable_by_key(|&(r, m, s)| (core::cmp::Reverse(r), m, s));
         keyed.into_iter().map(|(_, _, s)| s).collect()
+    }
+
+    /// The sites of one cell (ascending) in their order: as they are when
+    /// they are at most 16, and otherwise by the cells of the grid over
+    /// their own box, each in its order; as they are when that grid does not
+    /// part them.
+    fn refined(rows: &Sites, cell: &[u32], out: &mut Vec<u32>) {
+        if cell.len() <= 16 {
+            out.extend_from_slice(cell);
+            return;
+        }
+        let mut parts: std::collections::BTreeMap<u64, Vec<u32>> = Default::default();
+        for (&s, code) in cell.iter().zip(codes_by_loop(rows, cell)) {
+            parts.entry(code).or_default().push(s);
+        }
+        if parts.len() == 1 {
+            out.extend_from_slice(cell);
+            return;
+        }
+        for part in parts.values() {
+            refined(rows, part, out);
+        }
+    }
+
+    /// The reference of [`brio`]: the rounds from the last hash bit down,
+    /// each by the cells of the one grid, and a crowded cell by recursion.
+    fn brio_by_recursion(rows: &Sites, sites: &[u32]) -> Vec<u32> {
+        let mut sorted = sites.to_vec();
+        sorted.sort_unstable();
+        let codes = codes_by_loop(rows, &sorted);
+        let mut cells: std::collections::BTreeMap<(core::cmp::Reverse<u32>, u64), Vec<u32>> =
+            Default::default();
+        for (&s, code) in sorted.iter().zip(codes) {
+            cells
+                .entry((core::cmp::Reverse(round_of(s)), code))
+                .or_default()
+                .push(s);
+        }
+        let mut out = Vec::new();
+        let whole = cells.len() == 1;
+        for cell in cells.values() {
+            if whole {
+                out.extend_from_slice(cell);
+            } else {
+                refined(rows, cell, &mut out);
+            }
+        }
+        out
     }
 
     #[test]
@@ -1362,6 +1475,65 @@ mod tests {
             }
         }
         assert_eq!(cases, 20);
+    }
+
+    /// A crowded cell is ordered again on its own box (#620), against the
+    /// recursive reference: sites dense about a point with a long tail (a
+    /// radius of `(1 - u)^-6`), sites at scales that halve a
+    /// hundred times, and both at once, in D = 2 to 5. On each the order
+    /// is a permutation and is not the order of the one grid.
+    #[test]
+    fn brio_orders_a_crowded_cell_again() {
+        let mut state = 0x6200_0001_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 11) as f64 / (1_u64 << 53) as f64
+        };
+        let mut cases = 0;
+        for d in 2..=5 {
+            for case in 0..3 {
+                let n = 6000;
+                let mut points = Vec::with_capacity(n * d);
+                for i in 0..n {
+                    let radius = match case {
+                        0 => (1.0 - next()).powi(-6),
+                        1 => 0.5_f64.powi((i % 100) as i32),
+                        _ => 0.5_f64.powi((i % 40) as i32) / (1.0 - next()),
+                    };
+                    points.extend((0..d).map(|_| radius * (2.0 * next() - 1.0)));
+                }
+                let input = accept_sites(d, &points).unwrap();
+                let rows = Sites::of(&input);
+                let all: Vec<u32> = input.representatives.clone();
+                let order = brio(&rows, &all);
+                let what = format!("D = {d}, case {case}");
+                assert_eq!(order, brio_by_recursion(&rows, &all), "{what}");
+                assert!(order != brio_by_tuples(&rows, &all), "{what}");
+                let mut sorted = order.clone();
+                sorted.sort_unstable();
+                assert_eq!(sorted, all, "{what}");
+                cases += 1;
+            }
+        }
+        assert_eq!(cases, 12);
+    }
+
+    /// Sites the grid cannot part end the order: the widths of a box that
+    /// spans the whole range of `f64` are infinite, every site takes the
+    /// first cell, and the cell is left in the order of the indices.
+    #[test]
+    fn brio_ends_where_the_grid_parts_nothing() {
+        let top = f64::MAX;
+        let mut points = vec![-top, -top, top, top];
+        points.extend((0..200).map(|i| f64::from(i) * 1e300));
+        let input = accept_sites(2, &points).unwrap();
+        let rows = Sites::of(&input);
+        let all: Vec<u32> = input.representatives.clone();
+        let order = brio(&rows, &all);
+        assert_eq!(order, brio_by_tuples(&rows, &all));
+        assert_eq!(order, brio_by_recursion(&rows, &all));
     }
 
     /// Exact lifted orientation of four integer sites of dimension 2: the
