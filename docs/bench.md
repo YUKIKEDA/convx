@@ -7259,3 +7259,31 @@ What CGAL does not do is all of it: it returns the diagonals the insertion left,
 3. **The faces inside a group linked by the placing**, and only the faces between groups paired by their vertices: part of the 31 ms in D = 3. The placing triangulation's own adjacency is not kept today.
 
 Or none: the comparison states that the triangulation of a lattice takes 1.6 times CGAL's time because the output is the one triangulation of each cospherical group that does not depend on the order of insertion, with the groups for the Voronoi diagram.
+
+## A group of two triangles written without the placing, PR #635 (#633)
+
+The spike #617 found the Delaunay triangulation of a lattice of D = 2 running the placing procedure for each of its groups of four cocircular sites, 9,801 on 100 x 100 sites.
+
+### The change
+
+In D = 2 a group of two triangles is written from the mesh: the placing triangulation of four points in convex position, in index order, is the triangle of the three smallest and the triangle of the largest with the edge between its two neighbors, so its diagonal is the one that does not hold the largest index. The mesh's two triangles are kept when their common edge is that diagonal, and the other two are written otherwise. The sign of each cell's ascending order is the parity of the sort from the mesh's counterclockwise order. No predicate is asked. A group of more than four sites goes through the placing as before.
+
+### Time
+
+Under WSL, pinned and alternated, `ba4361a` (the branch's base, the crate of `e6c7c92`) against `9174fa4`, and CGAL's program on the same file between them; ms, the minimum, and the ratios of the minimum and of the median to `ba4361a`:
+
+| Delaunay of | Builds a side | `ba4361a` | `9174fa4` | Ratios | CGAL | convx / CGAL |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rbox 10000 M3,4 D2` | 80 | 8.75 | 7.58 | 0.87, 0.84 | 5.03 | 1.51 |
+| `rbox 99856 M3,4 D2` | 16 | 113.41 | 97.14 | 0.86, 0.87 | 58.16 | 1.67 |
+| `rbox 27000 M3,4,5 D3` | 12 | 229.17 | 229.07 | 1.00, 1.03 | 134.57 | 1.70 |
+| `rbox 10000 M1,0 D4` | 3 | 674.65 | 687.40 | 1.02, 1.01 | 712.79 | 0.96 |
+| 10^5 Kuzmin sites, D2 | 24 | 61.19 | 60.65 | 0.99, 0.99 | 56.40 | 1.08 |
+| `cube` D2 10^4 | 96 | 4.94 | 4.83 | 0.98, 1.01 | | |
+| `sphere` D2 10^4 | 96 | 4.87 | 4.91 | 1.01, 1.00 | | |
+| `cube` D2 10^5 | 24 | 51.11 | 51.11 | 1.00, 0.99 | | |
+| `sphere` D2 10^5 | 20 | 41.52 | 41.64 | 1.00, 1.00 | | |
+| `cube` D3 10^4 | 24 | 34.30 | 34.26 | 1.00, 1.00 | | |
+| `sphere` D3 10^4 | 16 | 66.80 | 66.95 | 1.00, 1.00 | | |
+
+The lattices of D = 2 are at 0.86 to 0.87 of their time and at 1.51 and 1.67 of CGAL, from 1.74 and 1.95 in this run. The spike had written "about 1.3 of CGAL" for this change, from the timers of the parts; it measures 1.51. The lattices of D = 3 and 4 do not go through the change: their medians read 1.03 and 1.01 over 12 and 3 builds.

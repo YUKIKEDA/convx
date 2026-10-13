@@ -19,6 +19,103 @@ thread_local! {
         const { core::cell::Cell::new(false) };
 }
 
+/// A group of two triangles of D = 2 is written as the placing writes it
+/// (#633): the same four sites, the same two cells in the same order, and
+/// for each cell the sign of its ascending order, which the exact
+/// orientation gives. Every four of the twelve integer points of the circle
+/// of radius 5, under every assignment of indices to them, with the mesh's
+/// diagonal either way and its triangles in either order and from every
+/// corner. Both answers occur: the mesh's diagonal kept, and the other.
+#[test]
+fn a_group_of_two_triangles_is_the_placing_triangulation() {
+    // Counterclockwise from (5, 0).
+    let circle: [[f64; 2]; 12] = [
+        [5.0, 0.0],
+        [4.0, 3.0],
+        [3.0, 4.0],
+        [0.0, 5.0],
+        [-3.0, 4.0],
+        [-4.0, 3.0],
+        [-5.0, 0.0],
+        [-4.0, -3.0],
+        [-3.0, -4.0],
+        [0.0, -5.0],
+        [3.0, -4.0],
+        [4.0, -3.0],
+    ];
+    let mut placing = Placing::default();
+    let (mut kept, mut other, mut cases) = (0, 0, 0);
+    for mask in 0_u32..1 << 12 {
+        if mask.count_ones() != 4 {
+            continue;
+        }
+        let quad: Vec<usize> = (0..12).filter(|i| mask >> i & 1 == 1).collect();
+        // The index of each corner, counterclockwise: every order of 0..4.
+        for order in 0..24 {
+            let mut left = vec![0_u32, 1, 2, 3];
+            let mut index = [0_u32; 4];
+            let mut code = order;
+            for slot in &mut index {
+                *slot = left.remove(code % left.len());
+                code /= left.len() + 1;
+            }
+            let mut points = [[0.0; 2]; 4];
+            for corner in 0..4 {
+                points[index[corner] as usize] = circle[quad[corner]];
+            }
+            let point = |i: u32| &points[i as usize][..];
+            let (len, split) = placing.run(2, Some(2), point, &[0, 1, 2, 3]).unwrap();
+            assert_eq!(len, 3);
+            let expected: Vec<[u32; 3]> = split.as_chunks::<3>().0.to_vec();
+            assert_eq!(expected.len(), 2);
+            let q = index;
+            for diagonal in 0..2 {
+                // The two triangles of the diagonal through corner
+                // `diagonal`, counterclockwise.
+                let d = diagonal;
+                let a = [q[d], q[d + 1], q[d + 2]];
+                let b = [q[d], q[d + 2], q[(d + 3) % 4]];
+                for turn in 0..3 {
+                    let turned =
+                        |t: [u32; 3], by: usize| [t[by % 3], t[(by + 1) % 3], t[(by + 2) % 3]];
+                    for (first, second) in [
+                        (turned(a, turn), b),
+                        (b, turned(a, turn)),
+                        (a, turned(b, turn)),
+                    ] {
+                        let (sites, cells) = quadrilateral(first, second).unwrap();
+                        assert_eq!(sites, [0, 1, 2, 3]);
+                        for (cell, expected) in cells.iter().zip(&expected) {
+                            let (sorted, _, negative) = ascending_fixed(*cell);
+                            assert_eq!(&sorted, expected, "{quad:?} {index:?}");
+                            let exact =
+                                orient(&[point(sorted[0]), point(sorted[1]), point(sorted[2])])
+                                    .unwrap();
+                            assert_eq!(negative, exact == Sign::Negative, "{quad:?} {index:?}");
+                            assert_ne!(exact, Sign::Zero);
+                        }
+                        let same =
+                            |x: [u32; 3], y: [u32; 3]| ascending_fixed(x).0 == ascending_fixed(y).0;
+                        if same(cells[0], first) || same(cells[0], second) {
+                            kept += 1;
+                        } else {
+                            other += 1;
+                        }
+                        cases += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(cases, 495 * 24 * 2 * 3 * 3);
+    // Two triangles that do not share exactly one edge are not such a
+    // group, and are left to the placing.
+    assert_eq!(quadrilateral([0, 1, 2], [3, 4, 5]), None);
+    assert_eq!(quadrilateral([0, 1, 2], [2, 3, 4]), None);
+    assert_eq!(quadrilateral([0, 1, 2], [1, 2, 0]), None);
+    assert!(kept > 10_000 && other > 10_000, "{kept} {other}");
+}
+
 /// The faces the insertion leaves unknown are decided by an orientation,
 /// and by the lifted orientation only when that is zero (design §7, #451).
 /// The simplices published, cospherical groups included, and their
