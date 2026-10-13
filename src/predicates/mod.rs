@@ -405,6 +405,14 @@ fn filtered(rows: Rows<'_>, start: Start) -> Option<Sign> {
             debug_assert_eq!(exact::sign_exact(rows), Ok(Sign::Zero), "a zero column");
             return Some(Sign::Zero);
         }
+        if k <= FIRST_STAGE_UP_TO && semi_static::exact_zero(rows.origin, rows.points, lifted) {
+            debug_assert_eq!(
+                exact::sign_exact(rows),
+                Ok(Sign::Zero),
+                "the first stage's exact arithmetic gave a zero"
+            );
+            return Some(Sign::Zero);
+        }
         if k > FIRST_STAGE_UP_TO {
             if let Some(sign) = filtered_value(rows).and_then(|v| v.certified_sign()) {
                 return Some(sign);

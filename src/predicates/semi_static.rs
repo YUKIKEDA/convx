@@ -227,6 +227,110 @@ pub(super) fn sign(origin: &[f64], points: &[&[f64]], lifted: bool) -> Option<Si
     estimate(origin, points, lifted)?.sign()
 }
 
+/// The bits of `k!` rounded up, for k up to 5: the monomials of a
+/// determinant of size k are that many.
+const FACTORIAL_BITS: [i32; 6] = [0, 0, 1, 3, 5, 7];
+
+/// The most bits of a product of the entries, on either side of 1, under
+/// which [`exact_zero`] looks at an input: with six factors at most, no
+/// product leaves the normal range.
+const EXACT_ZERO_RANGE: i32 = 150;
+
+/// Whether the determinant of the first stage is zero, proved by its own
+/// arithmetic being exact (#614, #615). `false` proves nothing.
+///
+/// No bound certifies a zero, so a zero went through the double-double
+/// stage to the exact one, about a microsecond each; a Delaunay build of a
+/// lattice asks for tens of thousands of them, four cocircular sites at a
+/// time, and spent most of its excess over a build of uniform sites there.
+///
+/// The proof. Let every difference `d = p - o` of the determinant be exact:
+/// the error term of the subtraction (Knuth's two-sum) is zero. Let `2^q`
+/// be the lowest set bit over the nonzero differences, so that each is an
+/// integer times `2^q`, and let them be below `2^(q + w)` in magnitude. A
+/// formula of the stage is a polynomial in the differences, with a lifted
+/// entry `sum_c d_c^2` in place of one column when lifted, and it evaluates
+/// by sums and products of sub-expressions. Each sub-expression is an
+/// integer times a power of `2^q`, and its magnitude is at most the sum of
+/// the magnitudes of its monomials, which is at most that of the whole
+/// determinant: `k!` monomials of `k` factors below `2^w`, or, lifted, of
+/// `k - 1` such factors and one lifted entry below `D 2^(2w)`. When that
+/// bound is below `2^53` (in units of the matching power of `2^q`), every
+/// such integer is a `f64`, so no sum and no product is rounded, and the
+/// value computed is the determinant of the differences, which is the
+/// determinant asked for. So a computed zero is a zero.
+///
+/// In bits: `FACTORIAL_BITS[k] + k w <= 52` for an orientation, and
+/// `FACTORIAL_BITS[k] + 2 + (k + 1) w <= 52` for a lifted one, with `D <= 4`.
+/// The differences are also kept within `2^-150` and `2^150`, so that no
+/// product of six factors underflows or overflows, which would round.
+///
+/// Lattices, pixel and voxel coordinates, and coordinates with few binary
+/// digits meet the condition; after the input's scaling (#589) they still
+/// do, with another `q`. A random `f64` has its lowest bit 52 places under
+/// its highest and fails the first test it meets.
+pub(super) fn exact_zero(origin: &[f64], points: &[&[f64]], lifted: bool) -> bool {
+    let k = points.len();
+    let dim = origin.len();
+    if !(2..FACTORIAL_BITS.len()).contains(&k) || dim > 4 {
+        return false;
+    }
+    let mut lowest = i32::MAX;
+    let mut highest = i32::MIN;
+    for p in points {
+        for (&x, &o) in p.iter().zip(origin) {
+            let d = x - o;
+            // Knuth's two-sum of `x + (-o)`: its error term is zero exactly
+            // when `d` is the difference.
+            let c = -o;
+            let x_back = d - c;
+            let c_back = d - x_back;
+            if (x - x_back) + (c - c_back) != 0.0 {
+                return false;
+            }
+            if d == 0.0 {
+                continue;
+            }
+            let bits = d.to_bits() & (u64::MAX >> 1);
+            let biased = (bits >> 52) as i32;
+            let fraction = bits & ((1_u64 << 52) - 1);
+            if biased == 0x7ff {
+                return false;
+            }
+            // The exponents of the lowest and of the highest set bit.
+            let (low, high) = if biased == 0 {
+                (
+                    fraction.trailing_zeros() as i32 - 1074,
+                    63 - fraction.leading_zeros() as i32 - 1074,
+                )
+            } else {
+                let mantissa = fraction | (1_u64 << 52);
+                (
+                    biased - 1075 + mantissa.trailing_zeros() as i32,
+                    biased - 1023,
+                )
+            };
+            lowest = lowest.min(low);
+            highest = highest.max(high);
+        }
+    }
+    if lowest == i32::MAX {
+        // Every difference is zero, and so is the determinant.
+        return true;
+    }
+    if lowest < -EXACT_ZERO_RANGE || highest > EXACT_ZERO_RANGE {
+        return false;
+    }
+    // Every difference is below 2^(lowest + width) in magnitude.
+    let width = highest - lowest + 1;
+    let bits = if lifted {
+        FACTORIAL_BITS[k] + 2 + (k as i32 + 1) * width
+    } else {
+        FACTORIAL_BITS[k] + k as i32 * width
+    };
+    bits <= 52 && estimate(origin, points, lifted).is_some_and(|e| e.det == 0.0)
+}
+
 /// [`sign`] on rows of a fixed size, for D = 2 and D = 3: `R = D` rows for
 /// the orientation and `R = D + 1` for the lifted orientation. The rows are
 /// differenced from `origin` as [`estimate`] does, and the same formula
