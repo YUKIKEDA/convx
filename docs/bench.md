@@ -7462,7 +7462,7 @@ The duplicates on demand were left out of 0.1.0 (#622), and the hull of 10^6 Kuz
 
 ### By part
 
-A scratch copy of `ad3b9c2` (the head of the stack, the crate of `main` at `bb6d622`) with a timer between the parts; Windows, pinned, the best of each part over 5 to 40 builds, ms. The timers and the best of each part make the sums smaller than a build's time; the shares are what is read.
+A scratch copy of `54c6cbc` (the head of the stack then, the crate of `main` at `bb6d622`) with a timer between the parts; Windows, pinned, the best of each part over 5 to 40 builds, ms. The timers and the best of each part make the sums smaller than a build's time; the shares are what is read.
 
 | Hull of, D2 | Sample of the scaling | Validation | The discard polygon | Duplicates | List of representatives | Basis | The discard pass | Sort and chain | Classification | Publication | Points kept |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
