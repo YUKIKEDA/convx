@@ -501,7 +501,7 @@ impl<'a> SimplicialHull<'a> {
             Chain::Every(sorted) => sorted,
             Chain::Discard(edges) => {
                 let mut kept = Vec::new();
-                let discard = Discard::new(&edges);
+                let discard = Discard::about(&edges, rows, reps);
                 for &r in reps {
                     if discard.clearly_inside(self.input.point(r)) {
                         self.proved_interior.push(r);
