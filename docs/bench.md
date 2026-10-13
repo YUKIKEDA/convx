@@ -7412,3 +7412,46 @@ Nothing on Buddha, which it was for, and the small lattice of D = 2 at 1.06, as 
 ### `tests/alloc.rs`
 
 The links' scratch is four lists more in a build with a group that goes to the placing or to the table: six allocations more on those cases (Delaunay `grid` D3 86 for 80), the same at both sizes. Every record is set to the counts of `eb1a5ad`.
+
+## The Delaunay triangulation of the scans beside CGAL, #639
+
+The screening (#618) read Dragon at 1.13 and Buddha at 1.18 of CGAL, above uniform sites of the same size.
+
+### By phase, beside uniform sites of the same number
+
+Under WSL, pinned, `ab64d1b` with the parity's marks, six builds each taking turns with CGAL's program; ms, the minimum. "Before" is acceptance, the copy, and the order of insertion; "after" is the pass that finds the groups, the draft, and its finish.
+
+| Delaunay of | Build | Before | Insertion | After | Publication | CGAL | convx / CGAL |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dragon, 437,645 sites | 2,007 | 13 | 1,583 | 375 | 13 | 1,686 | 1.19 |
+| 437,645 uniform sites | 1,698 | 14 | 1,385 | 287 | 12 | 1,607 | 1.06 |
+| Buddha, 543,652 sites | 2,440 | 18 | 1,924 | 476 | 19 | 2,171 | 1.12 |
+| 543,652 uniform sites | 2,232 | 18 | 1,761 | 403 | 15 | 2,001 | 1.12 |
+
+- **Buddha is not above uniform sites**: 1.12 for both. What the screening read on it is the gap of uniform sites of D = 3 at that size, the parity's reported set (ADR 0006).
+- **Dragon is**: its insertion takes 14% more than that of as many uniform sites and what follows 31% more, 18% in all, where CGAL takes 5% more.
+
+Dragon has 2,100 duplicate points (435,545 distinct of 437,645) and no cospherical group; Buddha has 14 groups of 28 cells.
+
+### Instructions and simulated cache misses, convx
+
+`4f606ea`, callgrind with its cache simulation, the build alone (collection toggled on `DelaunayBuilder::build`):
+
+| | Dragon | 437,645 uniform sites | Ratio |
+| --- | ---: | ---: | ---: |
+| Instructions | 17,545,739,071 | 16,333,846,924 | 1.074 |
+| Data reads and writes | 5,669,466,649 | 5,282,150,704 | 1.073 |
+| First-level data misses | 78,184,548 | 69,259,993 | 1.129 |
+| Last-level data misses | 20,845,475 | 19,575,996 | 1.065 |
+
+The shares by function are the same on both to a tenth of a percent: the conflict test 20.5%, the insertion's own lines 17.1% and 10.8%, and so on down the list. So Dragon is 7.4% more of the same work, which agrees with its counts (9.8 steps of the walk a site for 8.7, 21.8 simplices a cavity for 20.3, #618), and not one step that it makes dear. Of the 5.6 million first-level read misses it adds, 3.1 million are in the insertion's own reads of the mesh (19.7 million for 16.6): its simplices are visited in an order that follows the surface less well than uniform sites follow space.
+
+The time grows by 18% and the instructions by 7%; the simulation shows 13% more first-level misses and does not simulate branches.
+
+### What could not be measured here
+
+CGAL's side of the same table. Its program does not run usefully under valgrind (the run on Dragon had not ended after 44 minutes, where convx took two and a half; its interval filter depends on the rounding mode, which valgrind does not keep, is the likely reason and was not verified), and `perf` reports the hardware counters as not supported under WSL2. So whether CGAL does 5% more work on Dragon, or as much more as convx with less memory cost for it, is not known.
+
+### Reading
+
+Nothing is proposed: no step of convx stands out on Dragon, and no change was measured that takes its 18% toward CGAL's 5%. Dragon is in the comparison as it measures. The reallocation of the draft that a scratch timer read on Buddha's 14 groups was a row of its own and was withdrawn after measurement (#640).
