@@ -7622,3 +7622,121 @@ Two things the first form (`1ce0a18`, from 2^18 points, every input) showed in t
 - **Where the buckets start.** At 3 x 10^5 points a cube of D = 2 took 10.12 ms in buckets for 9.49 in the one table; they start at 2^19, and at 6 x 10^5 points they read 0.82 here.
 
 With the three rows, against `main`: 10^6 Kuzmin points 35.17 to 20.62 ms (0.59; CGAL 9.83), 10^6 points in a ball 67.08 to 47.75 (0.71; CGAL 57.81), a cube of D = 2 at 10^6 54.42 to 26.05 (0.48). The Kuzmin hull stays above CGAL by its duplicates, which the build keeps (#622).
+
+## The parity run after the rows of R1, #652
+
+One run of the 44 sets on `main` at `217d389`, after #651: the 38 judged sets, Delaunay `cube` D3, and the three sets added since the run of #609 (two Delaunay lattices and 10^6 Kuzmin sites, reported). Method: `docs/verification.md`, `benches/parity/`; WSL2, Qhull 2020.2, CGAL 5.4. Eleven sets that were not met, at the edge, or spread were run again; the table has their second reading.
+
+**The machine was not free.** A benchmark of another project used one core through both readings and the comparison below; the processor read 18% and 10% about the first reading, 12% and 9% about the second. The judged builds of 19 sets spread by 1.2 or more, and a build takes about a tenth longer than in the run of #609 on sets the changes do not reach (Delaunay `sphere` D3 10^4 74.5 ms for 66.6).
+
+| Set | convx `build()` | / CGAL | / CGAL from the points | / Qhull | At 1.05 | At 1.00 |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| Hull `cube` D2 10^6 | 39.3 ms | 0.47 | 0.81 | 0.59 | met | met |
+| Hull `cube` D3 10^4 | 1.18 ms | 0.55 | – | 0.76 | met | met |
+| Hull `cube` D3 10^5 | 9.29 ms | 0.37 | – | 0.77 | met | met |
+| Hull `cube` D3 10^6 | 165 ms | 0.15 | – | 0.81 | met | met |
+| Hull `cube` D4 10^4 | 5.30 ms | 0.11 | – | 0.74 | met | met |
+| Hull `cube` D4 10^5 | 27.8 ms | 0.05 | – | 0.80 | met | met |
+| Hull `cube` D5 10^4 | 54.4 ms | 0.23 | – | 0.71 | met | met |
+| Hull `cube` D5 10^5 | 220 ms | 0.12 | – | 0.58 | met | met |
+| Hull `cube` D6 10^4 | 667 ms | 0.29 | – | 0.39 | met | met |
+| Hull `cube` D6 10^5 | 2.99 s | 0.23 | – | 0.32 | met | met |
+| Hull `sphere` D2 10^5 | 10.9 ms | 1.02 | 1.32 | 0.07 (ref.) | met | not met |
+| Hull `sphere` D2 10^6 | 102 ms | 0.60 | 1.10 | 0.05 (ref.) | met | met |
+| Hull `sphere` D3 10^5 | 269 ms | 0.56 | – | 1.00 | met | met |
+| Hull `sphere` D3 10^6 | 4.35 s | 0.38 | – | 0.99 | met | met |
+| Hull `sphere` D4 10^4 | 101 ms | 0.77 | – | 0.86 | met | met |
+| Hull `sphere` D5 10^4 | 934 ms | 0.89 | – | 0.92 | met | met |
+| Hull `sphere` D6 10^4 | 7.94 s | 0.76 | – | 0.78 | met | met |
+| Hull `cubesurf` D3 10^5 | 28.1 ms | 0.70 | – | 0.92 | met | met |
+| Hull `grid` D6 10^4 | 185 ms | 0.68 (ref.) | – | 0.52 | met | met |
+| Delaunay `cube` D2 10^5 | 58.8 ms | 0.97 | 1.31 | 0.21 | met | met |
+| Delaunay `cube` D2 10^6 | 595 ms | 0.74 | 1.26 | 0.14 | met | met |
+| Delaunay `sphere` D2 10^6 | 445 ms | 0.77 | 1.41 | 0.03 (ref.) | met | met |
+| Delaunay `cube` D3 10^4 | 37.6 ms | 1.08 | 1.21 | 0.33 | reported | reported |
+| Delaunay `cube` D3 10^5 | 440 ms | 1.13 | 1.32 | 0.26 | reported | reported |
+| Delaunay `cube` D3 10^6 | 5.02 s | 1.12 | 1.36 | 0.23 | reported | reported |
+| Delaunay `sphere` D3 10^4 | 74.5 ms | 0.52 | 0.53 | 0.46 (ref.) | met | met |
+| Delaunay `sphere` D3 10^5 | 714 ms | 0.69 | 0.72 | 0.26 (ref.) | met | met |
+| Delaunay `sphere` D3 10^6 | 6.00 s | 0.85 | 0.88 | 0.26 (ref.) | met | met |
+| Delaunay `sphere` D4 10^4 | 948 ms | 0.35 | 0.36 | 0.58 (ref.) | met | met |
+| Delaunay `sphere` D5 10^4 | 11.56 s | 0.32 | 0.32 | 0.62 (ref.) | met | met |
+| Delaunay `lattice` D2 10^4 | 9.01 ms | 1.54 | 1.81 | 0.22 | reported | reported |
+| Delaunay `lattice` D3 27,000 | 137 ms | 0.96 | 1.00 | 0.13 | reported | reported |
+| Delaunay `kuzmin` D2 10^6 | 652 ms | 0.84 | 1.34 | 0.13 | reported | reported |
+| Hull `cube` D2 10^4 | 0.30 ms | 0.47 | 0.54 | 0.47 | met | met |
+| Hull `cube` D2 10^5 | 3.05 ms | 0.48 | 0.61 | 0.49 | met | met |
+| Hull `sphere` D2 10^4 | 0.76 ms | 0.92 | 1.01 | 0.10 (ref.) | met | met |
+| Hull `sphere` D3 10^4 | 23.1 ms | 0.88 | – | 1.04 | met | not met |
+| Hull `sphere` D4 10^5 | 1.45 s | 1.07 | – | 0.83 | not met | not met |
+| Hull `sphere` D5 10^5 | 12.76 s | 1.10 | – | 0.89 | not met | not met |
+| Delaunay `cube` D2 10^4 | 5.39 ms | 1.07 | 1.27 | 0.28 | not met | not met |
+| Delaunay `sphere` D2 10^4 | 5.02 ms | 1.08 | 1.31 | 0.20 (ref.) | not met | not met |
+| Delaunay `sphere` D2 10^5 | 47.5 ms | 1.00 | 1.44 | 0.10 (ref.) | met | met |
+| Delaunay `cube` D4 10^4 | 741 ms | 1.08 | 1.16 | 0.74 | not met | not met |
+| Delaunay `cube` D5 10^4 | 7.45 s | 1.02 | 1.05 | 0.80 | met | not met |
+
+### Judgement
+
+| Threshold | Met of the 38 judged sets, first reading | Second reading | Run of #609 |
+| --- | ---: | ---: | ---: |
+| 1.05 | 32 | 33 | 36 |
+| 1.00 | 29 | 30 | 30 |
+
+### The sets read twice
+
+| Set | First | Second | Against | Run of #609 |
+| --- | ---: | ---: | --- | ---: |
+| Delaunay `cube` D2 10^4 | 1.07 | 1.07 | CGAL | 1.07 |
+| Delaunay `sphere` D2 10^4 | 1.16 | 1.08 | CGAL | 1.12 |
+| Delaunay `cube` D4 10^4 | 1.07 | 1.08 | CGAL | 1.05 |
+| Hull `sphere` D4 10^5 | 1.03 | 1.07 | CGAL | 0.94 |
+| Hull `sphere` D5 10^5 | 1.05 | 1.10 | CGAL | 1.00 |
+| Hull `sphere` D3 10^4 | 1.09 | 1.04 | Qhull | 1.05 |
+| Delaunay `cube` D5 10^4 | 1.06 | 1.02 | CGAL | 1.03 |
+| Delaunay `sphere` D2 10^5 | 1.03 | 1.00 | CGAL | 1.01 |
+| Hull `cube` D2 10^4 | 0.48 | 0.47 | Qhull | 0.79 |
+| Hull `cube` D2 10^5 | 0.43 | 0.49 | Qhull | 0.82 |
+| Hull `sphere` D2 10^4 | 0.97 | 0.92 | CGAL | 1.02 |
+
+Not met in the second reading: the two Delaunay sets of D = 2 at 10^4, as before, and Delaunay `cube` D4 10^4 and hull `sphere` D4 and D5 at 10^5, which were met in the run of #609.
+
+### The three that read worse: commit against commit
+
+A ratio between two commits is not read from two runs. `327e5a1` (the commit of #609's run), the same built a second time as the control, and `217d389`, taking turns, pinned, under the same load; ms, the minimum, and the ratios of the minimum and of the median to `327e5a1`:
+
+| Set | Builds a side | `327e5a1` | Control | `217d389` |
+| --- | ---: | ---: | ---: | ---: |
+| Hull `sphere` D4 10^5 | 6 | 1,315.7 | 1,319.6 (1.00, 1.00) | 1,345.0 (1.02, 1.01) |
+| Hull `sphere` D5 10^5 | 3 | 11,672 | 11,536 (0.99, 0.99) | 11,582 (0.99, 0.99) |
+| Hull `sphere` D4 10^4 | 18 | 92.52 | 90.62 (0.98, 1.00) | 93.78 (1.01, 1.01) |
+| Hull `sphere` D5 10^4 | 5 | 894.0 | 890.1 (1.00, 0.99) | 896.6 (1.00, 1.00) |
+| Hull `sphere` D3 10^4 | 50 | 19.34 | 19.36 (1.00, 1.01) | 19.07 (0.99, 1.02) |
+| Hull `sphere` D3 10^5 | 12 | 283.2 | 275.8 (0.97, 1.00) | 280.7 (0.99, 1.01) |
+| Delaunay `cube` D4 10^4 | 6 | 706.8 | 709.9 (1.00, 1.01) | 697.5 (0.99, 0.99) |
+| Delaunay `cube` D5 10^4 | 3 | 7,877 | 7,233 (0.92, 0.99) | 7,820 (0.99, 1.00) |
+| Delaunay `cube` D2 10^4 | 96 | 4.88 | 4.89 (1.00, 1.01) | 4.80 (0.98, 1.00) |
+| Delaunay `sphere` D2 10^4 | 96 | 4.73 | 4.72 (1.00, 1.02) | 4.73 (1.00, 1.04) |
+| Delaunay `cube` D3 10^5 | 6 | 397.8 | 405.1 (1.02, 1.03) | 397.8 (1.00, 1.01) |
+
+convx builds these sets in the time it built them at `327e5a1`: 0.98 to 1.02. What moved is the ratio to CGAL under this run's conditions: on hull `sphere` D4 10^5 convx read 1.18 s and CGAL 1.26 s in the run of #609, and 1.45 s and 1.36 s here, both slower and convx by more. The other benchmark on the machine is the difference between the two days that is known; whether it is the cause was not measured.
+
+### What moved since the run of #609
+
+The larger of the ratios to CGAL and to Qhull, the one a set is judged by:
+
+| Set | Run of #609 | This run |
+| --- | ---: | ---: |
+| Hull `cube` D2 10^4, 10^5, 10^6 | 0.79, 0.82, 0.97 | 0.47, 0.49, 0.59 |
+| Hull `cube` D3 10^4, 10^5, 10^6 | 0.79, 0.86, 0.97 | 0.76, 0.77, 0.81 |
+| Hull `cube` D4 10^4, 10^5 | 0.77, 0.94 | 0.74, 0.80 |
+| Hull `cube` D5 10^4, 10^5 | 0.73, 0.67 | 0.71, 0.58 |
+| Hull `grid` D6 10^4 | 0.65 | 0.52 |
+
+Reported sets: the Delaunay lattice of D = 3 at 0.96 of CGAL and of D = 2 at 1.54; 10^6 Kuzmin sites at 0.84; Delaunay `cube` D3 at 1.08 to 1.13.
+
+### Reading
+
+- No set is slower than at `327e5a1` where the two were timed together, and the hulls of a cube are faster in every dimension.
+- The count of sets met, 33 for 36, is this run's conditions on three sets whose ratio to CGAL sits near 1.05, and not a change of the crate. The judgement of those three wants a reading on a free machine, which the comparison's run (R1-8) needs as well.
+- The two Delaunay sets of D = 2 at 10^4 stay not met, as since P7.
