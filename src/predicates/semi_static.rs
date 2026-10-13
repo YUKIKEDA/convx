@@ -276,6 +276,16 @@ pub(super) fn exact_zero(origin: &[f64], points: &[&[f64]], lifted: bool) -> boo
     if !(2..FACTORIAL_BITS.len()).contains(&k) || (lifted && dim > 4) {
         return false;
     }
+    // The widest differences the bound allows: `FACTORIAL_BITS[k] + k w <= 52`,
+    // or `FACTORIAL_BITS[k] + 2 + (k + 1) w <= 52` when lifted. The width is
+    // tested at every difference, so that coordinates with many binary
+    // digits leave at the first one (a difference of two of them is often
+    // exact, and its width is not small).
+    let widest = if lifted {
+        (50 - FACTORIAL_BITS[k]) / (k as i32 + 1)
+    } else {
+        (52 - FACTORIAL_BITS[k]) / k as i32
+    };
     let mut lowest = i32::MAX;
     let mut highest = i32::MIN;
     for p in points {
@@ -313,6 +323,10 @@ pub(super) fn exact_zero(origin: &[f64], points: &[&[f64]], lifted: bool) -> boo
             };
             lowest = lowest.min(low);
             highest = highest.max(high);
+            // Every difference so far is below 2^(lowest + width).
+            if highest - lowest + 1 > widest {
+                return false;
+            }
         }
     }
     if lowest == i32::MAX {
@@ -322,14 +336,7 @@ pub(super) fn exact_zero(origin: &[f64], points: &[&[f64]], lifted: bool) -> boo
     if lowest < -EXACT_ZERO_RANGE || highest > EXACT_ZERO_RANGE {
         return false;
     }
-    // Every difference is below 2^(lowest + width) in magnitude.
-    let width = highest - lowest + 1;
-    let bits = if lifted {
-        FACTORIAL_BITS[k] + 2 + (k as i32 + 1) * width
-    } else {
-        FACTORIAL_BITS[k] + k as i32 * width
-    };
-    bits <= 52 && estimate(origin, points, lifted).is_some_and(|e| e.det == 0.0)
+    estimate(origin, points, lifted).is_some_and(|e| e.det == 0.0)
 }
 
 /// [`sign`] on rows of a fixed size, for D = 2 and D = 3: `R = D` rows for
@@ -1446,6 +1453,19 @@ pub(super) mod tests {
         };
         assert!(proved_zero(&cube(511.0), true));
         assert!(!proved_zero(&cube(1023.0), true));
+        // The same for an orientation of k rows: 25, 16, 11, and 9 bits. Every
+        // row is the same point, so the determinant is zero.
+        for (k, width) in [(2, 25), (3, 16), (4, 11), (5, 9)] {
+            let equal_rows = |bits: i32| {
+                let mut row = vec![1.0; k];
+                row[0] = two_to(bits) - 1.0;
+                let mut points = vec![vec![0.0; k]];
+                points.resize(k + 1, row);
+                points
+            };
+            assert!(proved_zero(&equal_rows(width), false), "k = {k}");
+            assert!(!proved_zero(&equal_rows(width + 1), false), "k = {k}");
+        }
     }
 
     /// Rows of one point each at its own scale, from the smallest
