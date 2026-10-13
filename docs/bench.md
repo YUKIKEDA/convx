@@ -6769,7 +6769,7 @@ Hull `sphere` D3 10^4 reads 1.046 against Qhull (1.10 in the first reading), Del
 
 The first attempt at this run did not start. #606 changed the first lines of the hull's and the triangulation's `build()`, and `benches/parity/marks.py` no longer found the two lines it writes its marks beside, as its README says can happen. My script that started the run piped the setup into `tail`, which hid the failure, and the runner then stopped on a missing program. The report I read next was the file of the run of #591, left in the scratch; its numbers equalled that run's to the digit, which is how it showed. `marks.py` finds the lines as they are now, and the run was started again with a check that both programs exist.
 
-## A zero proved by the first stage's own arithmetic, PR for #615 (spike #614)
+## A zero proved by the first stage's own arithmetic, PR #616 (#615, spike #614)
 
 ### What the spike found
 
