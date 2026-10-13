@@ -7223,3 +7223,39 @@ The ball is at 1.16 and 1.22 of CGAL, from 1.58 and 1.72. The Kuzmin and the lat
 - **The keys of every vertex copied, always**: the ball at 0.70, and `sphere` D2 at 1.14, 1.14, and 1.36 of its time at 10^4, 10^5, and 10^6. A hull whose every point is a vertex has as many vertices as points and locates none.
 - **The keys read from the input, always**: `sphere` back at 1.00 to 1.05, the ball at 0.78.
 - **A remainder for each key read** (the place in the cycle taken modulo its length): with the keys copied where points are located, the ball stayed at 0.79 and 0.76; a division for each of about seventeen keys a point. Without it, and with the copied keys searched by the standard bisection of a slice, 0.73.
+
+## What the cospherical groups of a lattice cost after the zeros are proved, #617
+
+The Delaunay triangulation of a lattice reads 1.64 of CGAL's time in D = 2 and 1.63 in D = 3 after #615 (the screening #618; under WSL the builds are 8.6 and 217 ms against CGAL's 5.6 and 131 ms, and 660 against 692 in D = 4). A scratch copy of `e6c7c92` with a timer at each part of the build and counters; Windows, not pinned, one build each of `rbox 10000 M3,4 D2`, `rbox 27000 M3,4,5 D3`, and `rbox 10000 M1,0 D4`, beside as many uniform sites. The timers cost time themselves, most in the parts that run once a group (a build of the lattice of D = 2 reads 13.7 ms with them and 9.2 without), so the shares matter.
+
+| Delaunay of | Insertion | The pass that finds the groups | Single simplices | Sorting the groups' members | A group's sites collected | Placing | Its cells written | Faces paired (`finish`) | Build |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| The lattice, D2 | 5.76 | 0.49 | 0.03 | 0.58 | 0.66 | 1.30 | 1.30 | 1.97 | 13.7 |
+| 10,000 uniform sites, D2 | 4.80 | 0.34 | 0.39 | | | | | 0.07 | 6.2 |
+| The lattice, D3 | 89.7 | 15.9 | 0.3 | 4.2 | 6.8 | 89.1 | 9.7 | 30.7 | 250.9 |
+| 27,000 uniform sites, D3 | 84.9 | 9.1 | 4.7 | | | | | 0.6 | 102.0 |
+| The lattice, D4 | 370.7 | 65.1 | 1.3 | 4.6 | 9.4 | 191.6 | 12.4 | 39.8 | 697.6 |
+| 10,000 uniform sites, D4 | 612.9 | 39.6 | 27.8 | | | | | 1.1 | 684.6 |
+
+| Lattice | Groups | Simplices merged | Sites a group | Cells a group | Orientations the placing asks, a group |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| D2 | 9,801 | 19,602 | 4 | 2 | 1 |
+| D3 | 24,389 | 145,573 | 8 | 6 | 45 |
+| D4 | 6,561 | 153,874 | 16 | 24 | 318 |
+
+### Reading
+
+- **The insertion is level with uniform sites** in D = 2 and 3, as #615 left it, and under them in D = 4.
+- **The placing is the largest part from D = 3**: 36% of the build in D = 3 and 27% in D = 4. It is its orientations: 45 for the eight corners of a unit cube, 3.65 microseconds a group, nearly all of them zeros on the cube's coplanar fours, each proved by the first stage's exact arithmetic at about 80 ns. In D = 2 it asks one orientation a group, and its 1.3 ms is the bookkeeping of a run of the general procedure on four points.
+- **Pairing the faces** (`Draft::finish`) is the second part: every face of every cell of a merged group is paired by its vertex set, a sort of all of them, where a single simplex keeps the links of the mesh. 12% in D = 3; in D = 2 it is the largest part after the insertion.
+- **The pass that finds the groups** takes 7 to 26 ms more than on uniform sites: a lifted orientation for each face whose record the insertion left open.
+
+What CGAL does not do is all of it: it returns the diagonals the insertion left, which depend on the order of insertion, and no groups. convx merges the cospherical simplices (the groups are the vertices of the Voronoi diagram, design §8) and splits each again by the placing triangulation in index order, so that what is published does not depend on the order of insertion (design §5, §7).
+
+### What could be done, for the owner
+
+1. **D = 2, a group of four sites, without the placing.** The placing triangulation of four points in convex position, in index order, is the triangle of the three smallest and the triangle of the largest with the edge it sees: its diagonal joins the two neighbors of the largest index around the quadrilateral. The mesh has the group as two triangles: when their common edge does not hold the largest index they are that triangulation, and otherwise it is the other diagonal. No predicate, and the two cells' orientations are those of the mesh. Expected: the placing and most of the writing of the cells, about 2 of the 9.2 ms; the lattice of D = 2 at about 1.3 of CGAL. A group of more than four sites goes through the placing as now.
+2. **D >= 3, the placing of a group that is an exact translate of one placed before.** On a lattice every unit cell is the same eight points up to a translation, in the same order of indices. When the differences of a group's sites from its first site are formed without a rounding (the test of #615), two groups with the same differences and the same order of indices are exact translates, every orientation among them has the same sign, and the placing triangulation of one is that of the other with the sites renamed. A table from the differences to the triangulation placed would place one cube and copy 24,388. Expected: most of the 89 ms in D = 3 and of the 192 ms in D = 4; the lattice of D = 3 at about 1.0 of CGAL from 1.63. It helps inputs that repeat a cell (lattices, voxels) and nothing else, and it is a table whose key and whose proof have to be exact.
+3. **The faces inside a group linked by the placing**, and only the faces between groups paired by their vertices: part of the 31 ms in D = 3. The placing triangulation's own adjacency is not kept today.
+
+Or none: the comparison states that the triangulation of a lattice takes 1.6 times CGAL's time because the output is the one triangulation of each cospherical group that does not depend on the order of insertion, with the groups for the Voronoi diagram.
