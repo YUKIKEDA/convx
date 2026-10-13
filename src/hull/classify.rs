@@ -178,43 +178,145 @@ pub(crate) struct Classified<'a> {
     pub(crate) interior_points: Vec<u32>,
 }
 
-/// The chain edge `point` lies on, or `None` when it is strictly inside.
+/// The two chains of a strict polygon, read in its cycle: the lower chain
+/// from the least vertex to the greatest by the key the chain sorted the
+/// points by ([`polygon::coordinate_key`]), and the upper chain back from
+/// the greatest to the least.
 ///
-/// `cycle` is the extreme vertices counterclockwise. The fan from
-/// `cycle[0]` names the triangle, and one orientation against that
-/// triangle's outer edge separates an interior point from a boundary point.
-fn polygon_edge(
-    input: &Input<'_>,
-    cycle: &[u32],
-    point: u32,
-) -> Result<Option<usize>, ConvexHullError> {
-    let n = cycle.len();
-    debug_assert!(n >= 3, "a polygon has at least three vertices");
-    let turn = |a: usize, b: usize| input.orient(&[cycle[a], cycle[b], point]);
-    if turn(0, 1)? == Sign::Zero {
-        return Ok(Some(0));
-    }
-    debug_assert_ne!(
-        turn(0, 1)?,
-        Sign::Negative,
-        "a point is outside the polygon"
-    );
-    if turn(0, n - 1)? == Sign::Zero {
-        return Ok(Some(n - 1));
-    }
-    let mut lo = 1usize;
-    let mut hi = n - 1;
-    while lo + 1 < hi {
-        let mid = (lo + hi) / 2;
-        if turn(0, mid)? == Sign::Positive {
-            lo = mid;
+/// The keys of the vertices are copied when asked, and read from the input
+/// otherwise. A hull whose every point is a vertex has as many vertices as
+/// points and locates none, and the copy cost it 13 to 36% of its build;
+/// read from the input, the keys of a disc's 343 vertices cost a tenth of
+/// the build of its 10^6 points (#630). The caller asks for the copy when
+/// it has at least as many points to locate as the cycle has vertices.
+struct Chains<'a> {
+    /// The extreme vertices counterclockwise from the least.
+    cycle: &'a [u32],
+    /// The number of edges of the lower chain.
+    along: usize,
+    /// The key of each vertex of `cycle` and of the first again, by its
+    /// number of steps from the least, or nothing.
+    keys: Vec<(u64, u64)>,
+}
+
+impl<'a> Chains<'a> {
+    /// The chains of `cycle`, the extreme vertices counterclockwise from
+    /// the least, as the chain publishes them, with the keys copied when
+    /// `copied`.
+    fn of(input: &Input<'_>, cycle: &'a [u32], copied: bool) -> Self {
+        let n = cycle.len();
+        let key = |i: usize| polygon::coordinate_key(input.point(cycle[i % n]));
+        debug_assert!(
+            (1..n).all(|i| key(0) < key(i)),
+            "the cycle starts at its least vertex"
+        );
+        // From the least vertex the keys ascend along the lower chain to
+        // the greatest and descend along the upper chain: the first place
+        // whose successor is smaller is the greatest.
+        let (mut lo, mut hi) = (0, n - 1);
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            if key(mid) < key(mid + 1) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        debug_assert!(
+            (0..lo).all(|i| key(i) < key(i + 1)) && (lo..n).all(|i| key(i) > key(i + 1)),
+            "the keys ascend to the greatest vertex and descend from it"
+        );
+        let keys = if copied {
+            (0..=n).map(key).collect()
         } else {
-            hi = mid;
+            Vec::new()
+        };
+        Self {
+            cycle,
+            along: lo,
+            keys,
         }
     }
-    let side = input.orient(&[cycle[lo], cycle[(lo + 1) % n], point])?;
-    debug_assert_ne!(side, Sign::Negative, "a point is outside the polygon");
-    Ok(if side == Sign::Zero { Some(lo) } else { None })
+
+    /// The vertex `steps` edges counterclockwise from the least, for at
+    /// most as many steps as the cycle has edges. No remainder is taken: a
+    /// division for each key read was a tenth of the build of a disc.
+    fn vertex(&self, steps: usize) -> u32 {
+        debug_assert!(
+            steps <= self.cycle.len(),
+            "a step is at most once around the cycle"
+        );
+        let wrapped = if steps == self.cycle.len() { 0 } else { steps };
+        self.cycle[wrapped]
+    }
+
+    /// Whether `point`, a representative of the polygon that is not one of
+    /// its vertices, lies on an edge; otherwise it is strictly inside.
+    ///
+    /// A bisection on the chain's key places the point between two
+    /// consecutive vertices of each chain, and one orientation against each
+    /// of those two edges decides (#630). The search before it bisected the
+    /// fan from the first vertex by orientation, about eleven exact signs a
+    /// point on a polygon of 343 vertices, a third of the hull of 10^6
+    /// points in a disc (#628).
+    ///
+    /// Why those two edges are the only candidates. The key orders points
+    /// by x and then by y, and the vertices of a chain ascend by it. A point
+    /// on the segment between two points lies between them in that order,
+    /// strictly when it is neither: along a segment that is not vertical x
+    /// is strictly monotonic, and along a vertical one y is. So a point on
+    /// an edge of a chain lies strictly between the keys of that edge's
+    /// ends, and the edges of a chain cover disjoint ranges of the key. The
+    /// point is no vertex and is distinct from every vertex, so its key
+    /// equals none, and it lies strictly between the least and the greatest
+    /// vertex, which are the first and the last point of the sorted order.
+    /// Conversely, a point between the ends of an edge in that order and
+    /// collinear with them is on the segment. Every edge of the cycle is in
+    /// one of the two chains, the vertical ones at either end included.
+    fn on_an_edge(&self, input: &Input<'_>, point: u32) -> Result<bool, ConvexHullError> {
+        let key = polygon::coordinate_key(input.point(point));
+        let n = self.cycle.len();
+        let key_of = |steps: usize| match self.keys.get(steps) {
+            Some(&key) => key,
+            None => polygon::coordinate_key(input.point(self.vertex(steps))),
+        };
+        debug_assert!(
+            key_of(0) < key && key < key_of(self.along),
+            "a point off the cycle lies between its least and greatest vertex"
+        );
+        // The first step of each chain whose vertex is past the point: the
+        // keys ascend over the steps of the lower chain and descend over
+        // those of the upper one. Both edges are taken counterclockwise,
+        // so the interior of the polygon is to their left.
+        let first_past = |from: usize, to: usize, ascending: bool| {
+            let before = |k: (u64, u64)| if ascending { k < key } else { k > key };
+            match self.keys.get(from..to) {
+                Some(keys) => from + keys.partition_point(|&k| before(k)),
+                None => {
+                    let (mut lo, mut hi) = (from, to);
+                    while lo < hi {
+                        let mid = (lo + hi) / 2;
+                        if before(key_of(mid)) {
+                            lo = mid + 1;
+                        } else {
+                            hi = mid;
+                        }
+                    }
+                    lo
+                }
+            }
+        };
+        let lower = first_past(1, self.along, true);
+        let upper = first_past(self.along + 1, n, false);
+        for to in [lower, upper] {
+            let side = input.orient(&[self.vertex(to - 1), self.vertex(to), point])?;
+            if side == Sign::Zero {
+                return Ok(true);
+            }
+            debug_assert_eq!(side, Sign::Positive, "a point is outside the polygon");
+        }
+        Ok(false)
+    }
 }
 
 /// Builds and classifies the hull of an accepted input.
@@ -382,6 +484,9 @@ fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
     // points off it are sized up front; a list collected through a filter
     // grew by reallocation (#440).
     let representatives = &hull.input.representatives;
+    // Every representative is a vertex, proved interior, or located.
+    let located = representatives.len() - n - hull.proved_interior.len();
+    let chains = Chains::of(&hull.input, &hull.polygon, located >= n);
     let mut vertices = Vec::with_capacity(n);
     let mut coplanar_points = Vec::new();
     let mut interior_points = Vec::with_capacity(representatives.len().saturating_sub(n));
@@ -390,13 +495,13 @@ fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHull
             Known::OnCycle => vertices.push(point),
             Known::ProvedInterior => {
                 debug_assert!(
-                    polygon_edge(&hull.input, &hull.polygon, point)?.is_none(),
+                    !chains.on_an_edge(&hull.input, point)?,
                     "point {point} was discarded and is not strictly inside"
                 );
                 interior_points.push(point);
             }
             Known::Nothing => {
-                if polygon_edge(&hull.input, &hull.polygon, point)?.is_some() {
+                if chains.on_an_edge(&hull.input, point)? {
                     coplanar_points.push(point);
                 } else {
                     interior_points.push(point);
@@ -2293,6 +2398,134 @@ fn link_neighbors(d: usize, simplices: &mut Complex, faces: &Faces) {
 pub(crate) mod tests {
     use super::*;
     use crate::hull::simplicial::tests::Rng;
+
+    /// The chain edge `point` lies on, or `None` when it is strictly inside,
+    /// by the search before #630: the fan from `cycle[0]` names the
+    /// triangle, bisected by orientation, and one orientation against that
+    /// triangle's outer edge separates an interior point from a boundary
+    /// point. The reference of [`Chains::on_an_edge`].
+    fn polygon_edge(input: &Input<'_>, cycle: &[u32], point: u32) -> Option<usize> {
+        let n = cycle.len();
+        let turn = |a: usize, b: usize| input.orient(&[cycle[a], cycle[b], point]).unwrap();
+        if turn(0, 1) == Sign::Zero {
+            return Some(0);
+        }
+        assert_ne!(turn(0, 1), Sign::Negative, "a point is outside the polygon");
+        if turn(0, n - 1) == Sign::Zero {
+            return Some(n - 1);
+        }
+        let mut lo = 1usize;
+        let mut hi = n - 1;
+        while lo + 1 < hi {
+            let mid = (lo + hi) / 2;
+            if turn(0, mid) == Sign::Positive {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        let side = input
+            .orient(&[cycle[lo], cycle[(lo + 1) % n], point])
+            .unwrap();
+        assert_ne!(side, Sign::Negative, "a point is outside the polygon");
+        (side == Sign::Zero).then_some(lo)
+    }
+
+    /// A point off the cycle is on an edge exactly when the search by
+    /// orientation says so (#630). The polygons: points in a disc, whose
+    /// hull has many vertices and no point on an edge; integer grids, whose
+    /// edges hold many points and whose ends are vertical edges; a regular
+    /// polygon of integer vertices with the midpoints of its edges, the
+    /// points of the vertical lines through its vertices, and its center;
+    /// and a triangle with points on each edge. Both answers occur on each
+    /// kind that has both.
+    #[test]
+    fn a_point_off_the_cycle_is_located_as_the_fan_locates_it() {
+        let mut rng = Rng(630);
+        let mut inputs: Vec<(&str, Vec<f64>)> = Vec::new();
+        for count in [200, 2000] {
+            let mut disc = Vec::new();
+            while disc.len() < 2 * count {
+                let (x, y) = (rng.unit(), rng.unit());
+                if x * x + y * y <= 1.0 {
+                    disc.extend([x, y]);
+                }
+            }
+            inputs.push(("disc", disc));
+        }
+        for side in [3.0, 7.0] {
+            let grid =
+                (0..600).flat_map(|_| [(rng.unit() * side).round(), (rng.unit() * side).round()]);
+            inputs.push(("grid", grid.collect()));
+        }
+        // An octagon with vertical edges at both ends, the midpoints of its
+        // edges, and points on the verticals through its vertices.
+        let octagon = [
+            [2.0, 0.0],
+            [4.0, 0.0],
+            [6.0, 2.0],
+            [6.0, 4.0],
+            [4.0, 6.0],
+            [2.0, 6.0],
+            [0.0, 4.0],
+            [0.0, 2.0],
+        ];
+        let mut points: Vec<f64> = octagon.iter().flatten().copied().collect();
+        for i in 0..8 {
+            let (a, b) = (octagon[i], octagon[(i + 1) % 8]);
+            points.extend([(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0]);
+        }
+        // On the vertical edges at the two ends, and inside on the
+        // verticals through the other vertices.
+        for (x, ys) in [
+            (0.0, &[2.5, 3.0, 3.5][..]),
+            (6.0, &[2.5, 3.0, 3.5][..]),
+            (2.0, &[1.0, 2.5, 3.0, 5.0][..]),
+            (4.0, &[1.0, 2.5, 3.0, 5.0][..]),
+        ] {
+            for &y in ys {
+                points.extend([x, y]);
+            }
+        }
+        points.extend([3.0, 3.0]);
+        inputs.push(("octagon", points));
+        inputs.push((
+            "triangle",
+            vec![
+                0.0, 0.0, 8.0, 0.0, 0.0, 8.0, 4.0, 0.0, 0.0, 4.0, 4.0, 4.0, 2.0, 2.0, 1.0, 5.0,
+                0.0, 1.0,
+            ],
+        ));
+        let (mut on, mut inside) = (0, 0);
+        for (name, points) in &inputs {
+            let hull = SimplicialHull::build(accept(2, points).unwrap()).unwrap();
+            assert!(hull.strict_edges, "{name}");
+            // With the keys read from the input, and with them copied.
+            let chains = [false, true].map(|copied| Chains::of(&hull.input, &hull.polygon, copied));
+            assert!(chains[0].keys.is_empty() && chains[1].keys.len() == hull.polygon.len() + 1);
+            let (mut here_on, mut here_inside) = (0, 0);
+            for &p in &hull.input.representatives {
+                if hull.polygon.contains(&p) {
+                    continue;
+                }
+                let expected = polygon_edge(&hull.input, &hull.polygon, p).is_some();
+                for chains in &chains {
+                    assert_eq!(
+                        chains.on_an_edge(&hull.input, p).unwrap(),
+                        expected,
+                        "{name}: point {p}"
+                    );
+                }
+                here_on += usize::from(expected);
+                here_inside += usize::from(!expected);
+            }
+            assert!(here_inside > 0, "{name}");
+            assert!(*name == "disc" || here_on > 0, "{name}");
+            on += here_on;
+            inside += here_inside;
+        }
+        assert!(on > 50 && inside > 1000, "{on} {inside}");
+    }
 
     thread_local! {
         /// Whether `face_extremes` reads and keeps the faces it has found;
