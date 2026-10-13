@@ -7287,3 +7287,41 @@ Under WSL, pinned and alternated, `ba4361a` (the branch's base, the crate of `e6
 | `sphere` D3 10^4 | 16 | 66.80 | 66.95 | 1.00, 1.00 | | |
 
 The lattices of D = 2 are at 0.86 to 0.87 of their time and at 1.51 and 1.67 of CGAL, from 1.74 and 1.95 in this run. The spike had written "about 1.3 of CGAL" for this change, from the timers of the parts; it measures 1.51. The lattices of D = 3 and 4 do not go through the change: their medians read 1.03 and 1.01 over 12 and 3 builds.
+
+## Translates of a placed group, and the links inside a group: both prototyped and measured, #634
+
+The spike #617 gave an expected gain for each from the timers of the parts. Neither is taken or left on such a figure (the owner's word of 2026-10-13), so both were built in a scratch copy of `9174fa4` (the head with #633), switched by an environment variable read once a build:
+
+- **Translates.** From D = 3, the differences of a group's sites from its first site, formed without a rounding (the two-sum test of #615; a group with a difference that rounds goes through the placing), are the key of a table. A group whose key is in the table takes the cells and their signs of the group placed before, with the sites renamed by their place in the group.
+- **Links.** The faces two cells of one group share are linked where the group is written, found by matching the group's cells against each other (or copied with the translate), and `Draft::finish` pairs by vertex sets only the faces left: those between groups and on the hull. In D = 2 the diagonal of a group of two triangles is linked the same way.
+
+What every mode publishes has one hash, as the whole `Debug` form of the triangulation, on lattices of D = 2 (100 x 100, rotated, times 0.1, 316 x 316), D = 3 (22^3, rotated) and D = 4 (8^4), on a Voronoi diagram of a lattice, and on uniform sites. The table held one entry on each lattice: 9,260 of the 9,261 groups of 22^3 took it, and 2,400 of 2,401 of 8^4.
+
+### Time
+
+Under WSL, pinned, on an idle machine, the four modes of one binary and CGAL's program taking turns; ms, the minimum, and the ratios of the minimum and of the median to the head:
+
+| Delaunay of | Builds a mode | Head | Translates | Links | Both | CGAL |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rbox 10000 M3,4 D2` | 80 | 7.49 | 7.54 (1.01, 1.00) | 7.21 (0.96, 0.94) | 7.20 (0.96, 0.96) | 4.98 |
+| `rbox 99856 M3,4 D2` | 16 | 99.31 | 99.94 (1.01, 0.98) | 89.40 (0.90, 0.86) | 89.85 (0.90, 0.85) | 58.68 |
+| `rbox 27000 M3,4,5 D3` | 16 | 232.62 | 145.12 (0.62, 0.62) | 218.48 (0.94, 0.93) | 125.35 (0.54, 0.57) | 133.73 |
+| `rbox 125000 M3,4,5 D3` | 4 | 1,173.4 | 739.3 (0.63, 0.63) | 1,121.0 (0.96, 0.95) | 666.4 (0.57, 0.57) | 662.0 |
+| `rbox 10000 M1,0 D4` | 4 | 684.3 | 495.1 (0.72, 0.72) | 676.9 (0.99, 0.98) | 461.1 (0.67, 0.67) | 710.8 |
+| `cube` D2 10^5 | 16 | 53.48 | 53.07 (0.99, 1.03) | 53.56 (1.00, 1.00) | 53.47 (1.00, 0.99) | |
+| `cube` D3 10^4 | 24 | 35.06 | 35.10 (1.00, 1.00) | 34.98 (1.00, 1.02) | 35.17 (1.00, 1.00) | |
+| `sphere` D3 10^4 | 12 | 67.60 | 67.18 (0.99, 1.01) | 67.53 (1.00, 0.99) | 67.42 (1.00, 0.99) | |
+| `cube` D4 3,000 | 5 | 181.11 | 181.40 (1.00, 1.01) | 180.36 (1.00, 0.99) | 181.04 (1.00, 0.99) | |
+
+- **Translates**: the lattices of D = 3 at 0.62 and 0.63 of their time and of D = 4 at 0.72; nothing in D = 2, where #633 took the placing away.
+- **Links**: 0.90 to 0.96 in D = 2, 0.94 to 0.96 in D = 3, 0.99 in D = 4, alone.
+- **Both**: 0.54 to 0.57 in D = 3 and 0.67 in D = 4. After the translates the links take a further 14% and 10% in D = 3 and 7% in D = 4: the pairing they shorten is a larger share of a build without the placing.
+- **Against CGAL** with both: the lattices of D = 3 at 0.94 and 1.01 (from 1.74 and 1.77 in this run), of D = 4 at 0.65, of D = 2 at 1.45 and 1.53 (from 1.50 and 1.69).
+- Uniform sites and sites on a sphere read 0.99 to 1.00 by the minimum in every mode.
+
+The spike's sentence that the links would give "part of the 31 ms" of D = 3, and the recommendation against them that followed, were estimates. Measured, the links are 6% alone and 14% on top of the translates.
+
+### What each needs to be a row
+
+- **Translates.** The proof of the key: two groups with the same exact differences, in the same order of indices, are translates, the sign of every orientation among their sites is the same, and so is every step of the placing; a difference that rounds takes the group out. The table must not grow with the groups: on sites whose groups are all different (sites drawn near a sphere) the prototype would add an entry a group, which the allocation contract forbids, so the table holds a fixed number of entries and stops taking new ones.
+- **Links.** The prototype matches every pair of a group's cells, which is quadratic in them: right for a cube's six cells, not for a group of a thousand. The row takes the links from the placing itself, which knows the two simplices on every ridge it keeps, or matches a large group's faces by a sort of that group alone.
