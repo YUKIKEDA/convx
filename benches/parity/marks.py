@@ -25,10 +25,10 @@ edit('src/hull/classify.rs', '''    let built = SimplicialHull::build(input)?;
     crate::mark("construct_end");
     classify_built(built, &mut FoundFaces::default())
 ''')
-edit('src/hull/publish.rs', '''        let hull = publish(classify(input)?);
+edit('src/hull/publish.rs', '''        let mut hull = publish(classify(input)?);
 ''', '''        let classified = classify(input)?;
         crate::mark("publish_start");
-        let hull = publish(classified);
+        let mut hull = publish(classified);
         crate::mark("publish_end");
 ''')
 edit('src/delaunay/mod.rs', '''    let order = insert::brio(sites, &rest);
@@ -39,8 +39,11 @@ edit('src/delaunay/mod.rs', '''    let mesh = insert::Mesh::build(shape, &local,
 ''', '''    let mesh = insert::Mesh::build(shape, &local, &local_first, &local_order)?;
     crate::mark("construct_end");
 ''')
-edit('src/delaunay/mod.rs', '''        Ok(publish(complex(self.dim, self.points)?))
-''', '''        let complex = complex(self.dim, self.points)?;
+edit('src/delaunay/mod.rs', '''        Ok(publish(complex(
+            self.dim,
+            scaled.as_deref().unwrap_or(self.points),
+        )?))
+''', '''        let complex = complex(self.dim, scaled.as_deref().unwrap_or(self.points))?;
         crate::mark("publish_start");
         let out = publish(complex);
         crate::mark("publish_end");
