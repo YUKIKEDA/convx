@@ -6974,3 +6974,47 @@ At or under 1.05: the hulls of D = 4 to 8 (0.26 to 0.98), the hulls of `cube`, `
 
 - **A Voronoi diagram.** Qhull builds one (`qvoronoi`), and CGAL in D = 2; neither produces what convx publishes (cells, interfaces, and rays as lists), so a row would time different outputs. It is for the comparison's document to say, not for a row.
 - **Sites that nearly coincide** beyond `near` (five within 1e-8), and **D >= 7** beyond two hulls of 1,000 points: no data file.
+
+## The insertion order refines a crowded cell, PR for #620
+
+The screening (#618) found the Delaunay triangulation of Kuzmin sites growing faster than linearly. The insertion order sorted each round by a Morton code on one uniform grid over the sites' bounding box, and a long tail put half the sites in a few cells, where consecutive insertions were far apart.
+
+### The change
+
+A cell with more than 16 sites of a round is ordered again by the Morton code on the bounding box of those sites, and so on while a cell is crowded. Where no cell is crowded the order is the order before, site for site, so the triangulations of such inputs are published in the same order as before. The list of crowded cells is allocated only when there is one.
+
+Steps of the walk a site, counted in a scratch copy: 105 before and 5.4 after on 10^6 Kuzmin sites, beside 5.5 on 10^6 uniform sites. At 10^5 Kuzmin sites it is 8.6 after, and 8.2 with a threshold of 4 or of 1: what remains there is not the threshold's.
+
+### Time
+
+Under WSL, pinned and alternated, `883ca77` against `0d88144`, and CGAL's program on the same file between them; ms, the minimum, and the ratios of the minimum and of the median to `883ca77`:
+
+| Delaunay of | Builds a side | `883ca77` | `0d88144` | Ratios | CGAL | convx / CGAL |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10^5 Kuzmin sites, D2 | 18 | 58.52 | 57.16 | 0.98, 0.96 | 51.24 | 1.12 |
+| 10^6 Kuzmin sites, D2 | 6 | 2,702.7 | 577.1 | 0.21, 0.22 | 697.3 | 0.83 |
+| 10^7 Kuzmin sites, D2 | 3 | no end in 17 minutes (#618) | 6,471.3 | | 9,070.5 | 0.71 |
+| 10^6 Plummer sites, D3 | 4 | 4,127.7 | 4,164.7 | 1.01, 0.99 | 3,764.8 | 1.11 |
+
+The guards, the same two commits:
+
+| Delaunay of | Builds a side | `883ca77` | `0d88144` | Ratios |
+| --- | ---: | ---: | ---: | ---: |
+| `rbox 10000 M3,4 D2` | 64 | 9.05 | 8.64 | 0.95, 0.98 |
+| `rbox 27000 M3,4,5 D3` | 12 | 213.7 | 216.9 | 1.02, 1.01 |
+| `cube` D2 10^4 | 80 | 4.70 | 4.67 | 0.99, 1.00 |
+| `sphere` D2 10^4 | 80 | 4.66 | 4.67 | 1.00, 1.00 |
+| `cube` D2 10^5 | 20 | 51.17 | 51.25 | 1.00, 1.00 |
+| `cube` D2 10^6 | 8 | 537.5 | 537.3 | 1.00, 1.02 |
+| `cube` D3 10^4 | 24 | 33.86 | 33.81 | 1.00, 0.99 |
+| `cube` D3 10^5 | 8 | 365.3 | 366.8 | 1.00, 1.00 |
+| `sphere` D3 10^4 | 16 | 65.80 | 66.27 | 1.01, 1.01 |
+| `cube` D4 3,000 | 8 | 177.7 | 175.6 | 0.99, 0.99 |
+| `sphere` D4 3,000 | 6 | 242.2 | 239.8 | 0.99, 0.99 |
+| `cube` D5 1,000 | 6 | 417.5 | 417.4 | 1.00, 1.01 |
+
+On Windows, not pinned, the best of two or three builds, `883ca77` against the first commit of the change (`1cf0249`): 10^6 Kuzmin sites 2,870 to 610 ms, 10^5 65.2 to 64.6; `cube` D2 10^6 571 and 585, `cube` D3 10^5 401 and 404, `sphere` D2 10^5 45.8 and 46.1, 10^6 Plummer sites 4,429 and 4,467. The machine was in use, and these are not a judgement.
+
+`tests/alloc.rs` gains the Delaunay triangulation of sites with a long tail in D = 2 and 3 (49 and 59 allocations at both sizes); no record of another case is changed.
+
+The parity sets gain the Delaunay triangulation of 10^6 Kuzmin sites, reported and not judged (ADR 0006, the second amendment of 2026-10-13).
