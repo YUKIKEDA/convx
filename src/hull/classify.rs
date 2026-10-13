@@ -284,26 +284,27 @@ impl<'a> Chains<'a> {
         // keys ascend over the steps of the lower chain and descend over
         // those of the upper one. Both edges are taken counterclockwise,
         // so the interior of the polygon is to their left.
-        let (mut lo, mut hi) = (1, self.along);
-        while lo < hi {
-            let mid = (lo + hi) / 2;
-            if key_of(mid) < key {
-                lo = mid + 1;
-            } else {
-                hi = mid;
+        let first_past = |from: usize, to: usize, ascending: bool| {
+            let before = |k: (u64, u64)| if ascending { k < key } else { k > key };
+            match self.keys.get(from..to) {
+                Some(keys) => from + keys.partition_point(|&k| before(k)),
+                None => {
+                    let (mut lo, mut hi) = (from, to);
+                    while lo < hi {
+                        let mid = (lo + hi) / 2;
+                        if before(key_of(mid)) {
+                            lo = mid + 1;
+                        } else {
+                            hi = mid;
+                        }
+                    }
+                    lo
+                }
             }
-        }
-        let lower = lo;
-        let (mut lo, mut hi) = (self.along + 1, n);
-        while lo < hi {
-            let mid = (lo + hi) / 2;
-            if key_of(mid) > key {
-                lo = mid + 1;
-            } else {
-                hi = mid;
-            }
-        }
-        for to in [lower, lo] {
+        };
+        let lower = first_past(1, self.along, true);
+        let upper = first_past(self.along + 1, n, false);
+        for to in [lower, upper] {
             let side = input.orient(&[self.vertex(to - 1), self.vertex(to), point])?;
             if side == Sign::Zero {
                 return Ok(true);
