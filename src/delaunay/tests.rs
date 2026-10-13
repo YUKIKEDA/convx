@@ -21,6 +21,13 @@ thread_local! {
     /// build with it and without (#637).
     pub(super) static TRANSLATES_OFF: core::cell::Cell<bool> =
         const { core::cell::Cell::new(false) };
+    /// Turns the links inside a group off on this thread: `finish` pairs
+    /// every face of a merged group, as before #641.
+    pub(super) static GROUP_LINKS_OFF: core::cell::Cell<bool> =
+        const { core::cell::Cell::new(false) };
+    /// How many faces the last build on this thread left to `finish`.
+    pub(super) static FACES_PAIRED_AT_THE_END: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
     /// How many groups took the cells of a group placed before, on this
     /// thread.
     pub(super) static TRANSLATES_FOUND: core::cell::Cell<usize> =
@@ -166,6 +173,91 @@ fn a_translate_of_a_placed_group_takes_its_cells() {
     }
 }
 
+/// The faces inside a merged group are linked where the group is written
+/// (#641), and the triangulation published, neighbors included, is the one
+/// of pairing every face of every group at the end. Lattices of D = 2 to
+/// 4, whose groups are placed once and copied; a lattice times 0.1, whose
+/// groups are each placed; sites on one sphere with a site outside it, one
+/// group of hundreds of cells beside single simplices; copies of the eight
+/// integer points of a circle, groups of six triangles in D = 2; and a
+/// lattice among random sites. With the table of translates and without.
+/// Each build leaves fewer faces to the pairing at the end.
+#[test]
+fn the_faces_inside_a_group_are_linked_as_the_pairing_links_them() {
+    let mut state = 641_u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        (state >> 11) as f64 / (1_u64 << 53) as f64
+    };
+    let mut cases: Vec<(&str, usize, Vec<f64>)> = vec![
+        ("lattice D2", 2, lattice_points(2, 12, 0.0, 1.0, 0.0)),
+        ("sheared D2", 2, lattice_points(2, 12, 1.0, 1.0, 0.0)),
+        ("lattice D3", 3, lattice_points(3, 6, 0.0, 1.0, 0.0)),
+        ("times 0.1 D3", 3, lattice_points(3, 5, 0.0, 0.1, 0.0)),
+        ("lattice D4", 4, lattice_points(4, 4, 0.0, 1.0, 0.0)),
+    ];
+    // The integer points of the sphere of squared radius 50 and a site
+    // outside it: one group of every site but that one.
+    let mut sphere = Vec::new();
+    for x in -7_i32..=7 {
+        for y in -7_i32..=7 {
+            for z in -7_i32..=7 {
+                if x * x + y * y + z * z == 50 {
+                    sphere.extend([f64::from(x), f64::from(y), f64::from(z)]);
+                }
+            }
+        }
+    }
+    assert!(sphere.len() / 3 > 60);
+    sphere.extend([20.0, 1.0, 2.0]);
+    cases.push(("a sphere and a site outside", 3, sphere));
+    let octagon = [
+        [5.0, 0.0],
+        [3.0, 4.0],
+        [-3.0, 4.0],
+        [-5.0, 0.0],
+        [-3.0, -4.0],
+        [3.0, -4.0],
+        [0.0, 5.0],
+        [0.0, -5.0],
+    ];
+    let mut circles = Vec::new();
+    for copy in 0..6 {
+        for corner in octagon {
+            circles.extend([corner[0] + 64.0 * f64::from(copy), corner[1]]);
+        }
+    }
+    cases.push(("circles D2", 2, circles));
+    let mut mixed = lattice_points(3, 5, 0.0, 1.0, 0.0);
+    mixed.extend((0..120).map(|_| 6.0 + 4.0 * next()));
+    cases.push(("lattice and random sites", 3, mixed));
+    for (name, dim, points) in cases {
+        let mut left_by_mode = Vec::new();
+        for translates_off in [false, true] {
+            TRANSLATES_OFF.with(|c| c.set(translates_off));
+            let linked = DelaunayBuilder::new(dim, &points).build();
+            let left = FACES_PAIRED_AT_THE_END.with(core::cell::Cell::get);
+            GROUP_LINKS_OFF.with(|c| c.set(true));
+            let paired = DelaunayBuilder::new(dim, &points).build();
+            let every = FACES_PAIRED_AT_THE_END.with(core::cell::Cell::get);
+            GROUP_LINKS_OFF.with(|c| c.set(false));
+            TRANSLATES_OFF.with(|c| c.set(false));
+            // Fewer faces are left to the end: those inside a group are
+            // linked before it.
+            assert!(left < every, "{name}: {left} faces left of {every}");
+            left_by_mode.push(left);
+            assert!(
+                linked.unwrap() == paired.unwrap(),
+                "{name}, translates off: {translates_off}"
+            );
+        }
+        // A group that takes the cells of a translate takes its links.
+        assert_eq!(left_by_mode[0], left_by_mode[1], "{name}");
+    }
+}
+
 /// The table of translates by itself: a group is found when its
 /// differences are those of a group kept, in the same order; a group whose
 /// difference rounds to them is not; the table keeps sixteen groups and is
@@ -194,17 +286,18 @@ fn the_table_of_translates_takes_exact_differences_and_a_fixed_number_of_groups(
     let cells = [0_u32, 1, 2];
     let mut table = Translates::default();
     assert_eq!(table.find(point, &[0, 1, 2]), None);
-    table.keep(&[0, 1, 2], &cells, &[true]);
+    table.keep(&[0, 1, 2], &cells, &[true], &[[0, 1, 0, 2]]);
     assert_eq!(table.find(point, &[3, 4, 5]), Some(0));
     let kept: Vec<(Vec<u32>, bool)> = table.cells(0, 3).map(|(c, n)| (c.to_vec(), n)).collect();
     assert_eq!(kept, [(vec![0, 1, 2], true)]);
+    assert_eq!(table.links(0), [[0, 1, 0, 2]]);
     assert_eq!(table.find(point, &[6, 7, 8]), None);
     // Not kept either: its key was not taken.
-    table.keep(&[6, 7, 8], &[6, 7, 8], &[false]);
+    table.keep(&[6, 7, 8], &[6, 7, 8], &[false], &[]);
     assert_eq!(table.key_ends.len(), 1);
     assert_eq!(table.find(point, &[9, 10, 11]), None);
     // Cells with a site that is not of the group are not kept.
-    table.keep(&[9, 10, 11], &[9, 10, 3], &[false]);
+    table.keep(&[9, 10, 11], &[9, 10, 3], &[false], &[]);
     assert_eq!(table.key_ends.len(), 1);
     assert_eq!(table.cells, [0, 1, 2]);
     // Sixteen groups, each of another shape, then a seventeenth.
@@ -215,14 +308,20 @@ fn the_table_of_translates_takes_exact_differences_and_a_fixed_number_of_groups(
     let mut table = Translates::default();
     for j in 0..16_u32 {
         assert_eq!(table.find(shape, &[2 * j, 2 * j + 1]), None);
-        table.keep(&[2 * j, 2 * j + 1], &[2 * j, 2 * j + 1], &[false]);
+        table.keep(
+            &[2 * j, 2 * j + 1],
+            &[2 * j, 2 * j + 1],
+            &[false],
+            &[[j, 0, j, 1]],
+        );
     }
     assert_eq!(table.key_ends.len(), TRANSLATES);
     assert_eq!(table.find(shape, &[10, 11]), Some(5));
+    assert_eq!(table.links(5), [[5, 0, 5, 1]]);
     assert!(!table.given_up);
     assert_eq!(table.find(shape, &[32, 33]), None);
     assert!(table.given_up);
-    table.keep(&[32, 33], &[32, 33], &[false]);
+    table.keep(&[32, 33], &[32, 33], &[false], &[]);
     assert_eq!(table.key_ends.len(), TRANSLATES);
     assert_eq!(table.find(shape, &[10, 11]), None);
 }

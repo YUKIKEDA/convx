@@ -44,8 +44,22 @@ pub(crate) fn pair_equal_keys_with_border(
     fingerprint: impl Fn(&[u32]) -> u64,
 ) -> Vec<(usize, usize)> {
     let (mut table, mut pairs) = (Vec::new(), Vec::new());
-    pair_keys(keys, count, fingerprint, &mut table, &mut pairs);
+    pair_equal_keys_with_border_into(keys, count, fingerprint, &mut table, &mut pairs);
     pairs
+}
+
+/// [`pair_equal_keys_with_border`] writing the pairs into `pairs`, cleared
+/// first, with `table` as the scratch of the search: the faces of one
+/// cospherical group of a triangulation are paired this way, group after
+/// group (#641).
+pub(crate) fn pair_equal_keys_with_border_into(
+    keys: &[u32],
+    count: usize,
+    fingerprint: impl Fn(&[u32]) -> u64,
+    table: &mut Vec<usize>,
+    pairs: &mut Vec<(usize, usize)>,
+) {
+    pair_keys(keys, count, fingerprint, table, pairs);
 }
 
 /// Writes the pairs of equal keys into `pairs`, cleared first, and returns
