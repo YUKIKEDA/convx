@@ -7360,3 +7360,55 @@ The lattice of D = 3 is at 1.02 of CGAL, from 1.67 in this run, and that of D = 
 ### `tests/alloc.rs`
 
 The table's lists are allocated when a build has a group that goes to the placing: six allocations and about nineteen reallocations more on the cases with such groups (Delaunay `grid` D3 80 and 131 for 74 and 112), the same at the small and the large size. The Delaunay cases of D = 2 whose groups have four sites count twelve fewer, the placing's own buffers (#633: `lattice` D2 54 for 66). A hull of D = 2 counts one more, the keys of its cycle (#630). Every record is set to the counts of this commit.
+
+## The faces inside a group linked where it is written, PR for #641; the draft sized for the groups, withdrawn (#640)
+
+### The links (#641)
+
+`Draft::finish` paired every face of every cell of a merged group by its vertex set. The faces two cells of one group share are now linked when the group's cells are written: paired among the faces of that group alone, in the table the pairing already uses; copied with the cells when the group is a translate of one placed before (#637); and, for a group of two triangles of D = 2, the diagonal linked directly. `finish` pairs what is left, the faces between groups and on the hull. The prototype of #634 had measured it.
+
+Under WSL, pinned, `1bdad5b` (the branch's base, the crate of `ec334f3`), the same commit built a second time as a control, and `eb1a5ad`, taking turns with CGAL's program on the files; ms, the minimum, and the ratios of the minimum and of the median to the base. The machine was in use during the run: the processor read 10% before it and 12% after.
+
+| Delaunay of | Builds a side | Base | Control | `eb1a5ad` | CGAL | convx / CGAL |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rbox 10000 M3,4 D2` | 80 | 7.53 | 7.62 (1.01, 0.99) | 7.31 (0.97, 0.97) | 5.08 | 1.44 |
+| `rbox 99856 M3,4 D2` | 16 | 100.72 | 99.69 (0.99, 1.02) | 90.83 (0.90, 0.92) | 58.31 | 1.56 |
+| `rbox 27000 M3,4,5 D3` | 16 | 146.11 | 144.35 (0.99, 0.99) | 127.81 (0.87, 0.87) | 135.17 | 0.95 |
+| `rbox 125000 M3,4,5 D3` | 4 | 765.37 | 739.45 (0.97, 0.98) | 671.34 (0.88, 0.87) | 664.52 | 1.01 |
+| `rbox 10000 M1,0 D4` | 4 | 483.07 | 486.08 (1.01, 0.99) | 456.83 (0.95, 0.95) | 716.48 | 0.64 |
+| Buddha | 6 | 2,738.4 | 2,730.3 (1.00, 0.97) | 2,774.0 (1.01, 1.00) | 2,244.9 | 1.24 |
+| 543,652 uniform sites, D3 | 5 | 2,445.0 | 2,423.0 (0.99, 0.98) | 2,477.3 (1.01, 1.00) | 2,185.2 | 1.13 |
+| 10^5 Kuzmin sites, D2 | 24 | 65.06 | 60.39 (0.93, 1.00) | 61.81 (0.95, 0.97) | 56.98 | 1.08 |
+| `cube` D2 10^4 | 96 | 4.90 | 4.96 (1.01, 1.00) | 4.92 (1.01, 1.00) | | |
+| `sphere` D2 10^4 | 96 | 4.81 | 4.83 (1.01, 1.00) | 4.81 (1.00, 1.01) | | |
+| `cube` D2 10^5 | 20 | 56.16 | 55.30 (0.99, 0.99) | 55.20 (0.98, 0.98) | | |
+| `cube` D3 10^4 | 24 | 36.15 | 35.90 (0.99, 1.03) | 35.90 (0.99, 1.00) | | |
+| `sphere` D3 10^4 | 16 | 69.67 | 74.07 (1.06, 0.98) | 73.75 (1.06, 0.98) | | |
+| `grid` D3 10^4 | 24 | 0.83 | 0.82 (1.00, 0.97) | 0.82 (0.99, 0.95) | | |
+| `lattice` D3 10^4 | 24 | 1.13 | 1.13 (1.00, 1.00) | 1.14 (1.01, 0.97) | | |
+| `cube` D4 3,000 | 5 | 203.19 | 207.26 (1.02, 1.03) | 198.11 (0.98, 1.04) | | |
+
+The lattices are at 0.87 to 0.97 of their time; where the control itself reads off 1.00 (Kuzmin, `sphere` D3, the larger lattice of D = 3, `cube` D4) the change reads as the control does. With #633 and #637, the lattices of D = 3 are level with CGAL (0.95 and 1.01, from 1.63 in the screening), that of D = 4 is at 0.64, and those of D = 2 at 1.44 and 1.56 (from 1.83).
+
+### The control, and the load
+
+The owner's question of 2026-10-13: does a processor at 10 to 20% move a pinned timing. It had been assumed, and a run had been held back for it. Measured in the two runs of this section with the base built twice and alternated, under 10 to 14%: the control read 0.98 to 1.02 by the minimum on thirteen sets of sixteen in each, and up to 0.07 off on the others: rows of four builds, builds of a millisecond, and in the second run two sets of sixteen and twenty-four builds (`sphere` D3 1.06, Kuzmin 0.93). So such a load is not a reason to wait; the control is in every run from here, and its ratio is the spread the run's other ratios are read against. The rule that a run waits for an idle machine (`bench.mdc`, written the same day) is replaced by that.
+
+### The draft sized for the groups, withdrawn (#640)
+
+A scratch copy with timers had read 45 ms for writing the 28 cells of Buddha's 14 groups: the draft is allocated for the single simplices, and the first cell of a group grows its lists. `2262ab2` allocated it for the groups' simplices and a quarter more.
+
+| Delaunay of, under WSL, the run before the one above (control beside it) | Control | `2262ab2` |
+| --- | ---: | ---: |
+| `rbox 10000 M3,4 D2` | 1.01, 1.00 | 1.06, 1.04 |
+| `rbox 99856 M3,4 D2` | 1.00, 1.00 | 0.99, 1.00 |
+| `rbox 27000 M3,4,5 D3` | 1.00, 0.99 | 1.01, 0.98 |
+| `rbox 10000 M1,0 D4` | 0.99, 1.01 | 0.98, 1.00 |
+| Buddha | 1.01, 1.00 | 1.01, 1.00 |
+| 543,652 uniform sites, D3 | 1.01, 1.00 | 1.00, 1.01 |
+
+Nothing on Buddha, which it was for, and the small lattice of D = 2 at 1.06, as in the run before that one (1.07). On Windows, pinned, the best of 2 to 12 builds over three rounds: Buddha 2,995 and 2,941 ms, the small lattice 9.45 and 9.14, the lattice of D = 3 162.6 and 161.1, and Dragon, which has no group and does not reach the change, 2,346 and 2,285: the differences are of the size of that one. The 45 ms were the timers' reading and are not in the build's time; under Linux a list that grows is moved without a copy. The change is reverted (`bd43b26`). It did cut the reallocations of the builds with groups (Delaunay `lattice` D3 118 for 159), which `tests/alloc.rs` counts and the time does not show.
+
+### `tests/alloc.rs`
+
+The links' scratch is four lists more in a build with a group that goes to the placing or to the table: six allocations more on those cases (Delaunay `grid` D3 86 for 80), the same at both sizes. Every record is set to the counts of `eb1a5ad`.
