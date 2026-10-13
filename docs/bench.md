@@ -7052,7 +7052,7 @@ The scaling's sample is under 0.05 ms everywhere.
 
 Without (3), a hull of points nearly all inside stays above CGAL and Qhull by the cost of the duplicates, and the comparison says so with the reason: the output lists every point's representative, and the interior and the coplanar points, which theirs do not.
 
-## The first simplex from extreme points, PR for #624
+## The first simplex from extreme points, PR #626 (#624)
 
 The spike #622 found construction in D >= 3 starting from the simplex on `spanning_points`, the first points by index that span the space, and reading an input dense about a center eight times.
 
