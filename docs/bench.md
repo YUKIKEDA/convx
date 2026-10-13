@@ -7542,7 +7542,7 @@ Under WSL, pinned, five builds of the crate taking turns with CGAL's program on 
 
 Every hull of D = 2 that discards is at 0.78 to 0.91 of its time, and `grid` at 10^6, sixteen distinct points a million times, at 0.55: there the one pass stored at every point that tied a maximum. The hulls of D = 3 and 4 and the triangulations do not go through the change; `cube` D3 reads 1.07 and 1.05 at 3 x 10^5 and 10^6 with its control at 1.00 and 1.04 by the minimum and 1.05 and 1.01 by the median, and 0.97 and 1.05 again one commit on, which changes nothing there either.
 
-## A box inside the discard polygon, and the filter's left product that is exactly zero, PR for #646
+## A box inside the discard polygon, and the filter's left product that is exactly zero, PR #650 (#646)
 
 The pass that discards the points clearly inside the polygon tested each against up to eight edges by the filtered orientation: 20 to 24 ms of 10^6 points where they are spread (#644).
 
