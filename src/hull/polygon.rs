@@ -196,6 +196,83 @@ fn edges_of(rows: Rows<'_>, cycle: &[u32]) -> Vec<Edge> {
         .collect()
 }
 
+/// The test that discards a point clearly inside a counterclockwise convex
+/// polygon: a box inside the polygon first, and the polygon's edges for a
+/// point outside the box (#646).
+///
+/// The box is tried at a few sizes about the mean of the polygon's
+/// vertices, each a share of the polygon's extent, and taken when its four
+/// corners are clearly inside by the edges. The inside of a convex polygon
+/// is convex, so a box whose corners are strictly inside lies strictly
+/// inside, and so does a point strictly inside the box. Four comparisons
+/// then stand for up to eight filtered orientations: a quarter of the pass
+/// over 10^6 points spread in a square (#644). When no size is inside, as
+/// for a thin polygon or one that a few far points make lopsided, the box
+/// is empty and the edges decide every point.
+pub(crate) struct Discard<'e> {
+    edges: &'e [Edge],
+    /// The box as `[x low, x high, y low, y high]`; empty when the lows are
+    /// above the highs.
+    inner: [f64; 4],
+}
+
+/// The shares of the polygon's extent tried for the box of [`Discard`],
+/// largest first.
+const BOX_SHARES: [f64; 6] = [0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
+
+impl<'e> Discard<'e> {
+    /// The test for the polygon of `edges`.
+    pub(crate) fn new(edges: &'e [Edge]) -> Self {
+        const EMPTY: [f64; 4] = [
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        ];
+        let count = edges.len() as f64;
+        let (mut cx, mut cy) = (0.0, 0.0);
+        for [vertex, _] in edges {
+            cx += vertex[0] / count;
+            cy += vertex[1] / count;
+        }
+        let (mut hx, mut hy) = (0.0_f64, 0.0_f64);
+        for [vertex, _] in edges {
+            hx = hx.max((vertex[0] - cx).abs());
+            hy = hy.max((vertex[1] - cy).abs());
+        }
+        let inner = BOX_SHARES
+            .iter()
+            .map(|share| {
+                [
+                    cx - share * hx,
+                    cx + share * hx,
+                    cy - share * hy,
+                    cy + share * hy,
+                ]
+            })
+            .find(|b| {
+                [[b[0], b[2]], [b[1], b[2]], [b[1], b[3]], [b[0], b[3]]]
+                    .iter()
+                    .all(|corner| clearly_inside(edges, corner))
+            })
+            .unwrap_or(EMPTY);
+        Self { edges, inner }
+    }
+
+    /// Whether `point` is strictly inside the box.
+    #[inline(always)]
+    fn in_the_box(&self, point: &[f64]) -> bool {
+        let b = &self.inner;
+        (point[0] > b[0]) & (point[0] < b[1]) & (point[1] > b[2]) & (point[1] < b[3])
+    }
+
+    /// Whether `point` is proved strictly inside the polygon.
+    #[inline(always)]
+    pub(crate) fn clearly_inside(&self, point: &[f64]) -> bool {
+        self.in_the_box(point) || clearly_inside(self.edges, point)
+    }
+}
+
 /// `point` is a strict left turn of every edge of a counterclockwise convex
 /// polygon (`edges`), by the certified filter: strictly inside it.
 pub(crate) fn clearly_inside(edges: &[Edge], point: &[f64]) -> bool {
@@ -408,6 +485,138 @@ fn total_key(x: f64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The filtered orientation agrees with the exact one wherever it gives
+    /// a sign, and gives one where its left product is exactly zero and the
+    /// determinant is not (#646). Every triple of a small integer grid, where
+    /// points share coordinates; the same grid at 2^-600, where the products
+    /// of two differences underflow to zero while the differences do not;
+    /// and both mixed, a zero factor on the left with an underflowing
+    /// product on the right.
+    #[test]
+    fn the_filter_decides_where_its_left_product_is_exactly_zero() {
+        let tiny = 2f64.powi(-600);
+        let (mut decided_on_a_zero_left, mut undecided_nonzero, mut zeros) = (0, 0, 0);
+        for scales in [[1.0, 1.0], [tiny, tiny], [1.0, tiny], [tiny, 1.0]] {
+            let grid: Vec<[f64; 2]> = (0..25)
+                .map(|i| [f64::from(i % 5) * scales[0], f64::from(i / 5) * scales[1]])
+                .collect();
+            for a in &grid {
+                for b in &grid {
+                    for c in &grid {
+                        let exact = orient(&[&a[..], &b[..], &c[..]]).unwrap();
+                        let filtered = orient2_filter(a, b, c);
+                        assert!(
+                            filtered.is_none() || filtered == Some(exact),
+                            "{a:?} {b:?} {c:?}: {filtered:?} for {exact:?}"
+                        );
+                        assert_ne!(filtered, Some(Sign::Zero));
+                        let left_is_zero = a[0] == c[0] || b[1] == c[1];
+                        if exact == Sign::Zero {
+                            zeros += 1;
+                        } else if left_is_zero {
+                            // The right product alone is the determinant.
+                            assert_eq!(filtered, Some(exact), "{a:?} {b:?} {c:?}");
+                            decided_on_a_zero_left += 1;
+                        } else if filtered.is_none() {
+                            undecided_nonzero += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(decided_on_a_zero_left > 10_000, "{decided_on_a_zero_left}");
+        // Underflow with no zero factor is left to the exact orientation.
+        assert!(undecided_nonzero > 100, "{undecided_nonzero}");
+        assert!(zeros > 1000, "{zeros}");
+    }
+
+    /// What [`Discard`] discards is strictly inside the polygon by the exact
+    /// orientation against every edge, and it discards whatever the edges
+    /// alone do (#646). Polygons of the farthest points of: points in a
+    /// square, in a disc, a rotated integer lattice (points share coordinates
+    /// with its vertices), points dense about the origin with a long tail,
+    /// and points near a segment, a polygon too thin for a box. The box is
+    /// found on the first three, and discards points wherever it is found.
+    #[test]
+    fn the_box_discards_only_points_strictly_inside() {
+        let mut state = 0x6460_0001_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 11) as f64 / (1_u64 << 53) as f64
+        };
+        let mut sets: Vec<(&str, Vec<f64>)> = Vec::new();
+        sets.push(("square", (0..4000).map(|_| next() - 0.5).collect()));
+        let mut disc = Vec::new();
+        while disc.len() < 4000 {
+            let (x, y) = (2.0 * next() - 1.0, 2.0 * next() - 1.0);
+            if x * x + y * y <= 1.0 {
+                disc.extend([x, y]);
+            }
+        }
+        sets.push(("disc", disc));
+        let lattice = (0..40 * 40).flat_map(|i| {
+            let (u, v) = (f64::from(i % 40), f64::from(i / 40));
+            [3.0 * u - 4.0 * v, 4.0 * u + 3.0 * v]
+        });
+        sets.push(("lattice", lattice.collect()));
+        let mut tail = Vec::new();
+        for _ in 0..2000 {
+            let radius = (1.0 - next()).powi(-3);
+            tail.extend([radius * (next() - 0.5), radius * (next() - 0.5)]);
+        }
+        sets.push(("tail", tail));
+        let thin = (0..2000).flat_map(|_| {
+            let t = next();
+            [t * 1000.0, t * 1000.0 + 1e-9 * (next() - 0.5)]
+        });
+        sets.push(("thin", thin.collect()));
+        for (name, points) in &sets {
+            let rows = Rows(points);
+            let count = (points.len() / 2) as u32;
+            let cycle = discard_polygon(rows, 0..count).unwrap();
+            assert!(cycle.len() >= 3, "{name}");
+            let edges = edges_of(rows, &cycle);
+            let discard = Discard::new(&edges);
+            let has_box =
+                discard.inner[0] < discard.inner[1] && discard.inner[2] < discard.inner[3];
+            match *name {
+                "square" | "disc" | "lattice" => assert!(has_box, "{name}"),
+                "thin" => assert!(!has_box, "{name}: {:?}", discard.inner),
+                // A few far points make a lopsided polygon; either way.
+                _ => {}
+            }
+            let (mut by_the_box, mut by_the_box_alone) = (0, 0);
+            for r in 0..count {
+                let p = rows.point(r);
+                let strictly_inside = (0..cycle.len()).all(|i| {
+                    let (a, b) = (cycle[i], cycle[(i + 1) % cycle.len()]);
+                    orient(&[rows.point(a), rows.point(b), p]).unwrap() == Sign::Positive
+                });
+                let by_edges = clearly_inside(&edges, p);
+                if discard.in_the_box(p) {
+                    assert!(strictly_inside, "{name}: point {r}");
+                    by_the_box += 1;
+                    by_the_box_alone += usize::from(!by_edges);
+                }
+                assert_eq!(
+                    discard.clearly_inside(p),
+                    discard.in_the_box(p) || by_edges,
+                    "{name}: point {r}"
+                );
+                assert!(
+                    !discard.clearly_inside(p) || strictly_inside,
+                    "{name}: point {r}"
+                );
+            }
+            assert_eq!(by_the_box > 0, has_box, "{name}");
+            // With the filter's zero left product decided, the edges alone
+            // discard what the box does.
+            assert_eq!(by_the_box_alone, 0, "{name}");
+        }
+    }
 
     /// The farthest points before #645: one pass that keeps each maximum
     /// with its index, a strict test keeping the smaller index on a tie.

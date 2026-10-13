@@ -40,7 +40,7 @@ use std::collections::{BinaryHeap, HashMap};
 use super::input::accept;
 use super::input::{Input, InputWork};
 use super::merge::{merge_into, LogicalFacets, MergeWork};
-use super::polygon::{self, clearly_inside, ChainWork, Edge, Rows};
+use super::polygon::{self, ChainWork, Discard, Edge, Rows};
 use super::ridge::{fingerprint, pair_equal_keys};
 use super::simplicial::{HullWork, SimplicialHull};
 use super::ConvexHullError;
@@ -1216,7 +1216,7 @@ fn distance_zeros_into(
 struct FacetPolygon<'w> {
     /// The coordinates kept, ascending.
     axes: [usize; 2],
-    edges: &'w [Edge],
+    discard: Discard<'w>,
 }
 
 impl FacetPolygon<'_> {
@@ -1225,7 +1225,8 @@ impl FacetPolygon<'_> {
     /// normal is not zero, so it maps the plane onto the coordinate plane
     /// one to one, and strict insideness carries over.
     fn contains(&self, point: &[f64]) -> bool {
-        clearly_inside(self.edges, &[point[self.axes[0]], point[self.axes[1]]])
+        self.discard
+            .clearly_inside(&[point[self.axes[0]], point[self.axes[1]]])
     }
 }
 
@@ -1278,7 +1279,10 @@ fn facet_polygon<'w>(
         rows.clear();
         rows.extend(vertices.iter().flat_map(|&v| project(hull.input.point(v))));
         let found = polygon::extremes_polygon(Rows(rows), vertices.len() as u32, chain, edges)?;
-        return Ok(found.then_some(FacetPolygon { axes, edges }));
+        return Ok(found.then(|| FacetPolygon {
+            axes,
+            discard: Discard::new(edges),
+        }));
     }
     debug_assert!(false, "a simplex of D = 3 projects to a triangle");
     Ok(None)
