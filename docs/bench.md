@@ -7260,7 +7260,7 @@ What CGAL does not do is all of it: it returns the diagonals the insertion left,
 
 Or none: the comparison states that the triangulation of a lattice takes 1.6 times CGAL's time because the output is the one triangulation of each cospherical group that does not depend on the order of insertion, with the groups for the Voronoi diagram.
 
-## A group of two triangles written without the placing, PR for #633
+## A group of two triangles written without the placing, PR #635 (#633)
 
 The spike #617 found the Delaunay triangulation of a lattice of D = 2 running the placing procedure for each of its groups of four cocircular sites, 9,801 on 100 x 100 sites.
 
