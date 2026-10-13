@@ -194,7 +194,8 @@ struct Chains<'a> {
     cycle: &'a [u32],
     /// The number of edges of the lower chain.
     along: usize,
-    /// The key of each vertex of `cycle`, or nothing.
+    /// The key of each vertex of `cycle` and of the first again, by its
+    /// number of steps from the least, or nothing.
     keys: Vec<(u64, u64)>,
 }
 
@@ -226,7 +227,7 @@ impl<'a> Chains<'a> {
             "the keys ascend to the greatest vertex and descend from it"
         );
         let keys = if copied {
-            (0..n).map(key).collect()
+            (0..=n).map(key).collect()
         } else {
             Vec::new()
         };
@@ -237,9 +238,12 @@ impl<'a> Chains<'a> {
         }
     }
 
-    /// The vertex `steps` edges counterclockwise from the least.
+    /// The vertex `steps` edges counterclockwise from the least, for at
+    /// most as many steps as the cycle has edges. No remainder is taken: a
+    /// division for each key read was a tenth of the build of a disc.
     fn vertex(&self, steps: usize) -> u32 {
-        self.cycle[steps % self.cycle.len()]
+        let wrapped = if steps == self.cycle.len() { 0 } else { steps };
+        self.cycle[wrapped]
     }
 
     /// Whether `point`, a representative of the polygon that is not one of
@@ -268,7 +272,7 @@ impl<'a> Chains<'a> {
     fn on_an_edge(&self, input: &Input<'_>, point: u32) -> Result<bool, ConvexHullError> {
         let key = polygon::coordinate_key(input.point(point));
         let n = self.cycle.len();
-        let key_of = |steps: usize| match self.keys.get(steps % n) {
+        let key_of = |steps: usize| match self.keys.get(steps) {
             Some(&key) => key,
             None => polygon::coordinate_key(input.point(self.vertex(steps))),
         };
@@ -2493,7 +2497,7 @@ pub(crate) mod tests {
             assert!(hull.strict_edges, "{name}");
             // With the keys read from the input, and with them copied.
             let chains = [false, true].map(|copied| Chains::of(&hull.input, &hull.polygon, copied));
-            assert!(chains[0].keys.is_empty() && chains[1].keys.len() == hull.polygon.len());
+            assert!(chains[0].keys.is_empty() && chains[1].keys.len() == hull.polygon.len() + 1);
             let (mut here_on, mut here_inside) = (0, 0);
             for &p in &hull.input.representatives {
                 if hull.polygon.contains(&p) {
