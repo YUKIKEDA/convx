@@ -66,8 +66,7 @@ fn a_group_of_two_triangles_is_the_placing_triangulation() {
             let point = |i: u32| &points[i as usize][..];
             let (len, split) = placing.run(2, Some(2), point, &[0, 1, 2, 3]).unwrap();
             assert_eq!(len, 3);
-            let expected: Vec<[u32; 3]> =
-                split.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect();
+            let expected: Vec<[u32; 3]> = split.as_chunks::<3>().0.to_vec();
             assert_eq!(expected.len(), 2);
             let q = index;
             for diagonal in 0..2 {
