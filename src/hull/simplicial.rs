@@ -100,7 +100,7 @@ struct BuildScratch {
 /// The lists of a build in space order ([`SimplicialHull::build`] of D = 3
 /// on a copy): the Morton codes and their counts, the order, the copied
 /// rows, the local number of each point, the lists of the copy's input, and
-/// the spare list of the records' renaming. A sub-hull of 2^17 points or
+/// the spare list of the records' renaming, and the points kept and left out. A sub-hull of 2^17 points or
 /// more is built on such a copy, and allocated each of them for its face
 /// (#551).
 #[derive(Default)]
@@ -112,6 +112,10 @@ struct SpaceWork {
     local_of: Vec<u32>,
     input: InputWork,
     starts: Vec<u32>,
+    /// The points the copy holds, ascending, and those the first simplex
+    /// proved strictly inside, which it leaves out (#625).
+    kept: Vec<u32>,
+    inside: Vec<u32>,
 }
 
 /// What decides the side of a point against a simplex: its vertices, its
@@ -201,14 +205,49 @@ impl<'a> SimplicialHull<'a> {
         (self.input, work)
     }
 
-    /// [`Self::build`] of D = 3 on a copy of the representatives in Morton
-    /// order (ADR 0009, #489). In the input's order, a large input's outside
-    /// sets read coordinates scattered over the whole input, and construction
-    /// waited on memory. The copy's points carry consecutive labels; the
-    /// built hull is renamed back to the input's indices, so classification
-    /// and publication read the input as before. The published hull does not
-    /// depend on the order of construction.
-    fn build_in_space_order(input: Input<'a>, mut work: HullWork) -> Result<Self, ConvexHullError> {
+    /// [`Self::build`] of D = 3 on a copy in Morton order (ADR 0009, #489).
+    /// In the input's order, a large input's outside sets read coordinates
+    /// scattered over the whole input, and construction waited on memory.
+    /// The copy's points carry consecutive labels; the built hull is renamed
+    /// back to the input's indices, so classification and publication read
+    /// the input as before. The published hull does not depend on the order
+    /// of construction.
+    ///
+    /// The copy holds the points the first simplex does not prove strictly
+    /// inside (#625): the first simplex is made on the input and every
+    /// representative is assigned to it, as a build in the input's order
+    /// starts, and what that proves interior is recorded and left out.
+    /// Ordering every point took 20 to 35 ms for 10^6 points on inputs of
+    /// which a few thousand are ever outside a facet (#622). The hull of the
+    /// points kept is the hull of all: a point left out is strictly inside
+    /// a simplex of input points.
+    fn build_in_space_order(input: Input<'a>, work: HullWork) -> Result<Self, ConvexHullError> {
+        let started = Self::started(input, work)?;
+        let first = started.scratch.first.clone();
+        let (input, mut work) = {
+            let mut started = started;
+            let SpaceWork { kept, inside, .. } = &mut started.scratch.space;
+            // The first simplex, the outside set of each of its facets, and
+            // the points on its planes or not proved to a side.
+            kept.clear();
+            kept.extend(first.iter().copied());
+            for (_, facet) in started.facets.iter() {
+                kept.extend_from_slice(facet.outside());
+            }
+            kept.extend(
+                started
+                    .scratch
+                    .candidates
+                    .iter()
+                    .zip(&started.scratch.strict)
+                    .filter(|&(_, &strict)| !strict)
+                    .map(|(&p, _)| p),
+            );
+            kept.sort_unstable();
+            inside.clear();
+            inside.extend_from_slice(&started.proved_interior);
+            started.into_work()
+        };
         let SpaceWork {
             mut codes,
             mut at,
@@ -217,18 +256,22 @@ impl<'a> SimplicialHull<'a> {
             mut local_of,
             input: lists,
             mut starts,
+            kept,
+            inside,
         } = core::mem::take(&mut work.scratch.space);
-        space_order(&input, &mut codes, &mut at, &mut order);
+        space_order(&input, &kept, &mut codes, &mut at, &mut order);
         copy.clear();
         copy.reserve(order.len() * 3);
-        // Read below for the spanning points only, which are in the order
-        // and so are written first: what an earlier build left is not read.
+        // Read below for the first simplex only, whose points are in the
+        // order and so are written first: what an earlier build left is not
+        // read.
         local_of.resize(input.representative.len(), u32::MAX);
         for (local, &p) in order.iter().enumerate() {
             copy.extend_from_slice(input.point(p));
             local_of[p as usize] = local as u32;
         }
-        let spanning = input.spanning_points.iter().map(|&p| local_of[p as usize]);
+        // The copy's affine basis is the first simplex, which spans.
+        let spanning = first.iter().map(|&p| local_of[p as usize]);
         let built = SimplicialHull::build_in_input_order(
             Input::relabeled(3, &copy, spanning, lists),
             work,
@@ -247,6 +290,7 @@ impl<'a> SimplicialHull<'a> {
         for point in &mut proved_interior {
             *point = order[*point as usize];
         }
+        proved_interior.extend_from_slice(&inside);
         let records = records.relabeled(&order, input.representative.len(), &mut starts);
         scratch.space = SpaceWork {
             codes,
@@ -256,6 +300,8 @@ impl<'a> SimplicialHull<'a> {
             local_of,
             input: lists,
             starts,
+            kept,
+            inside,
         };
         Ok(Self {
             input,
@@ -269,6 +315,17 @@ impl<'a> SimplicialHull<'a> {
     }
 
     fn build_in_input_order(input: Input<'a>, work: HullWork) -> Result<Self, ConvexHullError> {
+        let mut hull = Self::started(input, work)?;
+        if hull.input.dim() >= 3 {
+            hull.absorb_in_place()?;
+        }
+        Ok(hull)
+    }
+
+    /// The hull before its insertions: of D = 1 and 2 the whole hull, and
+    /// from D = 3 the first simplex with every other representative
+    /// assigned to a facet it is outside of, or dropped.
+    fn started(input: Input<'a>, work: HullWork) -> Result<Self, ConvexHullError> {
         let dim = input.dim();
         let HullWork {
             mut facets,
@@ -297,7 +354,6 @@ impl<'a> SimplicialHull<'a> {
         } else {
             hull.initial_simplex()?;
             hull.assign()?;
-            hull.absorb_in_place()?;
         }
         Ok(hull)
     }
@@ -1633,13 +1689,18 @@ fn space_order_from() -> usize {
     }
 }
 
-/// The representatives of `input` (D = 3) in Morton order of a coarse grid
-/// over their bounding box, by a counting sort: a cell holds a few points
-/// on average, and the points of a cell keep the order of their indices. A
-/// sort of a key per point cost more than it saved on inputs whose points
-/// are mostly discarded early (#489).
-fn space_order(input: &Input<'_>, codes: &mut Vec<u32>, at: &mut Vec<u32>, order: &mut Vec<u32>) {
-    let reps = &input.representatives;
+/// The points `reps` of `input` (D = 3, ascending) in Morton order of a
+/// coarse grid over their bounding box, by a counting sort: a cell holds a
+/// few points on average, and the points of a cell keep the order of their
+/// indices. A sort of a key per point cost more than it saved on inputs
+/// whose points are mostly discarded early (#489).
+fn space_order(
+    input: &Input<'_>,
+    reps: &[u32],
+    codes: &mut Vec<u32>,
+    at: &mut Vec<u32>,
+    order: &mut Vec<u32>,
+) {
     let mut low = [f64::INFINITY; 3];
     let mut high = [f64::NEG_INFINITY; 3];
     for &p in reps {
@@ -1791,6 +1852,7 @@ pub(crate) mod tests {
                 ),
                 (space.copy.as_ptr(), space.local_of.as_ptr()),
                 (space.codes.capacity(), space.copy.capacity()),
+                (space.kept.as_ptr(), space.inside.as_ptr()),
             )
         };
         let large = drawn(&mut rng, 3, 900, false);
@@ -1799,8 +1861,13 @@ pub(crate) mod tests {
             .into_work()
             .1;
         let before = places(&work);
+        // The copy holds the points the first simplex does not prove
+        // inside (#625): some of the 900, and not all.
+        let kept = work.scratch.space.kept.len();
+        assert!(kept > 4 && kept < 900, "{kept} points kept");
+        assert_eq!(kept + work.scratch.space.inside.len(), 900);
         assert!(
-            before.2 .0 >= 900 && before.2 .1 >= 2700,
+            before.2 .0 >= kept && before.2 .1 >= 3 * kept,
             "the copy was made"
         );
         let small = drawn(&mut rng, 3, 60, false);
