@@ -7051,3 +7051,51 @@ The scaling's sample is under 0.05 ms everywhere.
 4. **Classification of a ball in D = 2**: a spike of its own if (1) to (3) leave it above the margin.
 
 Without (3), a hull of points nearly all inside stays above CGAL and Qhull by the cost of the duplicates, and the comparison says so with the reason: the output lists every point's representative, and the interior and the coplanar points, which theirs do not.
+
+## The first simplex from extreme points, PR for #624
+
+The spike #622 found construction in D >= 3 starting from the simplex on `spanning_points`, the first points by index that span the space, and reading an input dense about a center eight times.
+
+### The change
+
+For D >= 3 the first simplex is chosen on a sample of at most 4,096 representatives taken at one stride: the least and the greatest of the first coordinate, then, D - 1 times, the point farthest from the flat through those chosen. The distances are in `f64` and only choose; the simplex is taken when its exact orientation is not zero, and otherwise the simplex is the one on `spanning_points`. Every published list is as before: the suite's frozen results pass, and a test compares the two builds in D = 3 to 6.
+
+A sample, and not every point: on `cube` D3 at 10^6 the three passes over every point cost what they saved (70.3 and 78.9 ms of construction in the scratch copy of #622).
+
+### Time
+
+Under WSL, pinned and alternated, `c96a715` (the branch's base, the crate of `0d88144`) against `4936253`; ms, the minimum, and the ratios of the minimum and of the median. Qhull's time is one run of `qconvex` on the same file, beside them and not alternated.
+
+| Hull of | Builds a side | `c96a715` | `4936253` | Ratios | Qhull |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 10^6 Plummer points, D3 | 40 | 163.97 | 79.80 | 0.49, 0.50 | 49.2 |
+| 10^5 Plummer points, D3 | 64 | 10.12 | 5.46 | 0.54, 0.55 | 5.5 |
+| 10^6 points in a ball, D3 | 40 | 185.64 | 151.03 | 0.81, 0.87 | 218.6 |
+| Dragon | 40 | 64.79 | 48.35 | 0.75, 0.75 | 50.3 |
+| Buddha | 40 | 105.51 | 84.21 | 0.80, 0.82 | 74.0 |
+| Armadillo | 40 | 26.79 | 19.67 | 0.73, 0.74 | 23.5 |
+| `rbox 27000 M3,4,5 D3` | 64 | 2.40 | 1.98 | 0.83, 0.81 | 2.3 |
+| `cube` D3 10^4 | 80 | 1.10 | 1.13 | 1.03, 0.99 | |
+| `cube` D3 10^5 | 50 | 9.38 | 8.32 | 0.89, 0.90 | |
+| `cube` D3 10^6 | 24 | 129.44 | 128.11 | 0.99, 0.95 | |
+| `sphere` D3 10^4 | 50 | 19.03 | 18.61 | 0.98, 0.98 | |
+| `sphere` D3 10^5 | 16 | 252.89 | 251.72 | 1.00, 0.99 | |
+| `cubesurf` D3 10^5 | 40 | 26.53 | 25.93 | 0.98, 0.95 | |
+| `cube` D4 10^4 | 64 | 4.98 | 4.71 | 0.95, 0.96 | |
+| `cube` D4 10^5 | 40 | 31.59 | 24.90 | 0.79, 0.81 | |
+| `sphere` D4 10^4 | 16 | 88.78 | 89.37 | 1.01, 1.02 | |
+| `cube` D5 10^4 | 24 | 54.37 | 51.56 | 0.95, 0.93 | |
+| `cube` D5 10^5 | 6 | 215.24 | 208.81 | 0.97, 0.98 | |
+| `sphere` D5 10^4 | 4 | 845.90 | 840.27 | 0.99, 1.00 | |
+| `cube` D6 10^4 | 5 | 618.12 | 597.20 | 0.97, 0.94 | |
+| `grid` D6 10^4 | 12 | 201.19 | 173.46 | 0.86, 0.86 | |
+
+Delaunay, which does not go through this code but on sites that are all on one sphere: `sphere` D3 10^4 1.02 and 1.02 over 12 builds, `cube` D3 10^4 0.99 and 1.01 over 18.
+
+The scans, which the screening read at 1.27 to 1.45 of Qhull, are at 0.84 (Armadillo), 0.96 (Dragon), and 1.14 (Buddha) of it. The Plummer points are at 1.6 of Qhull at 10^6 and level at 10^5: what remains at 10^6 is the duplicates and the order in space before any point is discarded (#622, #625).
+
+On Windows, not pinned, the best of five to sixteen builds, `c96a715` against the first commit of the change (`07b7e7b`): Plummer 10^6 170 to 88 ms, a ball 201 to 175, `cube` D3 10^5 11.4 to 10.2 and 10^6 137 and 137, `sphere` D3 10^4 20.0 and 20.2, `cube` D4 10^5 32.5 to 26.8, `sphere` D4 10^4 92 and 92, `cube` D5 10^4 55.0 to 53.2, `grid` D6 10^4 204 to 177.
+
+### `tests/alloc.rs`
+
+Construction now meets its facets in another order, so its buffers grow at other moments: of the 68 cases, 18 count more allocations or reallocations than their record somewhere and 22 only fewer, by a few each way (some of the falls are older than this change: a record may fall without being written) (the largest rise is `cubesurf` D3 at the large size, 343 reallocations for 319; the largest fall is a prism, 311 for 376). No count grows with the points: the large size stays under twice the small on every case. Every record is set to the counts of this commit (#624 is the Issue that raises them).
