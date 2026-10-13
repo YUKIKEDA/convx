@@ -76,6 +76,11 @@ def qhull():
 
 LIBRARIES = {
     'convx': adapter('convx_run'),
+    'spade': adapter('spade_run'),
+    'delaunator': adapter('delaunator_run'),
+    'delaunay': adapter('delaunay_run'),
+    'parry3d': adapter('parry_run'),
+    'geo': adapter('geo_run'),
     'cgal': cgal(),
     'qhull': qhull(),
 }
