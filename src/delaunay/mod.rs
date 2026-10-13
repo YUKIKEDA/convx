@@ -31,7 +31,9 @@ mod insert;
 use crate::hull::classify::Placing;
 use crate::hull::input::{accept_sites, minimum_basis_with, Input};
 use crate::hull::merge::merge;
-use crate::hull::ridge::{fingerprint, pair_equal_keys_with_border};
+use crate::hull::ridge::{
+    fingerprint, pair_equal_keys_with_border, pair_equal_keys_with_border_into,
+};
 use crate::hull::simplicial::SimplicialHull;
 use crate::hull::ConvexHullError;
 use crate::lists::Lists;
@@ -289,6 +291,65 @@ impl Draft {
         self.group.push(group);
     }
 
+    /// Links the faces that two of the cells from `first` on share, the
+    /// cells of one group, and leaves in `work.inner` each link as
+    /// `[cell, slot, cell, slot]` with the cells counted from `first`
+    /// (#641). The other faces of those cells stay [`UNKNOWN`] for
+    /// [`Self::finish`]: they are shared with a cell of another group or lie
+    /// on the hull of the sites.
+    ///
+    /// `finish` paired every face of every cell of a merged group, one
+    /// table for all of them: 12% of the build of a lattice of D = 3, and
+    /// more once its groups are not placed one by one (#617, #634). A face
+    /// inside a group is found among the faces of that group alone, in a
+    /// table of their number, and a group that takes the cells of a
+    /// translate takes its links with them.
+    fn link_within(&mut self, first: usize, work: &mut LinkWork) {
+        let k = self.k;
+        let LinkWork {
+            keys,
+            table,
+            pairs,
+            inner,
+        } = work;
+        keys.clear();
+        inner.clear();
+        let cells = self.len() - first;
+        for c in first..self.len() {
+            let row = self.row(c);
+            for slot in 0..k {
+                keys.extend(
+                    row.iter()
+                        .enumerate()
+                        .filter(|&(i, _)| i != slot)
+                        .map(|(_, &v)| v),
+                );
+            }
+        }
+        // Face `f` is the face opposite slot `f % k` of cell `f / k`.
+        pair_equal_keys_with_border_into(keys, cells * k, fingerprint, table, pairs);
+        for &(a, b) in pairs.iter() {
+            inner.push([
+                (a / k) as u32,
+                (a % k) as u32,
+                (b / k) as u32,
+                (b % k) as u32,
+            ]);
+        }
+        self.link(first, inner);
+    }
+
+    /// Applies `links`, each `[cell, slot, cell, slot]` with the cells
+    /// counted from `first`.
+    fn link(&mut self, first: usize, links: &[[u32; 4]]) {
+        let k = self.k;
+        for &[a, slot_a, b, slot_b] in links {
+            let (a, b) = (first + a as usize, first + b as usize);
+            self.links[a * k + slot_a as usize] = b as u32;
+            self.links[b * k + slot_b as usize] = a as u32;
+        }
+    }
+
     /// Pairs the faces left [`UNKNOWN`] by their vertex sets. The cells keep
     /// their draft order and numbers, which are the public ones: nothing is
     /// sorted for publication (design §7).
@@ -314,6 +375,8 @@ impl Draft {
                 owners.push((c as u32, slot));
             }
         }
+        #[cfg(test)]
+        tests::FACES_PAIRED_AT_THE_END.with(|c| c.set(owners.len()));
         for &(c, slot) in &owners {
             self.links[c as usize * k + slot] = NO_NEIGHBOR;
         }
@@ -333,6 +396,16 @@ impl Draft {
             group: self.group,
         }
     }
+}
+
+/// The scratch of [`Draft::link_within`]: the faces of one group's cells,
+/// the table and the pairs of their pairing, and the links found.
+#[derive(Default)]
+struct LinkWork {
+    keys: Vec<u32>,
+    table: Vec<usize>,
+    pairs: Vec<(usize, usize)>,
+    inner: Vec<[u32; 4]>,
 }
 
 /// The ascending order of the D + 1 distinct vertices of a positive simplex
@@ -745,6 +818,7 @@ fn inserted<S: insert::Shape>(
         // One workspace and one list of sites for every group (#524).
         let mut placing = Placing::default();
         let mut translates = Translates::default();
+        let mut linking = LinkWork::default();
         let mut group: Vec<u32> = Vec::new();
         for run in members.chunk_by(|x, y| x.0 == y.0) {
             if let (3, &[(_, a), (_, b)]) = (k, run) {
@@ -754,9 +828,20 @@ fn inserted<S: insert::Shape>(
                 };
                 let (sites, cells) = quadrilateral(corners(a), corners(b));
                 let number = draft.begin_group(&sites);
+                let first = draft.len();
                 for cell in cells {
                     let (sorted, _, negative) = ascending_fixed(cell);
                     draft.push_cell(number, &sorted, negative);
+                }
+                if !group_links_off() {
+                    // The two cells share their diagonal: the face
+                    // opposite the one site of each that the other lacks.
+                    let (one, other) = (draft.row(first), draft.row(first + 1));
+                    let slot = |of: &[u32], lacks: &[u32]| {
+                        of.iter().position(|v| !lacks.contains(v)).unwrap_or(0) as u32
+                    };
+                    let diagonal = [0, slot(one, other), 1, slot(other, one)];
+                    draft.link(first, &[diagonal]);
                 }
                 continue;
             }
@@ -770,11 +855,14 @@ fn inserted<S: insert::Shape>(
             let number = draft.begin_group(&group);
             if let Some(placed) = translates.find(point, &group) {
                 // The cells of the group placed before, by the place of
-                // each site in its group, and their signs.
+                // each site in its group, their signs, and the links
+                // between them.
+                let first = draft.len();
                 for (cell, negative) in translates.cells(placed, k) {
                     let cell: Small<u32, 11> = cell.iter().map(|&at| group[at as usize]).collect();
                     draft.push_cell(number, &cell, negative);
                 }
+                draft.link(first, translates.links(placed));
                 continue;
             }
             let (len, split) = placing.run(d, Some(d), point, &group)?;
@@ -792,7 +880,17 @@ fn inserted<S: insert::Shape>(
                 let negative = orient(&points)? == Sign::Negative;
                 draft.push_cell(number, &cell, negative);
             }
-            translates.keep(&group, &draft.rows[first * k..], &draft.negative[first..]);
+            if group_links_off() {
+                linking.inner.clear();
+            } else {
+                draft.link_within(first, &mut linking);
+            }
+            translates.keep(
+                &group,
+                &draft.rows[first * k..],
+                &draft.negative[first..],
+                &linking.inner,
+            );
         }
     }
     drop(mesh);
@@ -845,6 +943,10 @@ struct Translates {
     cells: Vec<u32>,
     negative: Vec<bool>,
     cell_ends: Vec<usize>,
+    /// The links between the cells of each group kept
+    /// ([`Draft::link_within`]), and where each group's links end.
+    links: Vec<[u32; 4]>,
+    link_ends: Vec<usize>,
 }
 
 impl Translates {
@@ -902,10 +1004,19 @@ impl Translates {
             .zip(self.negative[start..end].iter().copied())
     }
 
+    /// The links between the cells of group `number`.
+    fn links(&self, number: usize) -> &[[u32; 4]] {
+        let start = number
+            .checked_sub(1)
+            .map_or(0, |before| self.link_ends[before]);
+        &self.links[start..self.link_ends[number]]
+    }
+
     /// Keeps the group last looked up, when its key was taken, which it is
     /// not once the table is full: `rows` are its cells as sites of `group`,
-    /// each ascending, and `negative` their signs.
-    fn keep(&mut self, group: &[u32], rows: &[u32], negative: &[bool]) {
+    /// each ascending, `negative` their signs, and `links` the links
+    /// between them.
+    fn keep(&mut self, group: &[u32], rows: &[u32], negative: &[bool], links: &[[u32; 4]]) {
         if !self.exact {
             return;
         }
@@ -919,6 +1030,8 @@ impl Translates {
         );
         self.negative.extend_from_slice(negative);
         self.cell_ends.push(self.negative.len());
+        self.links.extend_from_slice(links);
+        self.link_ends.push(self.links.len());
     }
 }
 
@@ -928,6 +1041,19 @@ fn translates_off() -> bool {
     #[cfg(test)]
     {
         tests::TRANSLATES_OFF.with(core::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
+
+/// Whether a test turned the links inside a group off on this thread, so
+/// that [`Draft::finish`] pairs every face of a merged group, to compare.
+fn group_links_off() -> bool {
+    #[cfg(test)]
+    {
+        tests::GROUP_LINKS_OFF.with(core::cell::Cell::get)
     }
     #[cfg(not(test))]
     {
