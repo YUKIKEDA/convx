@@ -337,7 +337,7 @@ fn representatives_by_hash<'p>(
     count: usize,
     point: &impl Fn(u32) -> &'p [f64],
 ) -> Option<Vec<u32>> {
-    if count >= BUCKETS_FROM {
+    if count >= BUCKETS_FROM && !mostly_duplicates(count, point) {
         // About a thousand points a bucket.
         let bits = (count / 1024).max(1).ilog2().min(16);
         return representatives_in_buckets(count, point, bits);
@@ -386,8 +386,32 @@ fn point_hash(p: &[f64]) -> u64 {
 
 /// From this many points the duplicates are found in buckets of the hash
 /// ([`representatives_in_buckets`]). Below it the one table is in the
-/// cache and is the faster of the two.
-const BUCKETS_FROM: usize = 1 << 18;
+/// cache and is the faster of the two: at 3 x 10^5 points of D = 2 the
+/// buckets read 0.85 of the hull's time for the one table's 0.80, and at
+/// 10^6 0.67 for 0.83 (#647).
+const BUCKETS_FROM: usize = 1 << 19;
+
+/// The most points [`mostly_duplicates`] samples.
+const DUPLICATES_SAMPLE: usize = 1024;
+
+/// Whether fewer than three quarters of a sample of the points, taken at
+/// one stride, have a hash of their own. Points that are mostly duplicates
+/// of a few are found faster in the one table, which they keep small and
+/// in the cache: 10^6 points of a grid of sixteen took 18.7 ms in buckets
+/// for 8.7 (#647). A sample decides, so nothing is read twice for it.
+fn mostly_duplicates<'p>(count: usize, point: &impl Fn(u32) -> &'p [f64]) -> bool {
+    let stride = count.div_ceil(DUPLICATES_SAMPLE).max(1);
+    let mut hashes = [0_u64; DUPLICATES_SAMPLE];
+    let mut sampled = 0;
+    for i in (0..count as u32).step_by(stride).take(DUPLICATES_SAMPLE) {
+        hashes[sampled] = point_hash(point(i));
+        sampled += 1;
+    }
+    let hashes = &mut hashes[..sampled];
+    hashes.sort_unstable();
+    let distinct = 1 + hashes.windows(2).filter(|w| w[0] != w[1]).count();
+    4 * distinct < 3 * sampled
+}
 
 /// [`representatives_by_hash`] bucket by bucket of the hash (#647): the
 /// points are scattered, as the low half of their hash and their index,
@@ -696,6 +720,16 @@ mod tests {
                 .count()
                 > 200
         );
+        // Not mostly duplicates: the buckets were taken.
+        assert!(!mostly_duplicates(count, &point));
+        // Points of a few values are mostly duplicates and are left to the
+        // one table; points that are all different are not.
+        let few = duplicate_heavy(2, 5000, 0x6472);
+        let point = |i: u32| &few[i as usize * 2..i as usize * 2 + 2];
+        assert!(mostly_duplicates(5000, &point));
+        let distinct: Vec<f64> = (0..10_000).map(f64::from).collect();
+        let point = |i: u32| &distinct[i as usize * 2..i as usize * 2 + 2];
+        assert!(!mostly_duplicates(5000, &point));
     }
 
     /// Points made to collide give up in buckets as in the one table, and
