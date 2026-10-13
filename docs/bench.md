@@ -7508,7 +7508,7 @@ With the box, 436 points of the lattice were kept for 492. The 56 are points tha
 
 Three rows, by the owner's word of 2026-10-13: the farthest points by the maxima first (#645), the box, with the filter's zero product (#646), and the duplicates in buckets (#647). The hull of Kuzmin points will still be above CGAL by the duplicates, which stay in the build.
 
-## The farthest points of the discard polygon by the maxima first, PR for #645
+## The farthest points of the discard polygon by the maxima first, PR #649 (#645)
 
 The polygon that discards interior points of a hull of D = 2 is the strict cycle of the farthest points in eight directions. One pass kept each maximum with its index, eight tests and stores a point: 10 to 11 ms of 10^6 points (#644). The eight maxima are now found first, a pass of maxima alone, and then the first point that reaches each, a pass that stops at the last of the eight. The points are those of the one pass, so the polygon and what it discards are the same.
 
