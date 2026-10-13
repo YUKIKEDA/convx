@@ -7361,7 +7361,7 @@ The lattice of D = 3 is at 1.02 of CGAL, from 1.67 in this run, and that of D = 
 
 The table's lists are allocated when a build has a group that goes to the placing: six allocations and about nineteen reallocations more on the cases with such groups (Delaunay `grid` D3 80 and 131 for 74 and 112), the same at the small and the large size. The Delaunay cases of D = 2 whose groups have four sites count twelve fewer, the placing's own buffers (#633: `lattice` D2 54 for 66). A hull of D = 2 counts one more, the keys of its cycle (#630). Every record is set to the counts of this commit.
 
-## The faces inside a group linked where it is written, PR for #641; the draft sized for the groups, withdrawn (#640)
+## The faces inside a group linked where it is written, PR #642 (#641); the draft sized for the groups, withdrawn (#640)
 
 ### The links (#641)
 
