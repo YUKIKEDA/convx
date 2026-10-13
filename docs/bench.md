@@ -7018,3 +7018,36 @@ On Windows, not pinned, the best of two or three builds, `883ca77` against the f
 `tests/alloc.rs` gains the Delaunay triangulation of sites with a long tail in D = 2 and 3 (49 and 59 allocations at both sizes); no record of another case is changed.
 
 The parity sets gain the Delaunay triangulation of 10^6 Kuzmin sites, reported and not judged (ADR 0006, the second amendment of 2026-10-13).
+
+## What a hull does to every point before and during construction, #622
+
+The screening (#618) read hulls at 1.3 to 4.8 times the faster of CGAL and Qhull on inputs whose points are nearly all deep inside. A scratch copy of `0d88144` with a timer at each part; Windows, release, not pinned, the best of five builds, 10^6 points each, in ms:
+
+| Hull of | Duplicates and validation | Order in space | Copy in that order | Construction | Classification | Publication | Sum | The faster other (WSL, #618) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Kuzmin, D2 | 32.3 | | | 6.2 | 1.8 | 0.8 | 41.2 | CGAL 11.4 |
+| A ball, D2 | 32.4 | | | 28.2 | 34.3 | 0.8 | 95.7 | CGAL 63.9 |
+| `cube`, D2 | 33.4 | | | 18.1 | 2.2 | 0.8 | 54.6 | Qhull 56.6 |
+| Plummer, D3 | 26.3 | 14.7 | 5.6 | 109.6 | 6.5 | 0.8 | 164.3 | Qhull 52.4 |
+| `cube`, D3 | 25.7 | 17.9 | 17.0 | 65.9 | 7.9 | 0.9 | 135.9 | Qhull 122.6 |
+
+The scaling's sample is under 0.05 ms everywhere.
+
+### Reading
+
+**The duplicates are a floor of 26 to 33 ms for 10^6 points, whatever the points are.** In D = 2 it is the sort of every point by its coordinates, which also orders the chain; from D = 3 a hash of every point. It is three quarters of the Kuzmin hull, where CGAL's whole build takes a third of it: CGAL finds four extreme points, discards what is inside their quadrilateral, and sorts the rest. The published output needs it for every point: `representative` has an entry for each of the n points (design §3), so a point proved strictly inside still has its duplicates found. It is the price of that list, unless the list is made on demand, as the planes are.
+
+**In D = 3 the points are ordered in space before any of them is discarded** (ADR 0009): 20 to 35 ms for 10^6 points, on inputs of which a few thousand at most are ever outside a facet. On the Plummer the order's grid is also the one of #620: one grid over a box with a long tail.
+
+**The first simplex is not chosen.** It is the simplex on `spanning_points`, the first D + 1 points by index that span the space, which design §5 leaves free. On the Plummer it is a small simplex in the dense center, and construction reads 8.3 million points in its scans, eight passes over the input. With a first simplex of extreme points (the least and the greatest of a coordinate, the farthest from their line, the farthest from their plane), tried in the scratch copy: construction 112.5 to 68.7 ms, 7.0 million points read. On `cube` D3 at 10^6 it reads the same 8.5 million and takes 70.3 and 78.9 ms, the three passes that find the extremes included; on `sphere` D3 at 10^5 and `cube` D3 at 10^5 the build reads 256 and 266 ms, 12.9 and 11.9 ms. Qhull starts from such a simplex, and a point inside it costs Qhull D + 1 distances and nothing more.
+
+**A ball in D = 2** spends 34 ms in classification, sixteen times the cube's: its hull has more vertices and its points lie near the boundary, where the polygon's cull proves less. Not looked at further here.
+
+### What could be done, for the owner
+
+1. **The first simplex from extreme points, D >= 3.** A third of the Plummer's construction; nothing on a cube. The design allows it; the published hull does not depend on it.
+2. **Discard before ordering in space, D = 3.** Scan against the first simplex's facets first, and order in space only the points that are outside one. Removes most of the 20 to 35 ms on every input of D = 3 with points inside, and with (1) it is what Qhull does. ADR 0009 would be amended.
+3. **Duplicates on demand.** `representative` computed when it is first read, as the planes are, with the duplicates among the vertices and the boundary points found during the build (those the output needs at once). Removes 26 to 33 ms for 10^6 points from every hull that does not read the list, and is the only way to CGAL's time on the Kuzmin of D = 2. It changes design §3 and the order in which failures are reported (a duplicate is found before a degenerate dimension is), so it is a Grill, and it would be a change to the public contract of 0.1.0.
+4. **Classification of a ball in D = 2**: a spike of its own if (1) to (3) leave it above the margin.
+
+Without (3), a hull of points nearly all inside stays above CGAL and Qhull by the cost of the duplicates, and the comparison says so with the reason: the output lists every point's representative, and the interior and the coplanar points, which theirs do not.
