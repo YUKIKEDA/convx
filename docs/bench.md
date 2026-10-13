@@ -7099,3 +7099,40 @@ On Windows, not pinned, the best of five to sixteen builds, `c96a715` against th
 ### `tests/alloc.rs`
 
 Construction now meets its facets in another order, so its buffers grow at other moments: of the 68 cases, 18 count more allocations or reallocations than their record somewhere and 22 only fewer, by a few each way (some of the falls are older than this change: a record may fall without being written) (the largest rise is `cubesurf` D3 at the large size, 343 reallocations for 319; the largest fall is a prism, 311 for 376). No count grows with the points: the large size stays under twice the small on every case. Every record is set to the counts of this commit (#624 is the Issue that raises them).
+
+## The discard before the order in space, withdrawn after measurement (#625)
+
+The spike #622 read 20 to 35 ms in ordering 10^6 points of D = 3 in space and proposed to discard first what the first simplex proves inside, and to order the rest.
+
+### What was tried
+
+In the space order's path (D = 3, from 2^17 representatives): the first simplex on the input, every representative assigned to it as a build in the input's order starts, the points proved strictly inside recorded as interior, and the copy in Morton order made of the others; then the build on the copy as before. `0c18d0f`, with a test of what the copy leaves out against the exact orientation; the suite passed.
+
+### Time
+
+Under WSL, pinned and alternated, `e782604` (the first simplex of #624) against `0c18d0f`; ms, the minimum, and the ratios of the minimum and of the median:
+
+| Hull of | Builds a side | `e782604` | `0c18d0f` | Ratios |
+| --- | ---: | ---: | ---: | ---: |
+| 10^6 Plummer points | 40 | 70.55 | 63.09 | 0.89, 0.90 |
+| 10^6 points in a ball | 40 | 144.44 | 174.61 | 1.21, 1.19 |
+| Dragon | 40 | 46.74 | 55.01 | 1.18, 1.20 |
+| Buddha | 40 | 78.56 | 90.91 | 1.16, 1.16 |
+| Armadillo | 40 | 18.80 | 22.49 | 1.20, 1.18 |
+| `cube` 2 x 10^5 | 40 | 17.71 | 22.18 | 1.25, 1.21 |
+| `cube` 10^6 | 24 | 118.10 | 136.45 | 1.16, 1.15 |
+| `cubesurf` 10^6 | 12 | 300.02 | 332.38 | 1.11, 1.10 |
+| `sphere` 2 x 10^5 | 6 | 516.95 | 524.81 | 1.02, 1.03 |
+| `sphere` 10^6 | 3 | 3,363.8 | 3,497.3 | 1.04, 1.03 |
+
+Below 2^17 points, where the path is not taken, the two read the same: 10^5 Plummer points 1.03 and 0.99, `cube` 10^5 0.99 and 1.01, `sphere` 10^4 and 10^5 1.00 and 0.99, 1.01, `cubesurf` 10^5 0.99, the lattice 0.97.
+
+### Why
+
+A simplex holds little of most inputs. A tetrahedron holds a third of a cube at most and an eighth of a ball; of 600 uniform points in a cube the first simplex proved 68 inside. So the copy still held nearly every point, and the first pass over the input, in the input's order, was paid on top of the pass the build on the copy makes again. Only an input dense about a center has most of its points inside the first simplex, and the Plummer gained a tenth.
+
+The spike's sentence that a few thousand points at most are ever outside a facet is about the hull once it has grown, not about its first simplex; the proposal read one as the other. Discarding against a hull of more facets before the order is another design (the build would run its first insertions in the input's order), and no row is opened for it here.
+
+### Left as it is
+
+The code is removed (`no-dead-code.mdc`); the branch's two commits are reverted. The 10^6 Plummer points stand at 70.6 ms against Qhull's 53.7 ms in this run (1.31; one run of `qconvex`), from 3.6 times in the screening.
