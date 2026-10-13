@@ -6975,7 +6975,7 @@ At or under 1.05: the hulls of D = 4 to 8 (0.26 to 0.98), the hulls of `cube`, `
 - **A Voronoi diagram.** Qhull builds one (`qvoronoi`), and CGAL in D = 2; neither produces what convx publishes (cells, interfaces, and rays as lists), so a row would time different outputs. It is for the comparison's document to say, not for a row.
 - **Sites that nearly coincide** beyond `near` (five within 1e-8), and **D >= 7** beyond two hulls of 1,000 points: no data file.
 
-## The insertion order refines a crowded cell, PR for #620
+## The insertion order refines a crowded cell, PR #621 (#620)
 
 The screening (#618) found the Delaunay triangulation of Kuzmin sites growing faster than linearly. The insertion order sorted each round by a Morton code on one uniform grid over the sites' bounding box, and a long tail put half the sites in a few cells, where consecutive insertions were far apart.
 
