@@ -7455,3 +7455,55 @@ CGAL's side of the same table. Its program does not run usefully under valgrind 
 ### Reading
 
 Nothing is proposed: no step of convx stands out on Dragon, and no change was measured that takes its 18% toward CGAL's 5%. Dragon is in the comparison as it measures. The reallocation of the draft that a scratch timer read on Buddha's 14 groups was a row of its own and was withdrawn after measurement (#640).
+
+## A hull of D = 2 of points nearly all inside: what is left beside the duplicates, #644
+
+The duplicates on demand were left out of 0.1.0 (#622), and the hull of 10^6 Kuzmin points stayed at 3.6 times CGAL's time (#631), twice with the duplicates switched off. The owner asked that what is left be looked at.
+
+### By part
+
+A scratch copy of `ad3b9c2` (the head of the stack, the crate of `main` at `bb6d622`) with a timer between the parts; Windows, pinned, the best of each part over 5 to 40 builds, ms. The timers and the best of each part make the sums smaller than a build's time; the shares are what is read.
+
+| Hull of, D2 | Sample of the scaling | Validation | The discard polygon | Duplicates | List of representatives | Basis | The discard pass | Sort and chain | Classification | Publication | Points kept |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10^6 Kuzmin points | 0.02 | 1.75 | 11.49 | 41.98 | 2.60 | 0.03 | 6.40 | 0.04 | 2.03 | 1.29 | 5 |
+| 10^6 points in a cube | 0.02 | 1.88 | 10.65 | 42.31 | 2.34 | 0.03 | 19.91 | 0.19 | 2.29 | 1.28 | 1,301 |
+| 10^6 points in a ball | 0.02 | 1.69 | 10.27 | 40.86 | 2.41 | 0.03 | 24.20 | 8.37 | 10.45 | 1.48 | 99,709 |
+| 10^5 Kuzmin points | 0.01 | 0.10 | 1.06 | 1.49 | 0.10 | 0.01 | 0.52 | 0.02 | 0.15 | 0.07 | 4 |
+| `rbox 10000 M3,4 D2` | 0.00 | 0.02 | 0.13 | 0.13 | 0.03 | 0.01 | 0.08 | 0.04 | 0.06 | 0.03 | 492 |
+
+- **The duplicates** are the largest part everywhere at 10^6: one table of twice the points, read at a random place for each.
+- **The discard polygon**, the farthest points in eight directions, is one pass over every point that keeps eight maxima and their indices: 10 to 11 ms.
+- **The discard pass** tests each point against the polygon's edges by the filtered orientation: 6 ms where every point is at the center, 20 to 24 ms where points lie all over the polygon.
+- The lattice has no part above 0.13 ms: its 0.29 ms against CGAL's 0.10 (#631) is every part's fixed cost together.
+
+CGAL's `convex_hull_2` finds four extreme points in one pass, discards what is inside their quadrilateral, and sorts and scans the four regions outside it. It finds no duplicates and lists no interior points.
+
+### Prototypes
+
+In the same scratch copy, switched by environment variables, one binary; ms of the part they change, and the points kept:
+
+| Prototype | Kuzmin 10^6 | Cube 10^6 | Ball 10^6 |
+| --- | ---: | ---: | ---: |
+| The polygon as it is | 11.34 (5 kept) | 13.31 (1,301) | 11.26 (99,709) |
+| The farthest points by the eight maxima, then the first point that reaches each | 3.67 (5) | 4.48 (1,301) | 4.55 (99,709) |
+| The farthest points of a sample of 4,096 | 0.14 (1,691) | 0.16 (20,367) | 0.16 (108,673) |
+| The discard pass as it is | 6.75 | 20.68 | 24.44 |
+| A box inside the polygon tested before its edges | 6.66 | 15.91 | 20.97 |
+| The duplicates as they are | 33.81 | 41.76 | 35.58 |
+| The duplicates bucket by bucket of the hash | 22.87 | 19.79 | 20.56 |
+| The duplicates with the slots of a batch of 32 points read ahead | 36.15 | | |
+
+- **The maxima first** gives the same eight points, so the same polygon, in a third of the time. The sample is faster still and keeps more points, 20,367 for 1,301 on a cube, which the sort and the classification then pay for (1.45 and 3.46 ms for 0.23 and 1.69): the maxima first is the better of the two.
+- **The box** helps where points are spread (a quarter of the pass on a cube) and not on Kuzmin points.
+- **The buckets**: the points are scattered, as hash and index, into buckets of about a thousand by the top bits of the hash, in index order, and each bucket is searched in a table that fits the first-level cache. A third to a half of the duplicates' time at 10^6 (28.69 to 18.67 on a cube of D = 3 in another run), and 1.28 to 1.43 ms at 10^5, so it starts from some size. Reading a batch of slots ahead in the one table was slower.
+
+All three together, by the sum of the parts: Kuzmin 58.83 to 41.96 (0.71), a cube 83.80 to 47.82 (0.57), a ball 95.83 to 70.78 (0.74). The duplicates read 34 to 43 ms for one configuration from run to run on this machine, so these are sizes and not a judgement; each row is timed under WSL with a control.
+
+### Why the box discarded more on the lattice
+
+With the box, 436 points of the lattice were kept for 492. The 56 are points that share a coordinate with a vertex of the polygon, as `[0, 175]` with the vertex at the origin. `orient2_filter` computes `(a0 - c0) (b1 - c1) - (a1 - c1) (b0 - c0)` and returns nothing when the first product is zero, whatever the second is. When one of its two factors is exactly zero the first product is exactly zero and the determinant is the second product's negation, whose sign is known. The points are interior; the filter did not say so, and they went to the sort and the exact test.
+
+### What follows
+
+Three rows, by the owner's word of 2026-10-13: the farthest points by the maxima first (#645), the box, with the filter's zero product (#646), and the duplicates in buckets (#647). The hull of Kuzmin points will still be above CGAL by the duplicates, which stay in the build.
