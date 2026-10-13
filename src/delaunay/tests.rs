@@ -297,7 +297,7 @@ fn the_table_of_translates_takes_exact_differences_and_a_fixed_number_of_groups(
     assert_eq!(table.key_ends.len(), 1);
     assert_eq!(table.find(point, &[9, 10, 11]), None);
     // Cells with a site that is not of the group are not kept.
-    table.keep(&[9, 10, 11], &[9, 10, 3], &[false]);
+    table.keep(&[9, 10, 11], &[9, 10, 3], &[false], &[]);
     assert_eq!(table.key_ends.len(), 1);
     assert_eq!(table.cells, [0, 1, 2]);
     // Sixteen groups, each of another shape, then a seventeenth.

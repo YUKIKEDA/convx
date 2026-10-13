@@ -832,12 +832,13 @@ fn inserted<S: insert::Shape>(
                 if !group_links_off() {
                     // The two cells share their diagonal: the face
                     // opposite the one site of each that the other lacks.
+                    // A slot not found leaves the face to `finish`.
                     let (one, other) = (draft.row(first), draft.row(first + 1));
-                    let slot = |of: &[u32], lacks: &[u32]| {
-                        of.iter().position(|v| !lacks.contains(v)).unwrap_or(0) as u32
-                    };
-                    let diagonal = [0, slot(one, other), 1, slot(other, one)];
-                    draft.link(first, &[diagonal]);
+                    let slot =
+                        |of: &[u32], lacks: &[u32]| of.iter().position(|v| !lacks.contains(v));
+                    if let (Some(a), Some(b)) = (slot(one, other), slot(other, one)) {
+                        draft.link(first, &[[0, a as u32, 1, b as u32]]);
+                    }
                 }
                 continue;
             }
