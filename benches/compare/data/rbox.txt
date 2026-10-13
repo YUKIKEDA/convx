@@ -1,0 +1,38 @@
+# T0 of the comparison (#598): points made by rbox, Qhull's own generator.
+# One file per line: name, dimension, points in the file, and the arguments
+# of rbox. `make.sh` adds `n`, which leaves the command out of the file, so
+# that the file is a dimension, a count, and the points. Seed 1 everywhere.
+#
+# cube: uniform in a cube, the average case; most points are inside.
+# sphere: `s`, on a sphere; every point is a vertex of the hull.
+# lattice: `M`, a rotated integer lattice; coplanar and cospherical points.
+# near: `C`, each of some points with four more within 1e-8 of it.
+cube-d2-n10000        2 10000    10000 D2 t1
+cube-d2-n100000       2 100000   100000 D2 t1
+cube-d2-n1000000      2 1000000  1000000 D2 t1
+cube-d3-n10000        3 10000    10000 D3 t1
+cube-d3-n100000       3 100000   100000 D3 t1
+cube-d3-n1000000      3 1000000  1000000 D3 t1
+cube-d4-n10000        4 10000    10000 D4 t1
+cube-d4-n100000       4 100000   100000 D4 t1
+cube-d5-n10000        5 10000    10000 D5 t1
+cube-d5-n100000       5 100000   100000 D5 t1
+cube-d6-n10000        6 10000    10000 D6 t1
+cube-d7-n1000         7 1000     1000 D7 t1
+cube-d8-n1000         8 1000     1000 D8 t1
+sphere-d2-n10000      2 10000    10000 s D2 t1
+sphere-d2-n100000     2 100000   100000 s D2 t1
+sphere-d2-n1000000    2 1000000  1000000 s D2 t1
+sphere-d3-n10000      3 10000    10000 s D3 t1
+sphere-d3-n100000     3 100000   100000 s D3 t1
+sphere-d3-n1000000    3 1000000  1000000 s D3 t1
+sphere-d4-n10000      4 10000    10000 s D4 t1
+sphere-d4-n100000     4 100000   100000 s D4 t1
+sphere-d5-n10000      5 10000    10000 s D5 t1
+sphere-d6-n10000      6 10000    10000 s D6 t1
+lattice-d2-n10000     2 10000    10000 M3,4 D2
+lattice-d3-n27000     3 27000    27000 M3,4,5 D3
+lattice-d4-n10000     4 10000    10000 M1,0 D4
+near-d2-n10000        2 10000    8000 C4,1e-8,500 D2 t1
+near-d3-n10000        3 10000    8000 C4,1e-8,500 D3 t1
+near-d3-n100000       3 100000   80000 C4,1e-8,5000 D3 t1

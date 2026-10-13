@@ -1,0 +1,11 @@
+# T1 of the comparison (#598): the distributions of PBBS, made by pbbs.py.
+# One file per line: name, dimension, points, the distribution, and the seed.
+insphere-d2-n100000    2 100000    insphere 1
+insphere-d2-n1000000   2 1000000   insphere 1
+insphere-d3-n100000    3 100000    insphere 1
+insphere-d3-n1000000   3 1000000   insphere 1
+kuzmin-d2-n100000      2 100000    kuzmin 1
+kuzmin-d2-n1000000     2 1000000   kuzmin 1
+kuzmin-d2-n10000000    2 10000000  kuzmin 1
+plummer-d3-n100000     3 100000    plummer 1
+plummer-d3-n1000000    3 1000000   plummer 1
