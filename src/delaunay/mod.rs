@@ -909,6 +909,7 @@ impl Translates {
         // A site's place in its group: the group is ascending. A cell with
         // a site that is not of the group is not kept.
         let kept = self.cells.len();
+        self.cells.reserve(rows.len());
         for site in rows {
             let Ok(place) = group.binary_search(site) else {
                 self.cells.truncate(kept);
