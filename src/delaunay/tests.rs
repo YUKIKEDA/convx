@@ -296,6 +296,10 @@ fn the_table_of_translates_takes_exact_differences_and_a_fixed_number_of_groups(
     table.keep(&[6, 7, 8], &[6, 7, 8], &[false], &[]);
     assert_eq!(table.key_ends.len(), 1);
     assert_eq!(table.find(point, &[9, 10, 11]), None);
+    // Cells with a site that is not of the group are not kept.
+    table.keep(&[9, 10, 11], &[9, 10, 3], &[false]);
+    assert_eq!(table.key_ends.len(), 1);
+    assert_eq!(table.cells, [0, 1, 2]);
     // Sixteen groups, each of another shape, then a seventeenth.
     let shapes: Vec<[f64; 2]> = (0..40)
         .flat_map(|j| [[0.0, 0.0], [1.0, f64::from(j)]])
@@ -386,7 +390,7 @@ fn a_group_of_two_triangles_is_the_placing_triangulation() {
                         (b, turned(a, turn)),
                         (a, turned(b, turn)),
                     ] {
-                        let (sites, cells) = quadrilateral(first, second);
+                        let (sites, cells) = quadrilateral(first, second).unwrap();
                         assert_eq!(sites, [0, 1, 2, 3]);
                         for (cell, expected) in cells.iter().zip(&expected) {
                             let (sorted, _, negative) = ascending_fixed(*cell);
@@ -411,6 +415,11 @@ fn a_group_of_two_triangles_is_the_placing_triangulation() {
         }
     }
     assert_eq!(cases, 495 * 24 * 2 * 3 * 3);
+    // Two triangles that do not share exactly one edge are not such a
+    // group, and are left to the placing.
+    assert_eq!(quadrilateral([0, 1, 2], [3, 4, 5]), None);
+    assert_eq!(quadrilateral([0, 1, 2], [2, 3, 4]), None);
+    assert_eq!(quadrilateral([0, 1, 2], [1, 2, 0]), None);
     assert!(kept > 10_000 && other > 10_000, "{kept} {other}");
 }
 

@@ -812,12 +812,17 @@ fn inserted<S: insert::Shape>(
         let mut linking = LinkWork::default();
         let mut group: Vec<u32> = Vec::new();
         for run in members.chunk_by(|x, y| x.0 == y.0) {
-            if let (3, &[(_, a), (_, b)]) = (k, run) {
-                let corners = |c: u32| -> [u32; 3] {
-                    let v = mesh.vertices_of(c);
-                    [site(v[0]), site(v[1]), site(v[2])]
-                };
-                let (sites, cells) = quadrilateral(corners(a), corners(b));
+            let two_triangles = match (k, run) {
+                (3, &[(_, a), (_, b)]) => {
+                    let corners = |c: u32| -> [u32; 3] {
+                        let v = mesh.vertices_of(c);
+                        [site(v[0]), site(v[1]), site(v[2])]
+                    };
+                    quadrilateral(corners(a), corners(b))
+                }
+                _ => None,
+            };
+            if let Some((sites, cells)) = two_triangles {
                 let number = draft.begin_group(&sites);
                 let first = draft.len();
                 for cell in cells {
@@ -1012,13 +1017,19 @@ impl Translates {
             return;
         }
         self.exact = false;
+        // A site's place in its group: the group is ascending. A cell with
+        // a site that is not of the group is not kept.
+        let kept = self.cells.len();
+        self.cells.reserve(rows.len());
+        for site in rows {
+            let Ok(place) = group.binary_search(site) else {
+                self.cells.truncate(kept);
+                return;
+            };
+            self.cells.push(place as u32);
+        }
         self.keys.extend_from_slice(&self.key);
         self.key_ends.push(self.keys.len());
-        // A site's place in its group: the group is ascending.
-        self.cells.extend(
-            rows.iter()
-                .map(|site| group.binary_search(site).unwrap_or(0) as u32),
-        );
         self.negative.extend_from_slice(negative);
         self.cell_ends.push(self.negative.len());
         self.links.extend_from_slice(links);
@@ -1074,14 +1085,16 @@ fn group_links_off() -> bool {
 /// with the triangles `(x, p, y)` and `(x, y, q)`. No predicate is asked:
 /// a lattice of 100 x 100 sites has 9,801 such groups, and the placing ran
 /// its general procedure for each (#617).
-fn quadrilateral(a: [u32; 3], b: [u32; 3]) -> ([u32; 4], [[u32; 3]; 2]) {
-    let off = a.iter().position(|v| !b.contains(v)).unwrap_or(0);
+///
+/// `None` when the two triangles do not share exactly one edge, which two
+/// neighbors of the mesh do: the group is then placed as any other.
+fn quadrilateral(a: [u32; 3], b: [u32; 3]) -> Option<([u32; 4], [[u32; 3]; 2])> {
+    let off = a.iter().position(|v| !b.contains(v))?;
     let (x, p, q) = (a[off], a[(off + 1) % 3], a[(off + 2) % 3]);
-    let y = b.iter().copied().find(|v| !a.contains(v)).unwrap_or(x);
-    debug_assert!(
-        b.contains(&p) && b.contains(&q) && x != y,
-        "the two triangles share an edge"
-    );
+    let y = b.iter().copied().find(|v| !a.contains(v))?;
+    if !(b.contains(&p) && b.contains(&q)) {
+        return None;
+    }
     let largest = x.max(p).max(y).max(q);
     // The two cells of the diagonal that does not hold the largest site.
     let cells = if largest == x || largest == y {
@@ -1095,7 +1108,7 @@ fn quadrilateral(a: [u32; 3], b: [u32; 3]) -> ([u32; 4], [[u32; 3]; 2]) {
         cells
     };
     let (sites, _, _) = ascending_fixed([x, p, y, q]);
-    (sites, cells)
+    Some((sites, cells))
 }
 
 /// The triangulation of `complex`: its cells in their order, with the last

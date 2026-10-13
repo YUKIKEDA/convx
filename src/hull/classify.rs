@@ -242,6 +242,10 @@ impl<'a> Chains<'a> {
     /// most as many steps as the cycle has edges. No remainder is taken: a
     /// division for each key read was a tenth of the build of a disc.
     fn vertex(&self, steps: usize) -> u32 {
+        debug_assert!(
+            steps <= self.cycle.len(),
+            "a step is at most once around the cycle"
+        );
         let wrapped = if steps == self.cycle.len() { 0 } else { steps };
         self.cycle[wrapped]
     }
