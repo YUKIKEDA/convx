@@ -172,7 +172,7 @@ The parity run below runs on every set after every third merged speed row of P7 
 
 The run that judges a set against ADR 0006. It times convx, CGAL, and Qhull on every set of the ADR on one machine, and splits convx's `build()` into its phases. Its tools are in `benches/parity/`, with a README of the steps (#581).
 
-- **Points.** `export_qhull_sets` writes every set of the ADR (filters `d2`, `d3`, `d4-n10000`, `d4-n100000`, `d5-n10000`, `d5-n100000`, `d6-n10000`, `d6-n100000`, `cubesurf`, `grid-d6`), and every tool reads those files.
+- **Points.** `export_qhull_sets` writes every set of the ADR (filters `d2`, `d3`, `d4-n10000`, `d4-n100000`, `d5-n10000`, `d5-n100000`, `d6-n10000`, `d6-n100000`, `cubesurf`, `grid-d6`), and every tool reads those files. The two Delaunay lattices of the amendment of 2026-10-13 are written by `rbox` (`rbox 10000 M3,4 D2` and `rbox 27000 M3,4,5 D3`), and are reported, not judged.
 - **convx.** A scratch copy of the measured commit is used. An example copied into it (`benches/parity/parity_time.rs`) reads a file and prints, per build:
   - `build()`;
   - the vertex and facet counts (sites and simplices for Delaunay);

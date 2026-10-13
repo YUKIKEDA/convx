@@ -39,3 +39,5 @@ delaunay cube 4 10000
 delaunay sphere 4 10000
 delaunay cube 5 10000
 delaunay sphere 5 10000
+delaunay lattice 2 10000
+delaunay lattice 3 27000
