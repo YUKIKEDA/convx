@@ -7582,7 +7582,7 @@ A cube of D = 2 is at 0.63 to 0.77 of its time and a ball at 0.89 to 0.95. Kuzmi
 
 The first form of the box was about the mean of the polygon's vertices alone (`adb04f3`). A polygon that a few far points stretch has no such box, and 10^5 Kuzmin points then paid for the box's test and the edges: 2.01 ms for 1.87 in the run before this one, and a cube at 10^5 0.81 of its time where the box on the sample gives 0.65.
 
-## The duplicates found bucket by bucket of the hash, PR for #647
+## The duplicates found bucket by bucket of the hash, PR #651 (#647)
 
 The duplicates of every point were found in one table of twice the points, read at a random place for each: the largest part of a hull whose points are nearly all inside (#622, #644). From 2^19 points they are now found in buckets: the points are scattered, as the low half of their hash and their index, into buckets of about a thousand by the top bits of the hash, in index order, and each bucket is searched in a table of its own size. The scatter takes eight bytes a point, what the one table took. The representatives are the same.
 
