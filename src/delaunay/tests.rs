@@ -83,7 +83,7 @@ fn a_group_of_two_triangles_is_the_placing_triangulation() {
                         (b, turned(a, turn)),
                         (a, turned(b, turn)),
                     ] {
-                        let (sites, cells) = quadrilateral(first, second);
+                        let (sites, cells) = quadrilateral(first, second).unwrap();
                         assert_eq!(sites, [0, 1, 2, 3]);
                         for (cell, expected) in cells.iter().zip(&expected) {
                             let (sorted, _, negative) = ascending_fixed(*cell);
@@ -108,6 +108,11 @@ fn a_group_of_two_triangles_is_the_placing_triangulation() {
         }
     }
     assert_eq!(cases, 495 * 24 * 2 * 3 * 3);
+    // Two triangles that do not share exactly one edge are not such a
+    // group, and are left to the placing.
+    assert_eq!(quadrilateral([0, 1, 2], [3, 4, 5]), None);
+    assert_eq!(quadrilateral([0, 1, 2], [2, 3, 4]), None);
+    assert_eq!(quadrilateral([0, 1, 2], [1, 2, 0]), None);
     assert!(kept > 10_000 && other > 10_000, "{kept} {other}");
 }
 
