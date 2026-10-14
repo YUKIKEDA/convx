@@ -10,17 +10,18 @@ Linux or WSL2, with what the parity run needs (`benches/parity/README.md`) and n
 bash benches/compare/setup.sh <commit>            # the adapters of that commit and the CGAL program
 bash benches/compare/data/make.sh rbox            # and pbbs, scans
 cd ~/convx-compare
-python3 <repo>/benches/compare/runner.py rows.txt results.jsonl
+python3 <repo>/benches/compare/runner.py <repo>/benches/compare/rows.txt results.jsonl
 python3 <repo>/benches/compare/report.py results.jsonl
+python3 <repo>/benches/compare/publish.py results.jsonl <repo>/docs/bench <meta.json>
 ```
 
-`COMPARE_HOME` is where everything is built and written (default `~/convx-compare`), and `COMPARE_CORE` the core every process is pinned to (default 2). `rows.txt` has one row a line: `<hull|delaunay> <data file name> <library> [<library> ...]`.
+`COMPARE_HOME` is where everything is built and written (default `~/convx-compare`), and `COMPARE_CORE` the core every process is pinned to (default 2). `rows.txt` has one row a line: `<hull|delaunay> <data file name> <library> [<library> ...]`; the rows of the published comparison are this directory's `rows.txt`. `report.py` prints the tables of a run. `publish.py` writes what `docs/comparison.md` shows: `summary.json`, with every number and the run's description from a `meta.json` (the machine, the versions, the load), and the figures; it needs matplotlib.
 
 What a row records for each library:
 
 - **Time:** the seconds of the construction of the output, timed by the library's adapter inside its own process, so reading the file is outside. The libraries of a row take turns, round by round: 5 rounds of 3 builds when the first library's first build takes under 1.5 s, otherwise 3 rounds of 1.
 - **Counts:** vertices and facets of a hull, distinct sites and simplices of a triangulation. The report says where the libraries disagree, and prints the counts.
-- **Peak memory:** the peak resident set of a process that reads the file and builds once, from the kernel (`ru_maxrss`), three times.
+- **Peak memory:** the peak resident set of a process that reads the file and builds once, from the kernel (`ru_maxrss`) as GNU time reads it, three times. GNU time starts the process: a process forked from the runner would count the runner's own pages in its peak.
 - **Memory over time:** the resident set of one such process, sampled every 2 ms from `/proc`, thinned to 400 samples.
 
 Memory is taken after the timing of a row, so that sampling disturbs no time. It is the resident set of the whole process: the points read from the file are in it for every library.
@@ -32,7 +33,7 @@ Each is a program `<name> <hull|delaunay> <file> <reps>`, or is driven as one.
 | Library | Adapter | What its timed section produces |
 | --- | --- | --- |
 | convx | `rust/src/bin/convx_run.rs` | What `build()` returns: for a hull its vertices, its facets with their vertex lists and neighbors, the coplanar and the interior points; for a triangulation its simplices with their neighbors. Exact signs |
-| CGAL | `benches/parity/cgal_time.cpp` | The same output as convx where CGAL has it (ADR 0006): the hull's surface; the triangulation's cells and neighbors written to flat arrays. Exact predicates on `f64` (`Epick`, `Epick_d` above D = 3) |
+| CGAL | `benches/parity/cgal_time.cpp` | The same output as convx where CGAL has it (ADR 0006): the hull's surface; the triangulation's cells and neighbors written to flat arrays. Exact predicates on `f64` (`Epick`, `Epick_d` above D = 3), in D = 2 to 8 |
 | Qhull | `qconvex`, `qdelaunay` with `i s TI <file> TO <out>` | The facets by their vertices, written to a file; its own "CPU seconds to compute hull (after input)". One build a process. Qhull merges facets within a tolerance and is not exact: on the same points it can report fewer vertices, facets, or regions, and the report shows where |
 | `spade` 2.15.1 | `rust/src/bin/spade_run.rs` | The Delaunay triangulation of D = 2, loaded in bulk: vertices, edges, and faces with their adjacency. Exact predicates |
 | `delaunator` 1.1.0 | `rust/src/bin/delaunator_run.rs` | The Delaunay triangulation of D = 2 as triangles and half-edges. Robust orientation tests; equal points are not merged, so its first count is the points given |

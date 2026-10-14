@@ -8,7 +8,8 @@ row and library the runner records, as one JSON line:
 - the seconds of the construction of the output, as the library's adapter
   times it inside its own process (reading the file is outside);
 - the two counts of the output (vertices and facets, or sites and simplices);
-- the peak resident set of each process, from the kernel (`ru_maxrss`);
+- the peak resident set of each process, from the kernel (`ru_maxrss`), read
+  by GNU time;
 - the resident set over time of one process that builds once, sampled from
   `/proc/<pid>/statm`.
 
@@ -114,19 +115,21 @@ def run(library, operation, path, reps, timeline=False):
 
 
 def peak_of(library, operation, path, reps):
-    """The peak resident set, in bytes, of one process of `library`."""
+    """The peak resident set, in bytes, of one process of `library`.
+
+    GNU time starts the process and reads its `ru_maxrss`. A process forked
+    from this runner would not do: the kernel's peak of a process counts what
+    it held before `exec`, and a fork holds the runner's own pages, which grow
+    with the results (a runner of 200 MB made a hull of 10^4 points read
+    212 MB; through GNU time it reads 3 MB)."""
     command, _ = LIBRARIES[library]
-    pid = os.fork()
-    if pid == 0:
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull, 1)
-        os.dup2(devnull, 2)
-        argv = PIN + command(operation, path, reps)
-        os.execvp(argv[0], argv)
-    _, status, usage = os.wait4(pid, 0)
-    if status != 0:
-        raise SystemExit(f'{library} {operation} {path}: status {status}')
-    return usage.ru_maxrss * 1024
+    argv = ['/usr/bin/time', '-f', 'peak %M'] + PIN + command(operation, path, reps)
+    done = subprocess.run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    if done.returncode != 0:
+        raise SystemExit(f'{library} {operation} {path}: exit {done.returncode}\n{done.stderr[-800:]}')
+    lines = [line for line in done.stderr.splitlines() if line.startswith('peak ')]
+    assert lines, f'{library} {operation} {path}: no peak from GNU time\n{done.stderr[-400:]}'
+    return int(lines[-1].split()[1]) * 1024
 
 
 def thin(samples, most=400):

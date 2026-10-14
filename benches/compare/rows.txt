@@ -1,0 +1,98 @@
+# The rows of the published comparison (R1-8, #600). One row a line:
+# <hull|delaunay> <data file name> <library> [<library> ...]
+# Qhull and CGAL are on every row. A Rust crate is on the rows of its own
+# dimension only, on one or two files of a tier and two sizes (#599); the
+# `delaunay` crate on files of 1,000 points of D = 2 to 4: a process of three
+# builds of D = 5 had not finished after 81 minutes.
+
+# Hulls of rbox (T0).
+hull cube-d2-n10000 convx cgal qhull
+hull cube-d2-n100000 convx cgal qhull geo
+hull cube-d2-n1000000 convx cgal qhull geo
+hull cube-d3-n10000 convx cgal qhull
+hull cube-d3-n100000 convx cgal qhull parry3d
+hull cube-d3-n1000000 convx cgal qhull parry3d
+hull cube-d4-n10000 convx cgal qhull
+hull cube-d4-n100000 convx cgal qhull
+hull cube-d5-n10000 convx cgal qhull
+hull cube-d5-n100000 convx cgal qhull
+hull cube-d6-n10000 convx cgal qhull
+hull cube-d7-n1000 convx cgal qhull
+hull cube-d8-n1000 convx cgal qhull
+hull sphere-d2-n10000 convx cgal qhull
+hull sphere-d2-n100000 convx cgal qhull geo
+hull sphere-d2-n1000000 convx cgal qhull geo
+hull sphere-d3-n10000 convx cgal qhull
+hull sphere-d3-n100000 convx cgal qhull parry3d
+hull sphere-d3-n1000000 convx cgal qhull parry3d
+hull sphere-d4-n10000 convx cgal qhull
+hull sphere-d4-n100000 convx cgal qhull
+hull sphere-d5-n10000 convx cgal qhull
+hull sphere-d6-n10000 convx cgal qhull
+hull lattice-d2-n10000 convx cgal qhull
+hull lattice-d3-n27000 convx cgal qhull
+hull lattice-d4-n10000 convx cgal qhull
+hull near-d2-n10000 convx cgal qhull
+hull near-d3-n10000 convx cgal qhull
+hull near-d3-n100000 convx cgal qhull
+
+# Hulls of the PBBS distributions (T1).
+hull insphere-d2-n100000 convx cgal qhull
+hull insphere-d2-n1000000 convx cgal qhull
+hull insphere-d3-n100000 convx cgal qhull
+hull insphere-d3-n1000000 convx cgal qhull
+hull kuzmin-d2-n100000 convx cgal qhull geo
+hull kuzmin-d2-n1000000 convx cgal qhull geo
+hull kuzmin-d2-n10000000 convx cgal qhull
+hull plummer-d3-n100000 convx cgal qhull parry3d
+hull plummer-d3-n1000000 convx cgal qhull parry3d
+
+# Hulls of the scans (T2).
+hull bunny-d3-n35947 convx cgal qhull parry3d
+hull dragon-d3-n437645 convx cgal qhull parry3d
+hull buddha-d3-n543652 convx cgal qhull
+hull armadillo-d3-n172974 convx cgal qhull
+
+# Delaunay triangulations of rbox (T0).
+delaunay cube-d2-n1000 convx cgal qhull delaunay
+delaunay cube-d3-n1000 convx cgal qhull delaunay
+delaunay cube-d4-n1000 convx cgal qhull delaunay
+delaunay cube-d5-n1000 convx cgal qhull
+delaunay cube-d2-n10000 convx cgal qhull
+delaunay cube-d2-n100000 convx cgal qhull spade delaunator
+delaunay cube-d2-n1000000 convx cgal qhull spade delaunator
+delaunay cube-d3-n10000 convx cgal qhull
+delaunay cube-d3-n100000 convx cgal qhull
+delaunay cube-d3-n1000000 convx cgal qhull
+delaunay cube-d4-n10000 convx cgal qhull
+delaunay cube-d5-n10000 convx cgal qhull
+delaunay sphere-d2-n10000 convx cgal qhull
+delaunay sphere-d2-n100000 convx cgal qhull
+delaunay sphere-d2-n1000000 convx cgal qhull
+delaunay sphere-d3-n10000 convx cgal qhull
+delaunay sphere-d3-n100000 convx cgal qhull
+delaunay sphere-d3-n1000000 convx cgal qhull
+delaunay sphere-d4-n10000 convx cgal qhull
+delaunay lattice-d2-n10000 convx cgal qhull
+delaunay lattice-d3-n27000 convx cgal qhull
+delaunay lattice-d4-n10000 convx cgal qhull
+delaunay near-d2-n10000 convx cgal qhull
+delaunay near-d3-n10000 convx cgal qhull
+delaunay near-d3-n100000 convx cgal qhull
+
+# Delaunay triangulations of the PBBS distributions (T1).
+delaunay insphere-d2-n100000 convx cgal qhull
+delaunay insphere-d2-n1000000 convx cgal qhull
+delaunay insphere-d3-n100000 convx cgal qhull
+delaunay insphere-d3-n1000000 convx cgal qhull
+delaunay kuzmin-d2-n100000 convx cgal qhull spade delaunator
+delaunay kuzmin-d2-n1000000 convx cgal qhull spade delaunator
+delaunay kuzmin-d2-n10000000 convx cgal qhull
+delaunay plummer-d3-n100000 convx cgal qhull
+delaunay plummer-d3-n1000000 convx cgal qhull
+
+# Delaunay triangulations of the scans (T2).
+delaunay bunny-d3-n35947 convx cgal qhull
+delaunay dragon-d3-n437645 convx cgal qhull
+delaunay buddha-d3-n543652 convx cgal qhull
+delaunay armadillo-d3-n172974 convx cgal qhull
