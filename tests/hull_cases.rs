@@ -6,7 +6,7 @@
 // by construction.
 #![allow(clippy::unwrap_used)]
 
-use convx::{ConvexHull, ConvexHullBuilder, ConvexHullError};
+use convx::{ConvexHull, ConvexHullBuilder, Error};
 
 fn build(dim: usize, points: &[f64]) -> ConvexHull {
     ConvexHullBuilder::new(dim, points).build().unwrap()
@@ -103,7 +103,7 @@ fn collinear_fails() {
         ConvexHullBuilder::new(2, &[0.0, 0.0, 1.0, 1.0, 3.0, 3.0, 2.0, 2.0])
             .build()
             .err(),
-        Some(ConvexHullError::DegenerateDimension {
+        Some(Error::DegenerateDimension {
             actual_dim: 1,
             spanning_points: vec![0, 1]
         })
@@ -152,7 +152,7 @@ fn coplanar_input_fails() {
     let points = [0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 1.0, 1.0, 3.0, 5.0, 1.0];
     assert_eq!(
         ConvexHullBuilder::new(3, &points).build().err(),
-        Some(ConvexHullError::DegenerateDimension {
+        Some(Error::DegenerateDimension {
             actual_dim: 2,
             spanning_points: vec![0, 1, 2]
         })
@@ -232,10 +232,13 @@ fn renormalized(hull: &ConvexHull, dim: usize, points: &[f64]) -> Vec<(Vec<u32>,
     hull.triangulation()
         .iter()
         .map(|simplex| {
-            let mut vertices = simplex.vertices.to_vec();
+            let mut vertices = simplex.vertices().to_vec();
             vertices.sort_unstable();
             if dim >= 2 {
-                let facet = &hull.facets().get((simplex.facet as usize) as u32).unwrap();
+                let facet = &hull
+                    .facets()
+                    .get((simplex.facet() as usize) as u32)
+                    .unwrap();
                 let apex = *hull
                     .vertices()
                     .iter()
@@ -245,7 +248,7 @@ fn renormalized(hull: &ConvexHull, dim: usize, points: &[f64]) -> Vec<(Vec<u32>,
                     vertices.swap(dim - 2, dim - 1);
                 }
             }
-            (facet_of(hull, simplex.facet), vertices)
+            (facet_of(hull, simplex.facet()), vertices)
         })
         .collect()
 }
@@ -260,7 +263,7 @@ fn facet_of(hull: &ConvexHull, facet: u32) -> Vec<u32> {
 fn oriented(hull: &ConvexHull) -> Vec<(Vec<u32>, Vec<u32>)> {
     hull.triangulation()
         .iter()
-        .map(|s| (facet_of(hull, s.facet), s.vertices.to_vec()))
+        .map(|s| (facet_of(hull, s.facet()), s.vertices().to_vec()))
         .collect()
 }
 

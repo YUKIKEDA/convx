@@ -7,7 +7,7 @@
 mod common;
 
 use common::oracle::{check_delaunay, integer_sites, orientation};
-use convx::{ConvexHullBuilder, ConvexHullError, DelaunayBuilder, DelaunayTriangulation};
+use convx::{ConvexHullBuilder, DelaunayBuilder, DelaunayTriangulation, Error};
 
 fn build(dim: usize, points: &[f64]) -> DelaunayTriangulation {
     let t = DelaunayBuilder::new(dim, points).build().unwrap();
@@ -101,7 +101,7 @@ fn exactly_d_plus_one_points() {
 #[test]
 fn sites_not_spanning_d_fail() {
     let line = [0.0, 0.0, 1.0, 1.0, 3.0, 3.0];
-    let expected = Some(ConvexHullError::DegenerateDimension {
+    let expected = Some(Error::DegenerateDimension {
         actual_dim: 1,
         spanning_points: vec![0, 1],
     });
@@ -109,7 +109,7 @@ fn sites_not_spanning_d_fail() {
     let plane = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0];
     assert!(matches!(
         DelaunayBuilder::new(3, &plane).build(),
-        Err(ConvexHullError::DegenerateDimension { actual_dim: 2, .. })
+        Err(Error::DegenerateDimension { actual_dim: 2, .. })
     ));
 }
 

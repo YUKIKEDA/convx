@@ -8,8 +8,8 @@ mod common;
 
 use common::oracle::{check_delaunay, check_voronoi};
 use convx::{
-    ConvexHullError, DelaunayBuilder, VoronoiBuilder, VoronoiCells, VoronoiDiagram,
-    VoronoiInterfaces, VoronoiRays, VoronoiVertices,
+    DelaunayBuilder, Error, VoronoiBuilder, VoronoiCells, VoronoiDiagram, VoronoiInterfaces,
+    VoronoiRays, VoronoiVertices,
 };
 
 fn build(dim: usize, points: &[f64]) -> VoronoiDiagram {
@@ -108,7 +108,7 @@ fn sites_not_spanning_d_fail() {
     let line = [0.0, 0.0, 1.0, 1.0, 3.0, 3.0];
     assert!(matches!(
         VoronoiBuilder::new(2, &line).build(),
-        Err(ConvexHullError::DegenerateDimension { actual_dim: 1, .. })
+        Err(Error::DegenerateDimension { actual_dim: 1, .. })
     ));
 }
 

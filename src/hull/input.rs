@@ -4,9 +4,9 @@
 use core::cmp::Ordering;
 
 use super::polygon::{self, Chain, Rows};
-use super::ConvexHullError;
 use crate::predicates::{orient, ExactEvaluationExhausted, Sign};
 use crate::small::Small;
+use crate::Error;
 
 /// Validated input. Past this point, code trusts that every coordinate is
 /// finite and that there are at most `u32::MAX` points.
@@ -46,7 +46,7 @@ impl<'a> Input<'a> {
         points: &'a [f64],
         work: InputWork,
         rows: &mut Vec<f64>,
-    ) -> Result<Self, ConvexHullError> {
+    ) -> Result<Self, Error> {
         let InputWork {
             mut representative,
             mut representatives,
@@ -162,34 +162,34 @@ impl<'a> Input<'a> {
 
 /// Checks the dimension and the length before any coordinate is read.
 /// Returns the number of points.
-pub(crate) fn check_shape(dim: usize, len: usize) -> Result<usize, ConvexHullError> {
+pub(crate) fn check_shape(dim: usize, len: usize) -> Result<usize, Error> {
     if dim == 0 {
-        return Err(ConvexHullError::NonPositiveDimension);
+        return Err(Error::NonPositiveDimension);
     }
     if !len.is_multiple_of(dim) {
-        return Err(ConvexHullError::LengthMismatch { len, dim });
+        return Err(Error::LengthMismatch { len, dim });
     }
     Ok(len / dim)
 }
 
 /// Point numbers are `u32` below `u32::MAX`, which stays free as the missing
 /// index, so at most `u32::MAX` points are accepted.
-pub(crate) fn check_count(count: usize) -> Result<usize, ConvexHullError> {
+pub(crate) fn check_count(count: usize) -> Result<usize, Error> {
     if count > u32::MAX as usize {
-        return Err(ConvexHullError::TooManyPoints { actual: count });
+        return Err(Error::TooManyPoints { actual: count });
     }
     Ok(count)
 }
 
 /// Runs every input check of design §3 and returns the accepted input of a
 /// hull, with the D = 2 chain planned.
-pub(crate) fn accept(dim: usize, points: &[f64]) -> Result<Input<'_>, ConvexHullError> {
+pub(crate) fn accept(dim: usize, points: &[f64]) -> Result<Input<'_>, Error> {
     accept_by(dim, points, representatives_of_hull)
 }
 
 /// [`accept`] for Delaunay sites, which build no D = 2 chain: duplicates by
 /// hashing in every dimension.
-pub(crate) fn accept_sites(dim: usize, points: &[f64]) -> Result<Input<'_>, ConvexHullError> {
+pub(crate) fn accept_sites(dim: usize, points: &[f64]) -> Result<Input<'_>, Error> {
     accept_by(dim, points, |dim, count, points| {
         (representatives_of(count, rows(dim, points)), None)
     })
@@ -209,7 +209,7 @@ fn accept_by(
     dim: usize,
     points: &[f64],
     representatives_by: Representatives,
-) -> Result<Input<'_>, ConvexHullError> {
+) -> Result<Input<'_>, Error> {
     let count = check_shape(dim, points.len())?;
     // §3: non-finite coordinates are rejected first, then the count, before
     // duplicate removal.
@@ -217,7 +217,7 @@ fn accept_by(
         .chunks_exact(dim)
         .position(|p| p.iter().any(|x| !x.is_finite()))
     {
-        return Err(ConvexHullError::NonFiniteCoordinate { index });
+        return Err(Error::NonFiniteCoordinate { index });
     }
     let count = check_count(count)?;
     let point = rows(dim, points);
@@ -226,14 +226,14 @@ fn accept_by(
         .filter(|&i| representative[i as usize] == i)
         .collect();
     if representatives.len() < dim + 1 {
-        return Err(ConvexHullError::InsufficientPoints {
+        return Err(Error::InsufficientPoints {
             actual: representatives.len(),
             required: dim + 1,
         });
     }
     let spanning_points = minimum_basis(dim, &representatives, point)?;
     if spanning_points.len() < dim + 1 {
-        return Err(ConvexHullError::DegenerateDimension {
+        return Err(Error::DegenerateDimension {
             actual_dim: spanning_points.len() - 1,
             spanning_points,
         });
@@ -530,7 +530,7 @@ pub(crate) fn minimum_basis<'p>(
     dim: usize,
     representatives: &[u32],
     point: impl Fn(u32) -> &'p [f64],
-) -> Result<Vec<u32>, ConvexHullError> {
+) -> Result<Vec<u32>, Error> {
     let mut rows = Vec::new();
     Ok(minimum_basis_with(dim, representatives, point, &mut rows)?.to_vec())
 }
@@ -545,7 +545,7 @@ pub(crate) fn minimum_basis_with<'p>(
     representatives: &[u32],
     point: impl Fn(u32) -> &'p [f64],
     rows: &mut Vec<f64>,
-) -> Result<Small<u32, 11>, ConvexHullError> {
+) -> Result<Small<u32, 11>, Error> {
     let mut basis: Small<u32, 11> = Small::new();
     let Some((&first, rest)) = representatives.split_first() else {
         return Ok(basis);
@@ -582,17 +582,11 @@ mod tests {
 
     #[test]
     fn shape_errors_in_order() {
-        assert_eq!(
-            check_shape(0, 0).err(),
-            Some(ConvexHullError::NonPositiveDimension)
-        );
-        assert_eq!(
-            check_shape(0, 7).err(),
-            Some(ConvexHullError::NonPositiveDimension)
-        );
+        assert_eq!(check_shape(0, 0).err(), Some(Error::NonPositiveDimension));
+        assert_eq!(check_shape(0, 7).err(), Some(Error::NonPositiveDimension));
         assert_eq!(
             check_shape(3, 7).err(),
-            Some(ConvexHullError::LengthMismatch { len: 7, dim: 3 })
+            Some(Error::LengthMismatch { len: 7, dim: 3 })
         );
         assert_eq!(check_shape(3, 9), Ok(3));
     }
@@ -602,7 +596,7 @@ mod tests {
         assert_eq!(check_count(u32::MAX as usize), Ok(u32::MAX as usize));
         assert_eq!(
             check_count(u32::MAX as usize + 1).err(),
-            Some(ConvexHullError::TooManyPoints {
+            Some(Error::TooManyPoints {
                 actual: u32::MAX as usize + 1
             })
         );
@@ -613,7 +607,7 @@ mod tests {
         let points = [0.0, 0.0, 1.0, f64::NAN, f64::INFINITY, 2.0, 3.0, 3.0];
         assert_eq!(
             accept(2, &points).err(),
-            Some(ConvexHullError::NonFiniteCoordinate { index: 1 })
+            Some(Error::NonFiniteCoordinate { index: 1 })
         );
     }
 
@@ -808,7 +802,7 @@ mod tests {
         let points = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0];
         assert_eq!(
             accept(2, &points).err(),
-            Some(ConvexHullError::InsufficientPoints {
+            Some(Error::InsufficientPoints {
                 actual: 2,
                 required: 3
             })
@@ -821,7 +815,7 @@ mod tests {
         let points = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 5.0, 5.0];
         assert_eq!(
             accept(2, &points).err(),
-            Some(ConvexHullError::DegenerateDimension {
+            Some(Error::DegenerateDimension {
                 actual_dim: 1,
                 spanning_points: vec![0, 2]
             })
@@ -834,7 +828,7 @@ mod tests {
         let points = [0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 1.0, 2.0, 3.0, 5.0];
         assert_eq!(
             accept(3, &points).err(),
-            Some(ConvexHullError::DegenerateDimension {
+            Some(Error::DegenerateDimension {
                 actual_dim: 2,
                 spanning_points: vec![0, 1, 2]
             })

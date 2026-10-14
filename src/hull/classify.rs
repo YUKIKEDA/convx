@@ -43,11 +43,11 @@ use super::merge::{merge_into, LogicalFacets, MergeWork};
 use super::polygon::{self, ChainWork, Discard, Edge, Rows};
 use super::ridge::{fingerprint, pair_equal_keys};
 use super::simplicial::{HullWork, SimplicialHull};
-use super::ConvexHullError;
 use crate::arena::{FacetId, SlotMarks};
 use crate::lists::Lists;
 use crate::predicates::{orient, orient_direction, Sign};
 use crate::small::Small;
+use crate::Error;
 
 /// The simplices of the boundary complex, in flat lists (#411): simplex `s`
 /// has the vertices `vertices[s * d..(s + 1) * d]`, the face `faces[s]`, and
@@ -273,7 +273,7 @@ impl<'a> Chains<'a> {
     /// Conversely, a point between the ends of an edge in that order and
     /// collinear with them is on the segment. Every edge of the cycle is in
     /// one of the two chains, the vertical ones at either end included.
-    fn on_an_edge(&self, input: &Input<'_>, point: u32) -> Result<bool, ConvexHullError> {
+    fn on_an_edge(&self, input: &Input<'_>, point: u32) -> Result<bool, Error> {
         let key = polygon::coordinate_key(input.point(point));
         let n = self.cycle.len();
         let key_of = |steps: usize| match self.keys.get(steps) {
@@ -320,7 +320,7 @@ impl<'a> Chains<'a> {
 }
 
 /// Builds and classifies the hull of an accepted input.
-pub(crate) fn classify(input: Input<'_>) -> Result<Classified<'_>, ConvexHullError> {
+pub(crate) fn classify(input: Input<'_>) -> Result<Classified<'_>, Error> {
     let built = SimplicialHull::build(input)?;
     classify_built(built, &mut FoundFaces::default())
 }
@@ -427,7 +427,7 @@ fn sub_vertices(
     faces: &mut FoundFaces,
     level: &mut Level,
     global: &[u32],
-) -> Result<(), ConvexHullError> {
+) -> Result<(), Error> {
     #[cfg(test)]
     tests::SUB_HULLS.with(|c| c.set(c.get() + 1));
     let input = Input::of_distinct(
@@ -453,7 +453,7 @@ fn sub_vertices(
 /// The cycle vertices are the extreme points. A representative that missed
 /// the chain is on one edge or strictly inside; it is not a new vertex. One
 /// the build proved interior (design §6) is not tested against the cycle.
-fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, ConvexHullError> {
+fn classify_chain(hull: SimplicialHull<'_>) -> Result<Classified<'_>, Error> {
     let n = hull.polygon.len();
     // The lists below are filtered from the representatives, in their
     // order, and published ascending without a sort.
@@ -570,7 +570,7 @@ fn found_vertices(
     hull: &SimplicialHull<'_>,
     faces: &mut FoundFaces,
     global: Option<&[u32]>,
-) -> Result<Found, ConvexHullError> {
+) -> Result<Found, Error> {
     let mut found = Found::default();
     found_vertices_into(hull, faces, global, &mut found)?;
     Ok(found)
@@ -583,7 +583,7 @@ fn found_vertices_into(
     faces: &mut FoundFaces,
     global: Option<&[u32]>,
     out: &mut Found,
-) -> Result<(), ConvexHullError> {
+) -> Result<(), Error> {
     let mut level = faces.levels.pop().unwrap_or_default();
     let result = found_at(hull, faces, &mut level, global, out);
     faces.levels.push(level);
@@ -596,7 +596,7 @@ fn found_at(
     level: &mut Level,
     global: Option<&[u32]>,
     out: &mut Found,
-) -> Result<(), ConvexHullError> {
+) -> Result<(), Error> {
     let Found {
         groups,
         on_complex,
@@ -722,7 +722,7 @@ fn found_at(
 fn classify_built<'a>(
     hull: SimplicialHull<'a>,
     faces: &mut FoundFaces,
-) -> Result<Classified<'a>, ConvexHullError> {
+) -> Result<Classified<'a>, Error> {
     if hull.strict_edges {
         return classify_chain(hull);
     }
@@ -914,7 +914,7 @@ fn distance_zeros(
     hull: &SimplicialHull<'_>,
     groups: &LogicalFacets,
     others: &[u32],
-) -> Result<Zeros, ConvexHullError> {
+) -> Result<Zeros, Error> {
     let (mut on_boundary, mut zero_points) = (Vec::new(), Lists::default());
     distance_zeros_into(
         hull,
@@ -937,7 +937,7 @@ fn distance_zeros_into(
     on_boundary: &mut Vec<bool>,
     zero_points: &mut Lists<u32>,
     work: &mut ZerosWork,
-) -> Result<(), ConvexHullError> {
+) -> Result<(), Error> {
     let ZerosWork {
         zero_pairs,
         starts,
@@ -1022,7 +1022,7 @@ fn distance_zeros_into(
     // point at a time, that walk was most of classifying a hull whose
     // points lie on its faces (#468). A point found on a neighbor's plane
     // walks on from there as before.
-    let side_of = |g: u32, p: u32| -> Result<Sign, ConvexHullError> {
+    let side_of = |g: u32, p: u32| -> Result<Sign, Error> {
         match groups
             .groups
             .get(g as usize)
@@ -1239,7 +1239,7 @@ fn facet_polygon<'w>(
     groups: &LogicalFacets,
     g: u32,
     work: &'w mut PolygonWork,
-) -> Result<Option<FacetPolygon<'w>>, ConvexHullError> {
+) -> Result<Option<FacetPolygon<'w>>, Error> {
     let PolygonWork { rows, chain, edges } = work;
     let Some(simplex) = groups
         .groups
@@ -1343,7 +1343,7 @@ fn face_extremes(
     level: &mut Level,
     global: Option<&[u32]>,
     extremes: &mut Vec<u32>,
-) -> Result<(), ConvexHullError> {
+) -> Result<(), Error> {
     let mut key = core::mem::take(&mut level.key);
     let result = face_extremes_with(
         input, plane, candidates, faces, level, global, &mut key, extremes,
@@ -1363,7 +1363,7 @@ fn face_extremes_with(
     global: Option<&[u32]>,
     key: &mut Vec<u32>,
     extremes: &mut Vec<u32>,
-) -> Result<(), ConvexHullError> {
+) -> Result<(), Error> {
     let d = input.dim();
     extremes.clear();
     if d == 1 {
@@ -1458,7 +1458,7 @@ fn sub_extremes<'f>(
     faces: &'f mut FoundFaces,
     level: &mut Level,
     key: &[u32],
-) -> Result<&'f [u32], ConvexHullError> {
+) -> Result<&'f [u32], Error> {
     if d == 2 {
         #[cfg(test)]
         tests::SUB_HULLS.with(|c| c.set(c.get() + 1));
@@ -1492,7 +1492,7 @@ fn global_of(global: Option<&[u32]>, v: u32) -> u32 {
 /// One simplex of the placing triangulation of the extreme points of a
 /// facet, ordered so that `q`, a hull vertex off the facet, is on the
 /// negative side.
-fn oriented(input: &Input<'_>, simplex: &[u32], q: u32) -> Result<Small<u32, 11>, ConvexHullError> {
+fn oriented(input: &Input<'_>, simplex: &[u32], q: u32) -> Result<Small<u32, 11>, Error> {
     let mut vertices: Small<u32, 11> = simplex.iter().copied().collect();
     let points: Small<&[f64], 12> = vertices
         .iter()
@@ -1587,7 +1587,7 @@ impl Placing {
         span: Option<usize>,
         point: impl Fn(u32) -> &'p [f64],
         extreme: &[u32],
-    ) -> Result<(usize, &[u32]), ConvexHullError> {
+    ) -> Result<(usize, &[u32]), Error> {
         if span == Some(2) && extreme.len() > 3 && self.in_a_plane(d, &point, extreme)? {
             // Debug builds compare a face of up to 64 points with the
             // general method, which is quadratic in them.
@@ -1644,7 +1644,7 @@ impl Placing {
         d: usize,
         point: &impl Fn(u32) -> &'p [f64],
         extreme: &[u32],
-    ) -> Result<bool, ConvexHullError> {
+    ) -> Result<bool, Error> {
         let m = extreme.len();
         // Two coordinates on which the first three points are not on one
         // line: dropping the others is then one to one on the plane.
@@ -1718,7 +1718,7 @@ impl Placing {
         span: Option<usize>,
         point: &impl Fn(u32) -> &'p [f64],
         extreme: &[u32],
-    ) -> Result<(usize, &[u32]), ConvexHullError> {
+    ) -> Result<(usize, &[u32]), Error> {
         #[cfg(test)]
         {
             self.searches = 0;
@@ -1752,7 +1752,7 @@ impl Placing {
         point: &impl Fn(u32) -> &'p [f64],
         extreme: &[u32],
         start: usize,
-    ) -> Result<Option<usize>, ConvexHullError> {
+    ) -> Result<Option<usize>, Error> {
         let Self {
             simplices,
             len,
@@ -1781,17 +1781,16 @@ impl Placing {
             basis.push(first);
         }
         // The orientation of `vertices` projected onto `axes`.
-        let mut projected_sign = |vertices: &mut dyn Iterator<Item = u32>,
-                                  axes: &[usize]|
-         -> Result<Sign, ConvexHullError> {
-            rows.clear();
-            for v in vertices {
-                let x = point(v);
-                rows.extend(axes.iter().map(|&a| x[a]));
-            }
-            let refs: Small<&[f64], 11> = rows.chunks_exact(axes.len()).collect();
-            Ok(orient(&refs)?)
-        };
+        let mut projected_sign =
+            |vertices: &mut dyn Iterator<Item = u32>, axes: &[usize]| -> Result<Sign, Error> {
+                rows.clear();
+                for v in vertices {
+                    let x = point(v);
+                    rows.extend(axes.iter().map(|&a| x[a]));
+                }
+                let refs: Small<&[f64], 11> = rows.chunks_exact(axes.len()).collect();
+                Ok(orient(&refs)?)
+            };
         if start == 0 {
             toggle(boundary, simplices);
         }
@@ -1887,7 +1886,7 @@ impl Placing {
         whole: bool,
         point: &impl Fn(u32) -> &'p [f64],
         rest: &[u32],
-    ) -> Result<usize, ConvexHullError> {
+    ) -> Result<usize, Error> {
         let Self {
             simplices,
             len,
@@ -1920,7 +1919,7 @@ impl Placing {
             links,
         } = surface;
         // The orientation of the ridge `ridge` with `last`, on `axes`.
-        let mut sign = |ridge: &[u32], last: u32| -> Result<Sign, ConvexHullError> {
+        let mut sign = |ridge: &[u32], last: u32| -> Result<Sign, Error> {
             rows.clear();
             for &v in ridge.iter().chain([&last]) {
                 let x = point(v);
@@ -2014,25 +2013,23 @@ impl Placing {
                     ridge: id,
                 }
             };
-            let mut beyond = |id: u32,
-                              side: &mut [Option<Sign>],
-                              vertices: &[u32]|
-             -> Result<bool, ConvexHullError> {
-                let ridge = &vertices[id as usize * s..(id as usize + 1) * s];
-                let of_point = sign(ridge, p)?;
-                if of_point == Sign::Zero {
-                    return Ok(false);
-                }
-                let of_opposite = match side[id as usize] {
-                    Some(known) => known,
-                    None => {
-                        let found = sign(ridge, opposite[id as usize])?;
-                        side[id as usize] = Some(found);
-                        found
+            let mut beyond =
+                |id: u32, side: &mut [Option<Sign>], vertices: &[u32]| -> Result<bool, Error> {
+                    let ridge = &vertices[id as usize * s..(id as usize + 1) * s];
+                    let of_point = sign(ridge, p)?;
+                    if of_point == Sign::Zero {
+                        return Ok(false);
                     }
+                    let of_opposite = match side[id as usize] {
+                        Some(known) => known,
+                        None => {
+                            let found = sign(ridge, opposite[id as usize])?;
+                            side[id as usize] = Some(found);
+                            found
+                        }
+                    };
+                    Ok(of_opposite != Sign::Zero && of_point != of_opposite)
                 };
-                Ok(of_opposite != Sign::Zero && of_point != of_opposite)
-            };
             // One ridge the point is beyond.
             heap.clear();
             queued[last as usize] = stamp;
@@ -2161,7 +2158,7 @@ fn raising_axis<'p>(
     point: &impl Fn(u32) -> &'p [f64],
     p: u32,
     rows: &mut Vec<f64>,
-) -> Result<Option<usize>, ConvexHullError> {
+) -> Result<Option<usize>, Error> {
     for j in (0..d).filter(|j| !axes.contains(j)) {
         rows.clear();
         for v in basis.iter().copied().chain([p]) {
@@ -2719,7 +2716,7 @@ pub(crate) mod tests {
         d: usize,
         point: impl Fn(u32) -> &'p [f64],
         extreme: &[u32],
-    ) -> Result<Vec<Vec<u32>>, ConvexHullError> {
+    ) -> Result<Vec<Vec<u32>>, Error> {
         let Some((&first, rest)) = extreme.split_first() else {
             return Ok(Vec::new());
         };
@@ -2779,7 +2776,7 @@ pub(crate) mod tests {
                     continue;
                 }
                 let a = simplices[s][slot];
-                let side_of = |v: u32| -> Result<Sign, ConvexHullError> {
+                let side_of = |v: u32| -> Result<Sign, Error> {
                     let projected: Vec<Vec<f64>> = ridge
                         .iter()
                         .chain(core::iter::once(&v))

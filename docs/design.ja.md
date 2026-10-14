@@ -10,10 +10,10 @@
 
 入力の `f64` は、そのビット列が表す座標そのものとする。述語の前に平行移動もスケールもしない。丸めが入った変換は、厳密なゼロの位置を変える。丸めが入らない変換が一つあり、これは許す（#179、#589）。入力全体のすべての座標に同じ 2 の冪を掛けることで、その積がどの座標でも正確なときに限る。すべての行列式に正の 2 の冪が掛かるだけなので、符号は一つも変わらない。スケールした座標の上のビルドは、同じ厳密な問題のビルドである。受け入れの前に一度だけ行う。最大の座標が 1 から遠いとき（サイトは両側とも `2^12` より先、凸包の点は `2^64` より先、$D = 2$ の凸包は `2^300` より先）に、それを $[1, 2)$ に入れる。巨大な座標と微小な座標が混ざり、一つのスケールでは丸めが入る入力は、そのままビルドする。結果が座標として公開するもの（凸包の平面、Voronoi 図の頂点）は、入力そのものの座標から計算する。#179 が最初に許した、一つの述語の成分をフィルタの中でスケールする方法は、試して取り下げた。述語が二度走り、述語のまわりの段は微小な座標のままだったからである。
 
-誤差は、その述語の式を評価したときの丸めに限る。各述語は `Sign` を返す。`f64` は返さない。
+誤差は、その述語の式を評価したときの丸めに限る。各述語は `Sign` を返す。`f64` は返さない。公開関数は符号を受け取らず、返しもしない。したがって `Sign` はクレート内部の型であり、API の型ではない（#596）。
 
 ```rust
-pub enum Sign {
+enum Sign {
     Negative,
     Zero,
     Positive,
@@ -79,8 +79,11 @@ flowchart TD
 
 代表が $D + 1$ 個以上あってもアフィン次元が $D$ 未満なら、`DegenerateDimension { actual_dim, spanning_points }` で失敗する。呼び出し側が射影するときは、返った `spanning_points` を使う。`spanning_points` は、代表インデックスを昇順に見て、アフィン次元を厳密に増やす点だけを採用した列である。長さは $\textit{actual\_dim} + 1$ である。この列が、辞書順で最小の基底になる。
 
+失敗しうる関数は、すべて一つのエラー型 `Error` を返す。凸包、Delaunay 三角形分割、Voronoi 図の構築と、`ConvexHull::planes()` である。`Error` は `#[non_exhaustive]` である。後の版がバリアントを足しても呼び出し側は壊れず、クレートの外の `match` はワイルドカードの腕を持つ（#596）。
+
 ```rust
-pub enum ConvexHullError {
+#[non_exhaustive]
+pub enum Error {
     NonPositiveDimension,
     LengthMismatch { len: usize, dim: usize },
     /// 点番号。入力順で、最初に非有限座標を持つ点。
@@ -471,11 +474,11 @@ pub struct ConvexHullBuilder<'a> { /* dim, points */ }
 
 impl<'a> ConvexHullBuilder<'a> {
     pub fn new(dim: usize, points: &'a [f64]) -> Self;
-    pub fn build(self) -> Result<ConvexHull, ConvexHullError>;
+    pub fn build(self) -> Result<ConvexHull, Error>;
 }
 ```
 
-`DelaunayBuilder` と `VoronoiBuilder` も同じ形である。失敗はどちらも `ConvexHullError` を返す。Delaunay の `dim` は元の空間の次元であり、持ち上げ後の次元ではない。
+`DelaunayBuilder` と `VoronoiBuilder` も同じ形である。失敗はどちらも `Error` を返す。Delaunay の `dim` は元の空間の次元であり、持ち上げ後の次元ではない。
 
 ```rust
 pub struct ConvexHull { /* 非公開 */ }
@@ -491,7 +494,7 @@ impl ConvexHull {
     /// ファセットの平面（第5節）。最初の呼び出しで計算し、保持する。
     /// 法線または offset が有限でないときは NonFiniteFacetPlane。この失敗も保持する。
     /// ExactEvaluationExhausted は保持しない。
-    pub fn planes(&self) -> Result<Planes<'_>, ConvexHullError>;
+    pub fn planes(&self) -> Result<Planes<'_>, Error>;
     /// トポロジーには使わない。有限であることは保証しない。
     pub fn volume(&self) -> f64;
     /// 共面の切り方は、版をまたいだ安定性の約束に入らない。
@@ -508,9 +511,13 @@ impl ConvexHull {
 ```rust
 pub struct TriangulationView<'a> { /* ConvexHull を借用する */ }
 
-pub struct BoundarySimplex<'a> {
-    pub vertices: &'a [u32], // 長さ D。第5節のとおり末尾二点を入れ替えた外向きの順
-    pub facet: u32,          // この単体を含む論理ファセットの公開番号
+pub struct BoundarySimplex<'a> { /* 非公開 */ }
+
+impl<'a> BoundarySimplex<'a> {
+    /// 長さ D。第5節のとおり末尾二点を入れ替えた外向きの順。
+    pub fn vertices(&self) -> &'a [u32];
+    /// この単体を含む論理ファセットの公開番号。
+    pub fn facet(&self) -> u32;
 }
 
 impl<'a> TriangulationView<'a> {
@@ -531,7 +538,7 @@ pub struct StaticDelaunay<const D: usize>;
 pub struct StaticVoronoi<const D: usize>;
 
 impl StaticConvexHull<D> {
-    pub fn build(points: &[[f64; D]]) -> Result<ConvexHull, ConvexHullError>;
+    pub fn build(points: &[[f64; D]]) -> Result<ConvexHull, Error>;
 }
 ```
 
