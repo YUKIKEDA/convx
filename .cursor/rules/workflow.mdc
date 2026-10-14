@@ -127,3 +127,5 @@ After each merge, read `main`'s CI run. A red `main` gets its own Issue and pull
 Identifiers, rustdoc, Issue bodies, and commit subjects are English. Japanese in the repository is `docs/design.ja.md` and `README.ja.md`. `docs/design.md` is the full English specification, not a pointer. When the two design files differ, follow `docs/design.ja.md`.
 
 Before calling a PR ready, and whenever the owner asks for the next step, read the reviews and inline comments of every open PR (`gh pr view <n> --json reviews`, `gh api repos/<owner>/<repo>/pulls/<n>/comments`). The review of #337 named two open findings and was not read before #337 merged.
+
+A table of `docs/roadmap.md` is aligned: every cell is padded to the width of its column, and the dashes of the header's rule fill it, as the owner's editor leaves the file on save. A row added without the padding makes the next save of the file rewrite the table, and that change sat in the working tree and stopped a merge on 2026-10-14 (#655). Pad the row, and widen the column for every row when the new cell is the longest.
