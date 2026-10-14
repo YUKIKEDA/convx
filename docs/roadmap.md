@@ -82,214 +82,214 @@ Static API, Delaunay, Voronoi, and oracles. Pulling triangulation and the cosphe
 
 After a correct sequential hull. These rows do not block P4.
 
-| ID    | Kind  | Title                                                                                                     | Issue | Status                   |
-| ----- | ----- | --------------------------------------------------------------------------------------------------------- | ----- | ------------------------ |
-| P5-1  | Feat  | Wider SIMD, including AVX-512                                                                             | #25   | Done                     |
-| P5-3  | Feat  | Cache of lifted coordinates                                                                               | #27   | Done                     |
-| P5-4  | Feat  | Leave non-lower simplices out of the coplanar merge                                                       | #28   | Done                     |
-| P5-5  | Feat  | Vector cull kernel faster than its scalar lanes                                                           | #70   | Done                     |
-| P5-6  | Feat  | Filtered determinant cheap for every k > 4                                                                | #72   | Done                     |
-| P5-7  | Feat  | Faster distance-zero classification                                                                       | #73   | Done                     |
-| P5-8  | Feat  | Linear batch extraction                                                                                   | #75   | Done                     |
-| P5-9  | Feat  | Certified distance proves a strict side                                                                   | #79   | Done                     |
-| P5-10 | Feat  | Visibility search without SipHash                                                                         | #85   | Done                     |
-| P5-11 | Feat  | Cheaper certification of a new facet's working normal                                                     | #86   | Done                     |
-| P5-12 | Feat  | Faster exact stage for predicates the filter cannot decide                                                | #96   | Done                     |
-| P5-13 | Feat  | Certified cull and strict-side proof for lifted facets                                                    | #109  | Done                     |
-| P5-14 | Feat  | Skip the visibility walk for candidates a round rejects                                                   | #110  | Done                     |
-| P5-15 | Feat  | One shared elimination for a facet's cofactors                                                            | #111  | Done                     |
-| P5-16 | Feat  | Hull cube D6 10^4 within 1.39 s on one core                                                               | #120  | Done                     |
-| P5-19 | Feat  | Factor the published normal with one Householder QR                                                       | #135  | Done                     |
-| P5-20 | Feat  | Run the k > 4 elimination in lanes with inline cofactors                                                  | #143  | Done                     |
-| P5-21 | Feat  | Cut per-insertion allocation and relinking in the hull build                                              | #145  | Done                     |
-| P5-22 | Feat  | Evaluate the cofactors of four new simplices at once in lanes                                             | #147  | Done                     |
-| P5-23 | Feat  | Gather, scale, and store the four lane facets inside the vectorized call                                  | #149  | Done                     |
-| P5-24 | Feat  | Publish the hull without per-item vectors and indirect sorts                                              | #151  | Done                     |
-| P5-26 | Feat  | Build the ridge keys of a new simplex from one sorted horizon ridge                                       | #154  | Done                     |
-| P5-27 | Feat  | Find the vertices an insertion loses without sorting the region's vertices                                | #156  | Done                     |
-| P5-28 | Feat  | Examine only the first 64 candidates of each round                                                        | #159  | Done                     |
-| P5-29 | Feat  | Classify and publish without per-facet copies; pair Delaunay faces without a hash map                     | #163  | Done                     |
-| P5-30 | Feat  | Build the Voronoi cells, tiles, and rays without quadratic scans                                          | #165  | Done                     |
-| P5-31 | Feat  | Pass the cull origin instead of copying it into every plane                                               | #167  | Done                     |
-| P5-32 | Bug   | Spread two-vertex keys over the face pairing table                                                        | #170  | Done                     |
-| P5-33 | Feat  | Pick a round's candidates without a pass over every pending candidate                                     | #172  | Done                     |
-| P5-34 | Feat  | Exact stage without heap big integers for the predicates coplanar inputs send past the filter             | #173  | Done                     |
-| P5-35 | Feat  | Certify the working normal of a facet with 2 to 4 points as cheaply as the lane path                      | #174  | Done                     |
-| P5-36 | Spike | Would an incremental Delaunay in BRIO order beat the lifted Quickhull at D = 2 and 3?                     | #175  | Done                     |
-| P5-37 | Spike | Would a core monomorphized on D speed up the static API, and would a dedicated D = 2 hull beat Quickhull? | #176  | Done                     |
-| P5-38 | Spike | Where does the peak memory of output-heavy builds go?                                                     | #177  | Absorbed by P6-6 (#254)  |
-| P5-39 | Spike | Why does parallel(true) give only 1.2 to 1.3 times on four cores?                                         | #178  | Absorbed by P6-8 (#256)  |
-| P5-40 | Docs  | Let the filter rescale tiny inputs by an exact power of two                                               | #179  | Done                     |
-| P5-41 | Spike | How many NonFiniteCircumcenter failures have a circumcenter that fits in f64?                             | #180  | Done                     |
-| P5-42 | Spike | Why does hull sphere D2 wall time grow faster than its instruction count?                                 | #182  | Done                     |
-| P5-43 | Spike | Coplanar points are scanned again for every new facet: can construction stop rescanning them?             | #183  | Done                     |
-| P5-44 | Feat  | Reuse the work space of the heap exact stage across predicate calls                                       | #185  | Done                     |
-| P5-45 | Spike | Near-cospherical sites send almost every lifted predicate to the exact stage                              | #187  | Not started              |
-| P5-46 | Feat  | Build Delaunay and Voronoi by incremental insertion in every dimension (design #188)                      | #189  | Done                     |
-| P5-47 | Feat  | Deterministic parallel insertion for Delaunay and Voronoi                                                 | #190  | Set after Grill on #190  |
-| P5-48 | Spike | Where does hull sphere time go at D = 3 to D = 6?                                                         | #199  | Done                     |
-| P5-49 | Spike | Why is the low-dimension cube hull slower than Qhull's compute time?                                      | #200  | Done                     |
-| P5-50 | Bug   | Run the filtered elimination under AVX2, not AVX-512 (the D = 8 lifted 9 x 9 was 24x slower)              | #195  | Done                     |
-| P5-51 | Feat  | Vectorize the filtered elimination of size 10 and up (heap rows)                                          | #203  | Closed: done by #554     |
-| P5-52 | Feat  | Cut the copies and cache lines of the simplex record that hull construction writes and walks              | #209  | Done                     |
-| P5-53 | Docs  | Publish the certified cofactor direction as every facet's unit normal                                     | #210  | Done                     |
-| P5-54 | Feat  | Publish the certified cofactor direction and remove the published QR                                      | #212  | Done                     |
-| P5-55 | Feat  | Find duplicate points and list interior points without sorting every input point                          | #213  | Done                     |
-| P5-56 | Feat  | Partition outside points without re-testing what the scan proved or re-gathering scattered rows           | #214  | Done                     |
-| P5-57 | Spike | How does convx compare with CGAL on the hull and Delaunay timing sets?                                    | #215  | Done                     |
-| P5-58 | Spike | How much of the pass after construction can a hull of single-simplex facets skip?                         | #228  | Done                     |
-| P5-59 | Docs  | One filtered strict chain for the D = 2 hull                                                               | #230  | Done                     |
-| P5-60 | Feat  | Build every D = 2 hull by the filtered strict chain                                                        | #232  | Done                     |
-| P5-61 | Spike | Extremes of a coplanar face come from recursive sub-hulls: where does that time go?                       | #237  | Done                     |
-| P5-62 | Spike | What does hull construction in general position pay per simplex, at 10^4 and at 10^6 points?              | #247  | Done                     |
-| P5-63 | Feat  | Predicates: the filter scales one predicate's entries by an exact power of two                            | #589  | Done                     |
+| ID    | Kind  | Title                                                                                                     | Issue | Status                  |
+| ----- | ----- | --------------------------------------------------------------------------------------------------------- | ----- | ----------------------- |
+| P5-1  | Feat  | Wider SIMD, including AVX-512                                                                             | #25   | Done                    |
+| P5-3  | Feat  | Cache of lifted coordinates                                                                               | #27   | Done                    |
+| P5-4  | Feat  | Leave non-lower simplices out of the coplanar merge                                                       | #28   | Done                    |
+| P5-5  | Feat  | Vector cull kernel faster than its scalar lanes                                                           | #70   | Done                    |
+| P5-6  | Feat  | Filtered determinant cheap for every k > 4                                                                | #72   | Done                    |
+| P5-7  | Feat  | Faster distance-zero classification                                                                       | #73   | Done                    |
+| P5-8  | Feat  | Linear batch extraction                                                                                   | #75   | Done                    |
+| P5-9  | Feat  | Certified distance proves a strict side                                                                   | #79   | Done                    |
+| P5-10 | Feat  | Visibility search without SipHash                                                                         | #85   | Done                    |
+| P5-11 | Feat  | Cheaper certification of a new facet's working normal                                                     | #86   | Done                    |
+| P5-12 | Feat  | Faster exact stage for predicates the filter cannot decide                                                | #96   | Done                    |
+| P5-13 | Feat  | Certified cull and strict-side proof for lifted facets                                                    | #109  | Done                    |
+| P5-14 | Feat  | Skip the visibility walk for candidates a round rejects                                                   | #110  | Done                    |
+| P5-15 | Feat  | One shared elimination for a facet's cofactors                                                            | #111  | Done                    |
+| P5-16 | Feat  | Hull cube D6 10^4 within 1.39 s on one core                                                               | #120  | Done                    |
+| P5-19 | Feat  | Factor the published normal with one Householder QR                                                       | #135  | Done                    |
+| P5-20 | Feat  | Run the k > 4 elimination in lanes with inline cofactors                                                  | #143  | Done                    |
+| P5-21 | Feat  | Cut per-insertion allocation and relinking in the hull build                                              | #145  | Done                    |
+| P5-22 | Feat  | Evaluate the cofactors of four new simplices at once in lanes                                             | #147  | Done                    |
+| P5-23 | Feat  | Gather, scale, and store the four lane facets inside the vectorized call                                  | #149  | Done                    |
+| P5-24 | Feat  | Publish the hull without per-item vectors and indirect sorts                                              | #151  | Done                    |
+| P5-26 | Feat  | Build the ridge keys of a new simplex from one sorted horizon ridge                                       | #154  | Done                    |
+| P5-27 | Feat  | Find the vertices an insertion loses without sorting the region's vertices                                | #156  | Done                    |
+| P5-28 | Feat  | Examine only the first 64 candidates of each round                                                        | #159  | Done                    |
+| P5-29 | Feat  | Classify and publish without per-facet copies; pair Delaunay faces without a hash map                     | #163  | Done                    |
+| P5-30 | Feat  | Build the Voronoi cells, tiles, and rays without quadratic scans                                          | #165  | Done                    |
+| P5-31 | Feat  | Pass the cull origin instead of copying it into every plane                                               | #167  | Done                    |
+| P5-32 | Bug   | Spread two-vertex keys over the face pairing table                                                        | #170  | Done                    |
+| P5-33 | Feat  | Pick a round's candidates without a pass over every pending candidate                                     | #172  | Done                    |
+| P5-34 | Feat  | Exact stage without heap big integers for the predicates coplanar inputs send past the filter             | #173  | Done                    |
+| P5-35 | Feat  | Certify the working normal of a facet with 2 to 4 points as cheaply as the lane path                      | #174  | Done                    |
+| P5-36 | Spike | Would an incremental Delaunay in BRIO order beat the lifted Quickhull at D = 2 and 3?                     | #175  | Done                    |
+| P5-37 | Spike | Would a core monomorphized on D speed up the static API, and would a dedicated D = 2 hull beat Quickhull? | #176  | Done                    |
+| P5-38 | Spike | Where does the peak memory of output-heavy builds go?                                                     | #177  | Absorbed by P6-6 (#254) |
+| P5-39 | Spike | Why does parallel(true) give only 1.2 to 1.3 times on four cores?                                         | #178  | Absorbed by P6-8 (#256) |
+| P5-40 | Docs  | Let the filter rescale tiny inputs by an exact power of two                                               | #179  | Done                    |
+| P5-41 | Spike | How many NonFiniteCircumcenter failures have a circumcenter that fits in f64?                             | #180  | Done                    |
+| P5-42 | Spike | Why does hull sphere D2 wall time grow faster than its instruction count?                                 | #182  | Done                    |
+| P5-43 | Spike | Coplanar points are scanned again for every new facet: can construction stop rescanning them?             | #183  | Done                    |
+| P5-44 | Feat  | Reuse the work space of the heap exact stage across predicate calls                                       | #185  | Done                    |
+| P5-45 | Spike | Near-cospherical sites send almost every lifted predicate to the exact stage                              | #187  | Not started             |
+| P5-46 | Feat  | Build Delaunay and Voronoi by incremental insertion in every dimension (design #188)                      | #189  | Done                    |
+| P5-47 | Feat  | Deterministic parallel insertion for Delaunay and Voronoi                                                 | #190  | Set after Grill on #190 |
+| P5-48 | Spike | Where does hull sphere time go at D = 3 to D = 6?                                                         | #199  | Done                    |
+| P5-49 | Spike | Why is the low-dimension cube hull slower than Qhull's compute time?                                      | #200  | Done                    |
+| P5-50 | Bug   | Run the filtered elimination under AVX2, not AVX-512 (the D = 8 lifted 9 x 9 was 24x slower)              | #195  | Done                    |
+| P5-51 | Feat  | Vectorize the filtered elimination of size 10 and up (heap rows)                                          | #203  | Closed: done by #554    |
+| P5-52 | Feat  | Cut the copies and cache lines of the simplex record that hull construction writes and walks              | #209  | Done                    |
+| P5-53 | Docs  | Publish the certified cofactor direction as every facet's unit normal                                     | #210  | Done                    |
+| P5-54 | Feat  | Publish the certified cofactor direction and remove the published QR                                      | #212  | Done                    |
+| P5-55 | Feat  | Find duplicate points and list interior points without sorting every input point                          | #213  | Done                    |
+| P5-56 | Feat  | Partition outside points without re-testing what the scan proved or re-gathering scattered rows           | #214  | Done                    |
+| P5-57 | Spike | How does convx compare with CGAL on the hull and Delaunay timing sets?                                    | #215  | Done                    |
+| P5-58 | Spike | How much of the pass after construction can a hull of single-simplex facets skip?                         | #228  | Done                    |
+| P5-59 | Docs  | One filtered strict chain for the D = 2 hull                                                              | #230  | Done                    |
+| P5-60 | Feat  | Build every D = 2 hull by the filtered strict chain                                                       | #232  | Done                    |
+| P5-61 | Spike | Extremes of a coplanar face come from recursive sub-hulls: where does that time go?                       | #237  | Done                    |
+| P5-62 | Spike | What does hull construction in general position pay per simplex, at 10^4 and at 10^6 points?              | #247  | Done                    |
+| P5-63 | Feat  | Predicates: the filter scales one predicate's entries by an exact power of two                            | #589  | Done                    |
 
 ## P6
 
 Architecture rework. Rows follow the review and Grill of 2026-10-07. Each row keeps every test, fixture, and oracle passing; no new core stays beside the one it replaces.
 
-| ID   | Kind | Title                                                                                | Issue | Status      |
-| ---- | ---- | ------------------------------------------------------------------------------------ | ----- | ----------- |
-| P6-1 | Feat | Semi-static filter for orientations and lifted orientations with k ≤ 4               | #249  | Done        |
-| P6-2 | Task | Time Qhull's whole run and convx's construction alone next to `build()`              | #250  | Done        |
-| P6-3 | Docs | Sequential hull inserts one point at a time in place; batch extraction only parallel | #251  | Done        |
-| P6-4 | Docs | Store the hull, Delaunay, and Voronoi results in flat arrays behind views             | #252  | Done        |
-| P6-5 | Feat | Facet store sized to the hull's dimension and sequential Quickhull in place          | #253  | Done        |
-| P6-6 | Feat | Flat result storage and views for the hull, Delaunay, and Voronoi                    | #254  | Done        |
-| P6-7 | Feat | Delaunay: link across the cavity boundary and publish from the mesh                  | #255  | Done        |
-| P6-8 | Feat | Parallel hull on the new facet store, kept only if it beats the sequential build     | #256  | Done        |
-| P6-9 | Docs | The hull is built sequentially only; the parallel round protocol and flag leave      | #266  | Done        |
-| P6-10 | Refactor | Remove the parallel round protocol and the `parallel` flag                       | #267  | Done        |
-| P6-11 | Spike | Which coarse-grained parallel hull strategies can beat the sequential build?     | #269  | Done        |
-| P6-12 | Docs | Let construction record the planes a point lies on                                   | #236  | Done        |
-| P6-13 | Task | Measure convx after P6 against Qhull and CGAL; rank the remaining gaps             | #275  | Done        |
-| P6-14 | Spike | Can a ParGeo-style fully parallel hull beat the sequential build at 4 and 16 threads? | #276  | Done        |
-| P6-15 | Task | Profile the three gaps that remain after P6                                         | #285  | Done        |
-| P6-16 | Spike | Hull construction: what do the candidate heap and by-value moves cost on sphere D3? | #286  | Done        |
-| P6-17 | Docs | Publish without redundant work, and compute facet planes on first use               | #287  | Done        |
-| P6-18 | Docs | A dedicated Delaunay insertion for D = 2 and D = 3                                  | #288  | Done        |
-| P6-19 | Feat | Hull: take candidates from a bucket queue by distance                               | #291  | Done        |
-| P6-20 | Feat | Hull: planes and the boundary complex on first use; publish without redundant work  | #293  | Done        |
-| P6-21 | Feat | Delaunay: specialize the insertion for D = 2 and D = 3                              | #294  | Done        |
-| P6-22 | Feat | Hull: record the planes a point lies on and use them in insertion and classification | #306  | Done        |
+| ID    | Kind     | Title                                                                                 | Issue | Status |
+| ----- | -------- | ------------------------------------------------------------------------------------- | ----- | ------ |
+| P6-1  | Feat     | Semi-static filter for orientations and lifted orientations with k ≤ 4                | #249  | Done   |
+| P6-2  | Task     | Time Qhull's whole run and convx's construction alone next to `build()`               | #250  | Done   |
+| P6-3  | Docs     | Sequential hull inserts one point at a time in place; batch extraction only parallel  | #251  | Done   |
+| P6-4  | Docs     | Store the hull, Delaunay, and Voronoi results in flat arrays behind views             | #252  | Done   |
+| P6-5  | Feat     | Facet store sized to the hull's dimension and sequential Quickhull in place           | #253  | Done   |
+| P6-6  | Feat     | Flat result storage and views for the hull, Delaunay, and Voronoi                     | #254  | Done   |
+| P6-7  | Feat     | Delaunay: link across the cavity boundary and publish from the mesh                   | #255  | Done   |
+| P6-8  | Feat     | Parallel hull on the new facet store, kept only if it beats the sequential build      | #256  | Done   |
+| P6-9  | Docs     | The hull is built sequentially only; the parallel round protocol and flag leave       | #266  | Done   |
+| P6-10 | Refactor | Remove the parallel round protocol and the `parallel` flag                            | #267  | Done   |
+| P6-11 | Spike    | Which coarse-grained parallel hull strategies can beat the sequential build?          | #269  | Done   |
+| P6-12 | Docs     | Let construction record the planes a point lies on                                    | #236  | Done   |
+| P6-13 | Task     | Measure convx after P6 against Qhull and CGAL; rank the remaining gaps                | #275  | Done   |
+| P6-14 | Spike    | Can a ParGeo-style fully parallel hull beat the sequential build at 4 and 16 threads? | #276  | Done   |
+| P6-15 | Task     | Profile the three gaps that remain after P6                                           | #285  | Done   |
+| P6-16 | Spike    | Hull construction: what do the candidate heap and by-value moves cost on sphere D3?   | #286  | Done   |
+| P6-17 | Docs     | Publish without redundant work, and compute facet planes on first use                 | #287  | Done   |
+| P6-18 | Docs     | A dedicated Delaunay insertion for D = 2 and D = 3                                    | #288  | Done   |
+| P6-19 | Feat     | Hull: take candidates from a bucket queue by distance                                 | #291  | Done   |
+| P6-20 | Feat     | Hull: planes and the boundary complex on first use; publish without redundant work    | #293  | Done   |
+| P6-21 | Feat     | Delaunay: specialize the insertion for D = 2 and D = 3                                | #294  | Done   |
+| P6-22 | Feat     | Hull: record the planes a point lies on and use them in insertion and classification  | #306  | Done   |
 
 ## P7
 
 Parity with Qhull and CGAL: `build()` at most the time of each reference with the same output, on every benchmark set (ADR 0006, Grill of 2026-10-09), judged within 5% (amendment of 2026-10-10, #382). The rows after P7-3 come from the spike P7-2 and the design P7-3. P7-2 led to local improvements of the current insertion: P7-4, then the profile P7-5. P7-3 led to P7-6, and its Grill to the speed rows P7-7 to P7-9 for hull D2 and acceptance. The profile P7-5 led to P7-10 to P7-13 for Delaunay, and the Grill of P7-11 to P7-14. The spike P7-12 led to P7-15 and P7-16 for the predicates, and the Grill of P7-15 to P7-17. The review of P7-16 led to P7-18. The spike P7-13 led to P7-19 and P7-20. The spike P7-20 led to P7-21. The Grill of 2026-10-10 on #370 led to P7-22, and its outcome, with the owner's change of the rule, to ADR 0007 and P7-23. The Grill of 2026-10-10 on #374 led to P7-24. The review of #365 led to the spike P7-25, and P7-25 to P7-26 and P7-27. P7-27 led to P7-28 to P7-30. The review of #399 led to P7-31. The parity run of #404 led to the spike P7-32, and P7-32 to P7-33 to P7-36. P7-36 led to P7-37 to P7-39. The prototype of P7-38 led to P7-40, and P7-40 to P7-41 and P7-42 (withdrawn).
 
-| ID   | Kind  | Title                                                                                   | Issue | Status      |
-| ---- | ----- | --------------------------------------------------------------------------------------- | ----- | ----------- |
-| P7-1 | Task  | Record the goal of parity with Qhull and CGAL, the baseline, and the method             | #310  | Done        |
-| P7-2 | Spike | Delaunay D2: does a CGAL-style structure halve the insertion?                           | #311  | Done        |
-| P7-3 | Docs  | Hull: `build()` computes only what the result needs; the rest on first use              | #312  | Done        |
-| P7-4 | Feat  | Predicates: a first-stage bound with no subnormal product                               | #316  | Done        |
-| P7-5 | Task  | Profile Delaunay D2 and D3 after P7-4 and name the next rows                            | #317  | Done        |
-| P7-6 | Feat  | Hull: D2 facets in cycle order and the facet numbering on first use                     | #321  | Done        |
-| P7-7 | Feat  | Hull D2: a faster sort of the chain's points                                            | #322  | Done        |
-| P7-8 | Feat  | Acceptance: faster duplicate detection                                                  | #323  | Withdrawn after measurement (#323) |
-| P7-9 | Feat  | Hull D2: a faster discard before the chain                                              | #324  | Done        |
-| P7-10 | Feat | Delaunay: link the cavity's new simplices without turning around ridges                  | #329  | Done        |
-| P7-11 | Docs | Delaunay: what `build()` computes; the public order of the simplices                     | #330  | Done        |
-| P7-12 | Spike | Delaunay `sphere` D2: in-sphere tests that reach the exact stage                        | #331  | Done        |
-| P7-13 | Spike | Delaunay D2: insertion order and point location against CGAL's                          | #332  | Done        |
-| P7-14 | Feat | Delaunay: publish the simplices in construction order                                    | #335  | Done        |
-| P7-15 | Docs | Predicates: a double-double stage between the first stage and the exact stage            | #349  | Done        |
-| P7-16 | Feat | Predicates: a first stage for determinants of size 5 and 6                               | #350  | Done        |
-| P7-17 | Feat | Predicates: a double-double stage for the dedicated formulas                             | #352  | Done        |
-| P7-18 | Fix  | Predicates: the lifted underflow terms of the first-stage formulas of k ≤ 4              | #355  | Done        |
-| P7-19 | Feat | Delaunay: the pass after the insertion at the cost of its tests                         | #362  | Done        |
-| P7-20 | Spike | Delaunay D2: the insertion's own work against CGAL's                                   | #363  | Done        |
-| P7-21 | Feat | Delaunay: the sites in the order of their insertion                                      | #366  | Done        |
-| P7-22 | Spike | Delaunay D2: an insertion by edge flips                                                 | #370  | Done        |
-| P7-23 | Feat | Delaunay D2: insert by edge flips (ADR 0007)                                            | #372  | Done        |
-| P7-24 | Spike | Delaunay: one record per cell of the mesh                                              | #374  | Done        |
-| P7-25 | Spike | Hull `cubesurf` and `grid`: where the time goes against Qhull                          | #368  | Done        |
-| P7-26 | Feat | Predicates: a zero column of differences decides zero before the later stages           | #384  | Done        |
-| P7-27 | Spike | Hull: exact planes of integer inputs, side tests by a dot product                       | #385  | Done        |
-| P7-28 | Feat  | Hull: a cull plane from the exact direction when the filtered cofactors fail            | #392  | Done        |
-| P7-29 | Feat  | Hull: placing keeps the boundary ridges across points                                   | #393  | Done        |
-| P7-30 | Feat  | Hull: each face of the lattice classified once                                          | #394  | Done        |
-| P7-31 | Feat  | Predicates: the exact direction's error bound from its derivation                       | #400  | Withdrawn after measurement (#400) |
-| P7-32 | Spike | Where the time goes on the general sets left: Delaunay D2 and D3, hull sphere D2 to D4  | #408  | Done        |
-| P7-33 | Feat  | Hull: planes of D = 3 and 4 by a fixed-size path                                        | #409  | Done        |
-| P7-34 | Feat  | Hull: the coplanar merge on an input with no zero sign recorded                         | #410  | Withdrawn after measurement (#471) |
-| P7-35 | Feat  | Hull D2: classify and publish a strict polygon without sorts or regrowth                | #411  | Done        |
-| P7-36 | Spike | Delaunay D2 and D3: where the insertion's own time goes, line by line                   | #412  | Done        |
-| P7-37 | Feat  | Delaunay D3: pair the new tetrahedra's faces at less cost                               | #421  | Withdrawn after measurement (#425) |
-| P7-38 | Feat  | Predicates: a static filter for Delaunay's predicates                                   | #422  | Withdrawn after measurement (#428) |
-| P7-39 | Feat  | Delaunay D2: the BRIO order at less cost                                                | #423  | Done        |
-| P7-40 | Spike | Delaunay: where the predicates' call paths spend their time, line by line               | #427  | Done        |
-| P7-41 | Feat  | Delaunay: the passes after insertion at less cost                                       | #429  | Done        |
-| P7-42 | Feat  | Delaunay: the predicates' wrappers gather only what the first stage reads               | #430  | Withdrawn after review (#431) |
-| P7-43 | Feat  | Hull D2: the points off the polygon in one pass, without regrowth                       | #440  | Done        |
-| P7-44 | Spike | Delaunay D2 and D3 against CGAL, per operation and per cache miss                       | #444  | Done        |
-| P7-45 | Feat  | Delaunay D2 and D3: the predicates on fixed-size rows, and ADR 0007's walk              | #446  | Done        |
-| P7-46 | Spike | Delaunay D2 and D3: the first stage's bound on fixed rows, after P7-45                  | #447  | Done        |
-| P7-47 | Spike | Delaunay: decide the faces the insertion leaves unknown without a test                  | #448  | Done        |
-| P7-48 | Feat  | Delaunay: a face left unknown by an orientation, lifted only when dependent             | #451  | Done        |
-| P7-49 | Spike | Delaunay D2 to D4 after P7-45 and P7-48: where the time goes                            | #454  | Done        |
-| P7-50 | Docs  | Parity: CGAL's Delaunay reference with the same output                                  | #455  | Done        |
-| P7-51 | Spike | Parity: do the hull's references produce the same output?                               | #456  | Done        |
-| P7-52 | Feat  | Delaunay D2 and D3: the pass after the insertion in one walk                            | #457  | Withdrawn after measurement (#462) |
-| P7-53 | Feat  | Delaunay D2 and D3: cells and sites in fixed-size arrays                                | #458  | Withdrawn after measurement (#462) |
-| P7-54 | Spike | Where the time goes on the 13 sets the parity run of #466 left                          | #467  | Done        |
-| P7-55 | Feat  | Hull: the recorded points of a face tested against its neighbors together               | #468  | Done        |
-| P7-56 | Feat  | Delaunay: decide the faces left unknown when the insertion links them                   | #469  | Withdrawn after measurement (#473) |
-| P7-57 | Spike | Hull sphere D2 10^4 and 10^5: acceptance, publication, and classification               | #470  | Done        |
-| P7-58 | Feat  | Delaunay D2: a face left unknown needs no test                                          | #474  | Done        |
-| P7-59 | Feat  | Hull D2: the chain's keys sorted by radix                                               | #477  | Withdrawn after measurement (#478) |
-| P7-60 | Feat  | Delaunay: the pass after the insertion reads a finiteness flag, not the neighbor        | #483  | Withdrawn after measurement (#513) |
-| P7-61 | Spike | Hull sphere D3 at 10^6: why the gap to Qhull opens                                      | #484  | Done        |
-| P7-62 | Feat  | Hull: the merge's groups of one simplex and its dense index, at less cost               | #485  | Done        |
-| P7-63 | Spike | Hull sphere D3: cache misses of construction against Qhull                              | #487  | Done        |
-| P7-64 | Feat  | Hull D3: construction on a copy of the points in Morton order                           | #489  | Done        |
-| P7-65 | Spike | Hull `cubesurf` D3 and `sphere` D2 10^4: where the time goes                            | #493  | Done        |
-| P7-66 | Feat  | Hull D2 and D3: exact side tests through the fixed-size first stage                     | #494  | Withdrawn after measurement (#495) |
-| P7-67 | Feat  | Hull D2: the duplicates found from the chain's sort, where the chain reads every point  | #496  | Done        |
-| P7-68 | Spike | Hull `cubesurf` D3: the counts of construction and classification against Qhull       | #503  | Done        |
-| P7-69 | Feat  | Hull D3: classification's shortcut for points inside a facet                          | #504  | Done        |
-| P7-70 | Feat  | Predicates: the first stage skips its bound for an exactly zero determinant          | #506  | Done        |
-| P7-71 | Spike | Delaunay `cube` D3 and hull `sphere` D2 under WSL: where the time goes against CGAL   | #509  | Done        |
-| P7-72 | Feat  | Hull D2: the chain on the halves below and above the line through its ends             | #515  | Done        |
+| ID    | Kind  | Title                                                                                  | Issue | Status                             |
+| ----- | ----- | -------------------------------------------------------------------------------------- | ----- | ---------------------------------- |
+| P7-1  | Task  | Record the goal of parity with Qhull and CGAL, the baseline, and the method            | #310  | Done                               |
+| P7-2  | Spike | Delaunay D2: does a CGAL-style structure halve the insertion?                          | #311  | Done                               |
+| P7-3  | Docs  | Hull: `build()` computes only what the result needs; the rest on first use             | #312  | Done                               |
+| P7-4  | Feat  | Predicates: a first-stage bound with no subnormal product                              | #316  | Done                               |
+| P7-5  | Task  | Profile Delaunay D2 and D3 after P7-4 and name the next rows                           | #317  | Done                               |
+| P7-6  | Feat  | Hull: D2 facets in cycle order and the facet numbering on first use                    | #321  | Done                               |
+| P7-7  | Feat  | Hull D2: a faster sort of the chain's points                                           | #322  | Done                               |
+| P7-8  | Feat  | Acceptance: faster duplicate detection                                                 | #323  | Withdrawn after measurement (#323) |
+| P7-9  | Feat  | Hull D2: a faster discard before the chain                                             | #324  | Done                               |
+| P7-10 | Feat  | Delaunay: link the cavity's new simplices without turning around ridges                | #329  | Done                               |
+| P7-11 | Docs  | Delaunay: what `build()` computes; the public order of the simplices                   | #330  | Done                               |
+| P7-12 | Spike | Delaunay `sphere` D2: in-sphere tests that reach the exact stage                       | #331  | Done                               |
+| P7-13 | Spike | Delaunay D2: insertion order and point location against CGAL's                         | #332  | Done                               |
+| P7-14 | Feat  | Delaunay: publish the simplices in construction order                                  | #335  | Done                               |
+| P7-15 | Docs  | Predicates: a double-double stage between the first stage and the exact stage          | #349  | Done                               |
+| P7-16 | Feat  | Predicates: a first stage for determinants of size 5 and 6                             | #350  | Done                               |
+| P7-17 | Feat  | Predicates: a double-double stage for the dedicated formulas                           | #352  | Done                               |
+| P7-18 | Fix   | Predicates: the lifted underflow terms of the first-stage formulas of k ≤ 4            | #355  | Done                               |
+| P7-19 | Feat  | Delaunay: the pass after the insertion at the cost of its tests                        | #362  | Done                               |
+| P7-20 | Spike | Delaunay D2: the insertion's own work against CGAL's                                   | #363  | Done                               |
+| P7-21 | Feat  | Delaunay: the sites in the order of their insertion                                    | #366  | Done                               |
+| P7-22 | Spike | Delaunay D2: an insertion by edge flips                                                | #370  | Done                               |
+| P7-23 | Feat  | Delaunay D2: insert by edge flips (ADR 0007)                                           | #372  | Done                               |
+| P7-24 | Spike | Delaunay: one record per cell of the mesh                                              | #374  | Done                               |
+| P7-25 | Spike | Hull `cubesurf` and `grid`: where the time goes against Qhull                          | #368  | Done                               |
+| P7-26 | Feat  | Predicates: a zero column of differences decides zero before the later stages          | #384  | Done                               |
+| P7-27 | Spike | Hull: exact planes of integer inputs, side tests by a dot product                      | #385  | Done                               |
+| P7-28 | Feat  | Hull: a cull plane from the exact direction when the filtered cofactors fail           | #392  | Done                               |
+| P7-29 | Feat  | Hull: placing keeps the boundary ridges across points                                  | #393  | Done                               |
+| P7-30 | Feat  | Hull: each face of the lattice classified once                                         | #394  | Done                               |
+| P7-31 | Feat  | Predicates: the exact direction's error bound from its derivation                      | #400  | Withdrawn after measurement (#400) |
+| P7-32 | Spike | Where the time goes on the general sets left: Delaunay D2 and D3, hull sphere D2 to D4 | #408  | Done                               |
+| P7-33 | Feat  | Hull: planes of D = 3 and 4 by a fixed-size path                                       | #409  | Done                               |
+| P7-34 | Feat  | Hull: the coplanar merge on an input with no zero sign recorded                        | #410  | Withdrawn after measurement (#471) |
+| P7-35 | Feat  | Hull D2: classify and publish a strict polygon without sorts or regrowth               | #411  | Done                               |
+| P7-36 | Spike | Delaunay D2 and D3: where the insertion's own time goes, line by line                  | #412  | Done                               |
+| P7-37 | Feat  | Delaunay D3: pair the new tetrahedra's faces at less cost                              | #421  | Withdrawn after measurement (#425) |
+| P7-38 | Feat  | Predicates: a static filter for Delaunay's predicates                                  | #422  | Withdrawn after measurement (#428) |
+| P7-39 | Feat  | Delaunay D2: the BRIO order at less cost                                               | #423  | Done                               |
+| P7-40 | Spike | Delaunay: where the predicates' call paths spend their time, line by line              | #427  | Done                               |
+| P7-41 | Feat  | Delaunay: the passes after insertion at less cost                                      | #429  | Done                               |
+| P7-42 | Feat  | Delaunay: the predicates' wrappers gather only what the first stage reads              | #430  | Withdrawn after review (#431)      |
+| P7-43 | Feat  | Hull D2: the points off the polygon in one pass, without regrowth                      | #440  | Done                               |
+| P7-44 | Spike | Delaunay D2 and D3 against CGAL, per operation and per cache miss                      | #444  | Done                               |
+| P7-45 | Feat  | Delaunay D2 and D3: the predicates on fixed-size rows, and ADR 0007's walk             | #446  | Done                               |
+| P7-46 | Spike | Delaunay D2 and D3: the first stage's bound on fixed rows, after P7-45                 | #447  | Done                               |
+| P7-47 | Spike | Delaunay: decide the faces the insertion leaves unknown without a test                 | #448  | Done                               |
+| P7-48 | Feat  | Delaunay: a face left unknown by an orientation, lifted only when dependent            | #451  | Done                               |
+| P7-49 | Spike | Delaunay D2 to D4 after P7-45 and P7-48: where the time goes                           | #454  | Done                               |
+| P7-50 | Docs  | Parity: CGAL's Delaunay reference with the same output                                 | #455  | Done                               |
+| P7-51 | Spike | Parity: do the hull's references produce the same output?                              | #456  | Done                               |
+| P7-52 | Feat  | Delaunay D2 and D3: the pass after the insertion in one walk                           | #457  | Withdrawn after measurement (#462) |
+| P7-53 | Feat  | Delaunay D2 and D3: cells and sites in fixed-size arrays                               | #458  | Withdrawn after measurement (#462) |
+| P7-54 | Spike | Where the time goes on the 13 sets the parity run of #466 left                         | #467  | Done                               |
+| P7-55 | Feat  | Hull: the recorded points of a face tested against its neighbors together              | #468  | Done                               |
+| P7-56 | Feat  | Delaunay: decide the faces left unknown when the insertion links them                  | #469  | Withdrawn after measurement (#473) |
+| P7-57 | Spike | Hull sphere D2 10^4 and 10^5: acceptance, publication, and classification              | #470  | Done                               |
+| P7-58 | Feat  | Delaunay D2: a face left unknown needs no test                                         | #474  | Done                               |
+| P7-59 | Feat  | Hull D2: the chain's keys sorted by radix                                              | #477  | Withdrawn after measurement (#478) |
+| P7-60 | Feat  | Delaunay: the pass after the insertion reads a finiteness flag, not the neighbor       | #483  | Withdrawn after measurement (#513) |
+| P7-61 | Spike | Hull sphere D3 at 10^6: why the gap to Qhull opens                                     | #484  | Done                               |
+| P7-62 | Feat  | Hull: the merge's groups of one simplex and its dense index, at less cost              | #485  | Done                               |
+| P7-63 | Spike | Hull sphere D3: cache misses of construction against Qhull                             | #487  | Done                               |
+| P7-64 | Feat  | Hull D3: construction on a copy of the points in Morton order                          | #489  | Done                               |
+| P7-65 | Spike | Hull `cubesurf` D3 and `sphere` D2 10^4: where the time goes                           | #493  | Done                               |
+| P7-66 | Feat  | Hull D2 and D3: exact side tests through the fixed-size first stage                    | #494  | Withdrawn after measurement (#495) |
+| P7-67 | Feat  | Hull D2: the duplicates found from the chain's sort, where the chain reads every point | #496  | Done                               |
+| P7-68 | Spike | Hull `cubesurf` D3: the counts of construction and classification against Qhull        | #503  | Done                               |
+| P7-69 | Feat  | Hull D3: classification's shortcut for points inside a facet                           | #504  | Done                               |
+| P7-70 | Feat  | Predicates: the first stage skips its bound for an exactly zero determinant            | #506  | Done                               |
+| P7-71 | Spike | Delaunay `cube` D3 and hull `sphere` D2 under WSL: where the time goes against CGAL    | #509  | Done                               |
+| P7-72 | Feat  | Hull D2: the chain on the halves below and above the line through its ends             | #515  | Done                               |
 | P7-73 | Feat  | Delaunay D2 and D3: insertion along a Hilbert curve                                    | #510  | Withdrawn after measurement (#511) |
 
 ## R1 (the first release on crates.io, parent #592)
 
 The owner opened this phase on 2026-10-12 (Grill on #592). The comparison it publishes is a report on standard data (`rbox`, the distributions of PBBS, the Stanford scans) against Qhull, CGAL, and Rust crates; the parity run of ADR 0006 stays the internal judgement.
 
-| ID | Kind | Title | Issue | Status |
-| --- | --- | --- | --- | --- |
-| R1-1 | Task | Publish rules: crates.io, the license, and what 0.1.0 promises, in scope | #593 | Done |
-| R1-2 | Task | The package: license files, Cargo metadata, and the files that ship | #594 | Done |
-| R1-3 | Docs | The README and the crate documentation state what 0.1.0 is | #595 | Done |
-| R1-4 | Task | Audit the public items and their rustdoc | #596 | Not started |
-| R1-5 | Task | The comparison's tools: one runner for several libraries, with time and memory | #597 | Done |
-| R1-6 | Task | The comparison's data: rbox, the distributions of PBBS, and the Stanford scans | #598 | Done |
-| R1-7 | Task | Rust crates in the comparison | #599 | Not started |
-| R1-8 | Docs | Run the comparison and publish it: the document, the figures, and the numbers | #600 | Not started |
-| R1-9 | Feat | The filter's exact scaling before the release (P5-63) | #601 | Done |
-| R1-10 | Task | 0.1.0: the changelog, the version, and `publish = false` removed | #602 | Not started |
-| R1-11 | Spike | Delaunay of a lattice in D = 2: three times CGAL's time | #614 | Done |
-| R1-12 | Feat | Predicates: a zero proved by the first stage's own arithmetic where it is exact | #615 | Done |
-| R1-13 | Spike | Delaunay of a lattice: what the cospherical groups cost after the zeros are proved | #617 | Done |
-| R1-14 | Spike | The comparison's data screened once against CGAL and Qhull before it is run | #618 | Done |
-| R1-15 | Feat | Delaunay: the insertion order refines a crowded cell of its grid | #620 | Done |
-| R1-16 | Spike | Hull: what every point costs before construction, on inputs whose points are nearly all inside | #622 | Done |
-| R1-17 | Feat | Hull: the first simplex from extreme points, D >= 3 | #624 | Done |
-| R1-18 | Feat | Hull D3: the points inside the first simplex are discarded before the order in space | #625 | Withdrawn after measurement (#625) |
-| R1-19 | Spike | Hull D2 of points in a ball: construction and classification | #628 | Done |
-| R1-20 | Feat | Hull D2: a point off the chain is located by its coordinates and two orientations | #630 | Done |
-| R1-21 | Feat | Delaunay D2: a group of four sites is written without the placing | #633 | Done |
-| R1-22 | Spike | Delaunay groups: translates of a placed group, and the links inside a group, prototyped and measured | #634 | Done |
-| R1-23 | Feat | Delaunay: a group that is an exact translate of one placed before takes its cells | #637 | Done |
-| R1-24 | Spike | Delaunay of the scans: a profile beside CGAL | #639 | Done |
-| R1-25 | Feat | Delaunay: the draft of the cells allocated for the merged groups too | #640 | Withdrawn after measurement (#641) |
-| R1-26 | Feat | Delaunay: the faces inside a group are linked where the group is written | #641 | Done |
-| R1-27 | Spike | Hull D2 of points nearly all inside: what is left beside the duplicates | #644 | Done |
-| R1-28 | Feat | Hull D2: the farthest points of the discard polygon by the maxima first | #645 | Done |
-| R1-29 | Feat | Hull D2: a point inside a box inside the discard polygon is discarded without the edges | #646 | Done |
-| R1-30 | Feat | Input: the duplicates found bucket by bucket of the hash | #647 | Done |
-| R1-31 | Task | The parity run after the rows of R1 | #652 | Done |
+| ID    | Kind  | Title                                                                                                | Issue | Status                             |
+| ----- | ----- | ---------------------------------------------------------------------------------------------------- | ----- | ---------------------------------- |
+| R1-1  | Task  | Publish rules: crates.io, the license, and what 0.1.0 promises, in scope                             | #593  | Done                               |
+| R1-2  | Task  | The package: license files, Cargo metadata, and the files that ship                                  | #594  | Done                               |
+| R1-3  | Docs  | The README and the crate documentation state what 0.1.0 is                                           | #595  | Done                               |
+| R1-4  | Task  | Audit the public items and their rustdoc                                                             | #596  | Not started                        |
+| R1-5  | Task  | The comparison's tools: one runner for several libraries, with time and memory                       | #597  | Done                               |
+| R1-6  | Task  | The comparison's data: rbox, the distributions of PBBS, and the Stanford scans                       | #598  | Done                               |
+| R1-7  | Task  | Rust crates in the comparison                                                                        | #599  | Not started                        |
+| R1-8  | Docs  | Run the comparison and publish it: the document, the figures, and the numbers                        | #600  | Not started                        |
+| R1-9  | Feat  | The filter's exact scaling before the release (P5-63)                                                | #601  | Done                               |
+| R1-10 | Task  | 0.1.0: the changelog, the version, and `publish = false` removed                                     | #602  | Not started                        |
+| R1-11 | Spike | Delaunay of a lattice in D = 2: three times CGAL's time                                              | #614  | Done                               |
+| R1-12 | Feat  | Predicates: a zero proved by the first stage's own arithmetic where it is exact                      | #615  | Done                               |
+| R1-13 | Spike | Delaunay of a lattice: what the cospherical groups cost after the zeros are proved                   | #617  | Done                               |
+| R1-14 | Spike | The comparison's data screened once against CGAL and Qhull before it is run                          | #618  | Done                               |
+| R1-15 | Feat  | Delaunay: the insertion order refines a crowded cell of its grid                                     | #620  | Done                               |
+| R1-16 | Spike | Hull: what every point costs before construction, on inputs whose points are nearly all inside       | #622  | Done                               |
+| R1-17 | Feat  | Hull: the first simplex from extreme points, D >= 3                                                  | #624  | Done                               |
+| R1-18 | Feat  | Hull D3: the points inside the first simplex are discarded before the order in space                 | #625  | Withdrawn after measurement (#625) |
+| R1-19 | Spike | Hull D2 of points in a ball: construction and classification                                         | #628  | Done                               |
+| R1-20 | Feat  | Hull D2: a point off the chain is located by its coordinates and two orientations                    | #630  | Done                               |
+| R1-21 | Feat  | Delaunay D2: a group of four sites is written without the placing                                    | #633  | Done                               |
+| R1-22 | Spike | Delaunay groups: translates of a placed group, and the links inside a group, prototyped and measured | #634  | Done                               |
+| R1-23 | Feat  | Delaunay: a group that is an exact translate of one placed before takes its cells                    | #637  | Done                               |
+| R1-24 | Spike | Delaunay of the scans: a profile beside CGAL                                                         | #639  | Done                               |
+| R1-25 | Feat  | Delaunay: the draft of the cells allocated for the merged groups too                                 | #640  | Withdrawn after measurement (#641) |
+| R1-26 | Feat  | Delaunay: the faces inside a group are linked where the group is written                             | #641  | Done                               |
+| R1-27 | Spike | Hull D2 of points nearly all inside: what is left beside the duplicates                              | #644  | Done                               |
+| R1-28 | Feat  | Hull D2: the farthest points of the discard polygon by the maxima first                              | #645  | Done                               |
+| R1-29 | Feat  | Hull D2: a point inside a box inside the discard polygon is discarded without the edges              | #646  | Done                               |
+| R1-30 | Feat  | Input: the duplicates found bucket by bucket of the hash                                             | #647  | Done                               |
+| R1-31 | Task  | The parity run after the rows of R1                                                                  | #652  | Done                               |
 
 ## Intentionally out of scope
 
