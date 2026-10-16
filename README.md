@@ -5,7 +5,7 @@ English | [日本語](https://github.com/YUKIKEDA/convx/blob/main/README.ja.md)
 Convex hulls, Delaunay triangulations, and Voronoi diagrams in any dimension, in pure Rust, with every topological decision made by the exact sign of a predicate.
 
 - **Exact.** Which side of a facet a point is on, and whether points are coplanar or cospherical, is the sign of a determinant of the input coordinates, evaluated exactly when floating-point arithmetic cannot certify it. There is no tolerance and no perturbation of the input.
-- **Any dimension.** One implementation for every `D >= 1`, with dedicated paths where they pay (`D = 2` and `D = 3`).
+- **Any dimension.** One implementation for every `D >= 1`, with dedicated paths for `D = 2` and `D = 3`.
 - **Degenerate input is input.** Duplicate points, points on a facet, cocircular and cospherical sites, and lattices are handled by the same rules as points in general position, and the result says what each input point became.
 - **No `unsafe`** in this crate.
 
@@ -14,11 +14,15 @@ Convex hulls, Delaunay triangulations, and Voronoi diagrams in any dimension, in
 convx = "0.1"
 ```
 
-The version is 0.1.0. A 0.x minor version may break the public API.
+## Before the first call
 
-## A convex hull
+- **Points are one row-major slice of `f64`.** With dimension `dim`, point `i` is `points[i * dim..(i + 1) * dim]`. `StaticConvexHull`, `StaticDelaunay`, and `StaticVoronoi` take `&[[f64; D]]` instead, for `1 <= D <= 8`.
+- **A point is named by its index in the input, as a `u32`.** A duplicate is named by the smallest index of a point equal to it.
+- **A facet is a logical facet.** The simplices of the boundary that lie exactly on one hyperplane are one facet: a cube has six facets of four vertices, not twelve triangles.
+- **Every fallible call returns `convx::Error`.** A build checks its input in a fixed order and returns the first failure.
+- **The version is 0.1.0.** A 0.x minor version may break the public API.
 
-Points are one row-major slice of `f64`: `D` coordinates a point.
+## A first example
 
 ```rust
 use convx::ConvexHullBuilder;
@@ -41,82 +45,171 @@ fn main() -> Result<(), convx::Error> {
     assert_eq!(hull.coplanar_points(), [5]);
     assert_eq!(hull.interior_points(), [4]);
     assert_eq!(hull.representative()[6], 0);
-
-    // Four edges, each with its two vertices and its two neighbors.
-    assert_eq!(hull.facets().len(), 4);
-    for facet in hull.facets().iter() {
-        assert_eq!(facet.vertices().len(), 2);
-        assert_eq!(facet.neighbors().len(), 2);
-    }
-
-    // Planes and volume are computed in `f64` from the decided topology.
-    assert_eq!(hull.volume(), 1.0);
-    let planes = hull.planes()?;
-    assert_eq!(planes.len(), 4);
     Ok(())
 }
 ```
 
-A facet is a *logical* facet: simplices that are exactly coplanar are one facet, so a cube has six facets of four vertices, not twelve triangles. `triangulation()` gives the boundary as simplices when that is what is wanted.
+## Usage
 
-## A Delaunay triangulation
+### Convex hulls
+
+`ConvexHullBuilder` builds a `ConvexHull`. Its facets are read through `Facets` and `Facet`, their planes through `Planes` and `Plane`, and the boundary as simplices through `TriangulationView` and `BoundarySimplex`.
 
 ```rust
-use convx::DelaunayBuilder;
+use convx::{BoundarySimplex, ConvexHull, ConvexHullBuilder, Facet, Facets, Plane, Planes, TriangulationView};
+
+fn main() -> Result<(), convx::Error> {
+    // A square pyramid: a base of four corners and an apex.
+    let points = [
+        0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, // 0 to 3: the base
+        0.5, 0.5, 1.0, // 4: the apex
+    ];
+    let hull: ConvexHull = ConvexHullBuilder::new(3, &points).build()?;
+    assert_eq!(hull.dim(), 3);
+
+    // Five facets: the base, one facet of four vertices, and four triangles.
+    let facets: Facets = hull.facets();
+    assert_eq!(facets.len(), 5);
+    let base: Facet = facets.get(0).unwrap();
+    assert_eq!(base.vertices(), [0, 1, 2, 3]);
+    assert_eq!(base.neighbors(), [1, 2, 3, 4]);
+    // The base's vertices in order around it, counterclockwise seen from outside.
+    assert_eq!(hull.boundary_cycle(0), Some(vec![0, 2, 3, 1]));
+
+    // The planes are computed in `f64` by the first call, and kept.
+    let planes: Planes = hull.planes()?;
+    let floor: Plane = planes.get(0).unwrap();
+    assert_eq!(floor.normal(), [0.0, 0.0, -1.0]);
+    assert_eq!(floor.offset(), 0.0);
+
+    // The boundary as triangles: the base is split in two.
+    let triangles: TriangulationView = hull.triangulation();
+    assert_eq!(triangles.len(), 6);
+    let first: BoundarySimplex = triangles.get(0).unwrap();
+    assert_eq!(first.facet(), 0);
+    assert_eq!(first.vertices().len(), 3);
+
+    // Volume in `f64`: a third of the base times the height.
+    assert!((hull.volume() - 1.0 / 3.0).abs() < 1e-15);
+    Ok(())
+}
+```
+
+### Delaunay triangulations
+
+`DelaunayBuilder` builds a `DelaunayTriangulation`. Its simplices are read through `Simplices` and `DelaunaySimplex`.
+
+```rust
+use convx::{DelaunayBuilder, DelaunaySimplex, DelaunayTriangulation, Simplices};
 
 fn main() -> Result<(), convx::Error> {
     // The corners of a square and its center.
     let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
-    let delaunay = DelaunayBuilder::new(2, &sites).build()?;
+    let delaunay: DelaunayTriangulation = DelaunayBuilder::new(2, &sites).build()?;
+    assert_eq!(delaunay.dim(), 2);
+    assert_eq!(delaunay.representative(), [0, 1, 2, 3, 4]);
 
     // Four triangles, each with the center as a vertex.
-    assert_eq!(delaunay.simplices().len(), 4);
-    for simplex in delaunay.simplices().iter() {
+    let simplices: Simplices = delaunay.simplices();
+    assert_eq!(simplices.len(), 4);
+    for simplex in simplices.iter() {
+        let simplex: DelaunaySimplex = simplex;
         assert!(simplex.vertices().contains(&4));
-        // The neighbor across each face, or `u32::MAX` on the hull of the sites.
+        // The simplex across each face, or `u32::MAX` on the hull of the sites.
         assert_eq!(simplex.neighbors().len(), 3);
     }
     Ok(())
 }
 ```
 
-Every site is in the triangulation, the ones inside the hull of the sites included. Sites on one circle or sphere are found by exact signs, merged into one group, and split again by one rule, the same that splits a facet of a hull.
+Every site is in the triangulation, the ones inside the hull of the sites included. Sites on one circle or sphere are found by exact signs, grouped, and split by a rule of their indices alone.
 
-## A Voronoi diagram
+### Voronoi diagrams
+
+`VoronoiBuilder` builds a `VoronoiDiagram`: finite vertices (`VoronoiVertices`, `VoronoiVertex`), rays (`VoronoiRays`, `VoronoiRay`), one cell per site (`VoronoiCells`, `VoronoiCell`), and the faces where two cells meet (`VoronoiInterfaces`, `VoronoiInterface`).
 
 ```rust
-use convx::VoronoiBuilder;
+use convx::{
+    VoronoiBuilder, VoronoiCell, VoronoiCells, VoronoiDiagram, VoronoiInterface,
+    VoronoiInterfaces, VoronoiRay, VoronoiRays, VoronoiVertex, VoronoiVertices,
+};
 
 fn main() -> Result<(), convx::Error> {
-    let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
-    let voronoi = VoronoiBuilder::new(2, &sites).build()?;
+    // The four corners of a square are on one circle: one vertex at its center.
+    let sites = [0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0];
+    let voronoi: VoronoiDiagram = VoronoiBuilder::new(2, &sites).build()?;
+    assert_eq!(voronoi.dim(), 2);
+    assert_eq!(voronoi.representative(), [0, 1, 2, 3]);
 
-    // The cell of the center is a square of four vertices and has no ray.
-    let center = voronoi.cells().iter().find(|cell| cell.site() == 4).unwrap();
-    assert_eq!(center.vertices().len(), 4);
-    assert_eq!(center.ray_numbers().len(), 0);
+    let vertices: VoronoiVertices = voronoi.vertices();
+    let center: VoronoiVertex = vertices.get(0).unwrap();
+    assert_eq!(center.sites(), [0, 1, 2, 3]);
+    assert!(center.coords().iter().all(|x| (x - 1.0).abs() < 1e-12));
 
-    // A cell of a corner is unbounded: it has rays.
-    let corner = voronoi.cells().iter().find(|cell| cell.site() == 0).unwrap();
-    assert!(!corner.ray_numbers().is_empty());
+    // A ray leaves the center through each side of the square.
+    let rays: VoronoiRays = voronoi.rays();
+    let down: VoronoiRay = rays.get(0).unwrap();
+    assert_eq!(down.apex(), 0);
+    assert_eq!(down.hull_facet(), [0, 1]);
+    assert_eq!(down.direction(), [0.0, -1.0]);
+
+    // Every cell is unbounded: one vertex and two rays.
+    let cells: VoronoiCells = voronoi.cells();
+    let corner: VoronoiCell = cells.get(0).unwrap();
+    assert_eq!(corner.site(), 0);
+    assert_eq!(corner.vertices(), [0]);
+    assert_eq!(corner.ray_numbers().len(), 2);
+    assert_eq!(corner.rays().count(), 2);
+
+    // Neighboring corners meet; opposite ones do not.
+    let interfaces: VoronoiInterfaces = voronoi.interfaces();
+    let pairs: Vec<[u32; 2]> = interfaces.iter().map(|face: VoronoiInterface| face.sites()).collect();
+    assert_eq!(pairs, [[0, 1], [0, 3], [1, 2], [2, 3]]);
+    let bottom: VoronoiInterface = interfaces.get(0).unwrap();
+    assert_eq!(bottom.vertices(), [0]);
+    assert_eq!(bottom.ray_numbers().len(), 1);
+    assert_eq!(bottom.rays().count(), 1);
     Ok(())
 }
 ```
 
-A Voronoi vertex is one group of cospherical Delaunay simplices, merged by exact signs and not by the closeness of circumcenters: four cocircular sites give one vertex.
+A Voronoi vertex is one group of cospherical Delaunay simplices, grouped by exact signs and not by the closeness of circumcenters.
 
-## Arrays instead of a slice
+### Arrays instead of a slice
 
-`StaticConvexHull`, `StaticDelaunay`, and `StaticVoronoi` take `&[[f64; D]]` for `1 <= D <= 8` and return the same results.
+`StaticConvexHull`, `StaticDelaunay`, and `StaticVoronoi` take `&[[f64; D]]` for `1 <= D <= 8` and return the same results as the builders. Another `D` does not compile.
 
 ```rust
-use convx::StaticConvexHull;
+use convx::{StaticConvexHull, StaticDelaunay, StaticVoronoi};
 
 fn main() -> Result<(), convx::Error> {
     let tetrahedron = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-    let hull = StaticConvexHull::<3>::build(&tetrahedron)?;
-    assert_eq!(hull.facets().len(), 4);
+    assert_eq!(StaticConvexHull::<3>::build(&tetrahedron)?.facets().len(), 4);
+    assert_eq!(StaticDelaunay::<3>::build(&tetrahedron)?.simplices().len(), 1);
+    assert_eq!(StaticVoronoi::<3>::build(&tetrahedron)?.vertices().len(), 1);
     Ok(())
+}
+```
+
+### Errors
+
+Every build returns `convx::Error` on failure, and so does `planes()`. The enum is non-exhaustive: a `match` on it has a wildcard arm.
+
+```rust
+use convx::{ConvexHullBuilder, Error};
+
+fn main() {
+    // Three points on one line do not span the plane.
+    let points = [0.0, 0.0, 1.0, 1.0, 2.0, 2.0];
+    match ConvexHullBuilder::new(2, &points).build() {
+        Err(Error::DegenerateDimension { actual_dim, spanning_points }) => {
+            // The points span a line, and points 0 and 1 span it.
+            assert_eq!(actual_dim, 1);
+            assert_eq!(spanning_points, [0, 1]);
+        }
+        Err(other) => panic!("another failure: {other}"),
+        Ok(_) => panic!("built"),
+    }
 }
 ```
 

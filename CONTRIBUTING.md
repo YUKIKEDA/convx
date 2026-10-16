@@ -67,7 +67,7 @@ Title: `type(optional-scope): subject`, all English. Body: the template headings
 
 ## Language
 
-Identifiers, rustdoc, commit subjects, Issue bodies, and this file are English. Japanese in the repository is [docs/design.ja.md](docs/design.ja.md) and [README.ja.md](README.ja.md). Sample `///` comments inside the Japanese design are not copied into the implementation.
+Identifiers, rustdoc, commit subjects, Issue bodies, and this file are English. Japanese in the repository is [docs/design.ja.md](docs/design.ja.md), [README.ja.md](README.ja.md), and [docs/comparison.ja.md](docs/comparison.ja.md); Gemini inspects it, not the agent that edited it (`.cursor/rules/reader-docs.mdc`). Sample `///` comments inside the Japanese design are not copied into the implementation.
 
 ## Layout of local files
 

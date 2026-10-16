@@ -44,13 +44,19 @@ use crate::Error;
 /// below `u32::MAX`, so this value names neither.
 pub(crate) const NO_NEIGHBOR: u32 = u32::MAX;
 
-/// Builds a [`DelaunayTriangulation`].
+/// Builds a [`DelaunayTriangulation`] from sites given as one row-major slice
+/// of `f64`.
+///
+/// Site `i` is `points[i * dim..(i + 1) * dim]`. Nothing is checked until
+/// [`build`](Self::build).
+///
+/// # Examples
 ///
 /// ```
 /// use convx::DelaunayBuilder;
 ///
-/// // A square: its four corners are cocircular, so the site hull is split
-/// // by pulling from the smallest index into two triangles.
+/// // A square: its four corners are on one circle, and the square is split
+/// // into two triangles by a rule of the sites' indices alone.
 /// let points = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
 /// let delaunay = DelaunayBuilder::new(2, &points).build()?;
 /// let mut cells: Vec<&[u32]> = delaunay.simplices().iter().map(|s| s.vertices()).collect();
@@ -71,22 +77,36 @@ pub struct DelaunayBuilder<'a> {
 }
 
 impl<'a> DelaunayBuilder<'a> {
-    /// A builder for sites of dimension `dim` (the original dimension, not
-    /// the lifted one), stored row-major in `points`.
+    /// Returns a builder for the sites of dimension `dim` stored row-major
+    /// in `points`.
     #[must_use]
     pub fn new(dim: usize, points: &'a [f64]) -> Self {
         Self { dim, points }
     }
 
-    /// Builds the triangulation.
+    /// Builds the triangulation. Every site is a vertex of it.
     ///
     /// # Errors
     ///
-    /// The input failures of [`Error`], in the order documented
-    /// there; [`Error::DegenerateDimension`] only when the sites
-    /// do not span dimension D, with their original indices; and
-    /// [`Error::ExactEvaluationExhausted`]. Sites that all lie on
-    /// one sphere succeed.
+    /// The first input failure of [`Error`], in the order documented there:
+    /// [`Error::NonPositiveDimension`], [`Error::LengthMismatch`],
+    /// [`Error::NonFiniteCoordinate`], [`Error::TooManyPoints`],
+    /// [`Error::InsufficientPoints`], [`Error::DegenerateDimension`] when
+    /// the sites do not span dimension D. Then
+    /// [`Error::ExactEvaluationExhausted`] when the work space of an exact
+    /// evaluation cannot be allocated. Sites that all lie on one sphere are
+    /// not a failure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use convx::{DelaunayBuilder, Error};
+    ///
+    /// // Three sites in the plane, two of them equal: two distinct sites.
+    /// let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 0.0];
+    /// let error = DelaunayBuilder::new(2, &sites).build().unwrap_err();
+    /// assert_eq!(error, Error::InsufficientPoints { actual: 2, required: 3 });
+    /// ```
     pub fn build(self) -> Result<DelaunayTriangulation, Error> {
         // An input far from 1 is built on a copy scaled exactly (#589);
         // a triangulation publishes indices only.
@@ -98,10 +118,29 @@ impl<'a> DelaunayBuilder<'a> {
     }
 }
 
-/// A Delaunay triangulation of points in dimension D.
+/// A Delaunay triangulation of sites in dimension D.
 ///
-/// The simplices are kept as flat rows of D + 1 entries and published
-/// through borrowed views (design §7, §9).
+/// Every distinct site is a vertex; a duplicate is represented by the
+/// smallest index of a site equal to it. No site is inside the circumsphere
+/// of a simplex. Sites on one sphere are split into simplices by a rule of
+/// their indices, so the triangulation of an input does not depend on the
+/// order in which the sites were inserted.
+///
+/// # Examples
+///
+/// ```
+/// use convx::DelaunayBuilder;
+///
+/// // The corners of a square and its center.
+/// let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
+/// let delaunay = DelaunayBuilder::new(2, &sites).build()?;
+/// assert_eq!(delaunay.dim(), 2);
+/// assert_eq!(delaunay.representative(), [0, 1, 2, 3, 4]);
+/// // Four triangles, each with the center as a vertex.
+/// assert_eq!(delaunay.simplices().len(), 4);
+/// assert!(delaunay.simplices().iter().all(|simplex| simplex.vertices().contains(&4)));
+/// # Ok::<(), convx::Error>(())
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DelaunayTriangulation {
     dim: usize,
@@ -113,21 +152,23 @@ pub struct DelaunayTriangulation {
 }
 
 impl DelaunayTriangulation {
-    /// Dimension D of the sites.
+    /// Returns the dimension D of the sites.
     #[must_use]
     pub fn dim(&self) -> usize {
         self.dim
     }
 
-    /// For each input index, the smallest index of a point equal to it.
+    /// Returns, for each input index, the smallest index of a site equal to
+    /// it: the index itself unless the site is a duplicate. `-0.0` and
+    /// `+0.0` are equal.
     #[must_use]
     pub fn representative(&self) -> &[u32] {
         &self.representative
     }
 
-    /// The simplices, in the order the construction leaves: the same for
-    /// the same input on one binary, and not promised across versions or for
-    /// a permutation of the input (design §7).
+    /// Returns the simplices, in the order the construction leaves them. The
+    /// order is the same for the same input on one binary; it is not
+    /// promised across versions or for a permutation of the input.
     #[must_use]
     pub fn simplices(&self) -> Simplices<'_> {
         Simplices { delaunay: self }
@@ -136,26 +177,42 @@ impl DelaunayTriangulation {
 
 /// The simplices of a [`DelaunayTriangulation`]; a simplex's position is
 /// its number.
+///
+/// # Examples
+///
+/// ```
+/// use convx::DelaunayBuilder;
+///
+/// let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
+/// let delaunay = DelaunayBuilder::new(2, &sites).build()?;
+/// let simplices = delaunay.simplices();
+/// assert_eq!(simplices.len(), 4);
+/// assert!(!simplices.is_empty());
+/// assert!(simplices.get(4).is_none());
+/// assert_eq!(simplices.iter().count(), 4);
+/// # Ok::<(), convx::Error>(())
+/// ```
 #[derive(Clone, Copy)]
 pub struct Simplices<'a> {
     delaunay: &'a DelaunayTriangulation,
 }
 
 impl<'a> Simplices<'a> {
-    /// Number of simplices.
+    /// Returns the number of simplices.
     #[must_use]
     pub fn len(&self) -> usize {
         self.delaunay.vertices.len() / (self.delaunay.dim + 1)
     }
 
-    /// Whether there are no simplices. Never true for a built triangulation.
+    /// Returns whether there are no simplices. Never true for a built
+    /// triangulation.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.delaunay.vertices.is_empty()
     }
 
-    /// The simplex numbered `simplex`, or `None` when no simplex has that
-    /// number.
+    /// Returns the simplex numbered `simplex`, or `None` when no simplex has
+    /// that number.
     #[must_use]
     pub fn get(&self, simplex: u32) -> Option<DelaunaySimplex<'a>> {
         ((simplex as usize) < self.len()).then_some(DelaunaySimplex {
@@ -164,7 +221,7 @@ impl<'a> Simplices<'a> {
         })
     }
 
-    /// Every simplex, in order.
+    /// Returns every simplex, in the order of their numbers.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = DelaunaySimplex<'a>> + 'a {
         let delaunay = self.delaunay;
         (0..self.len() as u32).map(move |index| DelaunaySimplex { delaunay, index })
@@ -177,7 +234,26 @@ impl core::fmt::Debug for Simplices<'_> {
     }
 }
 
-/// A D-simplex of a [`DelaunayTriangulation`]: a view into it.
+/// A simplex of a [`DelaunayTriangulation`]: its D + 1 sites and the
+/// simplices across its faces.
+///
+/// # Examples
+///
+/// ```
+/// use convx::DelaunayBuilder;
+///
+/// let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
+/// let delaunay = DelaunayBuilder::new(2, &sites).build()?;
+/// for simplex in delaunay.simplices().iter() {
+///     assert_eq!(simplex.vertices().len(), 3);
+///     // Across the face opposite the center is the outside of the square.
+///     let center = simplex.vertices().iter().position(|&site| site == 4).unwrap();
+///     for (face, &across) in simplex.neighbors().iter().enumerate() {
+///         assert_eq!(across == u32::MAX, face == center);
+///     }
+/// }
+/// # Ok::<(), convx::Error>(())
+/// ```
 #[derive(Clone, Copy)]
 pub struct DelaunaySimplex<'a> {
     delaunay: &'a DelaunayTriangulation,
@@ -191,16 +267,16 @@ impl<'a> DelaunaySimplex<'a> {
         &list[i * k..(i + 1) * k]
     }
 
-    /// D + 1 sites, ascending except that the last two are swapped when that
-    /// makes the orientation positive. When the exact orientation is zero
-    /// the ascending order is kept.
+    /// Returns the D + 1 sites, ascending except that the last two are
+    /// swapped when that makes the orientation positive.
     #[must_use]
     pub fn vertices(&self) -> &'a [u32] {
         self.row(&self.delaunay.vertices)
     }
 
-    /// `neighbors()[i]` is the simplex across the face opposite
-    /// `vertices()[i]`, or `u32::MAX` on the boundary of the site hull.
+    /// Returns the simplices across the faces: `neighbors()[i]` is the
+    /// number of the simplex across the face opposite `vertices()[i]`, or
+    /// `u32::MAX` when that face is on the hull of the sites.
     #[must_use]
     pub fn neighbors(&self) -> &'a [u32] {
         self.row(&self.delaunay.neighbors)

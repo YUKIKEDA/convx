@@ -49,7 +49,13 @@ use crate::{
     VoronoiDiagram,
 };
 
-/// The convex hull of stack arrays, for `1 <= D <= 8`.
+/// Builds a [`ConvexHull`] from points given as arrays `[f64; D]`, for
+/// `1 <= D <= 8`.
+///
+/// The result is the one [`ConvexHullBuilder`] returns for the same points.
+/// Another `D` has no `build`, and does not compile.
+///
+/// # Examples
 ///
 /// ```
 /// use convx::StaticConvexHull;
@@ -62,7 +68,13 @@ use crate::{
 #[derive(Clone, Copy, Debug)]
 pub struct StaticConvexHull<const D: usize>;
 
-/// The Delaunay triangulation of stack arrays, for `1 <= D <= 8`.
+/// Builds a [`DelaunayTriangulation`] from sites given as arrays `[f64; D]`,
+/// for `1 <= D <= 8`.
+///
+/// The result is the one [`DelaunayBuilder`] returns for the same sites.
+/// Another `D` has no `build`, and does not compile.
+///
+/// # Examples
 ///
 /// ```
 /// use convx::StaticDelaunay;
@@ -75,7 +87,13 @@ pub struct StaticConvexHull<const D: usize>;
 #[derive(Clone, Copy, Debug)]
 pub struct StaticDelaunay<const D: usize>;
 
-/// The Voronoi diagram of stack arrays, for `1 <= D <= 8`.
+/// Builds a [`VoronoiDiagram`] from sites given as arrays `[f64; D]`, for
+/// `1 <= D <= 8`.
+///
+/// The result is the one [`VoronoiBuilder`] returns for the same sites.
+/// Another `D` has no `build`, and does not compile.
+///
+/// # Examples
 ///
 /// ```
 /// use convx::StaticVoronoi;
@@ -96,7 +114,11 @@ macro_rules! static_build {
                 ///
                 /// # Errors
                 ///
-                /// The same as the dynamic builder's `build`.
+                #[doc = concat!("The failures of [`", stringify!($builder), "::build`], in its order.")]
+                ///
+                /// # Examples
+                ///
+                #[doc = concat!("See [`", stringify!($ty), "`].")]
                 pub fn build(points: &[[f64; $d]]) -> Result<$out, Error> {
                     $builder::new($d, points.as_flattened()).build()
                 }
