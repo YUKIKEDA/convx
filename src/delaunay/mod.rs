@@ -122,9 +122,9 @@ impl<'a> DelaunayBuilder<'a> {
 ///
 /// Every distinct site is a vertex; a duplicate is represented by the
 /// smallest index of a site equal to it. No site is inside the circumsphere
-/// of a simplex. Sites on one sphere are split into simplices by a rule of
-/// their indices, so the triangulation of an input does not depend on the
-/// order in which the sites were inserted.
+/// of a simplex. Sites on one sphere are found by exact signs, grouped, and
+/// split into simplices by a rule of their indices alone. One input gives one
+/// triangulation, in one order, on every run of one binary.
 ///
 /// # Examples
 ///

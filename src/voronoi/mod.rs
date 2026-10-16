@@ -75,9 +75,9 @@ impl<'a> VoronoiBuilder<'a> {
     /// # Errors
     ///
     /// The failures of [`DelaunayBuilder::build`](crate::DelaunayBuilder::build),
-    /// in its order, and then [`Error::NonFiniteCircumcenter`] when a vertex
-    /// of the diagram cannot be computed as a finite `f64`: the topology is
-    /// decided, and its coordinates are not.
+    /// in its order, and then [`Error::NonFiniteCircumcenter`] when, for some
+    /// vertex, no simplex of its group has a circumcenter that is finite in
+    /// `f64`: the topology is decided, and that vertex's coordinates are not.
     ///
     /// # Examples
     ///
