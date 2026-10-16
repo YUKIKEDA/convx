@@ -79,7 +79,7 @@ Gemini inspects the Japanese prose of:
 - `docs/comparison.ja.md`
 - `docs/design.ja.md`
 
-The procedure is `.agents/skills/natural-japanese/SKILL.md` in score mode (`references/diagnose.md`), run through the Gemini CLI. Gemini does not rewrite the pages in that inspection.
+The procedure is `.agents/skills/natural-japanese/SKILL.md` in score mode (`references/diagnose.md`), run through the Antigravity CLI with a Gemini model (`agy -p <prompt> --model gemini-3.8-flash-high`). The Gemini CLI is retired and is not this check. Gemini does not rewrite the pages in that inspection.
 
 The agent that edited a page does not inspect, score, or rewrite that Japanese: its reading is not this check. A page that is a gloss of the English fails; whether it is one is Gemini's finding.
 
@@ -95,5 +95,9 @@ A Japanese word whose everyday meaning is a different object is not a technical 
 - 触る → 変える、読む
 - 種つき → シードつき
 - 下界 → 下限。誤差の上界は 上界のまま
+- ソフトウェアの 版 → バージョン。マイナー版 → マイナーバージョン
+- 計測に使った 機械 → 計測環境、マシン
+- 結果を返す意味の 公開する → 返す。crates.io への公開は 公開のまま
+- 隣接を指す 向こうの → 隣接する、挟んで隣り合う
 
 凸包、ファセット、単体、リッジ、同一球面上、行列式、述語、持ち上げ stay. They are ordinary in this field. A word Gemini reports is added here in the change that fixes it.

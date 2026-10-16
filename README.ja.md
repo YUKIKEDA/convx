@@ -5,8 +5,8 @@
 任意の次元の凸包、Delaunay 三角形分割、Voronoi 図を計算する、純 Rust のクレートである。トポロジーに関わる判定は、すべて述語の厳密な符号で行う。
 
 - **厳密である。** 点がファセットのどちら側にあるか、点が同一平面上・同一球面上にあるかは、入力座標の行列式の符号で決める。浮動小数点演算で符号を確定できないときは、厳密に評価する。許容誤差はなく、入力を摂動させることもない。
-- **任意の次元を扱う。** すべての `D >= 1` を一つの実装で扱い、`D = 2` と `D = 3` には専用の経路を持つ。
-- **退化した入力もそのまま扱う。** 重複点、ファセットの上の点、同一円周上・同一球面上のサイト、格子を、一般の位置にある点と同じ規則で扱う。入力の各点がどうなったかは、結果に示される。
+- **任意の次元を扱う。** すべての `D >= 1` を一つの実装で扱い、`D = 2` と `D = 3` には専用の実装を用意している。
+- **退化した入力もそのまま扱う。** 重複点、ファセットの上の点、同一円周上・同一球面上のサイト、格子を、一般の位置にある点と同じ規則で扱う。結果には、入力の各点が頂点・境界上の点・内部点・重複点のどれになったかが含まれる。
 - このクレートに **`unsafe` はない。**
 
 ```toml
@@ -18,9 +18,9 @@ convx = "0.1"
 
 - **点は `f64` の行優先のスライス一つで渡す。** 次元が `dim` のとき、点 `i` は `points[i * dim..(i + 1) * dim]` である。`StaticConvexHull`、`StaticDelaunay`、`StaticVoronoi` は代わりに `&[[f64; D]]` を受け取る（`1 <= D <= 8`）。
 - **点は入力での添字（`u32`）で表す。** 重複点は、それと等しい点のうち最小の添字で表す。
-- **ファセットは論理ファセットである。** 境界の単体のうち、厳密に一つの超平面の上にあるものをまとめて一つのファセットとする。立方体のファセットは、三角形 12 枚ではなく 4 頂点の 6 枚になる。
-- **失敗しうる呼び出しは、すべて `convx::Error` を返す。** 構築は入力を決まった順で調べ、最初に見つかった失敗を返す。
-- **版は 0.1.0 である。** 0.x のマイナー版は公開 API を壊すことがある。
+- **ファセットは論理ファセットである。** 境界の単体のうち、厳密に一つの超平面の上にあるものをまとめて一つのファセットとする。たとえば立方体のファセットは、三角形 12 枚ではなく、4 頂点からなる正方形 6 枚になる。
+- **失敗しうる呼び出しは、すべて `convx::Error` を返す。** 構築は入力を決まった順で調べ、最初に見つかったエラーを返す。
+- **バージョンは 0.1.0 である。** 0.x のマイナーバージョンでは、公開 API に互換性のない変更が入ることがある。
 
 ## 最初の例
 
@@ -40,7 +40,7 @@ fn main() -> Result<(), convx::Error> {
     ];
     let hull = ConvexHullBuilder::new(2, &points).build()?;
 
-    // 入力のどの点も、このどれかか、その重複である。
+    // 入力のどの点も、これらのいずれか、またはその重複である。
     assert_eq!(hull.vertices(), [0, 1, 2, 3]);
     assert_eq!(hull.coplanar_points(), [5]);
     assert_eq!(hull.interior_points(), [4]);
@@ -53,7 +53,7 @@ fn main() -> Result<(), convx::Error> {
 
 ### 凸包
 
-`ConvexHullBuilder` が `ConvexHull` を作る。ファセットは `Facets` と `Facet` で、その平面は `Planes` と `Plane` で、単体に分けた境界は `TriangulationView` と `BoundarySimplex` で読む。
+`ConvexHullBuilder` が `ConvexHull` を作る。ファセットは `Facets` と `Facet`、その平面は `Planes` と `Plane`、単体に分けた境界は `TriangulationView` と `BoundarySimplex` を通して参照する。
 
 ```rust
 use convx::{BoundarySimplex, ConvexHull, ConvexHullBuilder, Facet, Facets, Plane, Planes, TriangulationView};
@@ -97,7 +97,7 @@ fn main() -> Result<(), convx::Error> {
 
 ### Delaunay 三角形分割
 
-`DelaunayBuilder` が `DelaunayTriangulation` を作る。単体は `Simplices` と `DelaunaySimplex` で読む。
+`DelaunayBuilder` が `DelaunayTriangulation` を作る。単体は `Simplices` と `DelaunaySimplex` を通して参照する。
 
 ```rust
 use convx::{DelaunayBuilder, DelaunaySimplex, DelaunayTriangulation, Simplices};
@@ -115,18 +115,18 @@ fn main() -> Result<(), convx::Error> {
     for simplex in simplices.iter() {
         let simplex: DelaunaySimplex = simplex;
         assert!(simplex.vertices().contains(&4));
-        // 各面の向こうの単体。サイトの凸包の上では `u32::MAX`。
+        // 各面を挟んで隣接する単体。面がサイトの凸包の上にあれば `u32::MAX`。
         assert_eq!(simplex.neighbors().len(), 3);
     }
     Ok(())
 }
 ```
 
-サイトはすべて三角形分割に入り、サイトの凸包の内側にあるものも入る。一つの円や球面の上にあるサイトは、厳密な符号で見つけて一つのグループにまとめ、添字だけで決まる規則で分割する。
+サイトは、凸包の内側にあるものも含めて、すべて三角形分割の頂点になる。一つの円や球面の上にあるサイトは、述語の厳密な符号で特定して一つのグループにまとめ、添字だけで決まる規則で分割する。
 
 ### Voronoi 図
 
-`VoronoiBuilder` が `VoronoiDiagram` を作る。中身は、有限の頂点（`VoronoiVertices`、`VoronoiVertex`）、半直線（`VoronoiRays`、`VoronoiRay`）、サイトごとのセル（`VoronoiCells`、`VoronoiCell`）、二つのセルが接する面（`VoronoiInterfaces`、`VoronoiInterface`）である。
+`VoronoiBuilder` が `VoronoiDiagram` を作る。`VoronoiDiagram` は、有限の頂点（`VoronoiVertices`、`VoronoiVertex`）、半直線（`VoronoiRays`、`VoronoiRay`）、サイトごとのセル（`VoronoiCells`、`VoronoiCell`）、二つのセルが接する面（`VoronoiInterfaces`、`VoronoiInterface`）からなる。
 
 ```rust
 use convx::{
@@ -173,11 +173,11 @@ fn main() -> Result<(), convx::Error> {
 }
 ```
 
-Voronoi 頂点は、同一球面上にある Delaunay 単体の一つのグループに当たる。グループは厳密な符号でまとめ、外心が近いかどうかではまとめない。
+Voronoi 頂点は、同一球面上にある Delaunay 単体の一つのグループに対応する。グループは厳密な符号で判定してまとめ、外心どうしが近いかどうかは使わない。
 
 ### スライスの代わりに配列を渡す
 
-`StaticConvexHull`、`StaticDelaunay`、`StaticVoronoi` は、`1 <= D <= 8` について `&[[f64; D]]` を受け取り、ビルダーと同じ結果を返す。それ以外の `D` はコンパイルできない。
+`StaticConvexHull`、`StaticDelaunay`、`StaticVoronoi` は、`1 <= D <= 8` について `&[[f64; D]]` を受け取り、ビルダーと同じ結果を返す。それ以外の `D` を指定するとコンパイルエラーになる。
 
 ```rust
 use convx::{StaticConvexHull, StaticDelaunay, StaticVoronoi};
@@ -203,7 +203,7 @@ fn main() {
     let points = [0.0, 0.0, 1.0, 1.0, 2.0, 2.0];
     match ConvexHullBuilder::new(2, &points).build() {
         Err(Error::DegenerateDimension { actual_dim, spanning_points }) => {
-            // 点が張るのは直線で、それを張るのは点 0 と点 1。
+            // 点が張る空間は直線（1 次元）で、点 0 と点 1 がそれを張る。
             assert_eq!(actual_dim, 1);
             assert_eq!(spanning_points, [0, 1]);
         }
@@ -215,18 +215,18 @@ fn main() {
 
 ## 約束すること
 
-- **組合せ的な結果は、与えられた `f64` の値に対する厳密演算の結果である。** 頂点、ファセットとその隣、各点の分類、Delaunay 単体、Voronoi の接続関係がこれに当たる。入力の座標は、そのビット列が表す数として扱う。
-- **入力のどの添字にも、行き先が一つある。** `representative()` は、重複点を、等しい点のうち最小の添字に対応づける（`-0.0` と `+0.0` は等しい）。代表点は、頂点、頂点でない境界上の点、内部点のいずれかであり、どの一覧も昇順である。
-- **公開する凸包は、構築の順序に依らない。** 同じバイナリは、同じ入力に対して、毎回同じ凸包、三角形分割、図を返す。
-- **失敗は決まった順で報告する。** 次元、スライスの長さ、有限でない座標（最初の該当点を示す）、点が多すぎる、異なる点が少なすぎる、点が次元を張らない（`DegenerateDimension`。実際に張っている部分空間と、それを張る点を添える）の順である。
-- **構築の割り当て回数は、点の数とともに増えない。** これは、クレートの割り当てテストが構築する種類の入力について確かめている。
+- **組合せ的な結果は、与えられた `f64` の値に対する厳密演算の結果である。** 頂点、ファセットと隣接ファセット、各点の分類、Delaunay 単体、Voronoi 図の接続関係がこれに当たる。入力の座標は、そのビット列が表す数として扱う。
+- **入力のどの添字も、ちょうど一つの分類に属する。** `representative()` は、重複点を、等しい点のうち最小の添字に対応づける（`-0.0` と `+0.0` は等しい）。代表点は頂点、頂点でない境界上の点、内部点のいずれかに分類され、それぞれのリストは昇順に並ぶ。
+- **API が返す凸包は、構築の順序に依らない。** 同じバイナリは、同じ入力に対して、毎回同じ凸包、三角形分割、Voronoi 図を返す。
+- **エラーは決まった順で報告する。** 次元、スライスの長さ、有限でない座標（最初の該当点を示す）、点の数の上限超過、異なる点の不足、次元の退化（`DegenerateDimension`。点が実際に張る部分空間の次元と、それを張る点を添える）の順に調べる。
+- **構築でのメモリ割り当ての回数は、点の数とともに増えない。** クレートの割り当てテストで、そのテストが構築する種類の入力について確かめている。
 
 ## 約束しないこと
 
-- **結果が持つ数値は `f64` である。** 平面の法線とオフセット、体積、Voronoi 頂点の座標は丸めた値であり、どの判定にも使わない。そのような数値が有限でないとき、`planes()` と Voronoi の構築は失敗することがある。トポロジーはその前に決まっている。
-- **版をまたぐと**、同一球面上のサイトのグループの中で選ぶ対角線と、単体を並べる順序は変わることがある。
+- **結果に含まれる数値は `f64` である。** 平面の法線とオフセット、体積、Voronoi 頂点の座標は丸めた値であり、どの判定にも使わない。そうした数値が有限でないとき、`planes()` と Voronoi の構築は失敗することがある。トポロジーは、これらの数値を計算する前に決まっている。
+- **バージョンが変わると**、同一球面上のサイトのグループの中で選ぶ対角線と、単体を並べる順序は変わることがある。
 - **`D >= 4`** の Voronoi 図は、頂点、半直線、セル、接するセルの対を並べたものであり、完全な胞複体ではない。
-- **設定する許容誤差はない。** ほぼ等しい点をまとめることも、入力を揺らすこともしない。1 ビット違う点は別の点である。
+- **設定できる許容誤差はない。** ほぼ等しい点をまとめることも、入力を摂動させることもしない。1 ビット違う点は別の点として扱う。
 - 構築は**逐次**であり、点の追加や削除で結果を**更新することはできない。**
 
 ## 制限
@@ -241,7 +241,7 @@ fn main() {
 
 ## 性能
 
-標準的なデータでの Qhull、CGAL、Rust のクレートとの比較は、計測した機械、各ライブラリの版、各ライブラリが何を出力するかとともに、[docs/comparison.ja.md](https://github.com/YUKIKEDA/convx/blob/main/docs/comparison.ja.md) にある。これは報告であり、他のライブラリのほうが速い行もそのまま載せている。CGAL と Qhull に対するクレート自身の判定は、[docs/verification.md](https://github.com/YUKIKEDA/convx/blob/main/docs/verification.md) のパリティ計測（閾値を持つ決まった行の集合）であり、この報告とは分けている。
+Qhull、CGAL、Rust のクレートとの、標準的なデータでの比較は [docs/comparison.ja.md](https://github.com/YUKIKEDA/convx/blob/main/docs/comparison.ja.md) にまとめた。計測環境、各ライブラリのバージョン、各ライブラリが出力するものの違いも載せている。他のライブラリのほうが速い結果も、表から除いていない。このクレートが CGAL と Qhull に対して合否を判定する基準は、これとは別に、[docs/verification.md](https://github.com/YUKIKEDA/convx/blob/main/docs/verification.md) のパリティ計測（閾値を持つ決まったデータの集合）として定めている。
 
 ## 仕組み
 

@@ -56,7 +56,7 @@ Read as someone who has the crate page and has not opened this repository. Fail 
 
 ## The Japanese inspection
 
-Through the Gemini CLI, on each Japanese page of reader-docs, with `.agents/skills/natural-japanese/SKILL.md` in score mode (`references/diagnose.md`). Gemini returns the score, the findings, and whether the page is a gloss of the English; it does not rewrite. The agent that edited the page does not judge the result: a finding is fixed by an edit, and the page is inspected again.
+Through the Antigravity CLI with a Gemini model (`agy -p <prompt> --model gemini-3.8-flash-high`; the Gemini CLI is retired), on each Japanese page of reader-docs, with `.agents/skills/natural-japanese/SKILL.md` in score mode (`references/diagnose.md`). Gemini returns the score, the findings, and whether the page is a gloss of the English; it does not rewrite. The agent that edited the page does not judge the result: a finding is fixed by an edit, and the page is inspected again.
 
 ## Report
 
