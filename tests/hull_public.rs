@@ -1,6 +1,6 @@
 //! The published convex hull, through the public API only.
 
-use convx::{ConvexHullBuilder, ConvexHullError};
+use convx::{ConvexHullBuilder, Error};
 
 fn cube() -> Vec<f64> {
     (0..8)
@@ -49,7 +49,7 @@ fn cube_volume_cycles_and_outward_triangles() {
     let sorted: Vec<Vec<u32>> = triangulation
         .iter()
         .map(|s| {
-            let mut v = s.vertices.to_vec();
+            let mut v = s.vertices().to_vec();
             v.sort_unstable();
             v
         })
@@ -58,7 +58,7 @@ fn cube_volume_cycles_and_outward_triangles() {
     expected.sort();
     assert_eq!(sorted, expected);
     for simplex in triangulation.iter() {
-        let plane = hull.planes().unwrap().get(simplex.facet).unwrap();
+        let plane = hull.planes().unwrap().get(simplex.facet()).unwrap();
         // The triangle's right-hand normal points along the facet normal.
         let p = |v: u32| -> [f64; 3] {
             let i = v as usize * 3;
@@ -66,9 +66,9 @@ fn cube_volume_cycles_and_outward_triangles() {
             [c[i], c[i + 1], c[i + 2]]
         };
         let (a, b, c) = (
-            p(simplex.vertices[0]),
-            p(simplex.vertices[1]),
-            p(simplex.vertices[2]),
+            p(simplex.vertices()[0]),
+            p(simplex.vertices()[1]),
+            p(simplex.vertices()[2]),
         );
         let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
         let w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
@@ -189,13 +189,13 @@ fn planes_contain_their_vertices() {
 fn input_errors_through_the_builder() {
     assert_eq!(
         ConvexHullBuilder::new(0, &[]).build().err(),
-        Some(ConvexHullError::NonPositiveDimension)
+        Some(Error::NonPositiveDimension)
     );
     assert_eq!(
         ConvexHullBuilder::new(2, &[0.0, 0.0, 1.0, 0.0, 2.0, 0.0])
             .build()
             .err(),
-        Some(ConvexHullError::DegenerateDimension {
+        Some(Error::DegenerateDimension {
             actual_dim: 1,
             spanning_points: vec![0, 1]
         })
@@ -214,10 +214,7 @@ fn offset_overflow_is_a_non_finite_plane() {
     // The planes are what cannot be published, on the first call and on
     // every later one.
     for _ in 0..2 {
-        assert_eq!(
-            hull.planes().err(),
-            Some(ConvexHullError::NonFiniteFacetPlane)
-        );
+        assert_eq!(hull.planes().err(), Some(Error::NonFiniteFacetPlane));
     }
 }
 

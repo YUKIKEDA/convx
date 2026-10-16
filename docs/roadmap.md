@@ -262,10 +262,10 @@ The owner opened this phase on 2026-10-12 (Grill on #592). The comparison it pub
 | R1-1  | Task  | Publish rules: crates.io, the license, and what 0.1.0 promises, in scope                             | #593  | Done                               |
 | R1-2  | Task  | The package: license files, Cargo metadata, and the files that ship                                  | #594  | Done                               |
 | R1-3  | Docs  | The README and the crate documentation state what 0.1.0 is                                           | #595  | Done                               |
-| R1-4  | Task  | Audit the public items and their rustdoc                                                             | #596  | Not started                        |
+| R1-4  | Task  | Audit the public items and their rustdoc                                                             | #596  | Done                               |
 | R1-5  | Task  | The comparison's tools: one runner for several libraries, with time and memory                       | #597  | Done                               |
 | R1-6  | Task  | The comparison's data: rbox, the distributions of PBBS, and the Stanford scans                       | #598  | Done                               |
-| R1-7  | Task  | Rust crates in the comparison                                                                        | #599  | Not started                        |
+| R1-7  | Task  | Rust crates in the comparison                                                                        | #599  | Done                               |
 | R1-8  | Docs  | Run the comparison and publish it: the document, the figures, and the numbers                        | #600  | Not started                        |
 | R1-9  | Feat  | The filter's exact scaling before the release (P5-63)                                                | #601  | Done                               |
 | R1-10 | Task  | 0.1.0: the changelog, the version, and `publish = false` removed                                     | #602  | Not started                        |

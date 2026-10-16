@@ -23,7 +23,7 @@ Points are one row-major slice of `f64`: `D` coordinates a point.
 ```rust
 use convx::ConvexHullBuilder;
 
-fn main() -> Result<(), convx::ConvexHullError> {
+fn main() -> Result<(), convx::Error> {
     // A unit square, its center, the midpoint of an edge, and a copy of a corner.
     let points = [
         0.0, 0.0, // 0
@@ -64,7 +64,7 @@ A facet is a *logical* facet: simplices that are exactly coplanar are one facet,
 ```rust
 use convx::DelaunayBuilder;
 
-fn main() -> Result<(), convx::ConvexHullError> {
+fn main() -> Result<(), convx::Error> {
     // The corners of a square and its center.
     let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
     let delaunay = DelaunayBuilder::new(2, &sites).build()?;
@@ -87,7 +87,7 @@ Every site is in the triangulation, the ones inside the hull of the sites includ
 ```rust
 use convx::VoronoiBuilder;
 
-fn main() -> Result<(), convx::ConvexHullError> {
+fn main() -> Result<(), convx::Error> {
     let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
     let voronoi = VoronoiBuilder::new(2, &sites).build()?;
 
@@ -112,7 +112,7 @@ A Voronoi vertex is one group of cospherical Delaunay simplices, merged by exact
 ```rust
 use convx::StaticConvexHull;
 
-fn main() -> Result<(), convx::ConvexHullError> {
+fn main() -> Result<(), convx::Error> {
     let tetrahedron = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
     let hull = StaticConvexHull::<3>::build(&tetrahedron)?;
     assert_eq!(hull.facets().len(), 4);

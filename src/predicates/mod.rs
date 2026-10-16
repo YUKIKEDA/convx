@@ -46,7 +46,7 @@ use crate::small::Small;
 /// orientation of the facet's points, in outward order, followed by the point
 /// is [`Sign::Positive`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Sign {
+pub(crate) enum Sign {
     /// The determinant is negative.
     Negative,
     /// The determinant is exactly zero.
@@ -58,7 +58,7 @@ pub enum Sign {
 impl Sign {
     /// The opposite sign. [`Sign::Zero`] stays zero.
     #[must_use]
-    pub fn reversed(self) -> Self {
+    pub(crate) fn reversed(self) -> Self {
         match self {
             Self::Negative => Self::Positive,
             Self::Zero => Self::Zero,

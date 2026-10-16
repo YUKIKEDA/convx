@@ -35,10 +35,10 @@ use crate::hull::ridge::{
     fingerprint, pair_equal_keys_with_border, pair_equal_keys_with_border_into,
 };
 use crate::hull::simplicial::SimplicialHull;
-use crate::hull::ConvexHullError;
 use crate::lists::Lists;
 use crate::predicates::{orient, Sign, Start};
 use crate::small::Small;
+use crate::Error;
 
 /// A neighbor slot with no simplex across it. Point and simplex numbers are
 /// below `u32::MAX`, so this value names neither.
@@ -62,7 +62,7 @@ pub(crate) const NO_NEIGHBOR: u32 = u32::MAX;
 /// let first = delaunay.simplices().get(0).unwrap();
 /// let across: Vec<u32> = first.neighbors().iter().copied().filter(|&n| n != u32::MAX).collect();
 /// assert_eq!(across, [1]);
-/// # Ok::<(), convx::ConvexHullError>(())
+/// # Ok::<(), convx::Error>(())
 /// ```
 #[derive(Clone, Copy, Debug)]
 pub struct DelaunayBuilder<'a> {
@@ -82,12 +82,12 @@ impl<'a> DelaunayBuilder<'a> {
     ///
     /// # Errors
     ///
-    /// The input failures of [`ConvexHullError`], in the order documented
-    /// there; [`ConvexHullError::DegenerateDimension`] only when the sites
+    /// The input failures of [`Error`], in the order documented
+    /// there; [`Error::DegenerateDimension`] only when the sites
     /// do not span dimension D, with their original indices; and
-    /// [`ConvexHullError::ExactEvaluationExhausted`]. Sites that all lie on
+    /// [`Error::ExactEvaluationExhausted`]. Sites that all lie on
     /// one sphere succeed.
-    pub fn build(self) -> Result<DelaunayTriangulation, ConvexHullError> {
+    pub fn build(self) -> Result<DelaunayTriangulation, Error> {
         // An input far from 1 is built on a copy scaled exactly (#589);
         // a triangulation publishes indices only.
         let scaled = crate::scaling::scaled_copy(self.points, crate::scaling::SITES_FROM);
@@ -546,7 +546,7 @@ fn generic_insertion() -> bool {
 /// lift built by insertion, or the pulling triangulation as one group when
 /// the lift is flat. Input checks and `DegenerateDimension` concern the
 /// original sites, with their original indices.
-pub(crate) fn complex(dim: usize, points: &[f64]) -> Result<Complex, ConvexHullError> {
+pub(crate) fn complex(dim: usize, points: &[f64]) -> Result<Complex, Error> {
     let input = accept_sites(dim, points)?;
     let sites = insert::Sites::of(&input);
     let complex = if flat(&input, &sites)? {
@@ -577,7 +577,7 @@ pub(crate) fn complex(dim: usize, points: &[f64]) -> Result<Complex, ConvexHullE
 
 /// Whether the lift is flat: every representative is cospherical with the
 /// minimum basis, so the lifted sites span only dimension D (design §7).
-fn flat(input: &Input<'_>, sites: &insert::Sites) -> Result<bool, ConvexHullError> {
+fn flat(input: &Input<'_>, sites: &insert::Sites) -> Result<bool, Error> {
     let basis = &input.spanning_points;
     let mut ids = basis.clone();
     ids.push(0);
@@ -610,7 +610,7 @@ fn inserted<S: insert::Shape>(
     shape: S,
     input: &Input<'_>,
     sites: &insert::Sites,
-) -> Result<Complex, ConvexHullError> {
+) -> Result<Complex, Error> {
     let d = input.dim();
     let k = d + 1;
     let first = &input.spanning_points;
@@ -701,7 +701,7 @@ fn inserted<S: insert::Shape>(
             {
                 continue;
             }
-            let mut test = || -> Result<bool, ConvexHullError> {
+            let mut test = || -> Result<bool, Error> {
                 // The far vertex of `n`: the one not in `c`. Found among the
                 // vertices of `n`, which the finiteness check read, rather
                 // than through the links of `n`.
@@ -1148,7 +1148,7 @@ fn publish(complex: Complex) -> DelaunayTriangulation {
 /// is split by the same rule, and `v` joins every simplex found; a face that
 /// is already a simplex is returned as it is. The recursion runs on an
 /// explicit stack.
-fn pull(sites: Input<'_>) -> Result<Complex, ConvexHullError> {
+fn pull(sites: Input<'_>) -> Result<Complex, Error> {
     let d = sites.dim();
     let hull = SimplicialHull::build(sites)?;
     let facets = merge(&hull)?.vertices;
@@ -1195,7 +1195,7 @@ fn pulled_cells<'p>(
     sites: &[u32],
     facets: &Lists<u32>,
     point: impl Fn(u32) -> &'p [f64] + Copy,
-) -> Result<Vec<u32>, ConvexHullError> {
+) -> Result<Vec<u32>, Error> {
     let ids = sites.last().map_or(0, |&last| last as usize + 1);
     // The facets at each vertex: `at[start[x]..start[x + 1]]`.
     let mut start = vec![0_u32; ids + 2];

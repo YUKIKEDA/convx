@@ -23,7 +23,7 @@ convx = "0.1"
 ```rust
 use convx::ConvexHullBuilder;
 
-fn main() -> Result<(), convx::ConvexHullError> {
+fn main() -> Result<(), convx::Error> {
     // 単位正方形、その中心、辺の中点、頂点の複製。
     let points = [
         0.0, 0.0, // 0
@@ -64,7 +64,7 @@ fn main() -> Result<(), convx::ConvexHullError> {
 ```rust
 use convx::DelaunayBuilder;
 
-fn main() -> Result<(), convx::ConvexHullError> {
+fn main() -> Result<(), convx::Error> {
     // 正方形の 4 隅と中心。
     let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
     let delaunay = DelaunayBuilder::new(2, &sites).build()?;
@@ -87,7 +87,7 @@ fn main() -> Result<(), convx::ConvexHullError> {
 ```rust
 use convx::VoronoiBuilder;
 
-fn main() -> Result<(), convx::ConvexHullError> {
+fn main() -> Result<(), convx::Error> {
     let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
     let voronoi = VoronoiBuilder::new(2, &sites).build()?;
 
@@ -112,7 +112,7 @@ Voronoi 頂点は、同一球面上にある Delaunay 単体の一つのグル�
 ```rust
 use convx::StaticConvexHull;
 
-fn main() -> Result<(), convx::ConvexHullError> {
+fn main() -> Result<(), convx::Error> {
     let tetrahedron = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
     let hull = StaticConvexHull::<3>::build(&tetrahedron)?;
     assert_eq!(hull.facets().len(), 4);

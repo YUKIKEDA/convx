@@ -5,13 +5,13 @@ use std::sync::OnceLock;
 
 use super::classify::{classify, Classified, FaceOrder, Faces};
 use super::input::{accept, minimum_basis, minimum_basis_with, Input};
-use super::ConvexHullError;
 use crate::lists::Lists;
 use crate::normal::{certified_side, facet_cofactors, facet_cofactors_in_lanes, working_normal};
 use crate::predicates::{
     certified_cofactor_direction, orient, Cofactors, Direction, Sign, COFACTOR_LANES,
 };
 use crate::small::Small;
+use crate::Error;
 
 /// Builds a [`ConvexHull`] from row-major coordinates.
 ///
@@ -29,7 +29,7 @@ use crate::small::Small;
 /// // Planes are computed by the first call of `planes()`.
 /// assert_eq!(hull.planes()?.get(0).unwrap().normal(), [0.0, -1.0]);
 /// assert_eq!(hull.volume(), 1.0);
-/// # Ok::<(), convx::ConvexHullError>(())
+/// # Ok::<(), convx::Error>(())
 /// ```
 #[derive(Clone, Copy, Debug)]
 pub struct ConvexHullBuilder<'a> {
@@ -48,10 +48,10 @@ impl<'a> ConvexHullBuilder<'a> {
     ///
     /// # Errors
     ///
-    /// Any input failure of [`ConvexHullError`], in the order documented
-    /// there, and [`ConvexHullError::ExactEvaluationExhausted`]. The planes
+    /// Any input failure of [`Error`], in the order documented
+    /// there, and [`Error::ExactEvaluationExhausted`]. The planes
     /// of the facets are not computed here ([`ConvexHull::planes`]).
-    pub fn build(self) -> Result<ConvexHull, ConvexHullError> {
+    pub fn build(self) -> Result<ConvexHull, Error> {
         // An input far from 1 is built on a copy scaled exactly (#589);
         // the hull keeps the coordinates of the input itself.
         let scaled = crate::scaling::scaled_copy(self.points, crate::scaling::hull_from(self.dim));
@@ -373,11 +373,23 @@ impl core::fmt::Debug for Plane<'_> {
 /// A simplex of the boundary complex.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BoundarySimplex<'a> {
+    vertices: &'a [u32],
+    facet: u32,
+}
+
+impl<'a> BoundarySimplex<'a> {
     /// D vertices in outward order: ascending, with the last two swapped when
     /// that is what makes the order outward. For D = 1 the single endpoint.
-    pub vertices: &'a [u32],
+    #[must_use]
+    pub fn vertices(&self) -> &'a [u32] {
+        self.vertices
+    }
+
     /// Public number of the logical facet that contains this simplex.
-    pub facet: u32,
+    #[must_use]
+    pub fn facet(&self) -> u32 {
+        self.facet
+    }
 }
 
 /// The boundary simplicial complex of a [`ConvexHull`].
@@ -543,16 +555,16 @@ impl ConvexHull {
     ///
     /// # Errors
     ///
-    /// [`ConvexHullError::NonFiniteFacetPlane`] when a normal or an offset
+    /// [`Error::NonFiniteFacetPlane`] when a normal or an offset
     /// is not finite. The input decides that, so it is kept as well: every
     /// later call returns it, and no plane is published.
     ///
-    /// [`ConvexHullError::ExactEvaluationExhausted`] when the work space of
+    /// [`Error::ExactEvaluationExhausted`] when the work space of
     /// an exact evaluation could not be allocated. That is not kept: the
     /// next call computes the planes again.
     ///
     /// The hull itself is built either way.
-    pub fn planes(&self) -> Result<Planes<'_>, ConvexHullError> {
+    pub fn planes(&self) -> Result<Planes<'_>, Error> {
         self.kept_planes(|| self.plane_set())
     }
 
@@ -561,25 +573,25 @@ impl ConvexHull {
     /// threads may compute at once; one result is kept, and all return it.
     fn kept_planes(
         &self,
-        compute: impl FnOnce() -> Result<PlaneSet, ConvexHullError>,
-    ) -> Result<Planes<'_>, ConvexHullError> {
+        compute: impl FnOnce() -> Result<PlaneSet, Error>,
+    ) -> Result<Planes<'_>, Error> {
         let kept = match self.planes.get() {
             Some(kept) => kept,
             None => match compute() {
                 Ok(set) => self.planes.get_or_init(|| Some(set)),
-                Err(ConvexHullError::NonFiniteFacetPlane) => self.planes.get_or_init(|| None),
+                Err(Error::NonFiniteFacetPlane) => self.planes.get_or_init(|| None),
                 Err(other) => return Err(other),
             },
         };
         match kept {
             Some(set) => Ok(Planes { dim: self.dim, set }),
-            None => Err(ConvexHullError::NonFiniteFacetPlane),
+            None => Err(Error::NonFiniteFacetPlane),
         }
     }
 
     /// The plane of every facet, from the facets and the coordinates of the
     /// extreme points alone.
-    fn plane_set(&self) -> Result<PlaneSet, ConvexHullError> {
+    fn plane_set(&self) -> Result<PlaneSet, Error> {
         let d = self.dim;
         // Every facet vertex is an extreme point; its coordinates are read
         // through its position among the extreme points.
@@ -885,18 +897,14 @@ pub(crate) fn inner_reference(vertices: &[u32], facet_vertices: &[u32]) -> u32 {
 /// The offset of the public plane of a facet (design §5) from its
 /// [`for_each_facet_normal`] basis and normal: the plane passes through the
 /// first basis point `r`, so the offset is `-n . r`.
-fn plane_offset(
-    input: &impl Points,
-    basis: &[u32],
-    normal: &[f64],
-) -> Result<f64, ConvexHullError> {
+fn plane_offset(input: &impl Points, basis: &[u32], normal: &[f64]) -> Result<f64, Error> {
     let offset = -normal
         .iter()
         .zip(input.point(basis[0]))
         .map(|(n, x)| n * x)
         .sum::<f64>();
     if !offset.is_finite() || normal.iter().any(|x| !x.is_finite()) {
-        return Err(ConvexHullError::NonFiniteFacetPlane);
+        return Err(Error::NonFiniteFacetPlane);
     }
     Ok(offset)
 }
@@ -927,8 +935,8 @@ fn edge_unit_normal(input: &impl Points, vertices: &[u32], inner: u32) -> Option
 fn edge_normals(
     input: &impl Points,
     facets: &[(&[u32], u32)],
-    mut f: impl FnMut(&[u32], &[f64]) -> Result<(), ConvexHullError>,
-) -> Result<(), ConvexHullError> {
+    mut f: impl FnMut(&[u32], &[f64]) -> Result<(), Error>,
+) -> Result<(), Error> {
     let mut rows = Vec::new();
     for &(vertices, inner) in facets {
         let Some(normal) = edge_unit_normal(input, vertices, inner) else {
@@ -955,15 +963,15 @@ fn edge_normals(
 pub(crate) fn for_each_facet_normal(
     input: &impl Points,
     facets: &[(&[u32], u32)],
-    mut f: impl FnMut(&[u32], &[f64]) -> Result<(), ConvexHullError>,
-) -> Result<(), ConvexHullError> {
+    mut f: impl FnMut(&[u32], &[f64]) -> Result<(), Error>,
+) -> Result<(), Error> {
     if input.dim() == 2 && facets.iter().all(|(vertices, _)| vertices.len() == 2) {
         return edge_normals(input, facets, f);
     }
     let point = |i: u32| input.point(i);
     let mut rows = Vec::new();
     for chunk in facets.chunks(COFACTOR_LANES) {
-        let bases: [Result<Basis, ConvexHullError>; COFACTOR_LANES] =
+        let bases: [Result<Basis, Error>; COFACTOR_LANES] =
             core::array::from_fn(|lane| match chunk.get(lane) {
                 Some(&(vertices, _)) => facet_basis(input, vertices, &mut rows),
                 None => Ok(Basis::new()),
@@ -1006,7 +1014,7 @@ fn facet_basis(
     input: &impl Points,
     facet_vertices: &[u32],
     rows: &mut Vec<f64>,
-) -> Result<Basis, ConvexHullError> {
+) -> Result<Basis, Error> {
     let d = input.dim();
     let point = |i: u32| input.point(i);
     // A facet with exactly D vertices spans its (D - 1)-flat, so they are
@@ -1031,7 +1039,7 @@ fn oriented_normal(
     points: &[&[f64]],
     inner: u32,
     cofactors: Option<&[(f64, f64)]>,
-) -> Result<Direction, ConvexHullError> {
+) -> Result<Direction, Error> {
     let point = |i: u32| input.point(i);
     let with_inner =
         || -> BasisPoints<'_> { points.iter().copied().chain([point(inner)]).collect() };
@@ -1051,8 +1059,7 @@ fn oriented_normal(
     };
     // The published normal is the working normal, the certified cofactor
     // direction (design §1).
-    working_normal(points, inside.reversed(), cofactors)?
-        .ok_or(ConvexHullError::NonFiniteFacetPlane)
+    working_normal(points, inside.reversed(), cofactors)?.ok_or(Error::NonFiniteFacetPlane)
 }
 
 /// Keeps the facets and simplices as classification left them. Their
@@ -1331,7 +1338,7 @@ mod tests {
         let points = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
         let hull = ConvexHullBuilder::new(2, &points).build().unwrap();
         // Exhausted work space: returned, and nothing is kept.
-        let exhausted = ConvexHullError::ExactEvaluationExhausted;
+        let exhausted = Error::ExactEvaluationExhausted;
         assert_eq!(
             hull.kept_planes(|| Err(exhausted.clone())).err(),
             Some(exhausted)
@@ -1342,7 +1349,7 @@ mod tests {
         // A plane that is not finite is kept: the computation does not run
         // again, and neither does one that would now succeed.
         let other = ConvexHullBuilder::new(2, &points).build().unwrap();
-        let not_finite = ConvexHullError::NonFiniteFacetPlane;
+        let not_finite = Error::NonFiniteFacetPlane;
         assert_eq!(
             other.kept_planes(|| Err(not_finite.clone())).err(),
             Some(not_finite.clone())

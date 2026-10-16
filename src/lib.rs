@@ -3,10 +3,12 @@
 // examples run as doctests.
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
+#![deny(missing_docs)]
 
 mod arena;
 mod cull;
 mod delaunay;
+mod error;
 mod hull;
 mod lists;
 mod morton;
@@ -18,11 +20,10 @@ mod static_api;
 mod voronoi;
 
 pub use delaunay::{DelaunayBuilder, DelaunaySimplex, DelaunayTriangulation, Simplices};
+pub use error::Error;
 pub use hull::{
-    BoundarySimplex, ConvexHull, ConvexHullBuilder, ConvexHullError, Facet, Facets, Plane, Planes,
-    TriangulationView,
+    BoundarySimplex, ConvexHull, ConvexHullBuilder, Facet, Facets, Plane, Planes, TriangulationView,
 };
-pub use predicates::Sign;
 pub use static_api::{StaticConvexHull, StaticDelaunay, StaticVoronoi};
 pub use voronoi::{
     VoronoiBuilder, VoronoiCell, VoronoiCells, VoronoiDiagram, VoronoiInterface, VoronoiInterfaces,

@@ -12,10 +12,10 @@ This file and [design.ja.md](design.ja.md) both carry the full specification. Wh
 
 An input `f64` is the coordinate its bit pattern names. Predicates do not translate or scale first. A rounded transform moves the exact zero. One transform is not rounded and is allowed (#179, #589): every coordinate of the whole input multiplied by the same power of two, where that product is exact for every coordinate. It multiplies every determinant by a positive power of two and leaves every sign as it is, so a build on the scaled coordinates is a build of the same exact problem. It is made once, before acceptance, when the largest coordinate is far from 1 (beyond `2^12` on either side for sites, `2^64` for the points of a hull, `2^300` for a hull of $D = 2$), and brings it into $[1, 2)$. An input that one scale would round, because it holds huge and tiny coordinates together, is built as it is. What a result publishes as coordinates (the planes of a hull, the vertices of a Voronoi diagram) is computed from the input's own coordinates. Scaling one predicate's entries inside the filter, which #179 first allowed, was tried and withdrawn: each predicate ran twice, and the stages around the predicates still worked on the tiny coordinates.
 
-Error is only the rounding of evaluating that predicate's expression. Each predicate returns `Sign`. It does not return `f64`.
+Error is only the rounding of evaluating that predicate's expression. Each predicate returns `Sign`. It does not return `f64`. No public function takes or returns a sign, so `Sign` is a type of the crate and not of its API (#596).
 
 ```rust
-pub enum Sign {
+enum Sign {
     Negative,
     Zero,
     Positive,
@@ -81,8 +81,11 @@ Duplicates are decided by `==`. `-0.0` and `+0.0` are the same point. Equality i
 
 If there are at least $D + 1$ representatives and the affine dimension is still below $D$, the call fails with `DegenerateDimension { actual_dim, spanning_points }`. A caller that projects uses the returned `spanning_points`. `spanning_points` is the sequence obtained by walking representative indices in ascending order and keeping only the points that strictly raise the affine dimension. Its length is $\textit{actual\_dim} + 1$. This sequence is the lexicographically minimum basis.
 
+One error type, `Error`, is returned by every fallible function: the builds of a hull, of a Delaunay triangulation, and of a Voronoi diagram, and `ConvexHull::planes()`. It is `#[non_exhaustive]`, so a later version adds a variant without breaking a caller, and a `match` on it outside the crate has a wildcard arm (#596).
+
 ```rust
-pub enum ConvexHullError {
+#[non_exhaustive]
+pub enum Error {
     NonPositiveDimension,
     LengthMismatch { len: usize, dim: usize },
     /// Point number. The first point, in input order, that has a non-finite coordinate.
@@ -473,11 +476,11 @@ pub struct ConvexHullBuilder<'a> { /* dim, points */ }
 
 impl<'a> ConvexHullBuilder<'a> {
     pub fn new(dim: usize, points: &'a [f64]) -> Self;
-    pub fn build(self) -> Result<ConvexHull, ConvexHullError>;
+    pub fn build(self) -> Result<ConvexHull, Error>;
 }
 ```
 
-`DelaunayBuilder` and `VoronoiBuilder` have the same shape. Both return `ConvexHullError` on failure. Delaunay's `dim` is the dimension of the original space, not the dimension after the lift.
+`DelaunayBuilder` and `VoronoiBuilder` have the same shape. Both return `Error` on failure. Delaunay's `dim` is the dimension of the original space, not the dimension after the lift.
 
 ```rust
 pub struct ConvexHull { /* private */ }
@@ -493,7 +496,7 @@ impl ConvexHull {
     /// The planes of the facets (§5), computed on the first call and kept.
     /// NonFiniteFacetPlane when a normal or an offset is not finite; that
     /// failure is kept too. ExactEvaluationExhausted is not kept.
-    pub fn planes(&self) -> Result<Planes<'_>, ConvexHullError>;
+    pub fn planes(&self) -> Result<Planes<'_>, Error>;
     /// Not used for topology. Finiteness is not guaranteed.
     pub fn volume(&self) -> f64;
     /// The coplanar split is not part of the stability promise across versions.
@@ -510,9 +513,13 @@ A build allocates a number of times that does not grow with the number of points
 ```rust
 pub struct TriangulationView<'a> { /* borrows the ConvexHull */ }
 
-pub struct BoundarySimplex<'a> {
-    pub vertices: &'a [u32], // length D. Outward order, last two swapped as in §5
-    pub facet: u32,          // public number of the logical facet that contains this simplex
+pub struct BoundarySimplex<'a> { /* private */ }
+
+impl<'a> BoundarySimplex<'a> {
+    /// Length D. Outward order, last two swapped as in §5.
+    pub fn vertices(&self) -> &'a [u32];
+    /// Public number of the logical facet that contains this simplex.
+    pub fn facet(&self) -> u32;
 }
 
 impl<'a> TriangulationView<'a> {
@@ -533,7 +540,7 @@ pub struct StaticDelaunay<const D: usize>;
 pub struct StaticVoronoi<const D: usize>;
 
 impl StaticConvexHull<D> {
-    pub fn build(points: &[[f64; D]]) -> Result<ConvexHull, ConvexHullError>;
+    pub fn build(points: &[[f64; D]]) -> Result<ConvexHull, Error>;
 }
 ```
 

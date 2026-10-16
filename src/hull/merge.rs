@@ -9,10 +9,10 @@
 //! tests are enough.
 
 use super::simplicial::SimplicialHull;
-use super::ConvexHullError;
 use crate::arena::{FacetId, SlotMarks};
 use crate::lists::Lists;
 use crate::predicates::Sign;
+use crate::Error;
 
 #[derive(Default)]
 pub(crate) struct LogicalFacets {
@@ -57,7 +57,7 @@ impl UnionFind {
 }
 
 /// Groups the simplices of `hull` into logical facets.
-pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, ConvexHullError> {
+pub(crate) fn merge(hull: &SimplicialHull<'_>) -> Result<LogicalFacets, Error> {
     let mut facets = LogicalFacets::default();
     merge_into(hull, &mut facets, &mut MergeWork::default())?;
     Ok(facets)
@@ -87,7 +87,7 @@ pub(crate) fn merge_into(
     hull: &SimplicialHull<'_>,
     facets: &mut LogicalFacets,
     work: &mut MergeWork,
-) -> Result<(), ConvexHullError> {
+) -> Result<(), Error> {
     facets.groups.clear();
     facets.vertices.clear();
     facets.neighbors.clear();
@@ -130,7 +130,7 @@ fn merge_except(
     cut: &SlotMarks<()>,
     facets: &mut LogicalFacets,
     work: &mut MergeWork,
-) -> Result<(), ConvexHullError> {
+) -> Result<(), Error> {
     // The arena's iterator cannot say how many entries are live, so the
     // lists below are sized from its count: grown by doubling, each would be
     // copied a dozen times (#209).

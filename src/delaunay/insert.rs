@@ -53,13 +53,13 @@
 //! all publish the same triangulation.
 
 use crate::hull::input::Input;
-use crate::hull::ConvexHullError;
 use crate::morton::{spread2, spread3};
 use crate::predicates::{
     first_stage_fixed, orient, orient_from, orient_lifted_from, orient_lifted_with, LiftedHeight,
     Sign, Start,
 };
 use crate::small::Small;
+use crate::Error;
 
 /// The vertex at infinity of an outside simplex. Site numbers are below
 /// `u32::MAX`, so it names no site.
@@ -105,24 +105,18 @@ pub(super) trait Shape: Copy {
     fn k(self) -> usize;
 
     /// Orientation of the sites `ids` (D + 1 of them).
-    fn orient(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError>;
+    fn orient(self, sites: &Sites, ids: &[u32]) -> Result<Sign, Error>;
 
     /// Lifted orientation of the sites `ids` (D + 2 of them).
-    fn lifted(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError>;
+    fn lifted(self, sites: &Sites, ids: &[u32]) -> Result<Sign, Error>;
 
     /// The lifted orientation of the simplex `vertices` (D + 1 sites)
     /// followed by `q`.
-    fn sphere_sign(self, sites: &Sites, vertices: &[u32], q: u32) -> Result<Sign, ConvexHullError>;
+    fn sphere_sign(self, sites: &Sites, vertices: &[u32], q: u32) -> Result<Sign, Error>;
 
     /// The orientation of the simplex `vertices` with vertex `slot` replaced
     /// by `q`.
-    fn replaced(
-        self,
-        sites: &Sites,
-        vertices: &[u32],
-        slot: usize,
-        q: u32,
-    ) -> Result<Sign, ConvexHullError>;
+    fn replaced(self, sites: &Sites, vertices: &[u32], slot: usize, q: u32) -> Result<Sign, Error>;
 }
 
 /// Any dimension: `k` is a value.
@@ -147,16 +141,16 @@ impl Shape for Any {
     }
 
     #[inline(always)]
-    fn orient(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError> {
+    fn orient(self, sites: &Sites, ids: &[u32]) -> Result<Sign, Error> {
         sites.orient(ids, Start::FirstStage)
     }
 
     #[inline(always)]
-    fn lifted(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError> {
+    fn lifted(self, sites: &Sites, ids: &[u32]) -> Result<Sign, Error> {
         sites.lifted(ids, Start::FirstStage)
     }
 
-    fn sphere_sign(self, sites: &Sites, vertices: &[u32], q: u32) -> Result<Sign, ConvexHullError> {
+    fn sphere_sign(self, sites: &Sites, vertices: &[u32], q: u32) -> Result<Sign, Error> {
         let k = self.k;
         if k < INLINE {
             let mut ids = [0_u32; INLINE];
@@ -170,13 +164,7 @@ impl Shape for Any {
         }
     }
 
-    fn replaced(
-        self,
-        sites: &Sites,
-        vertices: &[u32],
-        slot: usize,
-        q: u32,
-    ) -> Result<Sign, ConvexHullError> {
+    fn replaced(self, sites: &Sites, vertices: &[u32], slot: usize, q: u32) -> Result<Sign, Error> {
         let k = self.k;
         if k <= INLINE {
             let mut ids = [0_u32; INLINE];
@@ -214,7 +202,7 @@ macro_rules! fixed_shape {
             }
 
             #[inline(always)]
-            fn orient(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError> {
+            fn orient(self, sites: &Sites, ids: &[u32]) -> Result<Sign, Error> {
                 debug_assert_eq!(ids.len(), $k);
                 debug_assert_eq!(sites.dim() + 1, $k);
                 let origin: [f64; $d] = sites.fixed(ids[0]);
@@ -229,7 +217,7 @@ macro_rules! fixed_shape {
             }
 
             #[inline(always)]
-            fn lifted(self, sites: &Sites, ids: &[u32]) -> Result<Sign, ConvexHullError> {
+            fn lifted(self, sites: &Sites, ids: &[u32]) -> Result<Sign, Error> {
                 debug_assert_eq!(ids.len(), $lifted);
                 debug_assert_eq!(sites.dim() + 2, $lifted);
                 let origin: [f64; $d] = sites.fixed(ids[0]);
@@ -249,7 +237,7 @@ macro_rules! fixed_shape {
                 sites: &Sites,
                 vertices: &[u32],
                 q: u32,
-            ) -> Result<Sign, ConvexHullError> {
+            ) -> Result<Sign, Error> {
                 let ids: [u32; $lifted] =
                     core::array::from_fn(|i| if i < $k { vertices[i] } else { q });
                 self.lifted(sites, &ids)
@@ -262,7 +250,7 @@ macro_rules! fixed_shape {
                 vertices: &[u32],
                 slot: usize,
                 q: u32,
-            ) -> Result<Sign, ConvexHullError> {
+            ) -> Result<Sign, Error> {
                 let mut ids: [u32; $k] = core::array::from_fn(|i| vertices[i]);
                 ids[slot] = q;
                 self.orient(sites, &ids)
@@ -407,7 +395,7 @@ impl Sites {
     }
 
     /// Orientation of the sites `ids` (D + 1 of them), starting at `start`.
-    fn orient(&self, ids: &[u32], start: Start) -> Result<Sign, ConvexHullError> {
+    fn orient(&self, ids: &[u32], start: Start) -> Result<Sign, Error> {
         let n = ids.len();
         if n <= INLINE {
             let mut points: [&[f64]; INLINE] = [&[]; INLINE];
@@ -423,7 +411,7 @@ impl Sites {
 
     /// Lifted orientation of the sites `ids` (D + 2 of them), starting at
     /// `start`.
-    pub(super) fn lifted(&self, ids: &[u32], start: Start) -> Result<Sign, ConvexHullError> {
+    pub(super) fn lifted(&self, ids: &[u32], start: Start) -> Result<Sign, Error> {
         let n = ids.len();
         if n <= INLINE {
             let mut points: [&[f64]; INLINE] = [&[]; INLINE];
@@ -444,7 +432,7 @@ impl Sites {
 /// The sign of the lifted orientation of a positive simplex followed by a
 /// point strictly inside its circumsphere: the standard simplex and its
 /// centroid, in dimension `d`.
-fn inside_sign(d: usize) -> Result<Sign, ConvexHullError> {
+fn inside_sign(d: usize) -> Result<Sign, Error> {
     let mut rows: Vec<Vec<f64>> = (0..=d)
         .map(|i| (0..d).map(|j| if i == j + 1 { 1.0 } else { 0.0 }).collect())
         .collect();
@@ -505,12 +493,12 @@ impl<'a, S: Shape> Mesh<'a, S> {
     }
 
     /// Orientation of the sites `ids` (D + 1 of them).
-    pub(super) fn orient_ids(&self, ids: &[u32]) -> Result<Sign, ConvexHullError> {
+    pub(super) fn orient_ids(&self, ids: &[u32]) -> Result<Sign, Error> {
         self.shape.orient(self.sites, ids)
     }
 
     /// Lifted orientation of the sites `ids` (D + 2 of them).
-    pub(super) fn lifted_ids(&self, ids: &[u32]) -> Result<Sign, ConvexHullError> {
+    pub(super) fn lifted_ids(&self, ids: &[u32]) -> Result<Sign, Error> {
         self.shape.lifted(self.sites, ids)
     }
 
@@ -526,29 +514,29 @@ impl<'a, S: Shape> Mesh<'a, S> {
     /// cavities; the published split does not depend on it either way,
     /// because each cospherical group is split again by placing (see
     /// `super::inserted`).
-    fn in_sphere(&self, c: u32, q: u32) -> Result<bool, ConvexHullError> {
+    fn in_sphere(&self, c: u32, q: u32) -> Result<bool, Error> {
         Ok(self.sphere_sign(c, q)? == self.inside)
     }
 
     /// The lifted orientation of finite simplex `c` followed by `q`.
-    fn sphere_sign(&self, c: u32, q: u32) -> Result<Sign, ConvexHullError> {
+    fn sphere_sign(&self, c: u32, q: u32) -> Result<Sign, Error> {
         self.shape.sphere_sign(self.sites, self.vertices_of(c), q)
     }
 
     /// The orientation of simplex `c` with vertex `slot` replaced by `q`.
-    fn replaced(&self, c: u32, slot: usize, q: u32) -> Result<Sign, ConvexHullError> {
+    fn replaced(&self, c: u32, slot: usize, q: u32) -> Result<Sign, Error> {
         self.shape
             .replaced(self.sites, self.vertices_of(c), slot, q)
     }
 
     /// Whether simplex `c` conflicts with `q` (module docs).
-    fn conflicts(&self, c: u32, q: u32) -> Result<bool, ConvexHullError> {
+    fn conflicts(&self, c: u32, q: u32) -> Result<bool, Error> {
         Ok(self.conflict(c, q)?.0)
     }
 
     /// Whether simplex `c` conflicts with `q`, and for a finite `c`, whether
     /// `c` and `q` are cospherical.
-    fn conflict(&self, c: u32, q: u32) -> Result<(bool, Across), ConvexHullError> {
+    fn conflict(&self, c: u32, q: u32) -> Result<(bool, Across), Error> {
         match self.vertices_of(c).iter().position(|&v| v == INFINITE) {
             None => {
                 let sign = self.sphere_sign(c, q)?;
@@ -645,7 +633,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
         sites: &'a Sites,
         first: &[u32],
         order: &[u32],
-    ) -> Result<Self, ConvexHullError> {
+    ) -> Result<Self, Error> {
         let d = sites.dim();
         let k = shape.k();
         debug_assert_eq!(k, d + 1, "the shape is that of the sites' dimension");
@@ -760,7 +748,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
     /// every edge opposite `q` whose far triangle conflicts with `q` is
     /// flipped, which leaves the triangles around `q` Delaunay. An edge not
     /// flipped records what its in-circle test said.
-    fn insert_by_flips(&mut self, q: u32) -> Result<(), ConvexHullError> {
+    fn insert_by_flips(&mut self, q: u32) -> Result<(), Error> {
         debug_assert_eq!(self.shape.k(), 3, "edge flips are for triangles");
         let t = self.locate(q)?;
         debug_assert!(self.conflicts(t, q)?, "the located triangle conflicts");
@@ -915,7 +903,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
     /// beyond its hull facet; either way the orientation with `q` in place of
     /// the vertex opposite that face is not negative, so the walk takes the
     /// same steps and ends where it did.
-    fn locate(&self, q: u32) -> Result<u32, ConvexHullError> {
+    fn locate(&self, q: u32) -> Result<u32, Error> {
         let k = self.shape.k();
         // Seeded by the input index, so that the walk, and with it the order
         // the simplices are created and published in, does not depend on
@@ -1038,7 +1026,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
     }
 
     /// Inserts site `q`.
-    fn insert(&mut self, q: u32) -> Result<(), ConvexHullError> {
+    fn insert(&mut self, q: u32) -> Result<(), Error> {
         let k = self.shape.k();
         let start = self.locate(q)?;
         debug_assert!(self.conflicts(start, q)?, "the located simplex conflicts");

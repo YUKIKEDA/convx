@@ -2,7 +2,6 @@
 //! published result.
 
 pub(crate) mod classify;
-mod error;
 pub(crate) mod input;
 #[cfg(any(test, debug_assertions))]
 pub(crate) mod invariants;
@@ -14,7 +13,6 @@ pub(crate) mod ridge;
 pub(crate) mod simplicial;
 pub(crate) mod store;
 
-pub use error::ConvexHullError;
 pub use publish::{
     BoundarySimplex, ConvexHull, ConvexHullBuilder, Facet, Facets, Plane, Planes, TriangulationView,
 };

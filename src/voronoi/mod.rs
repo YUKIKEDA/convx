@@ -25,11 +25,11 @@ use crate::delaunay::{complex, NO_NEIGHBOR};
 use crate::hull::classify::classify;
 use crate::hull::input::accept;
 use crate::hull::publish::{for_each_facet_normal, inner_reference};
-use crate::hull::ConvexHullError;
 use crate::lists::Lists;
 use crate::normal::{binary_exponent, scale_by_power_of_two};
 use crate::predicates::{orient, Sign};
 use crate::small::Small;
+use crate::Error;
 
 /// Builds a [`VoronoiDiagram`].
 ///
@@ -48,7 +48,7 @@ use crate::small::Small;
 /// let pairs: Vec<[u32; 2]> = voronoi.interfaces().iter().map(|f| f.sites()).collect();
 /// assert_eq!(pairs, [[0, 1], [0, 3], [1, 2], [2, 3]]);
 /// assert!(voronoi.cells().iter().all(|c| c.rays().len() == 2));
-/// # Ok::<(), convx::ConvexHullError>(())
+/// # Ok::<(), convx::Error>(())
 /// ```
 #[derive(Clone, Copy, Debug)]
 pub struct VoronoiBuilder<'a> {
@@ -68,9 +68,9 @@ impl<'a> VoronoiBuilder<'a> {
     /// # Errors
     ///
     /// The failures of [`DelaunayBuilder::build`](crate::DelaunayBuilder::build),
-    /// and [`ConvexHullError::NonFiniteCircumcenter`] when every simplex of
+    /// and [`Error::NonFiniteCircumcenter`] when every simplex of
     /// some vertex has a non-finite circumcenter in `f64`.
-    pub fn build(self) -> Result<VoronoiDiagram, ConvexHullError> {
+    pub fn build(self) -> Result<VoronoiDiagram, Error> {
         // An input far from 1 is built on a copy scaled exactly (#589);
         // the vertices take their coordinates from the input itself.
         let scaled = crate::scaling::scaled_copy(self.points, crate::scaling::SITES_FROM);
@@ -403,13 +403,13 @@ struct GroupFacets {
     on_hull: Vec<bool>,
 }
 
-fn build(dim: usize, points: &[f64], given: &[f64]) -> Result<VoronoiDiagram, ConvexHullError> {
+fn build(dim: usize, points: &[f64], given: &[f64]) -> Result<VoronoiDiagram, Error> {
     let complex = complex(dim, points)?;
     let d = complex.dim;
     let point = |i: u32| &points[i as usize * d..(i as usize + 1) * d];
     // The sites as they were given, where `points` is a scaled copy.
     let given_point = |i: u32| &given[i as usize * d..(i as usize + 1) * d];
-    let orient_of = |set: &[u32]| -> Result<Sign, ConvexHullError> {
+    let orient_of = |set: &[u32]| -> Result<Sign, Error> {
         let refs: Small<&[f64], 11> = set.iter().map(|&v| point(v)).collect();
         Ok(orient(&refs)?)
     };
@@ -483,7 +483,7 @@ fn build(dim: usize, points: &[f64], given: &[f64]) -> Result<VoronoiDiagram, Co
             next[v as usize] += 1;
         }
     }
-    let contains_face = |f: usize, face: &[u32]| -> Result<bool, ConvexHullError> {
+    let contains_face = |f: usize, face: &[u32]| -> Result<bool, Error> {
         for &s in face {
             let set: Small<u32, 11> = hull_facets
                 .basis
@@ -498,7 +498,7 @@ fn build(dim: usize, points: &[f64], given: &[f64]) -> Result<VoronoiDiagram, Co
         }
         Ok(true)
     };
-    let scan_hull = |face: &[u32]| -> Result<Option<usize>, ConvexHullError> {
+    let scan_hull = |face: &[u32]| -> Result<Option<usize>, Error> {
         for f in 0..hull_count {
             if contains_face(f, face)? {
                 return Ok(Some(f));
@@ -800,9 +800,9 @@ fn lists_of(count: usize, pairs: &mut [(u32, u32)]) -> Lists<u32> {
 /// Whether the last site of `set` lies on the hyperplane through the first
 /// D sites (D + 1 sites of dimension D).
 fn on_hyperplane(
-    orient_of: &impl Fn(&[u32]) -> Result<Sign, ConvexHullError>,
+    orient_of: &impl Fn(&[u32]) -> Result<Sign, Error>,
     set: &[u32],
-) -> Result<bool, ConvexHullError> {
+) -> Result<bool, Error> {
     Ok(orient_of(set)? == Sign::Zero)
 }
 
@@ -894,10 +894,10 @@ fn root(parent: &mut [u32], mut x: usize) -> usize {
 fn facets_of_tiles(
     d: usize,
     (keys, on_hull, list): (&[u32], &[bool], &[usize]),
-    orient_of: &impl Fn(&[u32]) -> Result<Sign, ConvexHullError>,
+    orient_of: &impl Fn(&[u32]) -> Result<Sign, Error>,
     work: &mut GroupWork,
     facets: &mut GroupFacets,
-) -> Result<(), ConvexHullError> {
+) -> Result<(), Error> {
     let GroupWork {
         order,
         mixed,
@@ -978,8 +978,8 @@ fn facets_by_every_site(
     d: usize,
     sites: &[u32],
     (keys, on_hull, list): (&[u32], &[bool], &[usize]),
-    orient_of: &impl Fn(&[u32]) -> Result<Sign, ConvexHullError>,
-) -> Result<GroupFacets, ConvexHullError> {
+    orient_of: &impl Fn(&[u32]) -> Result<Sign, Error>,
+) -> Result<GroupFacets, Error> {
     let mut facets = GroupFacets::default();
     let mut facet: Vec<u32> = Vec::new();
     for &i in list {
@@ -1141,14 +1141,14 @@ fn vertex_coords_of<'p>(
     cells: impl Iterator<Item = &'p [u32]>,
     circumcenters: &mut Circumcenters,
     coords: &mut Vec<f64>,
-) -> Result<(), ConvexHullError> {
+) -> Result<(), Error> {
     for cell in cells {
         if circumcenters.compute(point, cell) {
             coords.extend_from_slice(&circumcenters.center);
             return Ok(());
         }
     }
-    Err(ConvexHullError::NonFiniteCircumcenter)
+    Err(Error::NonFiniteCircumcenter)
 }
 
 /// What the circumcenter of a cell needs, kept from one vertex to the next
