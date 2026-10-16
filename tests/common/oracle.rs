@@ -165,7 +165,7 @@ pub fn check_delaunay(t: &DelaunayTriangulation, points: &[f64]) {
             .iter()
             .map(|b| {
                 let mut s = vec![apex];
-                s.extend_from_slice(b.vertices);
+                s.extend_from_slice(b.vertices());
                 orientation(&sites, &s)
             })
             .sum();

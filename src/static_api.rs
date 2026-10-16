@@ -45,8 +45,8 @@
 //! ```
 
 use crate::{
-    ConvexHull, ConvexHullBuilder, ConvexHullError, DelaunayBuilder, DelaunayTriangulation,
-    VoronoiBuilder, VoronoiDiagram,
+    ConvexHull, ConvexHullBuilder, DelaunayBuilder, DelaunayTriangulation, Error, VoronoiBuilder,
+    VoronoiDiagram,
 };
 
 /// The convex hull of stack arrays, for `1 <= D <= 8`.
@@ -57,7 +57,7 @@ use crate::{
 /// let square = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [0.5, 0.5]];
 /// let hull = StaticConvexHull::<2>::build(&square)?;
 /// assert_eq!(hull.vertices(), [0, 1, 2, 3]);
-/// # Ok::<(), convx::ConvexHullError>(())
+/// # Ok::<(), convx::Error>(())
 /// ```
 #[derive(Clone, Copy, Debug)]
 pub struct StaticConvexHull<const D: usize>;
@@ -70,7 +70,7 @@ pub struct StaticConvexHull<const D: usize>;
 /// let triangle = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
 /// let delaunay = StaticDelaunay::<2>::build(&triangle)?;
 /// assert_eq!(delaunay.simplices().len(), 1);
-/// # Ok::<(), convx::ConvexHullError>(())
+/// # Ok::<(), convx::Error>(())
 /// ```
 #[derive(Clone, Copy, Debug)]
 pub struct StaticDelaunay<const D: usize>;
@@ -83,7 +83,7 @@ pub struct StaticDelaunay<const D: usize>;
 /// let segment = [[0.0], [2.0]];
 /// let voronoi = StaticVoronoi::<1>::build(&segment)?;
 /// assert_eq!(voronoi.vertices().len(), 1);
-/// # Ok::<(), convx::ConvexHullError>(())
+/// # Ok::<(), convx::Error>(())
 /// ```
 #[derive(Clone, Copy, Debug)]
 pub struct StaticVoronoi<const D: usize>;
@@ -97,7 +97,7 @@ macro_rules! static_build {
                 /// # Errors
                 ///
                 /// The same as the dynamic builder's `build`.
-                pub fn build(points: &[[f64; $d]]) -> Result<$out, ConvexHullError> {
+                pub fn build(points: &[[f64; $d]]) -> Result<$out, Error> {
                     $builder::new($d, points.as_flattened()).build()
                 }
             }

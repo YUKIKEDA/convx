@@ -283,7 +283,7 @@ fn a_circumcenter_that_overflows_fails() {
     let points = [0.0, 0.0, 1e308, 0.0, 5e307, 1e-300];
     assert_eq!(
         VoronoiBuilder::new(2, &points).build().err(),
-        Some(ConvexHullError::NonFiniteCircumcenter)
+        Some(Error::NonFiniteCircumcenter)
     );
     // The Delaunay triangulation of the same sites succeeds.
     assert!(DelaunayBuilder::new(2, &points).build().is_ok());
@@ -495,7 +495,7 @@ fn groups_keep_the_facets_and_edges_of_the_rule_read_with_every_site() {
         let flat: Vec<f64> = rows.iter().flatten().copied().collect();
         let complex = complex(d, &flat).unwrap();
         let point = |i: u32| &flat[i as usize * d..(i as usize + 1) * d];
-        let orient_of = |set: &[u32]| -> Result<Sign, ConvexHullError> {
+        let orient_of = |set: &[u32]| -> Result<Sign, Error> {
             let refs: Small<&[f64], 11> = set.iter().map(|&v| point(v)).collect();
             Ok(orient(&refs)?)
         };

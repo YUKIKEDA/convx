@@ -28,7 +28,6 @@ use super::polygon::{self, Chain, Discard, Rows};
 use super::records::Records;
 use super::ridge::{fingerprint, pair_equal_keys_into};
 use super::store::{Facet, FacetStore};
-use super::ConvexHullError;
 use crate::arena::FacetId;
 use crate::cull::CullPlane;
 use crate::morton::spread3;
@@ -38,6 +37,7 @@ use crate::normal::{
 };
 use crate::predicates::{Sign, COFACTOR_LANES};
 use crate::small::Small;
+use crate::Error;
 
 /// The simplicial hull after every point has been absorbed.
 pub(crate) struct SimplicialHull<'a> {
@@ -177,12 +177,12 @@ const FIRST_SIMPLEX_SAMPLE: usize = 4096;
 
 impl<'a> SimplicialHull<'a> {
     /// Builds the simplicial hull of an accepted input.
-    pub(crate) fn build(input: Input<'a>) -> Result<Self, ConvexHullError> {
+    pub(crate) fn build(input: Input<'a>) -> Result<Self, Error> {
         Self::build_with(input, HullWork::default())
     }
 
     /// [`Self::build`] in the storage of `work`.
-    pub(crate) fn build_with(input: Input<'a>, work: HullWork) -> Result<Self, ConvexHullError> {
+    pub(crate) fn build_with(input: Input<'a>, work: HullWork) -> Result<Self, Error> {
         if input.dim() == 3 && input.representatives.len() >= space_order_from() {
             return Self::build_in_space_order(input, work);
         }
@@ -208,7 +208,7 @@ impl<'a> SimplicialHull<'a> {
     /// built hull is renamed back to the input's indices, so classification
     /// and publication read the input as before. The published hull does not
     /// depend on the order of construction.
-    fn build_in_space_order(input: Input<'a>, mut work: HullWork) -> Result<Self, ConvexHullError> {
+    fn build_in_space_order(input: Input<'a>, mut work: HullWork) -> Result<Self, Error> {
         let SpaceWork {
             mut codes,
             mut at,
@@ -268,7 +268,7 @@ impl<'a> SimplicialHull<'a> {
         })
     }
 
-    fn build_in_input_order(input: Input<'a>, work: HullWork) -> Result<Self, ConvexHullError> {
+    fn build_in_input_order(input: Input<'a>, work: HullWork) -> Result<Self, Error> {
         let dim = input.dim();
         let HullWork {
             mut facets,
@@ -309,7 +309,7 @@ impl<'a> SimplicialHull<'a> {
 
     /// The exact side of `point` relative to `facet`: [`Sign::Positive`] is
     /// strictly outside, [`Sign::Zero`] on the supporting hyperplane.
-    pub(crate) fn side(&self, facet: Facet<'_>, point: u32) -> Result<Sign, ConvexHullError> {
+    pub(crate) fn side(&self, facet: Facet<'_>, point: u32) -> Result<Sign, Error> {
         side(&self.input, &facet.into(), point)
     }
 
@@ -322,7 +322,7 @@ impl<'a> SimplicialHull<'a> {
         vertices: &[u32],
         outward: &[Sign],
         planes: &mut Planes,
-    ) -> Result<(), ConvexHullError> {
+    ) -> Result<(), Error> {
         let d = self.input.dim();
         planes.clear();
         let count = outward.len();
@@ -360,7 +360,7 @@ impl<'a> SimplicialHull<'a> {
         vertices: &[u32],
         outward: &[Sign],
         planes: &mut Planes,
-    ) -> Result<(), ConvexHullError> {
+    ) -> Result<(), Error> {
         for (k, &outward) in outward.iter().enumerate() {
             let points = self.coords_of(&vertices[k * K..(k + 1) * K]);
             match fixed_plane::<K>(&points, outward) {
@@ -397,7 +397,7 @@ impl<'a> SimplicialHull<'a> {
         outward: Sign,
         cofactors: Option<&[(f64, f64)]>,
         planes: &mut Planes,
-    ) -> Result<(), ConvexHullError> {
+    ) -> Result<(), Error> {
         let d = points.len();
         // The cofactors certify both the working normal and the cull plane;
         // they are evaluated once (#86). The working normal is the certified
@@ -435,7 +435,7 @@ impl<'a> SimplicialHull<'a> {
         vertices: &[u32],
         outward: &[Sign],
         slots: &mut Vec<u32>,
-    ) -> Result<(), ConvexHullError> {
+    ) -> Result<(), Error> {
         let d = self.input.dim();
         let mut planes = core::mem::take(&mut self.scratch.planes);
         self.plan_planes(vertices, outward, &mut planes)?;
@@ -452,7 +452,7 @@ impl<'a> SimplicialHull<'a> {
     }
 
     /// D = 1: the hull is the two extreme representatives.
-    fn build_segment(&mut self) -> Result<(), ConvexHullError> {
+    fn build_segment(&mut self) -> Result<(), Error> {
         let reps = &self.input.representatives;
         let coordinate = |i: u32| self.input.point(i)[0];
         let mut low = reps[0];
@@ -483,7 +483,7 @@ impl<'a> SimplicialHull<'a> {
     /// makes a strict turn under the exact orientation. Points on an edge
     /// or inside the polygon are left for classification, the same split
     /// [`Self::build_segment`] uses.
-    fn build_polygon(&mut self) -> Result<(), ConvexHullError> {
+    fn build_polygon(&mut self) -> Result<(), Error> {
         self.strict_edges = true;
         let rows = Rows(self.input.rows().0);
         let reps = &self.input.representatives;
@@ -543,7 +543,7 @@ impl<'a> SimplicialHull<'a> {
     /// zero, the simplex is the one on `spanning_points`, which spans.
     ///
     /// The published hull does not depend on the first simplex (design §5).
-    fn first_simplex(&self) -> Result<Small<u32, 11>, ConvexHullError> {
+    fn first_simplex(&self) -> Result<Small<u32, 11>, Error> {
         let spanning: Small<u32, 11> = self.input.spanning_points.iter().copied().collect();
         let d = self.input.dim();
         let reps = &self.input.representatives;
@@ -609,7 +609,7 @@ impl<'a> SimplicialHull<'a> {
     /// The D + 1 facets of the first simplex ([`Self::first_simplex`]), each
     /// ordered so that the opposite vertex is on the negative side; their
     /// slots go to the scratch's `initial`.
-    fn initial_simplex(&mut self) -> Result<(), ConvexHullError> {
+    fn initial_simplex(&mut self) -> Result<(), Error> {
         let simplex = self.first_simplex()?;
         let d = self.input.dim();
         let mut flat = core::mem::take(&mut self.scratch.flat);
@@ -649,7 +649,7 @@ impl<'a> SimplicialHull<'a> {
     /// none are dropped: they are inside the current hull or on its
     /// boundary. Those strictly inside every facet are recorded in
     /// [`Self::proved_interior`].
-    fn assign(&mut self) -> Result<(), ConvexHullError> {
+    fn assign(&mut self) -> Result<(), Error> {
         let mut remaining = core::mem::take(&mut self.scratch.candidates);
         remaining.clear();
         remaining.extend(
@@ -726,7 +726,7 @@ impl<'a> SimplicialHull<'a> {
     /// possibly with entries of removed facets, which are dropped when they
     /// are taken. A live facet's candidate never changes, because its
     /// outside set is final (see [`take_outside`]).
-    fn absorb_in_place(&mut self) -> Result<(), ConvexHullError> {
+    fn absorb_in_place(&mut self) -> Result<(), Error> {
         let pending = core::mem::take(&mut self.scratch.pending);
         let mut pending = self.all_candidates(pending);
         let mut visited = core::mem::take(&mut self.scratch.visited);
@@ -776,7 +776,7 @@ impl<'a> SimplicialHull<'a> {
         records: &Records,
         visited: &mut Marks,
         region: &mut Region,
-    ) -> Result<(), ConvexHullError> {
+    ) -> Result<(), Error> {
         visited.clear(self.facets.slots());
         let Region { visible, horizon } = region;
         visible.clear();
@@ -849,7 +849,7 @@ impl<'a> SimplicialHull<'a> {
         apex: u32,
         records: &mut Records,
         created: &mut Cone,
-    ) -> Result<(), ConvexHullError> {
+    ) -> Result<(), Error> {
         let Cone {
             region: Region { visible, horizon },
             scratch:
@@ -1140,7 +1140,7 @@ enum Link {
 /// strict side from the working distance (design §1); the orientation
 /// decides everything else. Debug builds check every proved side against
 /// the orientation.
-fn side(input: &Input<'_>, facet: &Geometry<'_>, point: u32) -> Result<Sign, ConvexHullError> {
+fn side(input: &Input<'_>, facet: &Geometry<'_>, point: u32) -> Result<Sign, Error> {
     if let Some(proved) = facet
         .cull
         .as_ref()
@@ -1157,11 +1157,7 @@ fn side(input: &Input<'_>, facet: &Geometry<'_>, point: u32) -> Result<Sign, Con
 }
 
 /// The side of `point` relative to a simplex by orientation alone.
-fn oriented_side(
-    input: &Input<'_>,
-    facet: &Geometry<'_>,
-    point: u32,
-) -> Result<Sign, ConvexHullError> {
+fn oriented_side(input: &Input<'_>, facet: &Geometry<'_>, point: u32) -> Result<Sign, Error> {
     let mut indices: Small<u32, 10> = facet.vertices.iter().copied().collect();
     indices.push(point);
     let sign = input.orient(&indices)?;
@@ -1236,7 +1232,7 @@ fn take_outside(
     facet: &Geometry<'_>,
     (records, number): (&mut Records, u32),
     outside: &mut Vec<u32>,
-) -> Result<Option<(u32, Option<f64>)>, ConvexHullError> {
+) -> Result<Option<(u32, Option<f64>)>, Error> {
     let first = outside.len();
     sides.clear();
     sides.resize(remaining.len(), None);
@@ -1864,7 +1860,7 @@ pub(crate) mod tests {
                 .collect(),
             hull.triangulation()
                 .iter()
-                .map(|s| (s.vertices.to_vec(), s.facet))
+                .map(|s| (s.vertices().to_vec(), s.facet()))
                 .collect(),
             hull.volume().to_bits(),
         )

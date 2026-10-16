@@ -61,7 +61,7 @@ pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
     let mut faces: HashMap<usize, BTreeSet<Vec<u32>>> = HashMap::new();
     let mut ridges: HashMap<Vec<u32>, usize> = HashMap::new();
     for simplex in hull.triangulation().iter() {
-        let mut sorted = simplex.vertices.to_vec();
+        let mut sorted = simplex.vertices().to_vec();
         sorted.sort_unstable();
         for mask in 1_u64..(1 << d) {
             let subset: Vec<u32> = (0..d)
@@ -214,15 +214,15 @@ pub(crate) fn check(hull: &ConvexHull, points: &[f64]) -> Result<(), String> {
     // on the negative side.
     if d >= 2 {
         for simplex in hull.triangulation().iter() {
-            let facet = hull.facets().get(simplex.facet).ok_or("no facet")?;
+            let facet = hull.facets().get(simplex.facet()).ok_or("no facet")?;
             let inner = off_facet(hull, facet.vertices())?;
-            let mut pts: Vec<&[f64]> = simplex.vertices.iter().map(|&v| point(v)).collect();
+            let mut pts: Vec<&[f64]> = simplex.vertices().iter().map(|&v| point(v)).collect();
             pts.push(point(inner));
             if orient(&pts).map_err(|_| "exact evaluation exhausted".to_string())? != Sign::Negative
             {
                 return Err(format!(
                     "simplex {:?} is not in outward order",
-                    simplex.vertices
+                    simplex.vertices()
                 ));
             }
         }

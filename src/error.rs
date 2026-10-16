@@ -3,15 +3,37 @@
 
 use crate::predicates::ExactEvaluationExhausted;
 
-/// Why a build failed.
+/// Why a build, or a number asked of a result, failed.
 ///
-/// Input checks run in this order: [`NonPositiveDimension`](Self::NonPositiveDimension),
-/// [`LengthMismatch`](Self::LengthMismatch), [`NonFiniteCoordinate`](Self::NonFiniteCoordinate),
-/// [`TooManyPoints`](Self::TooManyPoints), then duplicate removal,
-/// [`InsufficientPoints`](Self::InsufficientPoints), and
-/// [`DegenerateDimension`](Self::DegenerateDimension).
+/// Every fallible function of the crate returns this type: the builds of a
+/// hull, of a Delaunay triangulation, and of a Voronoi diagram, and
+/// [`ConvexHull::planes`](crate::ConvexHull::planes).
+///
+/// # The order of failures
+///
+/// A build checks its input in a fixed order and returns the first failure:
+///
+/// 1. [`NonPositiveDimension`](Self::NonPositiveDimension)
+/// 2. [`LengthMismatch`](Self::LengthMismatch)
+/// 3. [`NonFiniteCoordinate`](Self::NonFiniteCoordinate), naming the first
+///    such point
+/// 4. [`TooManyPoints`](Self::TooManyPoints)
+/// 5. [`InsufficientPoints`](Self::InsufficientPoints), counted after
+///    duplicates are merged
+/// 6. [`DegenerateDimension`](Self::DegenerateDimension)
+///
+/// An input that passes these has a hull and a Delaunay triangulation. What
+/// can still fail is a number in `f64` that is not used for any decision
+/// ([`NonFiniteFacetPlane`](Self::NonFiniteFacetPlane),
+/// [`NonFiniteCircumcenter`](Self::NonFiniteCircumcenter)) and the
+/// allocation of the exact evaluation's work space
+/// ([`ExactEvaluationExhausted`](Self::ExactEvaluationExhausted)).
+///
+/// The enum is `#[non_exhaustive]`: a later version may add a variant, so a
+/// `match` on it needs a wildcard arm.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum ConvexHullError {
+#[non_exhaustive]
+pub enum Error {
     /// The dimension is zero.
     #[error("the dimension must be at least 1")]
     NonPositiveDimension,
@@ -54,7 +76,7 @@ pub enum ConvexHullError {
         spanning_points: Vec<u32>,
     },
     /// The hull topology was decided, and a public plane could not be made
-    /// a finite `f64`. Returned by `ConvexHull::planes`, not by `build`:
+    /// a finite `f64`. Returned by [`ConvexHull::planes`](crate::ConvexHull::planes), not by `build`:
     /// the hull is built, and the plane is not used for topology.
     #[error("a facet plane is not representable as finite f64")]
     NonFiniteFacetPlane,
@@ -69,7 +91,7 @@ pub enum ConvexHullError {
     ExactEvaluationExhausted,
 }
 
-impl From<ExactEvaluationExhausted> for ConvexHullError {
+impl From<ExactEvaluationExhausted> for Error {
     fn from(_: ExactEvaluationExhausted) -> Self {
         Self::ExactEvaluationExhausted
     }
