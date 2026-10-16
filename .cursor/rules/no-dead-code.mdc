@@ -7,7 +7,7 @@ alwaysApply: true
 
 When a path is removed, remove in the same change everything that only served it: functions, methods, parameters threaded through callers, fields, flags, constants, tests, rustdoc, and the design and README text.
 
-Do not keep a public API that has no effect "for compatibility". The crate is unpublished (`version = "0.0.0"`, `publish = false`), so there is no caller to keep compatible. When it is published, compatibility is decided by a design Issue, not assumed.
+Do not keep a public API that has no effect "for compatibility". The crate is published from 0.1.0, and a 0.x minor version may break the public API (`.cursor/rules/publish.mdc`): a public item without effect is removed in the next minor version and the changelog names it, not kept. Keeping one is decided by a design Issue, not assumed.
 
 Names and comments that carry the words of a removed mechanism change with it. After the candidate heap left, `PACKS_LAST_FIRST` and `packs_before` still spoke of its packing order (#292).
 
