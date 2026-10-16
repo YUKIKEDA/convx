@@ -148,7 +148,7 @@ fn main() -> Result<(), convx::Error> {
 
 ## 性能
 
-標準的なデータでの Qhull、CGAL、Rust のクレートとの比較は、計測した機械、各ライブラリの版、各ライブラリが何を出力するかとともに、[docs/comparison.md](https://github.com/YUKIKEDA/convx/blob/main/docs/comparison.md) にある。これは報告であり、他のライブラリのほうが速い行もそのまま載せている。
+標準的なデータでの Qhull、CGAL、Rust のクレートとの比較は、計測した機械、各ライブラリの版、各ライブラリが何を出力するかとともに、[docs/comparison.md](https://github.com/YUKIKEDA/convx/blob/main/docs/comparison.md) にある。これは報告であり、他のライブラリのほうが速い行もそのまま載せている。CGAL と Qhull に対するクレート自身の判定は、[docs/verification.md](https://github.com/YUKIKEDA/convx/blob/main/docs/verification.md) のパリティ計測（閾値を持つ決まった行の集合）であり、この報告とは分けている。
 
 ## 仕組み
 

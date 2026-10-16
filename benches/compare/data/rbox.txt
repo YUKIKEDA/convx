@@ -7,6 +7,10 @@
 # sphere: `s`, on a sphere; every point is a vertex of the hull.
 # lattice: `M`, a rotated integer lattice; coplanar and cospherical points.
 # near: `C`, each of some points with four more within 1e-8 of it.
+cube-d2-n1000         2 1000     1000 D2 t1
+cube-d3-n1000         3 1000     1000 D3 t1
+cube-d4-n1000         4 1000     1000 D4 t1
+cube-d5-n1000         5 1000     1000 D5 t1
 cube-d2-n10000        2 10000    10000 D2 t1
 cube-d2-n100000       2 100000   100000 D2 t1
 cube-d2-n1000000      2 1000000  1000000 D2 t1

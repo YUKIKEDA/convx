@@ -235,6 +235,8 @@ int main(int argc, char** argv) {
     case 4: h ? hulld<4>(reps) : deld<4>(reps); break;
     case 5: h ? hulld<5>(reps) : deld<5>(reps); break;
     case 6: h ? hulld<6>(reps) : deld<6>(reps); break;
+    case 7: h ? hulld<7>(reps) : deld<7>(reps); break;
+    case 8: h ? hulld<8>(reps) : deld<8>(reps); break;
     default: std::cerr << "dim " << dim << " not built\n"; return 1;
   }
 }

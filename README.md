@@ -148,7 +148,7 @@ fn main() -> Result<(), convx::Error> {
 
 ## Performance
 
-A comparison with Qhull, CGAL, and Rust crates on standard data, with the machine, the versions, and what each library outputs, is in [docs/comparison.md](https://github.com/YUKIKEDA/convx/blob/main/docs/comparison.md). It is a report: rows where another library is faster are in it.
+A comparison with Qhull, CGAL, and Rust crates on standard data, with the machine, the versions, and what each library outputs, is in [docs/comparison.md](https://github.com/YUKIKEDA/convx/blob/main/docs/comparison.md). It is a report: rows where another library is faster are in it. The crate's own judgement against CGAL and Qhull is the parity run of [docs/verification.md](https://github.com/YUKIKEDA/convx/blob/main/docs/verification.md), a fixed set of rows with a threshold, and is kept apart from it.
 
 ## How it works
 
