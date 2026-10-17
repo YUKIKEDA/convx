@@ -1,6 +1,6 @@
 [package]
 name = "convx"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.89"
 description = "N-dimensional convex hull, Delaunay triangulation, and Voronoi diagram with exact predicates"
@@ -24,7 +24,6 @@ include = [
     "/LICENSE-MIT",
     "/LICENSE-APACHE",
 ]
-publish = false
 
 [lints.rust]
 unsafe_code = "forbid"
