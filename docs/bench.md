@@ -7820,3 +7820,49 @@ A reading before this one, on the same commit, is not used. Its judged builds sp
 - Delaunay `cube` D4 10^4 sits on the threshold: 1.05, 1.08, 1.06 in three runs, with the build itself unchanged since `327e5a1` (0.99, #652). It is a set at the edge, not a regression.
 - Hull `sphere` D3 10^4 reads 1.08 of Qhull here and 1.04 and 1.05 before; its build did not change either (0.99, #652). The two Delaunay sets of D = 2 at 10^4 stay not met, as since P7.
 - A count of sets met moves by two or three between runs of one commit on this machine while it is in use. The comparison of R1-8 is taken with the editor closed and the load logged, and a ratio within 0.05 of a threshold is stated as at the threshold.
+
+## Where the time of the Delaunay build of D = 2 goes, beside spade, #667
+
+interpx's linear interpolator builds on `DelaunayBuilder::new(2, points).build()`, and found that build 1.3 to 2.4 times `spade`'s whole triangulation (`DelaunayTriangulation::bulk_load`, spade 2.15.1) on points uniform in the unit square (#667). This is R2-1, the measurement the owner asked for before anything is prototyped. The tools are `benches/d2/` (a probe and the stage marks, which never go into `src`), on `main` at `dab62ba` (0.1.0 and the roadmap).
+
+Method: one process, pinned to core 2 under WSL2 (Ubuntu 22.04, i5-13400F); per round convx, convx again (the control), and spade, taking turns; medians of 7 to 20,000 rounds after a warm-up. spade's time includes building its `Point2` vector from the slice, which convx reads directly. The processor's load read 48% and 37% before the run and 21% after it. On Windows 11 the same probe, pinned by its affinity, reproduces interpx's table.
+
+| Points | convx | Control | `spade` | convx / `spade` | Control / convx | Windows: convx | Windows: `spade` | Windows: convx / `spade` |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10 | 3.14 µs | 3.05 µs | 1.59 µs | 1.97 | 0.97 | 8.50 µs | 3.70 µs | 2.30 |
+| 100 | 27.84 µs | 27.63 µs | 20.07 µs | 1.39 | 0.99 | 58.00 µs | 43.60 µs | 1.33 |
+| 1,000 | 0.51 ms | 0.50 ms | 0.34 ms | 1.49 | 0.98 | 0.87 ms | 0.60 ms | 1.45 |
+| 10^4 | 5.44 ms | 5.60 ms | 4.12 ms | 1.32 | 1.03 | 6.50 ms | 4.58 ms | 1.42 |
+| 10^5 | 55.98 ms | 58.09 ms | 46.35 ms | 1.21 | 1.04 | 63.44 ms | 47.78 ms | 1.33 |
+| 10^6 | 606.04 ms | 584.48 ms | 542.17 ms | 1.12 | 0.96 | 609.76 ms | 538.59 ms | 1.13 |
+
+The control reads 0.96 to 1.04 of convx. Windows reads 2.30 at 10 points and 1.33 to 1.45 from 100 to 10^5, as interpx found; at 10 points both libraries take 2.3 to 2.7 times their time under WSL.
+
+### The stages of convx's build
+
+The share of each stage in the marked build (its total within 6% of the plain one), and the insertion alone against spade's whole build:
+
+| Points | Scaling | Acceptance | Sites | Flat | Order | Copy | Insertion | After the insertion | Publication | Insertion / `spade` |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10 | 1% | 9% | 3% | 3% | 9% | 3% | 55% | 13% | 5% | 1.16 |
+| 100 | 1% | 4% | 2% | 0% | 10% | 1% | 67% | 13% | 1% | 0.94 |
+| 1,000 | 0% | 2% | 1% | 0% | 6% | 1% | 77% | 11% | 2% | 1.11 |
+| 10^4 | 0% | 2% | 1% | 0% | 7% | 1% | 75% | 14% | 2% | 0.97 |
+| 10^5 | 0% | 2% | 1% | 0% | 7% | 1% | 73% | 14% | 1% | 0.85 |
+| 10^6 | 0% | 3% | 1% | 0% | 8% | 3% | 69% | 16% | 1% | 0.76 |
+
+- **The insertion** (the walk, the flips, and the in-circle tests: `Mesh::build` and `conflict` in a profile) is 55 to 77% of the build, and alone it takes 0.76 to 1.16 of spade's whole build: under spade's at 100 points and from 10^4, above it at 10 and 1,000.
+- **After the insertion** (the union of cospherical faces, the drafts of the cells, the rows written for publication) is 11 to 16%: work spade does not do in this form, the largest part of the gap from 10^4 points.
+- **The order** (BRIO with the Morton sort of each round) is 6 to 10%. spade orders its points by their distance to a centre (a sort of `Point2` by key in its profile).
+- **At 10 points**, the stages around the insertion are 45%: the acceptance with the duplicates 9%, the order 9%, after the insertion 13%. The profile at 10 points has `malloc`, `free`, and `realloc` at 15% and building the vector of lifted heights at 6%; Windows' allocator makes the same counts dearer, which is why Windows reads 2.30 where WSL reads 1.97.
+
+spade's bulk load is not an incremental insertion with a walk: it inserts points by their distance to a centre onto the hull of those inserted so far, and flips after each (`single_bulk_insertion_step`, `Hull::insert` in the profile).
+
+### What could be prototyped
+
+Each is measured against spade's bulk load on the same probe before it is taken or left (`.cursor/rules/bench.mdc`):
+
+1. **After the insertion, for D = 2**: the cells and their neighbors written from the mesh in one pass when no face was recorded cospherical, and the union only where one was. The stage is 13 to 16%.
+2. **The order**: a cheaper order for D = 2 (one sort by a space-filling key, or spade's by distance), with the walk's length measured beside it. The stage is 6 to 10%, and the order feeds the insertion's walk.
+3. **Small inputs**: the allocations of one build counted and cut (one buffer for the lifted heights, buffers sized once), and the acceptance's path for a few points. 45% of the build at 10 points is outside the insertion.
+4. **The insertion itself**: spade's way, insertion by distance onto the growing hull, as a path of D = 2 (the owner allows dedicated paths of D = 2 and 3). The largest change and the one stage that is already at spade's from 10^4 points.
