@@ -26,7 +26,11 @@ def main():
             m = st.median(r['convx'] for r in by[(n, label)])
             unit = f'{m * 1e6:.2f} us' if m < 1e-3 else f'{m * 1e3:.2f} ms'
             cells.append(f'{unit} ({m / b:.3f})')
-        ratios = [f"{st.median(r['convx'] / r['spade'] for r in by[(n, label)]):.3f}" for label in labels]
+        ratios = [
+            f"{st.median(r['convx'] / r['spade'] for r in by[(n, label)]):.3f}"
+            if all(r['spade'] > 0 for r in by[(n, label)]) else '-'
+            for label in labels
+        ]
         print(f'| {n} | ' + ' | '.join(cells) + ' | ' + ' | '.join(ratios) + ' |')
 
 
