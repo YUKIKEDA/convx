@@ -590,7 +590,7 @@ struct GroupFacets {
 }
 
 fn build(dim: usize, points: &[f64], given: &[f64]) -> Result<VoronoiDiagram, Error> {
-    let complex = complex(dim, points, true)?;
+    let complex = complex(dim, points)?;
     let d = complex.dim;
     let point = |i: u32| &points[i as usize * d..(i as usize + 1) * d];
     // The sites as they were given, where `points` is a scaled copy.

@@ -114,7 +114,6 @@ impl<'a> DelaunayBuilder<'a> {
         Ok(publish(complex(
             self.dim,
             scaled.as_deref().unwrap_or(self.points),
-            false,
         )?))
     }
 }
@@ -327,24 +326,19 @@ struct Draft {
     /// boundary of the site hull, or [`UNKNOWN`].
     links: Vec<u32>,
     negative: Vec<bool>,
-    /// Whether the groups are kept: a Voronoi diagram reads them, a
-    /// Delaunay triangulation does not (#667).
-    groups: bool,
     group: Vec<u32>,
     sites: Lists<u32>,
 }
 
 impl Draft {
-    fn new(k: usize, cells: usize, groups: bool) -> Self {
-        let (groups_of, sites_of) = if groups { (cells, cells * k) } else { (0, 0) };
+    fn new(k: usize, cells: usize) -> Self {
         Self {
             k,
             rows: Vec::with_capacity(cells * k),
             links: Vec::with_capacity(cells * k),
             negative: Vec::with_capacity(cells),
-            groups,
-            group: Vec::with_capacity(groups_of),
-            sites: Lists::with_capacity(groups_of, sites_of),
+            group: Vec::with_capacity(cells),
+            sites: Lists::with_capacity(cells, cells * k),
         }
     }
 
@@ -360,9 +354,7 @@ impl Draft {
     /// follow through [`Self::push_cell`].
     fn begin_group(&mut self, sites: &[u32]) -> u32 {
         let group = self.sites.len() as u32;
-        if self.groups {
-            self.sites.push(sites);
-        }
+        self.sites.push(sites);
         group
     }
 
@@ -372,9 +364,7 @@ impl Draft {
         self.rows.extend_from_slice(row);
         self.links.extend(core::iter::repeat_n(UNKNOWN, self.k));
         self.negative.push(negative);
-        if self.groups {
-            self.group.push(group);
-        }
+        self.group.push(group);
     }
 
     /// Links the faces that two of the cells from `first` on share, the
@@ -632,7 +622,7 @@ fn generic_insertion() -> bool {
 /// lift built by insertion, or the pulling triangulation as one group when
 /// the lift is flat. Input checks and `DegenerateDimension` concern the
 /// original sites, with their original indices.
-pub(crate) fn complex(dim: usize, points: &[f64], groups: bool) -> Result<Complex, Error> {
+pub(crate) fn complex(dim: usize, points: &[f64]) -> Result<Complex, Error> {
     let input = accept_sites(dim, points)?;
     let sites = insert::Sites::of(&input);
     let complex = if flat(&input, &sites)? {
@@ -640,14 +630,14 @@ pub(crate) fn complex(dim: usize, points: &[f64], groups: bool) -> Result<Comple
     } else {
         // One insertion, compiled per shape (design §7, ADR 0005).
         match input.dim() {
-            2 if !generic_insertion() => inserted(insert::Plane, &input, &sites, groups)?,
-            3 if !generic_insertion() => inserted(insert::Space, &input, &sites, groups)?,
-            d => inserted(insert::Any::of(d), &input, &sites, groups)?,
+            2 if !generic_insertion() => inserted(insert::Plane, &input, &sites)?,
+            3 if !generic_insertion() => inserted(insert::Space, &input, &sites)?,
+            d => inserted(insert::Any::of(d), &input, &sites)?,
         }
     };
     debug_assert!(
         {
-            let mut seen: Vec<u32> = complex.cells.clone();
+            let mut seen: Vec<u32> = complex.sites.iter().flatten().copied().collect();
             seen.sort_unstable();
             seen.dedup();
             let mut reps: Vec<u32> = (0..complex.representative.len() as u32)
@@ -696,7 +686,6 @@ fn inserted<S: insert::Shape>(
     shape: S,
     input: &Input<'_>,
     sites: &insert::Sites,
-    groups: bool,
 ) -> Result<Complex, Error> {
     let d = input.dim();
     let k = d + 1;
@@ -865,7 +854,7 @@ fn inserted<S: insert::Shape>(
             };
         }
     }
-    let mut draft = Draft::new(k, singles as usize, groups);
+    let mut draft = Draft::new(k, singles as usize);
     for c in mesh.finite_cells() {
         if draft_of[c as usize] == UNKNOWN {
             continue;
@@ -887,10 +876,8 @@ fn inserted<S: insert::Shape>(
             }
         };
         draft.negative.push(negative);
-        if draft.groups {
-            draft.group.push(draft.sites.len() as u32);
-            draft.sites.push(&draft.rows[start..]);
-        }
+        draft.group.push(draft.sites.len() as u32);
+        draft.sites.push(&draft.rows[start..]);
     }
 
     if merged {
@@ -1251,7 +1238,7 @@ fn pull(sites: Input<'_>) -> Result<Complex, Error> {
     let point = |i: u32| input.point(i);
     let cells = pulled_cells(d, &input.representatives, &facets, point)?;
     // One lower facet: the whole site set is one Voronoi vertex (§8).
-    let mut draft = Draft::new(d + 1, cells.len() / (d + 1), true);
+    let mut draft = Draft::new(d + 1, cells.len() / (d + 1));
     let group = draft.begin_group(&input.representatives);
     for cell in cells.chunks_exact(d + 1) {
         let points: Small<&[f64], 11> = cell.iter().map(|&v| point(v)).collect();
