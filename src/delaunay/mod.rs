@@ -655,7 +655,8 @@ pub(crate) fn complex(dim: usize, points: &[f64]) -> Result<Complex, Error> {
 /// minimum basis, so the lifted sites span only dimension D (design §7).
 fn flat(input: &Input<'_>, sites: &insert::Sites) -> Result<bool, Error> {
     let basis = &input.spanning_points;
-    let mut ids = basis.clone();
+    // On the stack for D <= 10 (#667).
+    let mut ids: Small<u32, 12> = basis.iter().copied().collect();
     ids.push(0);
     for &p in &input.representatives {
         if basis.contains(&p) {
@@ -729,7 +730,6 @@ fn inserted<S: insert::Shape>(
             ranks[v as usize]
         }
     };
-    let mut gate: Vec<u32> = Vec::with_capacity(k + 1);
 
     // Union of the finite simplices that share a face and are cospherical
     // across it: the far vertex of the neighbor has lifted orientation zero
@@ -741,7 +741,9 @@ fn inserted<S: insert::Shape>(
     // insertion recorded cospherical already join them (design §7, #451).
     // One orientation of those sites decides which.
     let slots = mesh.slots();
-    let mut parent: Vec<u32> = (0..slots as u32).collect();
+    // The union's parents, made when a face is walked or a candidate tested
+    // (#667): none for D = 2 sites that no circle passes four of.
+    let mut parent: Vec<u32> = Vec::new();
     fn root(parent: &mut [u32], mut i: u32) -> u32 {
         while parent[i as usize] != i {
             parent[i as usize] = parent[parent[i as usize] as usize];
@@ -749,7 +751,6 @@ fn inserted<S: insert::Shape>(
         }
         i
     }
-    let mut ids: Vec<u32> = Vec::with_capacity(k + 1);
     let mut merged = false;
     // Each finite simplex numbered as a group by itself, in the order of
     // the walk; numbered again below when a group merged. A simplex at
@@ -762,6 +763,9 @@ fn inserted<S: insert::Shape>(
     // which are tested below.
     let walk_faces = every_unknown_face_lifted()
         || !S::FLIPS && (k != 3 || mesh.recorded_cospherical());
+    if walk_faces {
+        parent = (0..slots as u32).collect();
+    }
     for c in mesh.finite_cells() {
         draft_of[c as usize] = singles;
         singles += 1;
@@ -786,7 +790,7 @@ fn inserted<S: insert::Shape>(
             {
                 continue;
             }
-            let mut test = || -> Result<bool, Error> {
+            let test = || -> Result<bool, Error> {
                 // The far vertex of `n`: the one not in `c`. Found among the
                 // vertices of `n`, which the finiteness check read, rather
                 // than through the links of `n`.
@@ -795,8 +799,7 @@ fn inserted<S: insert::Shape>(
                     debug_assert!(false, "neighbors differ in one vertex");
                     return Ok(false);
                 };
-                ids.clear();
-                ids.extend_from_slice(vertices);
+                let mut ids: Small<u32, 12> = vertices.iter().copied().collect();
                 ids.push(far);
                 Ok(mesh.lifted_ids(&ids)? == Sign::Zero)
             };
@@ -813,11 +816,13 @@ fn inserted<S: insert::Shape>(
                         debug_assert!(false, "neighbors differ in one vertex");
                         continue;
                     };
-                    gate.clear();
-                    gate.extend_from_slice(vertices);
-                    gate.push(far);
-                    let newest = (0..gate.len()).max_by_key(|&i| rank(gate[i])).unwrap_or(0);
-                    gate.swap_remove(newest);
+                    let mut all: Small<u32, 12> = vertices.iter().copied().collect();
+                    all.push(far);
+                    let newest = (0..all.len()).max_by_key(|&i| rank(all[i])).unwrap_or(0);
+                    let gate: Small<u32, 12> = (0..all.len())
+                        .filter(|&i| i != newest)
+                        .map(|i| all[i])
+                        .collect();
                     if mesh.orient_ids(&gate)? == Sign::Zero {
                         test()?
                     } else {
@@ -851,10 +856,12 @@ fn inserted<S: insert::Shape>(
                 debug_assert!(false, "neighbors differ in one vertex");
                 continue;
             };
-            ids.clear();
-            ids.extend_from_slice(vertices);
+            let mut ids: Small<u32, 12> = vertices.iter().copied().collect();
             ids.push(far);
             if mesh.lifted_ids(&ids)? == Sign::Zero {
+                if parent.is_empty() {
+                    parent = (0..slots as u32).collect();
+                }
                 let (x, y) = (root(&mut parent, c), root(&mut parent, n));
                 parent[x as usize] = y;
                 merged = true;

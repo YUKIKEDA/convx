@@ -720,7 +720,8 @@ impl<'a, S: Shape> Mesh<'a, S> {
             faces: Vec::new(),
             used: Vec::new(),
         };
-        let mut simplex = first.to_vec();
+        // The initial simplex and its outside ones on the stack (#667).
+        let mut simplex: Small<u32, 12> = first.iter().copied().collect();
         match mesh.orient_ids(&simplex)? {
             Sign::Negative => simplex.swap(0, 1),
             Sign::Positive => {}
@@ -729,7 +730,8 @@ impl<'a, S: Shape> Mesh<'a, S> {
             }
         }
         let s = mesh.alloc(&simplex);
-        let mut cells = vec![s];
+        let mut cells: Small<u32, 13> = Small::new();
+        cells.push(s);
         for j in 0..k {
             // The facet opposite vertex j, with the vertex at infinity on
             // the side away from it: swapping two entries flips the sign.
