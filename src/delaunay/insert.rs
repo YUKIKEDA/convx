@@ -700,7 +700,11 @@ impl<'a, S: Shape> Mesh<'a, S> {
             sites,
             vertices: Vec::with_capacity(order.len() * k * (2 * d)),
             neighbors: Vec::with_capacity(order.len() * k * (2 * d)),
-            across: Vec::with_capacity(if S::FLIPS { 0 } else { order.len() * k * (2 * d) }),
+            across: Vec::with_capacity(if S::FLIPS {
+                0
+            } else {
+                order.len() * k * (2 * d)
+            }),
             cospherical: false,
             candidates: Vec::new(),
             // The lists that grow with the simplices are sized with them, and

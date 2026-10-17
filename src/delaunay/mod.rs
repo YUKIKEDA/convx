@@ -761,8 +761,8 @@ fn inserted<S: insert::Shape>(
     // the insertion recorded none, the faces are not walked (#667). The
     // insertion by flips keeps no record per face, only its candidates,
     // which are tested below.
-    let walk_faces = every_unknown_face_lifted()
-        || !S::FLIPS && (k != 3 || mesh.recorded_cospherical());
+    let walk_faces =
+        every_unknown_face_lifted() || !S::FLIPS && (k != 3 || mesh.recorded_cospherical());
     if walk_faces {
         parent = (0..slots as u32).collect();
     }
