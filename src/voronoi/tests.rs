@@ -493,7 +493,7 @@ fn groups_keep_the_facets_and_edges_of_the_rule_read_with_every_site() {
     let (mut groups, mut joined, mut largest) = (0, 0, 0);
     for (d, rows) in sets {
         let flat: Vec<f64> = rows.iter().flatten().copied().collect();
-        let complex = complex(d, &flat).unwrap();
+        let complex = complex(d, &flat, true).unwrap();
         let point = |i: u32| &flat[i as usize * d..(i as usize + 1) * d];
         let orient_of = |set: &[u32]| -> Result<Sign, Error> {
             let refs: Small<&[f64], 11> = set.iter().map(|&v| point(v)).collect();
