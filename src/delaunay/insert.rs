@@ -287,6 +287,15 @@ pub(super) struct Mesh<'a, S: Shape> {
     /// Per face, as `neighbors`: what the insertion knows of the two
     /// simplices across it.
     across: Vec<Across>,
+    /// Whether any face was ever recorded [`Across::Cospherical`]. When none
+    /// was, no two finite simplices of D = 2 are joined after the insertion
+    /// (#667).
+    cospherical: bool,
+    /// The insertion by flips (D = 2) keeps no record per face: the two
+    /// triangles of every face its in-circle test found cospherical, which
+    /// the pass after the insertion tests again where they still meet
+    /// (#667).
+    candidates: Vec<(u32, u32)>,
     alive: Vec<bool>,
     mark: Vec<u32>,
     free: Vec<u32>,
@@ -433,6 +442,22 @@ impl Sites {
 /// point strictly inside its circumsphere: the standard simplex and its
 /// centroid, in dimension `d`.
 fn inside_sign(d: usize) -> Result<Sign, Error> {
+    // It depends on `d` alone: computed once a dimension in a process, for
+    // dimensions below the cache's size (#667).
+    static CACHE: [std::sync::OnceLock<Sign>; 17] = [const { std::sync::OnceLock::new() }; 17];
+    if let Some(sign) = CACHE.get(d).and_then(std::sync::OnceLock::get) {
+        return Ok(*sign);
+    }
+    let sign = inside_sign_of(d)?;
+    if let Some(cell) = CACHE.get(d) {
+        let _ = cell.set(sign);
+    }
+    Ok(sign)
+}
+
+/// [`inside_sign`], computed: the lifted orientation of the standard simplex
+/// with its centroid.
+fn inside_sign_of(d: usize) -> Result<Sign, Error> {
     let mut rows: Vec<Vec<f64>> = (0..=d)
         .map(|i| (0..d).map(|j| if i == j + 1 { 1.0 } else { 0.0 }).collect())
         .collect();
@@ -466,8 +491,14 @@ impl<'a, S: Shape> Mesh<'a, S> {
 
     /// What the insertion knows of simplex `c` and its neighbor across the
     /// face opposite vertex `slot`.
+    /// What the insertion knows of the face of `c` opposite `slot`. The
+    /// insertion by flips keeps no record per face, and every face is
+    /// [`Across::Unknown`] to it.
     pub(super) fn across(&self, c: u32, slot: usize) -> Across {
-        self.across[c as usize * self.shape.k() + slot]
+        self.across
+            .get(c as usize * self.shape.k() + slot)
+            .copied()
+            .unwrap_or(Across::Unknown)
     }
 
     /// The slot of simplex `c` whose neighbor is `n`.
@@ -481,6 +512,28 @@ impl<'a, S: Shape> Mesh<'a, S> {
         let slot = self.vertices_of(c).iter().position(|&x| x == v);
         debug_assert!(slot.is_some(), "the vertex is in the simplex");
         slot.unwrap_or(0)
+    }
+
+    /// Whether the insertion ever recorded a face cospherical.
+    pub(super) fn recorded_cospherical(&self) -> bool {
+        self.cospherical
+    }
+
+    /// The pairs of triangles whose shared face the insertion by flips found
+    /// cospherical, in the order found; a pair may no longer meet, or no
+    /// longer exist.
+    pub(super) fn candidates(&self) -> &[(u32, u32)] {
+        &self.candidates
+    }
+
+    /// Whether `c` and `n` are live simplices across one face from each
+    /// other.
+    pub(super) fn meet(&self, c: u32, n: u32) -> bool {
+        (c as usize) < self.alive.len()
+            && (n as usize) < self.alive.len()
+            && self.alive[c as usize]
+            && self.alive[n as usize]
+            && self.back(c, n).is_some()
     }
 
     pub(super) fn is_finite(&self, c: u32) -> bool {
@@ -564,14 +617,18 @@ impl<'a, S: Shape> Mesh<'a, S> {
             let at = c as usize * k;
             self.vertices[at..at + k].copy_from_slice(vertices);
             self.neighbors[at..at + k].fill(NONE);
-            self.across[at..at + k].fill(Across::Unknown);
+            if !S::FLIPS {
+                self.across[at..at + k].fill(Across::Unknown);
+            }
             self.alive[c as usize] = true;
             self.mark[c as usize] = 0;
             c
         } else {
             self.vertices.extend_from_slice(vertices);
             self.neighbors.extend(core::iter::repeat_n(NONE, k));
-            self.across.extend(core::iter::repeat_n(Across::Unknown, k));
+            if !S::FLIPS {
+                self.across.extend(core::iter::repeat_n(Across::Unknown, k));
+            }
             self.alive.push(true);
             self.mark.push(0);
             (self.alive.len() - 1) as u32
@@ -643,21 +700,32 @@ impl<'a, S: Shape> Mesh<'a, S> {
             sites,
             vertices: Vec::with_capacity(order.len() * k * (2 * d)),
             neighbors: Vec::with_capacity(order.len() * k * (2 * d)),
-            across: Vec::with_capacity(order.len() * k * (2 * d)),
-            alive: Vec::new(),
-            mark: Vec::new(),
-            free: Vec::new(),
+            across: Vec::with_capacity(if S::FLIPS {
+                0
+            } else {
+                order.len() * k * (2 * d)
+            }),
+            cospherical: false,
+            candidates: Vec::new(),
+            // The lists that grow with the simplices are sized with them, and
+            // the work space of one insertion for a few dozen simplices, so
+            // a small input reallocates none of them (#667).
+            alive: Vec::with_capacity(order.len() * (2 * d)),
+            mark: Vec::with_capacity(order.len() * (2 * d)),
+            free: Vec::with_capacity(4 * k),
             epoch: 0,
             inside: inside_sign(d)?,
             last: 0,
-            stack: Vec::new(),
-            cavity: Vec::new(),
-            boundary: Vec::new(),
-            created: Vec::new(),
+            // The insertion by flips uses the stack alone.
+            stack: Vec::with_capacity(8 * k),
+            cavity: Vec::with_capacity(if S::FLIPS { 0 } else { 8 * k }),
+            boundary: Vec::with_capacity(if S::FLIPS { 0 } else { 8 * k }),
+            created: Vec::with_capacity(if S::FLIPS { 0 } else { 8 * k }),
             faces: Vec::new(),
             used: Vec::new(),
         };
-        let mut simplex = first.to_vec();
+        // The initial simplex and its outside ones on the stack (#667).
+        let mut simplex: Small<u32, 12> = first.iter().copied().collect();
         match mesh.orient_ids(&simplex)? {
             Sign::Negative => simplex.swap(0, 1),
             Sign::Positive => {}
@@ -666,7 +734,8 @@ impl<'a, S: Shape> Mesh<'a, S> {
             }
         }
         let s = mesh.alloc(&simplex);
-        let mut cells = vec![s];
+        let mut cells: Small<u32, 13> = Small::new();
+        cells.push(s);
         for j in 0..k {
             // The facet opposite vertex j, with the vertex at infinity on
             // the side away from it: swapping two entries flips the sign.
@@ -701,43 +770,23 @@ impl<'a, S: Shape> Mesh<'a, S> {
         self.neighbors[at..at + 3].copy_from_slice(&neighbors);
     }
 
-    /// Points the slot of `n` that held `old` at `new`, and forgets what was
-    /// known of that face: the triangle across it changed.
+    /// Points the slot of `n` that held `old` at `new`.
     fn repoint(&mut self, n: u32, old: u32, new: u32) {
         let back = self.back(n, old);
         debug_assert!(back.is_some(), "neighbors are symmetric");
         if let Some(back) = back {
             self.set_neighbor(n, back, new);
-            self.across[n as usize * 3 + back] = Across::Unknown;
         }
     }
 
-    /// Forgets what was known of every face of the changed triangles
-    /// `cells`, on their own side. A face between two of them is forgotten
-    /// on both sides; the other side of the rest is forgotten by
-    /// [`Self::repoint`] or [`Self::forget_across`].
-    fn forget_own(&mut self, cells: &[u32]) {
-        for &c in cells {
-            self.across[c as usize * 3..c as usize * 3 + 3].fill(Across::Unknown);
-        }
-    }
-
-    /// Forgets what `n` knew of its face with `c`, which changed while `n`
-    /// kept pointing at it.
-    fn forget_across(&mut self, n: u32, c: u32) {
-        let back = self.back(n, c);
-        debug_assert!(back.is_some(), "neighbors are symmetric");
-        if let Some(back) = back {
-            self.across[n as usize * 3 + back] = Across::Unknown;
-        }
-    }
-
-    /// Records `across` on the face of triangle `c` opposite `slot`, shared
-    /// with `n`, on both sides.
-    fn record(&mut self, c: u32, slot: usize, n: u32, across: Across) {
-        self.across[c as usize * 3 + slot] = across;
-        if let Some(back) = self.back(n, c) {
-            self.across[n as usize * 3 + back] = across;
+    /// Keeps `c` and `n` as a candidate pair when their face is cospherical.
+    /// Nothing is recorded per face: a face of D = 2 joins two triangles only
+    /// when cospherical, and the candidates are tested again after the
+    /// insertion (#667).
+    fn record(&mut self, c: u32, n: u32, across: Across) {
+        if across == Across::Cospherical {
+            self.cospherical = true;
+            self.candidates.push((c, n));
         }
     }
 
@@ -783,7 +832,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
             } else if across != Across::Unknown {
                 // `n` is finite and `q` is on its circumcircle or strictly
                 // outside it.
-                self.record(c, slot, n, across);
+                self.record(c, n, across);
             }
         }
         self.stack = stack;
@@ -807,8 +856,6 @@ impl<'a, S: Shape> Mesh<'a, S> {
         self.set_triangle(t3, [c, a, q], [t, t2, nb]);
         self.repoint(na, t, t2);
         self.repoint(nb, t, t3);
-        self.forget_across(nc, t);
-        self.forget_own(&[t, t2, t3]);
         stack.extend([t, t2, t3]);
     }
 
@@ -836,9 +883,6 @@ impl<'a, S: Shape> Mesh<'a, S> {
         self.set_triangle(t4, [y, q, p], [t, u_nr, u]);
         self.repoint(t_np, t, t2);
         self.repoint(u_nr, u, t4);
-        self.forget_across(t_nr, t);
-        self.forget_across(u_np, u);
-        self.forget_own(&[t, t2, u, t4]);
         stack.extend([t, t2, u, t4]);
     }
 
@@ -861,9 +905,6 @@ impl<'a, S: Shape> Mesh<'a, S> {
         self.set_triangle(n, [q, d, b], [n_db, t_nb, t]);
         self.repoint(n_ad, n, t);
         self.repoint(t_nb, t, n);
-        self.forget_across(t_na, t);
-        self.forget_across(n_db, n);
-        self.forget_own(&[t, n]);
     }
 
     /// Whether every live simplex's neighbor across each face is live,
@@ -1089,6 +1130,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
             let at = new as usize * k + slot;
             self.neighbors[at] = outside;
             self.across[at] = across;
+            self.cospherical |= across == Across::Cospherical;
             let back = self.back(outside, c);
             debug_assert!(back.is_some(), "neighbors are symmetric");
             if let Some(back) = back {
@@ -1198,8 +1240,77 @@ const CROWDED: usize = 16;
 /// since the least and the greatest of a coordinate take the first and the
 /// last cell.
 pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
+    // D = 2 orders `u64` keys on a grid of 13 bits, which sort in less time
+    // than `u128` ones; a crowded cell of that coarser grid is ordered again
+    // like any other (#667).
+    if rows.dim() == 2 {
+        ordered::<u64>(rows, sites)
+    } else {
+        ordered::<u128>(rows, sites)
+    }
+}
+
+/// The bits a coordinate of the grid of [`brio`] in dimension `d`: 13 for
+/// D = 2, so that its key is a `u64` (#667); otherwise as many as a code of
+/// 63 bits holds, at most 21.
+fn grid_bits(d: usize) -> u32 {
+    if d == 2 {
+        13
+    } else {
+        (63 / d.max(1)).min(21) as u32
+    }
+}
+
+/// A key of [`brio`]: it orders as `(Reverse(round), code, site)`, the
+/// round in its top bits (at most 32, so 6 bits), the Morton code from bit
+/// 32, the site in the low 32 bits.
+trait OrderKey: Copy + Ord {
+    /// The key of `site` in round `round`, its code zero.
+    fn of(round: u32, site: u32) -> Self;
+    /// The key with `code` as its code.
+    fn with_code(self, code: u64) -> Self;
+    /// The round and the code: equal for the sites of one cell of a round.
+    fn cell(self) -> u128;
+    /// The site.
+    fn site(self) -> u32;
+}
+
+impl OrderKey for u128 {
+    fn of(round: u32, site: u32) -> Self {
+        u128::from(32 - round) << 96 | u128::from(site)
+    }
+    fn with_code(self, code: u64) -> Self {
+        const CODE: u128 = (u64::MAX as u128) << 32;
+        self & !CODE | u128::from(code) << 32
+    }
+    fn cell(self) -> u128 {
+        self >> 32
+    }
+    fn site(self) -> u32 {
+        self as u32
+    }
+}
+
+impl OrderKey for u64 {
+    fn of(round: u32, site: u32) -> Self {
+        u64::from(32 - round) << 58 | u64::from(site)
+    }
+    fn with_code(self, code: u64) -> Self {
+        const CODE: u64 = ((1 << 26) - 1) << 32;
+        self & !CODE | (code & ((1 << 26) - 1)) << 32
+    }
+    fn cell(self) -> u128 {
+        u128::from(self >> 32)
+    }
+    fn site(self) -> u32 {
+        self as u32
+    }
+}
+
+/// [`brio`] on keys `K`.
+fn ordered<K: OrderKey>(rows: &Sites, sites: &[u32]) -> Vec<u32> {
     let d = rows.dim();
-    let bits = (63 / d.max(1)).min(21) as u32;
+    let bits = grid_bits(d);
     let round = |s: u32| -> u32 {
         // SplitMix64 of the index; about half the sites get 0 (the last
         // round), a quarter 1, and so on.
@@ -1209,13 +1320,8 @@ pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
         z ^= z >> 31;
         z.trailing_zeros().min(32)
     };
-    // One key per site that orders as `(Reverse(round), code, site)`: the
-    // round is at most 32, the code below 2^63, the site a `u32` (#423).
-    // The code is written by `in_morton_order`.
-    let mut keys: Vec<u128> = sites
-        .iter()
-        .map(|&s| u128::from(32 - round(s)) << 96 | u128::from(s))
-        .collect();
+    // One key per site (#423); the code is written by `in_morton_order`.
+    let mut keys: Vec<K> = sites.iter().map(|&s| K::of(round(s), s)).collect();
     // The box of the range being ordered, allocated once, and the ranges
     // still to order after the whole: none where no cell is crowded, and
     // then nothing is allocated for them.
@@ -1227,10 +1333,9 @@ pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
         let range = &mut keys[from..to];
         in_morton_order(rows, bits, range, &mut low, &mut high);
         // The cells of one round with more than `CROWDED` sites.
-        let cell = |key: u128| key >> 32;
         let mut start = 0;
         for end in 1..=range.len() {
-            if end < range.len() && cell(range[end]) == cell(range[start]) {
+            if end < range.len() && range[end].cell() == range[start].cell() {
                 continue;
             }
             if end - start > CROWDED && end - start < range.len() {
@@ -1239,18 +1344,24 @@ pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
             start = end;
         }
     }
-    keys.into_iter().map(|key| key as u32).collect()
+    keys.into_iter().map(OrderKey::site).collect()
 }
 
 /// Writes into each key of `keys` the Morton code of its site on a grid of
 /// `bits` bits a coordinate over the bounding box of the sites of `keys`,
 /// and sorts them. `low` and `high` are scratch for the box.
-fn in_morton_order(rows: &Sites, bits: u32, keys: &mut [u128], low: &mut [f64], high: &mut [f64]) {
+fn in_morton_order<K: OrderKey>(
+    rows: &Sites,
+    bits: u32,
+    keys: &mut [K],
+    low: &mut [f64],
+    high: &mut [f64],
+) {
     let d = rows.dim();
     low.fill(f64::INFINITY);
     high.fill(f64::NEG_INFINITY);
     for &key in keys.iter() {
-        for (j, &x) in rows.point(key as u32).iter().enumerate() {
+        for (j, &x) in rows.point(key.site()).iter().enumerate() {
             low[j] = low[j].min(x);
             high[j] = high[j].max(x);
         }
@@ -1297,9 +1408,8 @@ fn in_morton_order(rows: &Sites, bits: u32, keys: &mut [u128], low: &mut [f64], 
             }
         }
     };
-    const CODE: u128 = (u64::MAX as u128) << 32;
     for key in keys.iter_mut() {
-        *key = *key & !CODE | u128::from(morton(*key as u32)) << 32;
+        *key = key.with_code(morton(key.site()));
     }
     keys.sort_unstable();
 }
@@ -1322,7 +1432,7 @@ mod tests {
                 high[j] = high[j].max(x);
             }
         }
-        let bits = (63 / d.max(1)).min(21) as u32;
+        let bits = grid_bits(d);
         let scale = if bits == 0 {
             0.0
         } else {

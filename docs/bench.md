@@ -7866,3 +7866,35 @@ Each is measured against spade's bulk load on the same probe before it is taken 
 2. **The order**: a cheaper order for D = 2 (one sort by a space-filling key, or spade's by distance), with the walk's length measured beside it. The stage is 6 to 10%, and the order feeds the insertion's walk.
 3. **Small inputs**: the allocations of one build counted and cut (one buffer for the lifted heights, buffers sized once), and the acceptance's path for a few points. 45% of the build at 10 points is outside the insertion.
 4. **The insertion itself**: spade's way, insertion by distance onto the growing hull, as a path of D = 2 (the owner allows dedicated paths of D = 2 and 3). The largest change and the one stage that is already at spade's from 10^4 points.
+
+## The prototypes for the Delaunay build of D = 2, measured beside spade, #667
+
+The prototypes of R2-1, each timed by `benches/d2/ab.sh` against the commit before it and that commit built a second time (the control), three runs each, pinned to core 2 under WSL2; the ratios are of the median build, and convx / spade is read in the same process, which the machine's load moves less. Taken or left by those numbers (the owner, 2026-10-18: take what is measured to help, and optimize the paths of D = 2 and 3 where there is room).
+
+| Change | Ratio to the commit before | Control | Decision |
+| --- | --- | --- | --- |
+| No face walked after a D = 2 insertion that recorded no cospherical face | 0.88 to 0.98 from 100 points; 1.00 at 10 | 0.97 to 1.03 | Taken |
+| A Delaunay build keeps no groups (only a Voronoi diagram reads them) | 0.97 to 1.04 | 0.94 to 1.00 | Left: within the control |
+| The order of D = 2 on `u64` keys, a grid of 13 bits a coordinate | 0.94 to 0.98; 0.94 at 10^4 | 0.98 to 1.01 | Taken, as one order for every dimension with the key a parameter |
+| The mesh's growing lists sized once | 0.97 at 10 points | 1.00 | Taken |
+| The walk's signs read again for the edge a site lies on (two orientations a site fewer) | 1.01 to 1.02 | 0.99 to 1.01 | Left: slower; an orientation costs less than passing its sign |
+| The order of D = 2 along the Hilbert curve | 1.09 at 10, 1.04 at 100, 0.97 to 0.99 above | 0.95 to 1.01 | Left: its code costs more than its walk saves |
+| The insertion by flips keeps candidates for cospherical faces, tested again after it, not a record per face | convx / spade 1.32 to 1.23 at 1,000, 1.20 to 1.11 at 10^4, 1.01 to 0.91 at 10^6 | load: 0.86 to 1.10 | Taken (a throwaway build without the records bounded it at 0.86 to 0.92) |
+| The inside sign once a dimension, and the flips' mesh without the cavity's lists | 0.82 at 10 points; 0.99 to 1.01 above | 0.99 to 1.01 | Taken: 57 allocations and reallocations of a build of 10 points to 45 |
+| The small working lists on the stack, the union's parents made when used | 0.96 at 10 points; 0.99 to 1.00 above | 0.99 to 1.02 | Taken: 45 to 34 |
+| The flips' mesh without the cavity's marks | 0.98 to 1.01 | 0.99 to 1.01 | Left: within the control |
+
+What a site of D = 2 costs the insertion, counted at 10^3 to 10^5 points: 11.9 orientations, 9.0 in-circle tests, 5.5 steps of the walk, 3.0 flips. The flips and in-circle tests are what any insertion by flips needs; the walk is 35% of the insertion's time and the split and flips the rest.
+
+### Everything taken, against `main`
+
+| Points | WSL: ratio to `main` | Control | convx / spade, `main` → taken | Windows: ratio to `main` | convx / spade, `main` → taken |
+| ---: | ---: | ---: | --- | ---: | --- |
+| 10 | 0.72 | 0.99 | 2.04 → 1.42 | 0.68 | 2.32 → 1.58 |
+| 100 | 0.87 | 1.01 | 1.40 → 1.22 | 0.86 | 1.37 → 1.19 |
+| 1,000 | 0.82 | 1.01 | 1.47 → 1.22 | 0.81 | 1.47 → 1.21 |
+| 10^4 | 0.85 | 1.01 | 1.34 → 1.10 | 0.82 | 1.43 → 1.14 |
+| 10^5 | 0.86 | 0.96 | 1.26 → 1.04 | 0.84 | 1.29 → 1.04 |
+| 10^6 | 0.93 | 0.98 | 1.11 → 0.98 | 0.86 | 1.18 → 1.00 |
+
+What is left between 100 and 10^4 points is the insertion itself: spade's bulk load inserts each site, by its distance to a centre, onto the hull of the sites before it, and walks nowhere.
