@@ -1213,11 +1213,77 @@ const CROWDED: usize = 16;
 /// since the least and the greatest of a coordinate take the first and the
 /// last cell.
 pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
-    let d = rows.dim();
-    if d == 2 {
-        return brio_plane(rows, sites);
+    // D = 2 orders `u64` keys on a grid of 13 bits, which sort in less time
+    // than `u128` ones; a crowded cell of that coarser grid is ordered again
+    // like any other (#667).
+    if rows.dim() == 2 {
+        ordered::<u64>(rows, sites)
+    } else {
+        ordered::<u128>(rows, sites)
     }
-    let bits = (63 / d.max(1)).min(21) as u32;
+}
+
+/// The bits a coordinate of the grid of [`brio`] in dimension `d`: 13 for
+/// D = 2, so that its key is a `u64` (#667); otherwise as many as a code of
+/// 63 bits holds, at most 21.
+fn grid_bits(d: usize) -> u32 {
+    if d == 2 {
+        13
+    } else {
+        (63 / d.max(1)).min(21) as u32
+    }
+}
+
+/// A key of [`brio`]: it orders as `(Reverse(round), code, site)`, the
+/// round in its top bits (at most 32, so 6 bits), the Morton code from bit
+/// 32, the site in the low 32 bits.
+trait OrderKey: Copy + Ord {
+    /// The key of `site` in round `round`, its code zero.
+    fn of(round: u32, site: u32) -> Self;
+    /// The key with `code` as its code.
+    fn with_code(self, code: u64) -> Self;
+    /// The round and the code: equal for the sites of one cell of a round.
+    fn cell(self) -> u128;
+    /// The site.
+    fn site(self) -> u32;
+}
+
+impl OrderKey for u128 {
+    fn of(round: u32, site: u32) -> Self {
+        u128::from(32 - round) << 96 | u128::from(site)
+    }
+    fn with_code(self, code: u64) -> Self {
+        const CODE: u128 = (u64::MAX as u128) << 32;
+        self & !CODE | u128::from(code) << 32
+    }
+    fn cell(self) -> u128 {
+        self >> 32
+    }
+    fn site(self) -> u32 {
+        self as u32
+    }
+}
+
+impl OrderKey for u64 {
+    fn of(round: u32, site: u32) -> Self {
+        u64::from(32 - round) << 58 | u64::from(site)
+    }
+    fn with_code(self, code: u64) -> Self {
+        const CODE: u64 = ((1 << 26) - 1) << 32;
+        self & !CODE | (code & ((1 << 26) - 1)) << 32
+    }
+    fn cell(self) -> u128 {
+        u128::from(self >> 32)
+    }
+    fn site(self) -> u32 {
+        self as u32
+    }
+}
+
+/// [`brio`] on keys `K`.
+fn ordered<K: OrderKey>(rows: &Sites, sites: &[u32]) -> Vec<u32> {
+    let d = rows.dim();
+    let bits = grid_bits(d);
     let round = |s: u32| -> u32 {
         // SplitMix64 of the index; about half the sites get 0 (the last
         // round), a quarter 1, and so on.
@@ -1227,13 +1293,8 @@ pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
         z ^= z >> 31;
         z.trailing_zeros().min(32)
     };
-    // One key per site that orders as `(Reverse(round), code, site)`: the
-    // round is at most 32, the code below 2^63, the site a `u32` (#423).
-    // The code is written by `in_morton_order`.
-    let mut keys: Vec<u128> = sites
-        .iter()
-        .map(|&s| u128::from(32 - round(s)) << 96 | u128::from(s))
-        .collect();
+    // One key per site (#423); the code is written by `in_morton_order`.
+    let mut keys: Vec<K> = sites.iter().map(|&s| K::of(round(s), s)).collect();
     // The box of the range being ordered, allocated once, and the ranges
     // still to order after the whole: none where no cell is crowded, and
     // then nothing is allocated for them.
@@ -1245,10 +1306,9 @@ pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
         let range = &mut keys[from..to];
         in_morton_order(rows, bits, range, &mut low, &mut high);
         // The cells of one round with more than `CROWDED` sites.
-        let cell = |key: u128| key >> 32;
         let mut start = 0;
         for end in 1..=range.len() {
-            if end < range.len() && cell(range[end]) == cell(range[start]) {
+            if end < range.len() && range[end].cell() == range[start].cell() {
                 continue;
             }
             if end - start > CROWDED && end - start < range.len() {
@@ -1257,82 +1317,24 @@ pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
             start = end;
         }
     }
-    keys.into_iter().map(|key| key as u32).collect()
-}
-
-/// The cells of a coordinate of [`brio_plane`]: 13 bits, so that the round
-/// (6 bits), the code (26), and the site (32) make one `u64` (#667).
-const PLANE_BITS: u32 = 13;
-
-/// [`brio`] for D = 2, its keys `u64`: `(Reverse(round), code, site)` with
-/// a grid of [`PLANE_BITS`] bits a coordinate. A crowded cell of that
-/// coarser grid is ordered again on its own box, as in [`brio`].
-fn brio_plane(rows: &Sites, sites: &[u32]) -> Vec<u32> {
-    let round = |s: u32| -> u64 {
-        let mut z = u64::from(s).wrapping_add(0x9e37_79b9_7f4a_7c15);
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        z ^= z >> 31;
-        u64::from(z.trailing_zeros().min(32))
-    };
-    let mut keys: Vec<u64> = sites
-        .iter()
-        .map(|&s| (32 - round(s)) << 58 | u64::from(s))
-        .collect();
-    let mut crowded: Vec<(usize, usize)> = Vec::new();
-    let mut whole = Some((0, keys.len()));
-    while let Some((from, to)) = whole.take().or_else(|| crowded.pop()) {
-        let range = &mut keys[from..to];
-        in_plane_order(rows, range);
-        let cell = |key: u64| key >> 32;
-        let mut start = 0;
-        for end in 1..=range.len() {
-            if end < range.len() && cell(range[end]) == cell(range[start]) {
-                continue;
-            }
-            if end - start > CROWDED && end - start < range.len() {
-                crowded.push((from + start, from + end));
-            }
-            start = end;
-        }
-    }
-    keys.into_iter().map(|key| key as u32).collect()
-}
-
-/// [`in_morton_order`] for D = 2 and the keys of [`brio_plane`].
-fn in_plane_order(rows: &Sites, keys: &mut [u64]) {
-    let (mut low, mut high) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
-    for &key in keys.iter() {
-        for (j, &x) in rows.point(key as u32).iter().enumerate() {
-            low[j] = low[j].min(x);
-            high[j] = high[j].max(x);
-        }
-    }
-    let scale = ((1_u64 << PLANE_BITS) - 1) as f64;
-    let mask = (1_u64 << PLANE_BITS) - 1;
-    let cell = |p: &[f64], j: usize| -> u64 {
-        let width = high[j] - low[j];
-        let t = if width > 0.0 { (p[j] - low[j]) / width } else { 0.0 };
-        (t * scale) as u64 & mask
-    };
-    const CODE: u64 = ((1 << 26) - 1) << 32;
-    for key in keys.iter_mut() {
-        let p = rows.point(*key as u32);
-        let code = spread2(cell(p, 0)) << 1 | spread2(cell(p, 1));
-        *key = *key & !CODE | code << 32;
-    }
-    keys.sort_unstable();
+    keys.into_iter().map(OrderKey::site).collect()
 }
 
 /// Writes into each key of `keys` the Morton code of its site on a grid of
 /// `bits` bits a coordinate over the bounding box of the sites of `keys`,
 /// and sorts them. `low` and `high` are scratch for the box.
-fn in_morton_order(rows: &Sites, bits: u32, keys: &mut [u128], low: &mut [f64], high: &mut [f64]) {
+fn in_morton_order<K: OrderKey>(
+    rows: &Sites,
+    bits: u32,
+    keys: &mut [K],
+    low: &mut [f64],
+    high: &mut [f64],
+) {
     let d = rows.dim();
     low.fill(f64::INFINITY);
     high.fill(f64::NEG_INFINITY);
     for &key in keys.iter() {
-        for (j, &x) in rows.point(key as u32).iter().enumerate() {
+        for (j, &x) in rows.point(key.site()).iter().enumerate() {
             low[j] = low[j].min(x);
             high[j] = high[j].max(x);
         }
@@ -1379,9 +1381,8 @@ fn in_morton_order(rows: &Sites, bits: u32, keys: &mut [u128], low: &mut [f64], 
             }
         }
     };
-    const CODE: u128 = (u64::MAX as u128) << 32;
     for key in keys.iter_mut() {
-        *key = *key & !CODE | u128::from(morton(*key as u32)) << 32;
+        *key = key.with_code(morton(key.site()));
     }
     keys.sort_unstable();
 }
@@ -1404,7 +1405,7 @@ mod tests {
                 high[j] = high[j].max(x);
             }
         }
-        let bits = (63 / d.max(1)).min(21) as u32;
+        let bits = grid_bits(d);
         let scale = if bits == 0 {
             0.0
         } else {
