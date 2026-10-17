@@ -764,15 +764,25 @@ impl<'a, S: Shape> Mesh<'a, S> {
     /// flipped records what its in-circle test said.
     fn insert_by_flips(&mut self, q: u32) -> Result<(), Error> {
         debug_assert_eq!(self.shape.k(), 3, "edge flips are for triangles");
-        let t = self.locate(q)?;
+        // The signs the walk computed at the triangle it stopped in: every
+        // face but the one it came through (#667).
+        let mut known = [None; 3];
+        let t = self.locate_noting(q, &mut known)?;
         debug_assert!(self.conflicts(t, q)?, "the located triangle conflicts");
         // The edge `q` lies on, by the slot of the vertex opposite it.
         let on_edge = match self.vertices_of(t).iter().position(|&v| v == INFINITE) {
             Some(slot) => (self.replaced(t, slot, q)? == Sign::Zero).then_some(slot),
             None => {
                 let mut edge = None;
-                for slot in 0..3 {
-                    if self.replaced(t, slot, q)? == Sign::Zero {
+                for (slot, known) in known.into_iter().enumerate() {
+                    let sign = match known {
+                        Some(sign) => {
+                            debug_assert_eq!(Ok(sign), self.replaced(t, slot, q));
+                            sign
+                        }
+                        None => self.replaced(t, slot, q)?,
+                    };
+                    if sign == Sign::Zero {
                         debug_assert!(edge.is_none(), "a site is no vertex of the triangle");
                         edge = Some(slot);
                     }
@@ -918,6 +928,13 @@ impl<'a, S: Shape> Mesh<'a, S> {
     /// the vertex opposite that face is not negative, so the walk takes the
     /// same steps and ends where it did.
     fn locate(&self, q: u32) -> Result<u32, Error> {
+        self.locate_noting(q, &mut [])
+    }
+
+    /// [`Self::locate`], leaving in `known` (when it holds `k` entries) the
+    /// orientation with `q` in place of each vertex of the simplex returned,
+    /// where the walk computed it, and `None` elsewhere.
+    fn locate_noting(&self, q: u32, known: &mut [Option<Sign>]) -> Result<u32, Error> {
         let k = self.shape.k();
         // Seeded by the input index, so that the walk, and with it the order
         // the simplices are created and published in, does not depend on
@@ -940,6 +957,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
             state ^= state << 17;
             let offset = (state % k as u64) as usize;
             let mut next = None;
+            known.fill(None);
             for t in 0..k {
                 let slot = (t + offset) % k;
                 if self.neighbor(c, slot) == came_from {
@@ -950,7 +968,11 @@ impl<'a, S: Shape> Mesh<'a, S> {
                     );
                     continue;
                 }
-                if self.replaced(c, slot, q)? == Sign::Negative {
+                let sign = self.replaced(c, slot, q)?;
+                if let Some(entry) = known.get_mut(slot) {
+                    *entry = Some(sign);
+                }
+                if sign == Sign::Negative {
                     next = Some(self.neighbor(c, slot));
                     break;
                 }
