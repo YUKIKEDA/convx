@@ -805,7 +805,7 @@ fn inserted<S: insert::Shape>(
             };
             let cospherical = match across {
                 insert::Across::Cospherical => true,
-                insert::Across::Distinct => false,
+                insert::Across::Distinct | insert::Across::Independent => false,
                 insert::Across::Unknown if every_unknown_face_lifted() => test()?,
                 insert::Across::Unknown => {
                     // The sites of `c` and `n` without the newest, which the
@@ -831,7 +831,10 @@ fn inserted<S: insert::Shape>(
                 }
             };
             debug_assert!(
-                across == insert::Across::Unknown || mesh.is_finite(n) && test()? == cospherical,
+                matches!(
+                    across,
+                    insert::Across::Unknown | insert::Across::Independent
+                ) || mesh.is_finite(n) && test()? == cospherical,
                 "the insertion's record matches the lifted orientation"
             );
             if cospherical {
