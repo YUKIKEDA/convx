@@ -7917,3 +7917,18 @@ As in D = 2 before #669, the insertion alone is at CGAL's whole build, and the g
 - With it, the walk is skipped when the insertion left no face undecided and recorded none cospherical: 0.93, 0.95, 0.97, 0.95, and 0.92 of the base at 10 to 10^5 points, against a control of 0.99, 1.00, 0.99, 0.97, and 0.94. Taken.
 
 A face left undecided by four coplanar sites came, in every input the tests and a pyramid of five cospherical sites (a square and an apex, with the apex at every index among sites outside the sphere) built, with a face recorded cospherical as well: four coplanar sites on a sphere are on one circle, and inserting the last of them meets a simplex of the other three. So a mutation that never marks a face undecided fails no test; the mark is kept because nothing proves that a record always comes with it.
+
+### D = 2 inserted radially, as spade's bulk load orders it
+
+A prototype of the insertion of D = 2 in spade's order, the insertion by flips kept: the initial triangle the site nearest the centre of the box, the site nearest it, and the third of the smallest circumradius off their line; the rest by distance from that circumcenter, so that a site lies, nearly always, just outside the hull before it; and each walk started from the triangle the last insertion in the site's sector of the angle about the centre left. Against its base (the head of #671), with the control:
+
+| Points | Radial | Control |
+| ---: | ---: | ---: |
+| 10 | 1.13 | 1.00 |
+| 100 | 1.02 | 0.99 |
+| 1,000 | 1.02 | 1.01 |
+| 10^4 | 1.20 | 1.01 |
+| 10^5 | 1.37 | 1.01 |
+| 10^6 | 1.38 | 0.92 |
+
+Left. Consecutive sites of that order are far apart in the input and in the mesh, where BRIO keeps them near; what of the 1.37 is the memory and what the flips was not measured. spade's bulk load keeps its own structure for the hull and is not a walk over a triangulation.
