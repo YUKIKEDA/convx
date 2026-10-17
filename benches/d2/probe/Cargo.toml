@@ -1,0 +1,17 @@
+[package]
+name = "probe"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+convx = { path = "CONVX_PATH" }
+spade = "=2.15.1"
+
+[features]
+marked = []
+
+[profile.release]
+debug = 1
+
+[workspace]
