@@ -31,12 +31,18 @@ use crate::predicates::{orient, Sign};
 use crate::small::Small;
 use crate::Error;
 
-/// Builds a [`VoronoiDiagram`].
+/// Builds a [`VoronoiDiagram`] from sites given as one row-major slice of
+/// `f64`.
+///
+/// Site `i` is `points[i * dim..(i + 1) * dim]`. Nothing is checked until
+/// [`build`](Self::build).
+///
+/// # Examples
 ///
 /// ```
 /// use convx::VoronoiBuilder;
 ///
-/// // A square: its four corners are cocircular, so there is one finite
+/// // A square: its four corners are on one circle, so there is one finite
 /// // vertex at the center, four rays, and no interface across a diagonal.
 /// let points = [0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0];
 /// let voronoi = VoronoiBuilder::new(2, &points).build()?;
@@ -57,19 +63,34 @@ pub struct VoronoiBuilder<'a> {
 }
 
 impl<'a> VoronoiBuilder<'a> {
-    /// A builder for sites of dimension `dim`, stored row-major in `points`.
+    /// Returns a builder for the sites of dimension `dim` stored row-major
+    /// in `points`.
     #[must_use]
     pub fn new(dim: usize, points: &'a [f64]) -> Self {
         Self { dim, points }
     }
 
-    /// Builds the diagram.
+    /// Builds the diagram from the Delaunay triangulation of the sites.
     ///
     /// # Errors
     ///
     /// The failures of [`DelaunayBuilder::build`](crate::DelaunayBuilder::build),
-    /// and [`Error::NonFiniteCircumcenter`] when every simplex of
-    /// some vertex has a non-finite circumcenter in `f64`.
+    /// in its order, and then [`Error::NonFiniteCircumcenter`] when, for some
+    /// vertex, no simplex of its group has a circumcenter that is finite in
+    /// `f64`: the topology is decided, and that vertex's coordinates are not.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use convx::{Error, VoronoiBuilder};
+    ///
+    /// // Three numbers do not divide into points of dimension 2.
+    /// let sites = [0.0, 1.0, 2.0];
+    /// assert_eq!(
+    ///     VoronoiBuilder::new(2, &sites).build().unwrap_err(),
+    ///     Error::LengthMismatch { len: 3, dim: 2 },
+    /// );
+    /// ```
     pub fn build(self) -> Result<VoronoiDiagram, Error> {
         // An input far from 1 is built on a copy scaled exactly (#589);
         // the vertices take their coordinates from the input itself.
@@ -82,11 +103,31 @@ impl<'a> VoronoiBuilder<'a> {
     }
 }
 
-/// A Voronoi diagram of points in dimension D.
+/// A Voronoi diagram of sites in dimension D: its finite vertices, its rays,
+/// the cell of each site, and the interfaces where two cells meet.
 ///
-/// Every list is kept flat and published through borrowed views (design
-/// §8, §9). Rays form one table, numbered by apex and then by
-/// `hull_facet`; cells and interfaces hold numbers into it.
+/// A vertex is the center of one group of Delaunay simplices whose sites lie
+/// on one sphere, grouped by exact signs: four sites on one circle give one
+/// vertex. A ray leaves a vertex outward through a facet of the hull of the
+/// sites. Cells and interfaces list their vertices and rays by number. In
+/// D >= 4 the diagram is these lists, not a complete cell complex.
+///
+/// # Examples
+///
+/// ```
+/// use convx::VoronoiBuilder;
+///
+/// // The corners of a square and its center.
+/// let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
+/// let voronoi = VoronoiBuilder::new(2, &sites).build()?;
+/// assert_eq!(voronoi.dim(), 2);
+/// assert_eq!(voronoi.representative(), [0, 1, 2, 3, 4]);
+/// assert_eq!(voronoi.vertices().len(), 4);
+/// assert_eq!(voronoi.rays().len(), 4);
+/// assert_eq!(voronoi.cells().len(), 5);
+/// assert_eq!(voronoi.interfaces().len(), 8);
+/// # Ok::<(), convx::Error>(())
+/// ```
 #[derive(Clone, Debug, PartialEq)]
 pub struct VoronoiDiagram {
     dim: usize,
@@ -107,37 +148,42 @@ pub struct VoronoiDiagram {
 }
 
 impl VoronoiDiagram {
-    /// Dimension D of the sites.
+    /// Returns the dimension D of the sites.
     #[must_use]
     pub fn dim(&self) -> usize {
         self.dim
     }
 
-    /// For each input index, the smallest index of a point equal to it.
+    /// Returns, for each input index, the smallest index of a site equal to
+    /// it: the index itself unless the site is a duplicate. `-0.0` and
+    /// `+0.0` are equal.
     #[must_use]
     pub fn representative(&self) -> &[u32] {
         &self.representative
     }
 
-    /// Finite vertices, in the lexicographic order of their sites.
+    /// Returns the finite vertices, in the lexicographic order of their
+    /// sites.
     #[must_use]
     pub fn vertices(&self) -> VoronoiVertices<'_> {
         VoronoiVertices { diagram: self }
     }
 
-    /// Every ray, by apex, then by `hull_facet`.
+    /// Returns the rays, ordered by apex, then by
+    /// [`hull_facet`](VoronoiRay::hull_facet).
     #[must_use]
     pub fn rays(&self) -> VoronoiRays<'_> {
         VoronoiRays { diagram: self }
     }
 
-    /// One cell per representative, in ascending site order.
+    /// Returns one cell per distinct site, in ascending order of the site.
     #[must_use]
     pub fn cells(&self) -> VoronoiCells<'_> {
         VoronoiCells { diagram: self }
     }
 
-    /// Faces shared by two cells, in the lexicographic order of their sites.
+    /// Returns the faces where two cells meet, in the lexicographic order of
+    /// their two sites.
     #[must_use]
     pub fn interfaces(&self) -> VoronoiInterfaces<'_> {
         VoronoiInterfaces { diagram: self }
@@ -154,21 +200,21 @@ macro_rules! collection {
         }
 
         impl<'a> $name<'a> {
-            /// Number of items.
+            /// Returns the number of items.
             #[must_use]
             pub fn len(&self) -> usize {
                 let len: fn(&VoronoiDiagram) -> usize = $len;
                 len(self.diagram)
             }
 
-            /// Whether there are no items.
+            /// Returns whether there are no items.
             #[must_use]
             pub fn is_empty(&self) -> bool {
                 self.len() == 0
             }
 
-            /// The item numbered `index`, or `None` when no item has that
-            /// number.
+            /// Returns the item numbered `index`, or `None` when no item has
+            /// that number.
             #[must_use]
             pub fn get(&self, index: u32) -> Option<$item<'a>> {
                 ((index as usize) < self.len()).then_some($item {
@@ -177,7 +223,7 @@ macro_rules! collection {
                 })
             }
 
-            /// Every item, in order.
+            /// Returns every item, in the order of their numbers.
             pub fn iter(&self) -> impl ExactSizeIterator<Item = $item<'a>> + 'a {
                 let diagram = self.diagram;
                 (0..self.len() as u32).map(move |index| $item { diagram, index })
@@ -194,30 +240,114 @@ macro_rules! collection {
 
 collection!(
     /// The finite vertices of a [`VoronoiDiagram`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use convx::VoronoiBuilder;
+    ///
+    /// // The corners of a square and its center.
+    /// let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
+    /// let voronoi = VoronoiBuilder::new(2, &sites).build()?;
+    /// let vertices = voronoi.vertices();
+    /// assert_eq!(vertices.len(), 4);
+    /// assert!(!vertices.is_empty());
+    /// assert!(vertices.get(4).is_none());
+    /// // Each is the center of a triangle that has the center of the square.
+    /// assert!(vertices.iter().all(|vertex| vertex.sites().contains(&4)));
+    /// # Ok::<(), convx::Error>(())
+    /// ```
     VoronoiVertices,
     VoronoiVertex,
     |d| d.vertex_sites.len()
 );
 collection!(
     /// The rays of a [`VoronoiDiagram`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use convx::VoronoiBuilder;
+    ///
+    /// // The corners of a square and its center.
+    /// let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
+    /// let voronoi = VoronoiBuilder::new(2, &sites).build()?;
+    /// let rays = voronoi.rays();
+    /// assert_eq!(rays.len(), 4);
+    /// assert!(!rays.is_empty());
+    /// assert!(rays.get(4).is_none());
+    /// // One ray through each side of the square.
+    /// assert!(rays.iter().all(|ray| ray.hull_facet().len() == 2));
+    /// # Ok::<(), convx::Error>(())
+    /// ```
     VoronoiRays,
     VoronoiRay,
     |d| d.ray_apexes.len()
 );
 collection!(
     /// The cells of a [`VoronoiDiagram`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use convx::VoronoiBuilder;
+    ///
+    /// // The corners of a square and its center.
+    /// let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
+    /// let voronoi = VoronoiBuilder::new(2, &sites).build()?;
+    /// let cells = voronoi.cells();
+    /// assert_eq!(cells.len(), 5);
+    /// assert!(!cells.is_empty());
+    /// assert!(cells.get(5).is_none());
+    /// let sites: Vec<u32> = cells.iter().map(|cell| cell.site()).collect();
+    /// assert_eq!(sites, [0, 1, 2, 3, 4]);
+    /// # Ok::<(), convx::Error>(())
+    /// ```
     VoronoiCells,
     VoronoiCell,
     |d| d.cell_sites.len()
 );
 collection!(
     /// The interfaces of a [`VoronoiDiagram`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use convx::VoronoiBuilder;
+    ///
+    /// // The corners of a square and its center.
+    /// let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
+    /// let voronoi = VoronoiBuilder::new(2, &sites).build()?;
+    /// let interfaces = voronoi.interfaces();
+    /// assert_eq!(interfaces.len(), 8);
+    /// assert!(!interfaces.is_empty());
+    /// assert!(interfaces.get(8).is_none());
+    /// // The center meets every corner; neighboring corners meet each other.
+    /// assert_eq!(interfaces.iter().filter(|face| face.sites()[1] == 4).count(), 4);
+    /// # Ok::<(), convx::Error>(())
+    /// ```
     VoronoiInterfaces,
     VoronoiInterface,
     |d| d.interface_sites.len()
 );
 
-/// A finite Voronoi vertex: a view into its [`VoronoiDiagram`].
+/// A finite vertex of a [`VoronoiDiagram`]: its coordinates in `f64` and the
+/// sites on its sphere.
+///
+/// # Examples
+///
+/// ```
+/// use convx::VoronoiBuilder;
+///
+/// // The four corners of a square are on one circle: one vertex.
+/// let square = [0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0];
+/// let voronoi = VoronoiBuilder::new(2, &square).build()?;
+/// let center = voronoi.vertices().get(0).unwrap();
+/// assert_eq!(center.sites(), [0, 1, 2, 3]);
+/// // Solved in f64 from the sites.
+/// assert!(center.coords().iter().all(|x| (x - 1.0).abs() < 1e-12));
+/// # Ok::<(), convx::Error>(())
+/// ```
 #[derive(Clone, Copy)]
 pub struct VoronoiVertex<'a> {
     diagram: &'a VoronoiDiagram,
@@ -225,7 +355,8 @@ pub struct VoronoiVertex<'a> {
 }
 
 impl<'a> VoronoiVertex<'a> {
-    /// The circumcenter. Length D, finite.
+    /// Returns the center of the sphere through the vertex's sites, of
+    /// length D and finite.
     #[must_use]
     pub fn coords(&self) -> &'a [f64] {
         let d = self.diagram.dim;
@@ -233,15 +364,30 @@ impl<'a> VoronoiVertex<'a> {
         &self.diagram.vertex_coords[i * d..(i + 1) * d]
     }
 
-    /// The cospherical sites of this vertex, ascending. At least D + 1.
+    /// Returns the sites on the vertex's sphere, ascending: at least D + 1.
     #[must_use]
     pub fn sites(&self) -> &'a [u32] {
         self.diagram.vertex_sites.get(self.index as usize)
     }
 }
 
-/// An unbounded edge, a finite vertex and a facet of the site hull: a view
-/// into its [`VoronoiDiagram`].
+/// A ray of a [`VoronoiDiagram`]: an unbounded edge from a finite vertex,
+/// outward through a facet of the hull of the sites.
+///
+/// # Examples
+///
+/// ```
+/// use convx::VoronoiBuilder;
+///
+/// let square = [0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0];
+/// let voronoi = VoronoiBuilder::new(2, &square).build()?;
+/// // The ray through the bottom side leaves the center downward.
+/// let down = voronoi.rays().get(0).unwrap();
+/// assert_eq!(down.apex(), 0);
+/// assert_eq!(down.hull_facet(), [0, 1]);
+/// assert_eq!(down.direction(), [0.0, -1.0]);
+/// # Ok::<(), convx::Error>(())
+/// ```
 #[derive(Clone, Copy)]
 pub struct VoronoiRay<'a> {
     diagram: &'a VoronoiDiagram,
@@ -249,13 +395,14 @@ pub struct VoronoiRay<'a> {
 }
 
 impl<'a> VoronoiRay<'a> {
-    /// Number of the apex in [`VoronoiDiagram::vertices`].
+    /// Returns the number of the ray's apex in [`VoronoiDiagram::vertices`].
     #[must_use]
     pub fn apex(&self) -> u32 {
         self.diagram.ray_apexes[self.index as usize]
     }
 
-    /// The outward unit normal of the site-hull facet. Length D.
+    /// Returns the direction of the ray: the outward unit normal of its facet
+    /// of the hull of the sites, of length D.
     #[must_use]
     pub fn direction(&self) -> &'a [f64] {
         let d = self.diagram.dim;
@@ -263,7 +410,7 @@ impl<'a> VoronoiRay<'a> {
         &self.diagram.ray_directions[i * d..(i + 1) * d]
     }
 
-    /// The extreme points of that site-hull facet, ascending.
+    /// Returns the sites that are the vertices of that facet, ascending.
     #[must_use]
     pub fn hull_facet(&self) -> &'a [u32] {
         self.diagram.ray_hull_facets.get(self.index as usize)
@@ -280,7 +427,27 @@ fn rays_of<'a>(
         .map(move |&index| VoronoiRay { diagram, index })
 }
 
-/// The Voronoi cell of one site: a view into its [`VoronoiDiagram`].
+/// The cell of one site in a [`VoronoiDiagram`]: its vertices and rays.
+///
+/// # Examples
+///
+/// ```
+/// use convx::VoronoiBuilder;
+///
+/// // The corners of a square and its center.
+/// let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
+/// let voronoi = VoronoiBuilder::new(2, &sites).build()?;
+/// // The cell of the center is bounded: four vertices and no ray.
+/// let center = voronoi.cells().get(4).unwrap();
+/// assert_eq!(center.site(), 4);
+/// assert_eq!(center.vertices().len(), 4);
+/// assert!(center.ray_numbers().is_empty());
+/// // The cell of a corner is not: two rays.
+/// let corner = voronoi.cells().get(0).unwrap();
+/// assert_eq!(corner.ray_numbers().len(), 2);
+/// assert!(corner.rays().all(|ray| ray.hull_facet().contains(&0)));
+/// # Ok::<(), convx::Error>(())
+/// ```
 #[derive(Clone, Copy)]
 pub struct VoronoiCell<'a> {
     diagram: &'a VoronoiDiagram,
@@ -288,34 +455,51 @@ pub struct VoronoiCell<'a> {
 }
 
 impl<'a> VoronoiCell<'a> {
-    /// The site.
+    /// Returns the site of this cell.
     #[must_use]
     pub fn site(&self) -> u32 {
         self.diagram.cell_sites[self.index as usize]
     }
 
-    /// Incident finite vertices, ascending.
+    /// Returns the numbers of the cell's finite vertices, ascending.
     #[must_use]
     pub fn vertices(&self) -> &'a [u32] {
         self.diagram.cell_vertices.get(self.index as usize)
     }
 
-    /// Numbers in [`VoronoiDiagram::rays`] of the incident rays, ascending:
-    /// by apex, then by `hull_facet`. Empty for an interior site; at least
-    /// one for a site on the boundary of the site hull.
+    /// Returns the numbers of the cell's rays in [`VoronoiDiagram::rays`],
+    /// ascending. Empty for a site inside the hull of the sites; at least one
+    /// for a site on its boundary.
     #[must_use]
     pub fn ray_numbers(&self) -> &'a [u32] {
         self.diagram.cell_rays.get(self.index as usize)
     }
 
-    /// The incident rays, in the order of [`Self::ray_numbers`].
+    /// Returns the cell's rays, in the order of [`Self::ray_numbers`].
     pub fn rays(&self) -> impl ExactSizeIterator<Item = VoronoiRay<'a>> + 'a {
         rays_of(self.diagram, self.ray_numbers())
     }
 }
 
-/// The face where two cells meet in dimension D - 1: a view into its
-/// [`VoronoiDiagram`].
+/// The face where two cells of a [`VoronoiDiagram`] meet: its two sites, its
+/// vertices, and its rays.
+///
+/// # Examples
+///
+/// ```
+/// use convx::VoronoiBuilder;
+///
+/// // The corners of a square and its center.
+/// let sites = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.5, 0.5];
+/// let voronoi = VoronoiBuilder::new(2, &sites).build()?;
+/// // Corners 0 and 1 meet along a ray: one vertex, one ray.
+/// let bottom = voronoi.interfaces().get(0).unwrap();
+/// assert_eq!(bottom.sites(), [0, 1]);
+/// assert_eq!(bottom.vertices().len(), 1);
+/// assert_eq!(bottom.ray_numbers().len(), 1);
+/// assert_eq!(bottom.rays().len(), 1);
+/// # Ok::<(), convx::Error>(())
+/// ```
 #[derive(Clone, Copy)]
 pub struct VoronoiInterface<'a> {
     diagram: &'a VoronoiDiagram,
@@ -323,25 +507,27 @@ pub struct VoronoiInterface<'a> {
 }
 
 impl<'a> VoronoiInterface<'a> {
-    /// The two sites, ascending.
+    /// Returns the two sites, ascending.
     #[must_use]
     pub fn sites(&self) -> [u32; 2] {
         self.diagram.interface_sites[self.index as usize]
     }
 
-    /// Finite vertices of the face, ascending. Never empty.
+    /// Returns the numbers of the face's finite vertices, ascending. Never
+    /// empty.
     #[must_use]
     pub fn vertices(&self) -> &'a [u32] {
         self.diagram.interface_vertices.get(self.index as usize)
     }
 
-    /// Numbers in [`VoronoiDiagram::rays`] of the face's rays, ascending.
+    /// Returns the numbers of the face's rays in [`VoronoiDiagram::rays`],
+    /// ascending.
     #[must_use]
     pub fn ray_numbers(&self) -> &'a [u32] {
         self.diagram.interface_rays.get(self.index as usize)
     }
 
-    /// The face's rays, in the order of [`Self::ray_numbers`].
+    /// Returns the face's rays, in the order of [`Self::ray_numbers`].
     pub fn rays(&self) -> impl ExactSizeIterator<Item = VoronoiRay<'a>> + 'a {
         rays_of(self.diagram, self.ray_numbers())
     }

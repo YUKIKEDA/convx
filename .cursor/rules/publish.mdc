@@ -11,7 +11,7 @@ Ready means the owner runs `cargo publish` and no other step is left. An agent d
 
 ## Order
 
-One pull request says the release is prepared: what is done, and what is not. The owner merges it. That merge on `main` is the commit that is published.
+The publish review comes first, in its own Issue, and its fixes are merged before the release's pull request. One pull request then says the release is prepared: what is done, and what is not, and the commit the review was run on. The owner merges it. That merge on `main` is the commit that is published.
 
 No version tag and no GitHub Release exists before that merge. After it, the checks below run on that commit; a run on an earlier commit, even one with the same tree, is not this check. When they pass, the owner creates the annotated tag `v{version}` on it, then the GitHub Release on that tag, then runs `cargo publish`. An agent pushes no tag.
 
@@ -21,10 +21,12 @@ All of these hold for the merge commit:
 
 - `Cargo.toml` `version` is the version to publish, and `publish = false` is absent.
 - `CHANGELOG.md` has the entry of that version.
+- The publish review (`.agents/skills/publish-review/SKILL.md`) has been run on the release's pages, with the Japanese pages inspected by Gemini, and no failure remains against `.cursor/rules/reader-docs.mdc` and `.cursor/rules/rust-docs.mdc`. Its commit is recorded in the review's Issue. A failure blocks `cargo package` and the dry-run. `missing_docs` and a clean `cargo doc` are not this review: #661 had both, and its public rustdoc still pointed at design sections and Issue numbers.
 - `cargo doc --no-deps` has no warning and no broken link.
 - `cargo package --list` is the whitelist below.
 - `just lint` and `just test` pass on that commit, and the suite passes on Linux.
 - `cargo publish --dry-run` exits 0 on a clean tree of that commit.
+- `cargo login` succeeds on the owner's machine.
 
 ## No benchmark before the code it measures is final
 

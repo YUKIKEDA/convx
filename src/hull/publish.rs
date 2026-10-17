@@ -13,7 +13,12 @@ use crate::predicates::{
 use crate::small::Small;
 use crate::Error;
 
-/// Builds a [`ConvexHull`] from row-major coordinates.
+/// Builds a [`ConvexHull`] from points given as one row-major slice of `f64`.
+///
+/// Point `i` is `points[i * dim..(i + 1) * dim]`. Nothing is checked until
+/// [`build`](Self::build).
+///
+/// # Examples
 ///
 /// ```
 /// use convx::ConvexHullBuilder;
@@ -38,7 +43,8 @@ pub struct ConvexHullBuilder<'a> {
 }
 
 impl<'a> ConvexHullBuilder<'a> {
-    /// A builder for points of dimension `dim`, stored row-major in `points`.
+    /// Returns a builder for the points of dimension `dim` stored row-major
+    /// in `points`.
     #[must_use]
     pub fn new(dim: usize, points: &'a [f64]) -> Self {
         Self { dim, points }
@@ -46,11 +52,33 @@ impl<'a> ConvexHullBuilder<'a> {
 
     /// Builds the hull.
     ///
+    /// The planes of the facets are not computed here, but by the first call
+    /// of [`ConvexHull::planes`].
+    ///
     /// # Errors
     ///
-    /// Any input failure of [`Error`], in the order documented
-    /// there, and [`Error::ExactEvaluationExhausted`]. The planes
-    /// of the facets are not computed here ([`ConvexHull::planes`]).
+    /// The first input failure of [`Error`], in the order documented there:
+    /// [`Error::NonPositiveDimension`], [`Error::LengthMismatch`],
+    /// [`Error::NonFiniteCoordinate`], [`Error::TooManyPoints`],
+    /// [`Error::InsufficientPoints`], [`Error::DegenerateDimension`]. Then
+    /// [`Error::ExactEvaluationExhausted`] when the work space of an exact
+    /// evaluation cannot be allocated.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use convx::{ConvexHullBuilder, Error};
+    ///
+    /// // Three points on one line do not span the plane.
+    /// let points = [0.0, 0.0, 1.0, 1.0, 2.0, 2.0];
+    /// match ConvexHullBuilder::new(2, &points).build() {
+    ///     Err(Error::DegenerateDimension { actual_dim, spanning_points }) => {
+    ///         assert_eq!(actual_dim, 1);
+    ///         assert_eq!(spanning_points, [0, 1]);
+    ///     }
+    ///     other => panic!("{other:?}"),
+    /// }
+    /// ```
     pub fn build(self) -> Result<ConvexHull, Error> {
         // An input far from 1 is built on a copy scaled exactly (#589);
         // the hull keeps the coordinates of the input itself.
@@ -70,22 +98,56 @@ impl<'a> ConvexHullBuilder<'a> {
     }
 }
 
-/// A convex hull.
+/// A convex hull: what each input point became, and the logical facets.
 ///
-/// Every list is kept flat and published through borrowed views (design
-/// §9). For D = 2 the facets are the edges of the boundary cycle,
-/// counterclockwise from the smallest vertex; otherwise they are ordered by
-/// their vertex lists, lexicographically. A facet's position is its public
-/// number.
+/// Every input point is a vertex, a point on the boundary that is not a
+/// vertex, an interior point, or a duplicate of one of them. A facet is a
+/// *logical* facet: the simplices of the boundary that lie exactly on one
+/// hyperplane form one facet, so a cube has six facets of four vertices.
 ///
-/// The planes of the facets are computed by the first call of
-/// [`ConvexHull::planes`] and kept, and so is the order of the boundary
-/// complex, by the first call that reads it. For D = 1 and D >= 3 the
-/// public numbering of the facets is computed by the first call that reads
-/// a facet number; for D = 2 the facets are stored in public order (design
-/// §5). Two hulls are equal when every published value but the planes is
-/// equal; whether either had computed its planes, numbered its facets, or
-/// ordered its complex does not enter. `Debug` computes none of them.
+/// Facets are numbered from 0. For D = 2 they are the edges of the boundary
+/// cycle, counterclockwise from the smallest vertex; otherwise they are in
+/// the lexicographic order of their vertex lists.
+///
+/// The planes, the volume, and the boundary as simplices are computed in
+/// `f64` from the decided topology. The planes and the order of the
+/// simplices are computed by the first call that asks for them and kept.
+/// Two hulls are equal when every published value but the planes is equal.
+///
+/// # Examples
+///
+/// ```
+/// use convx::ConvexHullBuilder;
+///
+/// // The corners of the unit cube (corner i has coordinates the bits of i),
+/// // its center, the center of its bottom face, and corner 0 again.
+/// let points = [
+///     0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0,
+///     0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+///     0.5, 0.5, 0.5, // 8: inside
+///     0.5, 0.5, 0.0, // 9: on the bottom face
+///     0.0, 0.0, 0.0, // 10: point 0 again
+/// ];
+/// let hull = ConvexHullBuilder::new(3, &points).build()?;
+/// assert_eq!(hull.dim(), 3);
+/// assert_eq!(hull.vertices(), [0, 1, 2, 3, 4, 5, 6, 7]);
+/// assert_eq!(hull.coplanar_points(), [9]);
+/// assert_eq!(hull.interior_points(), [8]);
+/// assert_eq!(hull.representative()[10], 0);
+///
+/// // Six facets of four vertices; each meets four others.
+/// assert_eq!(hull.facets().len(), 6);
+/// let bottom = hull.facets().get(0).unwrap();
+/// assert_eq!(bottom.vertices(), [0, 1, 2, 3]);
+/// assert_eq!(bottom.neighbors(), [1, 2, 3, 4]);
+/// assert_eq!(hull.boundary_cycle(0), Some(vec![0, 2, 3, 1]));
+///
+/// // Numbers in `f64`, from the topology.
+/// assert_eq!(hull.planes()?.get(0).unwrap().normal(), [0.0, 0.0, -1.0]);
+/// assert_eq!(hull.triangulation().len(), 12);
+/// assert!((hull.volume() - 1.0).abs() < 1e-15);
+/// # Ok::<(), convx::Error>(())
+/// ```
 #[derive(Clone)]
 pub struct ConvexHull {
     dim: usize,
@@ -208,7 +270,24 @@ impl core::fmt::Debug for ConvexHull {
     }
 }
 
-/// The logical facets of a [`ConvexHull`], in public order.
+/// The logical facets of a [`ConvexHull`], by facet number.
+///
+/// # Examples
+///
+/// ```
+/// use convx::ConvexHullBuilder;
+///
+/// let square = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+/// let hull = ConvexHullBuilder::new(2, &square).build()?;
+/// let facets = hull.facets();
+/// assert_eq!(facets.len(), 4);
+/// assert!(!facets.is_empty());
+/// assert!(facets.get(4).is_none());
+/// // Counterclockwise from the smallest vertex.
+/// let edges: Vec<&[u32]> = facets.iter().map(|facet| facet.vertices()).collect();
+/// assert_eq!(edges, [[0, 1], [1, 2], [2, 3], [0, 3]]);
+/// # Ok::<(), convx::Error>(())
+/// ```
 #[derive(Clone, Copy)]
 pub struct Facets<'a> {
     hull: &'a ConvexHull,
@@ -216,20 +295,20 @@ pub struct Facets<'a> {
 }
 
 impl<'a> Facets<'a> {
-    /// Number of facets.
+    /// Returns the number of facets.
     #[must_use]
     pub fn len(&self) -> usize {
         self.hull.facet_vertices.len()
     }
 
-    /// Whether there are no facets. Never true for a built hull.
+    /// Returns whether there are no facets. Never true for a built hull.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.hull.facet_vertices.is_empty()
     }
 
-    /// The facet with public number `facet`, or `None` when no facet has
-    /// that number.
+    /// Returns the facet numbered `facet`, or `None` when no facet has that
+    /// number.
     #[must_use]
     pub fn get(&self, facet: u32) -> Option<Facet<'a>> {
         ((facet as usize) < self.len()).then_some(Facet {
@@ -239,7 +318,7 @@ impl<'a> Facets<'a> {
         })
     }
 
-    /// Every facet, in public number order.
+    /// Returns every facet, in the order of their numbers.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = Facet<'a>> + 'a {
         let (hull, numbering) = (self.hull, self.numbering);
         (0..self.len() as u32).map(move |index| Facet {
@@ -256,7 +335,22 @@ impl core::fmt::Debug for Facets<'_> {
     }
 }
 
-/// A face of the hull of dimension D - 1: a view into its [`ConvexHull`].
+/// A logical facet of a [`ConvexHull`]: its vertices and the facets it
+/// meets.
+///
+/// # Examples
+///
+/// ```
+/// use convx::ConvexHullBuilder;
+///
+/// let square = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+/// let hull = ConvexHullBuilder::new(2, &square).build()?;
+/// let bottom = hull.facets().get(0).unwrap();
+/// assert_eq!(bottom.vertices(), [0, 1]);
+/// // The edges from (0, 0) up and from (1, 0) up.
+/// assert_eq!(bottom.neighbors(), [1, 3]);
+/// # Ok::<(), convx::Error>(())
+/// ```
 #[derive(Clone, Copy)]
 pub struct Facet<'a> {
     hull: &'a ConvexHull,
@@ -266,7 +360,7 @@ pub struct Facet<'a> {
 }
 
 impl<'a> Facet<'a> {
-    /// Extreme points of this face, ascending.
+    /// Returns the vertices of this facet, ascending.
     #[must_use]
     pub fn vertices(&self) -> &'a [u32] {
         self.hull
@@ -274,7 +368,8 @@ impl<'a> Facet<'a> {
             .get(self.numbering.stored(self.index))
     }
 
-    /// Numbers of the neighboring facets, ascending.
+    /// Returns the numbers of the facets that share a ridge with this one,
+    /// ascending.
     #[must_use]
     pub fn neighbors(&self) -> &'a [u32] {
         match self.numbering {
@@ -293,7 +388,28 @@ impl core::fmt::Debug for Facet<'_> {
     }
 }
 
-/// The planes of the facets of a [`ConvexHull`], by public facet number.
+/// The planes of the facets of a [`ConvexHull`], by facet number.
+///
+/// # Examples
+///
+/// ```
+/// use convx::ConvexHullBuilder;
+///
+/// let square = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+/// let hull = ConvexHullBuilder::new(2, &square).build()?;
+/// let planes = hull.planes()?;
+/// assert_eq!(planes.len(), hull.facets().len());
+/// assert!(!planes.is_empty());
+/// assert!(planes.get(4).is_none());
+/// // Every vertex is on or below every plane.
+/// for plane in planes.iter() {
+///     for corner in square.chunks_exact(2) {
+///         let x = corner[0] * plane.normal()[0] + corner[1] * plane.normal()[1];
+///         assert!(x + plane.offset() <= 0.0);
+///     }
+/// }
+/// # Ok::<(), convx::Error>(())
+/// ```
 #[derive(Clone, Copy)]
 pub struct Planes<'a> {
     dim: usize,
@@ -301,19 +417,19 @@ pub struct Planes<'a> {
 }
 
 impl<'a> Planes<'a> {
-    /// Number of planes: one per facet.
+    /// Returns the number of planes: one per facet.
     #[must_use]
     pub fn len(&self) -> usize {
         self.set.offsets.len()
     }
 
-    /// Whether there are no planes. Never true for a built hull.
+    /// Returns whether there are no planes. Never true for a built hull.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.set.offsets.is_empty()
     }
 
-    /// The plane of the facet with public number `facet`, or `None` when no
+    /// Returns the plane of the facet numbered `facet`, or `None` when no
     /// facet has that number.
     #[must_use]
     pub fn get(&self, facet: u32) -> Option<Plane<'a>> {
@@ -324,7 +440,7 @@ impl<'a> Planes<'a> {
         })
     }
 
-    /// Every plane, in public facet number order.
+    /// Returns every plane, in the order of the facet numbers.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = Plane<'a>> + 'a {
         let (dim, set) = (self.dim, self.set);
         (0..self.len() as u32).map(move |index| Plane { dim, set, index })
@@ -337,8 +453,24 @@ impl core::fmt::Debug for Planes<'_> {
     }
 }
 
-/// The supporting hyperplane of one facet: a view into its [`ConvexHull`].
-/// Built only for the public result; topology never uses it.
+/// The hyperplane of one facet of a [`ConvexHull`], in `f64`.
+///
+/// It is computed from the decided facets and is not used for any decision:
+/// a point is on a facet by an exact sign, not by this plane.
+///
+/// # Examples
+///
+/// ```
+/// use convx::ConvexHullBuilder;
+///
+/// let square = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+/// let hull = ConvexHullBuilder::new(2, &square).build()?;
+/// // The edge from (1, 0) to (1, 1): x - 1 = 0.
+/// let right = hull.planes()?.get(1).unwrap();
+/// assert_eq!(right.normal(), [1.0, 0.0]);
+/// assert_eq!(right.offset(), -1.0);
+/// # Ok::<(), convx::Error>(())
+/// ```
 #[derive(Clone, Copy)]
 pub struct Plane<'a> {
     dim: usize,
@@ -347,14 +479,14 @@ pub struct Plane<'a> {
 }
 
 impl<'a> Plane<'a> {
-    /// Outward unit normal of the hyperplane. Length D.
+    /// Returns the outward unit normal of the hyperplane, of length D.
     #[must_use]
     pub fn normal(&self) -> &'a [f64] {
         let i = self.index as usize;
         &self.set.normals[i * self.dim..(i + 1) * self.dim]
     }
 
-    /// Offset of the hyperplane `x . normal + offset = 0`.
+    /// Returns the offset of the hyperplane `x . normal + offset = 0`.
     #[must_use]
     pub fn offset(&self) -> f64 {
         self.set.offsets[self.index as usize]
@@ -370,7 +502,21 @@ impl core::fmt::Debug for Plane<'_> {
     }
 }
 
-/// A simplex of the boundary complex.
+/// A simplex of the boundary of a [`ConvexHull`], with the facet it lies in.
+///
+/// # Examples
+///
+/// ```
+/// use convx::ConvexHullBuilder;
+///
+/// let square = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+/// let hull = ConvexHullBuilder::new(2, &square).build()?;
+/// let simplex = hull.triangulation().get(0).unwrap();
+/// // The bottom edge, in outward order: the last two vertices are swapped.
+/// assert_eq!(simplex.vertices(), [1, 0]);
+/// assert_eq!(simplex.facet(), 0);
+/// # Ok::<(), convx::Error>(())
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BoundarySimplex<'a> {
     vertices: &'a [u32],
@@ -378,24 +524,44 @@ pub struct BoundarySimplex<'a> {
 }
 
 impl<'a> BoundarySimplex<'a> {
-    /// D vertices in outward order: ascending, with the last two swapped when
-    /// that is what makes the order outward. For D = 1 the single endpoint.
+    /// Returns the D vertices in outward order: ascending, with the last two
+    /// swapped when that is what makes the order outward. For D = 1, the
+    /// single endpoint.
     #[must_use]
     pub fn vertices(&self) -> &'a [u32] {
         self.vertices
     }
 
-    /// Public number of the logical facet that contains this simplex.
+    /// Returns the number of the logical facet that contains this simplex.
     #[must_use]
     pub fn facet(&self) -> u32 {
         self.facet
     }
 }
 
-/// The boundary simplicial complex of a [`ConvexHull`].
+/// The boundary of a [`ConvexHull`] as simplices of D vertices.
 ///
-/// Simplices are in the lexicographic order of their ascending vertex lists
-/// before the swap, the order in which [`ConvexHull::volume`] adds terms.
+/// The simplices are in the lexicographic order of their vertex lists sorted
+/// ascending, the order in which [`ConvexHull::volume`] adds its terms. How a
+/// facet of more than D vertices is split may change between versions.
+///
+/// # Examples
+///
+/// ```
+/// use convx::ConvexHullBuilder;
+///
+/// // A square pyramid: its base is one facet of two triangles.
+/// let points = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.5, 0.5, 1.0];
+/// let hull = ConvexHullBuilder::new(3, &points).build()?;
+/// let triangles = hull.triangulation();
+/// assert_eq!(hull.facets().len(), 5);
+/// assert_eq!(triangles.len(), 6);
+/// assert!(!triangles.is_empty());
+/// assert!(triangles.get(6).is_none());
+/// let base = triangles.iter().filter(|simplex| !simplex.vertices().contains(&4)).count();
+/// assert_eq!(base, 2);
+/// # Ok::<(), convx::Error>(())
+/// ```
 #[derive(Clone, Copy)]
 pub struct TriangulationView<'a> {
     hull: &'a ConvexHull,
@@ -410,19 +576,19 @@ impl core::fmt::Debug for TriangulationView<'_> {
 }
 
 impl<'a> TriangulationView<'a> {
-    /// Number of boundary simplices.
+    /// Returns the number of simplices.
     #[must_use]
     pub fn len(&self) -> usize {
         self.hull.simplex_facets.len()
     }
 
-    /// Whether there are no boundary simplices. Never true for a built hull.
+    /// Returns whether there are no simplices. Never true for a built hull.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.hull.simplex_facets.is_empty()
     }
 
-    /// The simplex at `index`, or `None` past the end.
+    /// Returns the simplex at `index`, or `None` past the end.
     #[must_use]
     pub fn get(&self, index: usize) -> Option<BoundarySimplex<'a>> {
         self.order
@@ -430,7 +596,7 @@ impl<'a> TriangulationView<'a> {
             .map(|&stored| self.hull.stored_simplex(stored as usize))
     }
 
-    /// All simplices, in order.
+    /// Returns every simplex, in order.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = BoundarySimplex<'a>> + 'a {
         let hull = self.hull;
         self.order
@@ -440,13 +606,15 @@ impl<'a> TriangulationView<'a> {
 }
 
 impl ConvexHull {
-    /// Dimension D.
+    /// Returns the dimension D of the points.
     #[must_use]
     pub fn dim(&self) -> usize {
         self.dim
     }
 
-    /// For each input index, the smallest index of a point equal to it.
+    /// Returns, for each input index, the smallest index of a point equal
+    /// to it: the index itself unless the point is a duplicate. `-0.0` and
+    /// `+0.0` are equal.
     #[must_use]
     pub fn representative(&self) -> &[u32] {
         &self.representative
@@ -466,19 +634,21 @@ impl ConvexHull {
         }
     }
 
-    /// Extreme points, ascending.
+    /// Returns the vertices, ascending.
     #[must_use]
     pub fn vertices(&self) -> &[u32] {
         &self.vertices
     }
 
-    /// Boundary points that are not extreme, ascending.
+    /// Returns the points on the boundary that are not vertices, ascending.
+    /// A duplicate is not listed: its representative is.
     #[must_use]
     pub fn coplanar_points(&self) -> &[u32] {
         &self.coplanar_points
     }
 
-    /// Interior points, ascending.
+    /// Returns the interior points, ascending. A duplicate is not listed:
+    /// its representative is.
     #[must_use]
     pub fn interior_points(&self) -> &[u32] {
         &self.interior_points
@@ -504,10 +674,7 @@ impl ConvexHull {
         }
     }
 
-    /// The logical facets (design §5), in public order.
-    ///
-    /// For D = 1 and D >= 3 the first call numbers the facets and keeps
-    /// the numbering; for D = 2 they are stored in public order.
+    /// Returns the logical facets, by facet number.
     #[must_use]
     pub fn facets(&self) -> Facets<'_> {
         Facets {
@@ -548,10 +715,10 @@ impl ConvexHull {
         }
     }
 
-    /// The planes of the facets (design §5), by public facet number.
+    /// Returns the planes of the facets, by facet number.
     ///
-    /// The first call computes the plane of every facet and keeps them;
-    /// later calls, from any thread, return what was kept.
+    /// The first call computes the plane of every facet in `f64` and keeps
+    /// them; later calls, from any thread, return what was kept.
     ///
     /// # Errors
     ///
@@ -564,6 +731,18 @@ impl ConvexHull {
     /// next call computes the planes again.
     ///
     /// The hull itself is built either way.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use convx::ConvexHullBuilder;
+    ///
+    /// let square = [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+    /// let hull = ConvexHullBuilder::new(2, &square).build()?;
+    /// let bottom = hull.planes()?.get(0).unwrap();
+    /// assert_eq!(bottom.normal(), [0.0, -1.0]);
+    /// # Ok::<(), convx::Error>(())
+    /// ```
     pub fn planes(&self) -> Result<Planes<'_>, Error> {
         self.kept_planes(|| self.plane_set())
     }
@@ -622,14 +801,24 @@ impl ConvexHull {
         Ok(PlaneSet { normals, offsets })
     }
 
-    /// The volume of the polytope. Not used for topology. Finiteness is not
-    /// guaranteed.
+    /// Returns the volume of the hull, in `f64`. It is not used for any
+    /// decision, and it may not be finite.
     ///
     /// For D = 1 it is the length of the segment. For D >= 2 each boundary
     /// simplex, in outward order, contributes its signed `f64` volume with
     /// the extreme point of smallest index. Terms are added from the left in
     /// the order of [`ConvexHull::triangulation`], and the absolute value is
     /// returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use convx::ConvexHullBuilder;
+    ///
+    /// let triangle = [0.0, 0.0, 2.0, 0.0, 0.0, 2.0];
+    /// assert_eq!(ConvexHullBuilder::new(2, &triangle).build()?.volume(), 2.0);
+    /// # Ok::<(), convx::Error>(())
+    /// ```
     #[must_use]
     pub fn volume(&self) -> f64 {
         let d = self.dim;
@@ -663,11 +852,10 @@ impl ConvexHull {
         total.abs()
     }
 
-    /// The boundary simplicial complex. Each simplex has D vertices.
+    /// Returns the boundary as simplices of D vertices.
     ///
-    /// The simplices are put in their public order by the first call, and
-    /// that order is kept. The split of a coplanar region is not part of
-    /// the stability promise across versions.
+    /// The first call puts the simplices in order and keeps it. How a facet
+    /// of more than D vertices is split may change between versions.
     #[must_use]
     pub fn triangulation(&self) -> TriangulationView<'_> {
         TriangulationView {
@@ -731,13 +919,28 @@ impl ConvexHull {
         keyed.into_iter().map(|(_, i)| i).collect()
     }
 
-    /// The boundary cycle of facet number `facet`, derived from its vertices
-    /// and outward normal. Defined only when D is 1, 2, or 3.
+    /// Returns the vertices of facet number `facet` in their order around it,
+    /// for D = 1, 2, or 3.
     ///
     /// For D = 1 the single endpoint, for D = 2 the two endpoints, and for
     /// D = 3 the polygon starting at its smallest vertex, counterclockwise
     /// seen from outside. Returns `None` for D >= 4 and for a number that is
     /// not a facet.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use convx::ConvexHullBuilder;
+    ///
+    /// // A square pyramid; facet 0 is its base.
+    /// let points = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.5, 0.5, 1.0];
+    /// let hull = ConvexHullBuilder::new(3, &points).build()?;
+    /// assert_eq!(hull.facets().get(0).unwrap().vertices(), [0, 1, 2, 3]);
+    /// // Counterclockwise seen from below, outside the base.
+    /// assert_eq!(hull.boundary_cycle(0), Some(vec![0, 2, 3, 1]));
+    /// assert_eq!(hull.boundary_cycle(5), None);
+    /// # Ok::<(), convx::Error>(())
+    /// ```
     #[must_use]
     pub fn boundary_cycle(&self, facet: u32) -> Option<Vec<u32>> {
         if facet as usize >= self.facet_vertices.len() {

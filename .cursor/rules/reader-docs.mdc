@@ -1,0 +1,103 @@
+---
+description: The pages a stranger reads before the source - the README, its Japanese pair, the comparison, and the public rustdoc
+globs: "{README.md,README.ja.md,docs/comparison.md,docs/comparison.ja.md,src/**/*.rs,Cargo.toml}"
+alwaysApply: false
+---
+
+# Reader docs
+
+These are the pages a stranger reads before the source: `README.md` is the crates.io page and the crate-level rustdoc (`#![doc = include_str!("../README.md")]`), `README.ja.md` is its Japanese pair, `docs/comparison.md` and `docs/comparison.ja.md` are the comparison with other libraries, and the rustdoc of every public item is docs.rs.
+
+`missing_docs` passing and `cargo doc` without a warning are not this check. An agent reads the pages against the items below before `cargo package` and `cargo publish --dry-run`. The procedure is `.agents/skills/publish-review/SKILL.md`. In #661 the release was prepared with both passing, and the public rustdoc still pointed at `design §9` and at Issue numbers; the owner found it by reading.
+
+## README shape
+
+Order:
+
+1. What the crate computes, in one paragraph, and the three or four properties a caller relies on
+2. A `Cargo.toml` dependency block for the version being published
+3. What a caller otherwise gets wrong, before the first example: points are one row-major slice of `f64`, a facet is a logical facet, an index is `u32`, a 0.x minor version may break the public API
+4. One example a reader can paste after adding that dependency
+5. Usage: every public item, with an example
+6. What is promised, what is not, and the limits
+7. One link to the comparison doc
+8. How it works: links to the design, the verification, and the measurements
+9. License
+
+English and Japanese have the same sections and the same code blocks. The comparison's tables and figures live in the comparison doc, not in the README.
+
+The examples use `?`, not `unwrap`, where an error can be returned. They do not depend on a checkout of this repository. They run as doctests: the English README is the crate documentation, and the Japanese one is included under `#[cfg(doctest)]`.
+
+## Public API usage
+
+The public contract is every item an external crate can name (`.cursor/rules/publish.mdc`).
+
+Every item in that set appears in the Usage of `README.md` and of `README.ja.md` with a usage example. A usage example is a `rust` code block that constructs the item, calls it, or matches it. A sentence that only names the item is not an example. One block may cover several items when each appears in the block: the views of one result are one block. English and Japanese use the same blocks.
+
+Rustdoc on each item follows `.cursor/rules/rust-docs.mdc`: the item is documented and has a usage example.
+
+A public item with no README entry, no usage example in the README, or no rustdoc example fails the publish review.
+
+## Links that survive packaging
+
+`docs/` is not in the published package. The README has no relative link to a file outside the package and no image. Its links to the comparison, the design, the verification, and the measurements are absolute GitHub URLs. The license links target `LICENSE-MIT` and `LICENSE-APACHE`, which are in the package. Figures stay relative inside the comparison doc.
+
+## Stranger context
+
+A reader of these pages has the crate page and has not opened this repository's issue tracker. The README, the comparison docs, the crate-level rustdoc, and the rustdoc of a public item do not need:
+
+- an Issue number, a pull request number, a phase ID (`P7`), or a roadmap ID (`R1-8`)
+- a section of the design (`design §9`, `§5`), `roadmap.md`, `AGENTS.md`, `.cursor/rules`, an ADR number, or Grill
+- a developer `just` recipe, or a name internal to the crate (`Draft`, `Translates`, the stage names of the filter)
+
+When a public item's behavior is specified in the design, the rustdoc states the behavior. A link to the design is an absolute GitHub URL in the README's How it works, not a section number in an item.
+
+`docs/design.md`, `docs/design.ja.md`, `docs/roadmap.md`, `docs/bench.md`, `docs/verification.md`, and `docs/adr/` are the decision record. They keep their IDs. `//` comments and the rustdoc of private items keep them too (`.cursor/rules/rust-docs.mdc`).
+
+User commands, such as `cargo add convx`, stay.
+
+## Accuracy
+
+Each sentence is true. Check it against the code, `Cargo.toml`, and the tests. The same wording in `README.md`, `README.ja.md`, the rustdoc, and `description` is not a pass: a false sentence that all four repeat still fails.
+
+Check against that source:
+
+- What the crate is: the opening names what an external crate can build (hulls, Delaunay triangulations, Voronoi diagrams, in any dimension, and the array API).
+- Names, the error variants and the order of failures, the layout of the input, the dimensions each API covers, the MSRV, the dependencies, and the version.
+- A promise is checked by a test (`.cursor/rules/spec-checks.mdc`). A sentence that promises what no test checks fails.
+- A number in the comparison doc is in `docs/bench/summary.json`, or the sentence says where it came from.
+
+Describe a public item with the name the caller writes. A dependency the caller does not import (`faer`, `pulp`) is named only in the list of dependencies and where a result depends on it.
+
+`Cargo.toml` `description` is one sentence, the same claim as the README opening, and true.
+
+## Japanese
+
+Gemini inspects the Japanese prose of:
+
+- `README.ja.md`
+- `docs/comparison.ja.md`
+- `docs/design.ja.md`
+
+The procedure is `.agents/skills/natural-japanese/SKILL.md` in score mode (`references/diagnose.md`), run through the Antigravity CLI with a Gemini model (`agy -p <prompt> --model gemini-3.8-flash-high`). The Gemini CLI is retired and is not this check. Gemini does not rewrite the pages in that inspection.
+
+The agent that edited a page does not inspect, score, or rewrite that Japanese: its reading is not this check. A page that is a gloss of the English fails; whether it is one is Gemini's finding. `docs/design.ja.md` is the exception to that one finding: it is the canonical specification and `docs/design.md` carries the same specification in full, so the two correspond paragraph by paragraph and sentence by sentence by design (`.cursor/rules/workflow.mdc`). Its inspection is judged by the score, the vocabulary, and the sentences reported as unnatural, not by that correspondence (the owner, 2026-10-17, after the rewrite of #662 read 95).
+
+### Vocabulary
+
+A Japanese word whose everyday meaning is a different object is not a technical term. These bare words fail the inspection; the wording after the arrow stays.
+
+- `match` の 腕 → 分岐
+- データの範囲を指す 箱 → 範囲。破棄に使う軸に平行な領域は 軸平行の長方形
+- 計算量を指す 費用 → 計算量
+- 行列の 塊 → ブロック
+- 探索の 歩く → 進む、たどる
+- 触る → 変える、読む
+- 種つき → シードつき
+- 下界 → 下限。誤差の上界は 上界のまま
+- ソフトウェアの 版 → バージョン。マイナー版 → マイナーバージョン
+- 計測に使った 機械 → 計測環境、マシン
+- 結果を返す意味の 公開する → 返す。crates.io への公開は 公開のまま
+- 隣接を指す 向こうの → 隣接する、挟んで隣り合う
+
+凸包、ファセット、単体、リッジ、同一球面上、行列式、述語、持ち上げ stay. They are ordinary in this field. A word Gemini reports is added here in the change that fixes it.
