@@ -442,6 +442,22 @@ impl Sites {
 /// point strictly inside its circumsphere: the standard simplex and its
 /// centroid, in dimension `d`.
 fn inside_sign(d: usize) -> Result<Sign, Error> {
+    // It depends on `d` alone: computed once a dimension in a process, for
+    // dimensions below the cache's size (#667).
+    static CACHE: [std::sync::OnceLock<Sign>; 17] = [const { std::sync::OnceLock::new() }; 17];
+    if let Some(sign) = CACHE.get(d).and_then(std::sync::OnceLock::get) {
+        return Ok(*sign);
+    }
+    let sign = inside_sign_of(d)?;
+    if let Some(cell) = CACHE.get(d) {
+        let _ = cell.set(sign);
+    }
+    Ok(sign)
+}
+
+/// [`inside_sign`], computed: the lifted orientation of the standard simplex
+/// with its centroid.
+fn inside_sign_of(d: usize) -> Result<Sign, Error> {
     let mut rows: Vec<Vec<f64>> = (0..=d)
         .map(|i| (0..d).map(|j| if i == j + 1 { 1.0 } else { 0.0 }).collect())
         .collect();
@@ -475,8 +491,14 @@ impl<'a, S: Shape> Mesh<'a, S> {
 
     /// What the insertion knows of simplex `c` and its neighbor across the
     /// face opposite vertex `slot`.
+    /// What the insertion knows of the face of `c` opposite `slot`. The
+    /// insertion by flips keeps no record per face, and every face is
+    /// [`Across::Unknown`] to it.
     pub(super) fn across(&self, c: u32, slot: usize) -> Across {
-        self.across[c as usize * self.shape.k() + slot]
+        self.across
+            .get(c as usize * self.shape.k() + slot)
+            .copied()
+            .unwrap_or(Across::Unknown)
     }
 
     /// The slot of simplex `c` whose neighbor is `n`.
@@ -595,14 +617,18 @@ impl<'a, S: Shape> Mesh<'a, S> {
             let at = c as usize * k;
             self.vertices[at..at + k].copy_from_slice(vertices);
             self.neighbors[at..at + k].fill(NONE);
-            self.across[at..at + k].fill(Across::Unknown);
+            if !S::FLIPS {
+                self.across[at..at + k].fill(Across::Unknown);
+            }
             self.alive[c as usize] = true;
             self.mark[c as usize] = 0;
             c
         } else {
             self.vertices.extend_from_slice(vertices);
             self.neighbors.extend(core::iter::repeat_n(NONE, k));
-            self.across.extend(core::iter::repeat_n(Across::Unknown, k));
+            if !S::FLIPS {
+                self.across.extend(core::iter::repeat_n(Across::Unknown, k));
+            }
             self.alive.push(true);
             self.mark.push(0);
             (self.alive.len() - 1) as u32
@@ -674,7 +700,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
             sites,
             vertices: Vec::with_capacity(order.len() * k * (2 * d)),
             neighbors: Vec::with_capacity(order.len() * k * (2 * d)),
-            across: Vec::with_capacity(order.len() * k * (2 * d)),
+            across: Vec::with_capacity(if S::FLIPS { 0 } else { order.len() * k * (2 * d) }),
             cospherical: false,
             candidates: Vec::new(),
             // The lists that grow with the simplices are sized with them, and
@@ -686,10 +712,11 @@ impl<'a, S: Shape> Mesh<'a, S> {
             epoch: 0,
             inside: inside_sign(d)?,
             last: 0,
+            // The insertion by flips uses the stack alone.
             stack: Vec::with_capacity(8 * k),
-            cavity: Vec::with_capacity(8 * k),
-            boundary: Vec::with_capacity(8 * k),
-            created: Vec::with_capacity(8 * k),
+            cavity: Vec::with_capacity(if S::FLIPS { 0 } else { 8 * k }),
+            boundary: Vec::with_capacity(if S::FLIPS { 0 } else { 8 * k }),
+            created: Vec::with_capacity(if S::FLIPS { 0 } else { 8 * k }),
             faces: Vec::new(),
             used: Vec::new(),
         };
