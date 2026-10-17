@@ -456,7 +456,7 @@ impl Sites {
     /// The `D` coordinates of site `index` as an array, for the shapes of a
     /// fixed dimension; `D` is the sites' dimension.
     #[inline(always)]
-    pub(super) fn fixed<const D: usize>(&self, index: u32) -> [f64; D] {
+    fn fixed<const D: usize>(&self, index: u32) -> [f64; D] {
         debug_assert_eq!(D, self.dim, "the shape is that of the sites' dimension");
         let start = index as usize * (D + 2);
         let row = &self.rows[start..start + D];
@@ -474,7 +474,7 @@ impl Sites {
     }
 
     /// Orientation of the sites `ids` (D + 1 of them), starting at `start`.
-    pub(super) fn orient(&self, ids: &[u32], start: Start) -> Result<Sign, Error> {
+    fn orient(&self, ids: &[u32], start: Start) -> Result<Sign, Error> {
         let n = ids.len();
         if n <= INLINE {
             let mut points: [&[f64]; INLINE] = [&[]; INLINE];
