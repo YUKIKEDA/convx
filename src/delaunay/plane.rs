@@ -136,17 +136,20 @@ impl<'a> PlaneMesh<'a> {
     }
 
     /// Whether finite triangle `t` has `q` strictly inside its circumcircle.
+    #[inline(always)]
     fn in_circle(&self, t: u32, q: u32) -> Result<bool, Error> {
         Ok(Plane.sphere_sign(self.sites, &self.triangles[t as usize].vertices, q)? == self.inside)
     }
 
     /// The orientation of triangle `t` with vertex `slot` replaced by `q`.
+    #[inline(always)]
     fn replaced(&self, t: u32, slot: usize, q: u32) -> Result<Sign, Error> {
         Plane.replaced(self.sites, &self.triangles[t as usize].vertices, slot, q)
     }
 
     /// Whether triangle `t` conflicts with `q`, and for a finite `t`, whether
     /// `t` and `q` are cocircular ([`super::insert::Mesh`]'s conflict).
+    #[inline(always)]
     fn conflict(&self, t: u32, q: u32) -> Result<(bool, Across), Error> {
         let v = self.triangles[t as usize].vertices;
         match v.iter().position(|&x| x == INFINITE) {
