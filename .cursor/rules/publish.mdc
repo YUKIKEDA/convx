@@ -5,7 +5,9 @@ alwaysApply: true
 
 # Publish
 
-Ready means the owner runs `cargo publish` and no other step is left. An agent does not run that command. An agent may run `cargo publish --dry-run` and `cargo package`.
+Ready means the owner runs the `Release` workflow (`.github/workflows/release.yml`) and no other step is left. An agent runs neither that workflow nor `cargo publish`. An agent may run `cargo publish --dry-run` and `cargo package`.
+
+0.1.0 was published by hand (#664): crates.io registers a Trusted Publisher only for a crate that exists, so its first version needed the owner's token. Every later version goes through the workflow.
 
 `just lint` and `just test` run on every change, publish or not.
 
@@ -13,20 +15,26 @@ Ready means the owner runs `cargo publish` and no other step is left. An agent d
 
 The publish review comes first, in its own Issue, and its fixes are merged before the release's pull request. One pull request then says the release is prepared: what is done, and what is not, and the commit the review was run on. The owner merges it. That merge on `main` is the commit that is published.
 
-No version tag and no GitHub Release exists before that merge. After it, the checks below run on that commit; a run on an earlier commit, even one with the same tree, is not this check. When they pass, the owner creates the annotated tag `v{version}` on it, then the GitHub Release on that tag, then runs `cargo publish`. An agent pushes no tag.
+The owner then runs the `Release` workflow from the Actions tab on `main`, with the version. It runs on the `main` commit of that moment and stops at the first failure:
 
-## Before `cargo publish`
+1. `verify`: `.github/scripts/release-check.sh` (the `Cargo.toml` version is the input, `CHANGELOG.md` has exactly one undated `## [{version}]`, there is no tag `v{version}`, `cargo package --list` matches the whitelist below), then `cargo publish --dry-run --locked`.
+2. `test` on 1.89 and stable (the steps of `just lint`, `cargo test --locked`, `cargo doc --no-deps` with warnings denied) and `alloc` (`cargo test --release --test alloc`).
+3. `publish`: dates the changelog heading with the day it runs on a release commit (branch `release/v{version}`, a child of that `main` commit), creates the annotated tag `v{version}` on it and pushes both, runs `cargo publish` through crates.io Trusted Publishing, creates the GitHub Release on the tag with the changelog section as its notes, and opens a pull request that brings the dated heading to `main`. The owner merges that pull request.
 
-All of these hold for the merge commit:
+No tag and no GitHub Release is made by hand. If `cargo publish` fails after the tag is pushed, the tag and the release branch are deleted, the cause is fixed, and the workflow runs again. An agent pushes no tag.
+
+## Before the `Release` workflow
+
+All of these hold for the `main` commit it will run on:
 
 - `Cargo.toml` `version` is the version to publish, and `publish = false` is absent.
-- `CHANGELOG.md` has the entry of that version.
+- `CHANGELOG.md` has the section of that version under an undated `## [{version}]`: what breaks the previous version, each with how to move, then what is added and changed.
 - The publish review (`.agents/skills/publish-review/SKILL.md`) has been run on the release's pages, with the Japanese pages inspected by Gemini, and no failure remains against `.cursor/rules/reader-docs.mdc` and `.cursor/rules/rust-docs.mdc`. Its commit is recorded in the review's Issue. A failure blocks `cargo package` and the dry-run. `missing_docs` and a clean `cargo doc` are not this review: #661 had both, and its public rustdoc still pointed at design sections and Issue numbers.
 - `cargo doc --no-deps` has no warning and no broken link.
 - `cargo package --list` is the whitelist below.
 - `just lint` and `just test` pass on that commit, and the suite passes on Linux.
-- `cargo publish --dry-run` exits 0 on a clean tree of that commit.
-- `cargo login` succeeds on the owner's machine.
+- `cargo publish --dry-run` exits 0 on a clean tree of that commit (the workflow runs it again).
+- crates.io has this repository's `release.yml`, environment `release`, as a Trusted Publisher of `convx`.
 
 ## No benchmark before the code it measures is final
 

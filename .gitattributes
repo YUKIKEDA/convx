@@ -1,2 +1,3 @@
 benches/parity/* text eol=lf
 benches/compare/** text eol=lf
+.github/scripts/*.sh text eol=lf
