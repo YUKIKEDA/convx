@@ -301,6 +301,11 @@ pub(super) struct Mesh<'a, S: Shape> {
     /// the pass after the insertion tests again where they still meet
     /// (#667).
     candidates: Vec<(u32, u32)>,
+    /// Whether the insertion of D = 3 left a face between two finite
+    /// simplices [`Across::Unknown`]: four coplanar sites besides the newest.
+    /// When it left none and recorded no face cospherical, no face joins
+    /// anything after the insertion (#667).
+    undecided: bool,
     alive: Vec<bool>,
     mark: Vec<u32>,
     free: Vec<u32>,
@@ -524,6 +529,12 @@ impl<'a, S: Shape> Mesh<'a, S> {
         self.cospherical
     }
 
+    /// Whether a face between two finite simplices was left undecided
+    /// ([`Self::undecided`]).
+    pub(super) fn left_undecided(&self) -> bool {
+        self.undecided
+    }
+
     /// The pairs of triangles whose shared face the insertion by flips found
     /// cospherical, in the order found; a pair may no longer meet, or no
     /// longer exist.
@@ -712,6 +723,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
             }),
             cospherical: false,
             candidates: Vec::new(),
+            undecided: false,
             // The lists that grow with the simplices are sized with them, and
             // the work space of one insertion for a few dozen simplices, so
             // a small input reallocates none of them (#667).
@@ -1077,7 +1089,9 @@ impl<'a, S: Shape> Mesh<'a, S> {
                             }
                             debug_assert_eq!(at, 3, "the new site is a vertex of the face");
                             sites[3] = far;
-                            self.orient_ids(&sites)? != Sign::Zero
+                            let independent = self.orient_ids(&sites)? != Sign::Zero;
+                            self.undecided |= !independent;
+                            independent
                         } else {
                             false
                         };

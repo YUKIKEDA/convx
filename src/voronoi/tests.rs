@@ -560,3 +560,67 @@ fn groups_keep_the_facets_and_edges_of_the_rule_read_with_every_site() {
     assert!(joined >= 8, "groups with a facet of several tiles");
     assert_eq!(largest, 168);
 }
+
+/// Five sites on one sphere, the corners of a square and an apex, are one
+/// vertex whatever the order the sites are inserted in (#667). Inserted
+/// last, the apex makes two tetrahedra whose sites besides it are the four
+/// coplanar corners: the face between them is joined by the lifted test
+/// alone, with no cospherical face recorded, so the insertion of D = 3 must
+/// leave it undecided. The apex is put at every index among the corners and
+/// sites outside the sphere, in several sets of those.
+#[test]
+fn a_cospherical_pyramid_is_one_vertex_whatever_its_insertion() {
+    let mut state = 667_u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    // The square (±3, ±3, 0) and the apex (0, 0, 6) lie on the sphere about
+    // (0, 0, 3/2) of squared radius 81/4.
+    let square = [
+        [3.0, 3.0, 0.0],
+        [-3.0, 3.0, 0.0],
+        [-3.0, -3.0, 0.0],
+        [3.0, -3.0, 0.0],
+    ];
+    let apex = [0.0, 0.0, 6.0];
+    for set in 0..12 {
+        let outside: Vec<[f64; 3]> = (0..4 + set)
+            .map(|_| {
+                let mut p = [0.0; 3];
+                for x in &mut p {
+                    *x = (next() % 41) as f64 - 20.0;
+                }
+                p
+            })
+            .filter(|p| {
+                let (x, y, z) = (p[0], p[1], p[2] - 1.5);
+                x * x + y * y + z * z > 20.25 + 1.0
+            })
+            .collect();
+        let others: Vec<[f64; 3]> = square.iter().chain(&outside).copied().collect();
+        for at in 0..=others.len() {
+            let mut sites: Vec<[f64; 3]> = others.clone();
+            sites.insert(at, apex);
+            let flat: Vec<f64> = sites.iter().flatten().copied().collect();
+            let voronoi = diagram(3, &flat);
+            let sphere: Vec<u32> = (0..sites.len() as u32)
+                .filter(|&i| {
+                    let p = sites[i as usize];
+                    let (x, y, z) = (p[0], p[1], p[2] - 1.5);
+                    x * x + y * y + z * z == 20.25
+                })
+                .collect();
+            assert_eq!(sphere.len(), 5, "set {set}, apex at {at}");
+            assert!(
+                voronoi
+                    .vertices()
+                    .iter()
+                    .any(|v| v.sites() == sphere.as_slice()),
+                "set {set}, apex at {at}: the five sites are one vertex"
+            );
+        }
+    }
+}

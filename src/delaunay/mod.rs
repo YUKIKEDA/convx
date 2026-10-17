@@ -761,8 +761,16 @@ fn inserted<S: insert::Shape>(
     // the insertion recorded none, the faces are not walked (#667). The
     // insertion by flips keeps no record per face, only its candidates,
     // which are tested below.
-    let walk_faces =
-        every_unknown_face_lifted() || !S::FLIPS && (k != 3 || mesh.recorded_cospherical());
+    // For D = 3 the insertion decided every face between two finite new
+    // tetrahedra it could; when it left none undecided and recorded none
+    // cospherical, no face joins anything either.
+    let walk_faces = every_unknown_face_lifted()
+        || !S::FLIPS
+            && match k {
+                3 => mesh.recorded_cospherical(),
+                4 => mesh.recorded_cospherical() || mesh.left_undecided(),
+                _ => true,
+            };
     if walk_faces {
         parent = (0..slots as u32).collect();
     }
