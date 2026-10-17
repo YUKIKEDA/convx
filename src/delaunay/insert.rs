@@ -287,6 +287,10 @@ pub(super) struct Mesh<'a, S: Shape> {
     /// Per face, as `neighbors`: what the insertion knows of the two
     /// simplices across it.
     across: Vec<Across>,
+    /// Whether any face was ever recorded [`Across::Cospherical`]. When none
+    /// was, no two finite simplices of D = 2 are joined after the insertion
+    /// (#667).
+    cospherical: bool,
     alive: Vec<bool>,
     mark: Vec<u32>,
     free: Vec<u32>,
@@ -483,6 +487,11 @@ impl<'a, S: Shape> Mesh<'a, S> {
         slot.unwrap_or(0)
     }
 
+    /// Whether the insertion ever recorded a face cospherical.
+    pub(super) fn recorded_cospherical(&self) -> bool {
+        self.cospherical
+    }
+
     pub(super) fn is_finite(&self, c: u32) -> bool {
         !self.vertices_of(c).contains(&INFINITE)
     }
@@ -644,6 +653,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
             vertices: Vec::with_capacity(order.len() * k * (2 * d)),
             neighbors: Vec::with_capacity(order.len() * k * (2 * d)),
             across: Vec::with_capacity(order.len() * k * (2 * d)),
+            cospherical: false,
             alive: Vec::new(),
             mark: Vec::new(),
             free: Vec::new(),
@@ -735,6 +745,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
     /// Records `across` on the face of triangle `c` opposite `slot`, shared
     /// with `n`, on both sides.
     fn record(&mut self, c: u32, slot: usize, n: u32, across: Across) {
+        self.cospherical |= across == Across::Cospherical;
         self.across[c as usize * 3 + slot] = across;
         if let Some(back) = self.back(n, c) {
             self.across[n as usize * 3 + back] = across;
@@ -1089,6 +1100,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
             let at = new as usize * k + slot;
             self.neighbors[at] = outside;
             self.across[at] = across;
+            self.cospherical |= across == Across::Cospherical;
             let back = self.back(outside, c);
             debug_assert!(back.is_some(), "neighbors are symmetric");
             if let Some(back) = back {

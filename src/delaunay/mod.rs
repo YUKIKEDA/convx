@@ -756,9 +756,15 @@ fn inserted<S: insert::Shape>(
     // infinity keeps `NO_NEIGHBOR`, so a link is one read of `draft_of`.
     let mut draft_of = vec![NO_NEIGHBOR; slots];
     let mut singles = 0_u32;
+    // For D = 2 only a recorded cospherical face joins two simplices; when
+    // the insertion recorded none, the faces are not walked (#667).
+    let walk_faces = k != 3 || every_unknown_face_lifted() || mesh.recorded_cospherical();
     for c in mesh.finite_cells() {
         draft_of[c as usize] = singles;
         singles += 1;
+        if !walk_faces {
+            continue;
+        }
         for slot in 0..k {
             let n = mesh.neighbor(c, slot);
             if n < c {
