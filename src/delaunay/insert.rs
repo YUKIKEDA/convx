@@ -1211,6 +1211,9 @@ const CROWDED: usize = 16;
 /// last cell.
 pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
     let d = rows.dim();
+    if d == 2 {
+        return brio_plane(rows, sites);
+    }
     let bits = (63 / d.max(1)).min(21) as u32;
     let round = |s: u32| -> u32 {
         // SplitMix64 of the index; about half the sites get 0 (the last
@@ -1252,6 +1255,70 @@ pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
         }
     }
     keys.into_iter().map(|key| key as u32).collect()
+}
+
+/// The cells of a coordinate of [`brio_plane`]: 13 bits, so that the round
+/// (6 bits), the code (26), and the site (32) make one `u64` (#667).
+const PLANE_BITS: u32 = 13;
+
+/// [`brio`] for D = 2, its keys `u64`: `(Reverse(round), code, site)` with
+/// a grid of [`PLANE_BITS`] bits a coordinate. A crowded cell of that
+/// coarser grid is ordered again on its own box, as in [`brio`].
+fn brio_plane(rows: &Sites, sites: &[u32]) -> Vec<u32> {
+    let round = |s: u32| -> u64 {
+        let mut z = u64::from(s).wrapping_add(0x9e37_79b9_7f4a_7c15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^= z >> 31;
+        u64::from(z.trailing_zeros().min(32))
+    };
+    let mut keys: Vec<u64> = sites
+        .iter()
+        .map(|&s| (32 - round(s)) << 58 | u64::from(s))
+        .collect();
+    let mut crowded: Vec<(usize, usize)> = Vec::new();
+    let mut whole = Some((0, keys.len()));
+    while let Some((from, to)) = whole.take().or_else(|| crowded.pop()) {
+        let range = &mut keys[from..to];
+        in_plane_order(rows, range);
+        let cell = |key: u64| key >> 32;
+        let mut start = 0;
+        for end in 1..=range.len() {
+            if end < range.len() && cell(range[end]) == cell(range[start]) {
+                continue;
+            }
+            if end - start > CROWDED && end - start < range.len() {
+                crowded.push((from + start, from + end));
+            }
+            start = end;
+        }
+    }
+    keys.into_iter().map(|key| key as u32).collect()
+}
+
+/// [`in_morton_order`] for D = 2 and the keys of [`brio_plane`].
+fn in_plane_order(rows: &Sites, keys: &mut [u64]) {
+    let (mut low, mut high) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+    for &key in keys.iter() {
+        for (j, &x) in rows.point(key as u32).iter().enumerate() {
+            low[j] = low[j].min(x);
+            high[j] = high[j].max(x);
+        }
+    }
+    let scale = ((1_u64 << PLANE_BITS) - 1) as f64;
+    let mask = (1_u64 << PLANE_BITS) - 1;
+    let cell = |p: &[f64], j: usize| -> u64 {
+        let width = high[j] - low[j];
+        let t = if width > 0.0 { (p[j] - low[j]) / width } else { 0.0 };
+        (t * scale) as u64 & mask
+    };
+    const CODE: u64 = ((1 << 26) - 1) << 32;
+    for key in keys.iter_mut() {
+        let p = rows.point(*key as u32);
+        let code = spread2(cell(p, 0)) << 1 | spread2(cell(p, 1));
+        *key = *key & !CODE | code << 32;
+    }
+    keys.sort_unstable();
 }
 
 /// Writes into each key of `keys` the Morton code of its site on a grid of
