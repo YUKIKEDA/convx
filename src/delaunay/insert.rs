@@ -281,6 +281,66 @@ fixed_shape!(
     false
 );
 
+/// What the pass after the insertion reads of a triangulation: the
+/// mesh of every dimension and the half-edges of D = 2 (#667).
+pub(super) trait Built {
+    /// Whether the insertion was by flips, keeping candidates for
+    /// cospherical faces instead of a record per face.
+    const FLIPS: bool;
+    fn slots(&self) -> usize;
+    fn finite_cells(&self) -> impl Iterator<Item = u32> + '_;
+    fn neighbor(&self, c: u32, slot: usize) -> u32;
+    fn across(&self, c: u32, slot: usize) -> Across;
+    fn is_finite(&self, c: u32) -> bool;
+    fn vertices_of(&self, c: u32) -> &[u32];
+    fn lifted_ids(&self, ids: &[u32]) -> Result<Sign, Error>;
+    fn orient_ids(&self, ids: &[u32]) -> Result<Sign, Error>;
+    fn candidates(&self) -> &[(u32, u32)];
+    fn meet(&self, c: u32, n: u32) -> bool;
+    fn recorded_cospherical(&self) -> bool;
+    fn left_undecided(&self) -> bool;
+}
+
+impl<S: Shape> Built for Mesh<'_, S> {
+    const FLIPS: bool = S::FLIPS;
+    fn slots(&self) -> usize {
+        Mesh::slots(self)
+    }
+    fn finite_cells(&self) -> impl Iterator<Item = u32> + '_ {
+        Mesh::finite_cells(self)
+    }
+    fn neighbor(&self, c: u32, slot: usize) -> u32 {
+        Mesh::neighbor(self, c, slot)
+    }
+    fn across(&self, c: u32, slot: usize) -> Across {
+        Mesh::across(self, c, slot)
+    }
+    fn is_finite(&self, c: u32) -> bool {
+        Mesh::is_finite(self, c)
+    }
+    fn vertices_of(&self, c: u32) -> &[u32] {
+        Mesh::vertices_of(self, c)
+    }
+    fn lifted_ids(&self, ids: &[u32]) -> Result<Sign, Error> {
+        Mesh::lifted_ids(self, ids)
+    }
+    fn orient_ids(&self, ids: &[u32]) -> Result<Sign, Error> {
+        Mesh::orient_ids(self, ids)
+    }
+    fn candidates(&self) -> &[(u32, u32)] {
+        Mesh::candidates(self)
+    }
+    fn meet(&self, c: u32, n: u32) -> bool {
+        Mesh::meet(self, c, n)
+    }
+    fn recorded_cospherical(&self) -> bool {
+        Mesh::recorded_cospherical(self)
+    }
+    fn left_undecided(&self) -> bool {
+        Mesh::left_undecided(self)
+    }
+}
+
 /// The triangulation being built: `k = D + 1` vertices and neighbors per
 /// simplex, in flat arrays with stride `k`. `neighbors[c * k + i]` is the
 /// simplex across the face opposite vertex `i` of simplex `c`.
@@ -451,7 +511,7 @@ impl Sites {
 /// The sign of the lifted orientation of a positive simplex followed by a
 /// point strictly inside its circumsphere: the standard simplex and its
 /// centroid, in dimension `d`.
-fn inside_sign(d: usize) -> Result<Sign, Error> {
+pub(super) fn inside_sign(d: usize) -> Result<Sign, Error> {
     // It depends on `d` alone: computed once a dimension in a process, for
     // dimensions below the cache's size (#667).
     static CACHE: [std::sync::OnceLock<Sign>; 17] = [const { std::sync::OnceLock::new() }; 17];

@@ -27,6 +27,7 @@
 //! that the hull core finds for the original sites.
 
 mod insert;
+mod plane;
 
 use crate::hull::classify::Placing;
 use crate::hull::input::{accept_sites, minimum_basis_with, Input};
@@ -594,6 +595,19 @@ fn stored_in_input_order() -> bool {
 /// unknown by the lifted orientation, without the orientation that decides
 /// most of them first: a test's override on this thread, to show that the
 /// orientation changes nothing published (#451). Always false otherwise.
+/// Whether a test asked for the mesh of every dimension in D = 2 instead
+/// of half-edges (#667).
+fn half_edges_off() -> bool {
+    #[cfg(test)]
+    {
+        tests::HALF_EDGES_OFF.with(core::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
+
 fn every_unknown_face_lifted() -> bool {
     #[cfg(test)]
     {
@@ -710,7 +724,26 @@ fn inserted<S: insert::Shape>(
             local_order,
         )
     };
+    // D = 2 by flips on half-edges, unless a test asks for the mesh of
+    // every dimension (#667).
+    if S::FLIPS && !half_edges_off() {
+        let mesh = plane::PlaneMesh::build(&local, &local_first, &local_order)?;
+        return after(mesh, input, &local, &inserted_order);
+    }
     let mesh = insert::Mesh::build(shape, &local, &local_first, &local_order)?;
+    after(mesh, input, &local, &inserted_order)
+}
+
+/// The pass after the insertion: the cospherical groups merged and the
+/// cells drafted, on the triangulation of either insertion.
+fn after<B: insert::Built>(
+    mesh: B,
+    input: &Input<'_>,
+    local: &insert::Sites,
+    inserted_order: &[u32],
+) -> Result<Complex, Error> {
+    let d = input.dim();
+    let k = d + 1;
     let site = |v: u32| local.input_index(v);
     // The place of each local site in the insertion order: its own index,
     // unless a test stores the sites in the input's order.
@@ -765,7 +798,7 @@ fn inserted<S: insert::Shape>(
     // tetrahedra it could; when it left none undecided and recorded none
     // cospherical, no face joins anything either.
     let walk_faces = every_unknown_face_lifted()
-        || !S::FLIPS
+        || !B::FLIPS
             && match k {
                 3 => mesh.recorded_cospherical(),
                 4 => mesh.recorded_cospherical() || mesh.left_undecided(),
@@ -857,7 +890,7 @@ fn inserted<S: insert::Shape>(
     // meet and are cospherical across their face join (#667). Every face the
     // per-face records joined was such a pair, unchanged since its test,
     // and a pair that is cospherical now joins two triangles of one group.
-    if S::FLIPS && !every_unknown_face_lifted() {
+    if B::FLIPS && !every_unknown_face_lifted() {
         for &(c, n) in mesh.candidates() {
             if !mesh.meet(c, n) || !mesh.is_finite(c) || !mesh.is_finite(n) {
                 continue;
