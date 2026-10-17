@@ -291,6 +291,7 @@ The owner opened this phase on 2026-10-12 (Grill on #592). The comparison it pub
 | R1-30 | Feat  | Input: the duplicates found bucket by bucket of the hash                                             | #647  | Done                               |
 | R1-31 | Task  | The parity run after the rows of R1                                                                  | #652  | Done                               |
 | R1-32 | Task  | Publish review: the reader docs and the public rustdoc read as a stranger reads them                 | #662  | Done                               |
+| R1-33 | Task  | Publish through a manual Release workflow, from the version after 0.1.0                              | #664  | In progress                        |
 
 ## Intentionally out of scope
 
