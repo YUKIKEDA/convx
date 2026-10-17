@@ -174,16 +174,8 @@ impl<'a> PlaneMesh<'a> {
     }
 
     /// The triangle where `q` is located, by the visibility walk of
-    /// [`super::insert::Mesh`] from the last triangle made, and for a
-    /// finite triangle, the slot whose edge holds `q`, if one does. The walk
-    /// tested every edge of that triangle but the one it came in by, so its
-    /// signs say whether `q` is on an edge. That one edge `q` is strictly
-    /// beyond: from a finite triangle by the walk's test, and from a
-    /// triangle at infinity because `q` on the line of that hull edge and
-    /// in the closed triangle is inside the edge, and then inside the
-    /// circumcircle of the triangle, which makes the triangle at infinity
-    /// conflict.
-    fn locate(&self, q: u32) -> Result<(u32, Option<usize>), Error> {
+    /// [`super::insert::Mesh`] from the last triangle made.
+    fn locate(&self, q: u32) -> Result<u32, Error> {
         let mut state =
             u64::from(self.sites.input_index(q)).wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
         let mut c = self.last;
@@ -192,7 +184,7 @@ impl<'a> PlaneMesh<'a> {
             let v = self.triangles[c as usize].vertices;
             if let Some(slot) = v.iter().position(|&x| x == INFINITE) {
                 if self.conflict(c, q)?.0 {
-                    return Ok((c, None));
+                    return Ok(c);
                 }
                 came_from = c;
                 c = self.across_of(3 * c + slot as u32) / 3;
@@ -203,20 +195,15 @@ impl<'a> PlaneMesh<'a> {
             state ^= state << 17;
             let offset = (state % 3) as usize;
             let mut next = None;
-            let mut on_edge = None;
             for t in 0..3 {
                 let slot = (t + offset) % 3;
                 let n = self.across_of(3 * c + slot as u32) / 3;
                 if n == came_from {
                     continue;
                 }
-                match self.replaced(c, slot, q)? {
-                    Sign::Negative => {
-                        next = Some(n);
-                        break;
-                    }
-                    Sign::Zero => on_edge = Some(slot),
-                    Sign::Positive => {}
+                if self.replaced(c, slot, q)? == Sign::Negative {
+                    next = Some(n);
+                    break;
                 }
             }
             match next {
@@ -224,15 +211,7 @@ impl<'a> PlaneMesh<'a> {
                     came_from = c;
                     c = n;
                 }
-                None => {
-                    debug_assert!(
-                        (0..3).all(|slot| {
-                            self.replaced(c, slot, q) != Ok(Sign::Zero) || on_edge == Some(slot)
-                        }),
-                        "the edge the walk came in by does not hold q"
-                    );
-                    return Ok((c, on_edge));
-                }
+                None => return Ok(c),
             }
         }
     }
@@ -241,11 +220,19 @@ impl<'a> PlaneMesh<'a> {
     /// with the triangle across in four when `q` is on an edge, and every
     /// edge opposite `q` whose far triangle conflicts flipped.
     fn insert(&mut self, q: u32) -> Result<(), Error> {
-        let (t, on_edge) = self.locate(q)?;
+        let t = self.locate(q)?;
         let v = self.triangles[t as usize].vertices;
         let on_edge = match v.iter().position(|&x| x == INFINITE) {
             Some(slot) => (self.replaced(t, slot, q)? == Sign::Zero).then_some(slot),
-            None => on_edge,
+            None => {
+                let mut edge = None;
+                for slot in 0..3 {
+                    if self.replaced(t, slot, q)? == Sign::Zero {
+                        edge = Some(slot);
+                    }
+                }
+                edge
+            }
         };
         let mut stack = core::mem::take(&mut self.stack);
         stack.clear();
