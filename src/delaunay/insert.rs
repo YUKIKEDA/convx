@@ -654,16 +654,19 @@ impl<'a, S: Shape> Mesh<'a, S> {
             neighbors: Vec::with_capacity(order.len() * k * (2 * d)),
             across: Vec::with_capacity(order.len() * k * (2 * d)),
             cospherical: false,
-            alive: Vec::new(),
-            mark: Vec::new(),
-            free: Vec::new(),
+            // The lists that grow with the simplices are sized with them, and
+            // the work space of one insertion for a few dozen simplices, so
+            // a small input reallocates none of them (#667).
+            alive: Vec::with_capacity(order.len() * (2 * d)),
+            mark: Vec::with_capacity(order.len() * (2 * d)),
+            free: Vec::with_capacity(4 * k),
             epoch: 0,
             inside: inside_sign(d)?,
             last: 0,
-            stack: Vec::new(),
-            cavity: Vec::new(),
-            boundary: Vec::new(),
-            created: Vec::new(),
+            stack: Vec::with_capacity(8 * k),
+            cavity: Vec::with_capacity(8 * k),
+            boundary: Vec::with_capacity(8 * k),
+            created: Vec::with_capacity(8 * k),
             faces: Vec::new(),
             used: Vec::new(),
         };
