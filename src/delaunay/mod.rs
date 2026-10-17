@@ -757,8 +757,11 @@ fn inserted<S: insert::Shape>(
     let mut draft_of = vec![NO_NEIGHBOR; slots];
     let mut singles = 0_u32;
     // For D = 2 only a recorded cospherical face joins two simplices; when
-    // the insertion recorded none, the faces are not walked (#667).
-    let walk_faces = k != 3 || every_unknown_face_lifted() || mesh.recorded_cospherical();
+    // the insertion recorded none, the faces are not walked (#667). The
+    // insertion by flips keeps no record per face, only its candidates,
+    // which are tested below.
+    let walk_faces = every_unknown_face_lifted()
+        || !S::FLIPS && (k != 3 || mesh.recorded_cospherical());
     for c in mesh.finite_cells() {
         draft_of[c as usize] = singles;
         singles += 1;
@@ -827,6 +830,31 @@ fn inserted<S: insert::Shape>(
                 "the insertion's record matches the lifted orientation"
             );
             if cospherical {
+                let (x, y) = (root(&mut parent, c), root(&mut parent, n));
+                parent[x as usize] = y;
+                merged = true;
+            }
+        }
+    }
+
+    // The candidates of the insertion by flips: two triangles that still
+    // meet and are cospherical across their face join (#667). Every face the
+    // per-face records joined was such a pair, unchanged since its test,
+    // and a pair that is cospherical now joins two triangles of one group.
+    if S::FLIPS && !every_unknown_face_lifted() {
+        for &(c, n) in mesh.candidates() {
+            if !mesh.meet(c, n) || !mesh.is_finite(c) || !mesh.is_finite(n) {
+                continue;
+            }
+            let vertices = mesh.vertices_of(c);
+            let Some(&far) = mesh.vertices_of(n).iter().find(|v| !vertices.contains(v)) else {
+                debug_assert!(false, "neighbors differ in one vertex");
+                continue;
+            };
+            ids.clear();
+            ids.extend_from_slice(vertices);
+            ids.push(far);
+            if mesh.lifted_ids(&ids)? == Sign::Zero {
                 let (x, y) = (root(&mut parent, c), root(&mut parent, n));
                 parent[x as usize] = y;
                 merged = true;

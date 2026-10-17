@@ -291,6 +291,11 @@ pub(super) struct Mesh<'a, S: Shape> {
     /// was, no two finite simplices of D = 2 are joined after the insertion
     /// (#667).
     cospherical: bool,
+    /// The insertion by flips (D = 2) keeps no record per face: the two
+    /// triangles of every face its in-circle test found cospherical, which
+    /// the pass after the insertion tests again where they still meet
+    /// (#667).
+    candidates: Vec<(u32, u32)>,
     alive: Vec<bool>,
     mark: Vec<u32>,
     free: Vec<u32>,
@@ -492,6 +497,23 @@ impl<'a, S: Shape> Mesh<'a, S> {
         self.cospherical
     }
 
+    /// The pairs of triangles whose shared face the insertion by flips found
+    /// cospherical, in the order found; a pair may no longer meet, or no
+    /// longer exist.
+    pub(super) fn candidates(&self) -> &[(u32, u32)] {
+        &self.candidates
+    }
+
+    /// Whether `c` and `n` are live simplices across one face from each
+    /// other.
+    pub(super) fn meet(&self, c: u32, n: u32) -> bool {
+        (c as usize) < self.alive.len()
+            && (n as usize) < self.alive.len()
+            && self.alive[c as usize]
+            && self.alive[n as usize]
+            && self.back(c, n).is_some()
+    }
+
     pub(super) fn is_finite(&self, c: u32) -> bool {
         !self.vertices_of(c).contains(&INFINITE)
     }
@@ -654,6 +676,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
             neighbors: Vec::with_capacity(order.len() * k * (2 * d)),
             across: Vec::with_capacity(order.len() * k * (2 * d)),
             cospherical: false,
+            candidates: Vec::new(),
             // The lists that grow with the simplices are sized with them, and
             // the work space of one insertion for a few dozen simplices, so
             // a small input reallocates none of them (#667).
@@ -714,44 +737,23 @@ impl<'a, S: Shape> Mesh<'a, S> {
         self.neighbors[at..at + 3].copy_from_slice(&neighbors);
     }
 
-    /// Points the slot of `n` that held `old` at `new`, and forgets what was
-    /// known of that face: the triangle across it changed.
+    /// Points the slot of `n` that held `old` at `new`.
     fn repoint(&mut self, n: u32, old: u32, new: u32) {
         let back = self.back(n, old);
         debug_assert!(back.is_some(), "neighbors are symmetric");
         if let Some(back) = back {
             self.set_neighbor(n, back, new);
-            self.across[n as usize * 3 + back] = Across::Unknown;
         }
     }
 
-    /// Forgets what was known of every face of the changed triangles
-    /// `cells`, on their own side. A face between two of them is forgotten
-    /// on both sides; the other side of the rest is forgotten by
-    /// [`Self::repoint`] or [`Self::forget_across`].
-    fn forget_own(&mut self, cells: &[u32]) {
-        for &c in cells {
-            self.across[c as usize * 3..c as usize * 3 + 3].fill(Across::Unknown);
-        }
-    }
-
-    /// Forgets what `n` knew of its face with `c`, which changed while `n`
-    /// kept pointing at it.
-    fn forget_across(&mut self, n: u32, c: u32) {
-        let back = self.back(n, c);
-        debug_assert!(back.is_some(), "neighbors are symmetric");
-        if let Some(back) = back {
-            self.across[n as usize * 3 + back] = Across::Unknown;
-        }
-    }
-
-    /// Records `across` on the face of triangle `c` opposite `slot`, shared
-    /// with `n`, on both sides.
-    fn record(&mut self, c: u32, slot: usize, n: u32, across: Across) {
-        self.cospherical |= across == Across::Cospherical;
-        self.across[c as usize * 3 + slot] = across;
-        if let Some(back) = self.back(n, c) {
-            self.across[n as usize * 3 + back] = across;
+    /// Keeps `c` and `n` as a candidate pair when their face is cospherical.
+    /// Nothing is recorded per face: a face of D = 2 joins two triangles only
+    /// when cospherical, and the candidates are tested again after the
+    /// insertion (#667).
+    fn record(&mut self, c: u32, n: u32, across: Across) {
+        if across == Across::Cospherical {
+            self.cospherical = true;
+            self.candidates.push((c, n));
         }
     }
 
@@ -797,7 +799,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
             } else if across != Across::Unknown {
                 // `n` is finite and `q` is on its circumcircle or strictly
                 // outside it.
-                self.record(c, slot, n, across);
+                self.record(c, n, across);
             }
         }
         self.stack = stack;
@@ -821,8 +823,6 @@ impl<'a, S: Shape> Mesh<'a, S> {
         self.set_triangle(t3, [c, a, q], [t, t2, nb]);
         self.repoint(na, t, t2);
         self.repoint(nb, t, t3);
-        self.forget_across(nc, t);
-        self.forget_own(&[t, t2, t3]);
         stack.extend([t, t2, t3]);
     }
 
@@ -850,9 +850,6 @@ impl<'a, S: Shape> Mesh<'a, S> {
         self.set_triangle(t4, [y, q, p], [t, u_nr, u]);
         self.repoint(t_np, t, t2);
         self.repoint(u_nr, u, t4);
-        self.forget_across(t_nr, t);
-        self.forget_across(u_np, u);
-        self.forget_own(&[t, t2, u, t4]);
         stack.extend([t, t2, u, t4]);
     }
 
@@ -875,9 +872,6 @@ impl<'a, S: Shape> Mesh<'a, S> {
         self.set_triangle(n, [q, d, b], [n_db, t_nb, t]);
         self.repoint(n_ad, n, t);
         self.repoint(t_nb, t, n);
-        self.forget_across(t_na, t);
-        self.forget_across(n_db, n);
-        self.forget_own(&[t, n]);
     }
 
     /// Whether every live simplex's neighbor across each face is live,
