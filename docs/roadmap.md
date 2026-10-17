@@ -290,7 +290,7 @@ The owner opened this phase on 2026-10-12 (Grill on #592). The comparison it pub
 | R1-29 | Feat  | Hull D2: a point inside a box inside the discard polygon is discarded without the edges              | #646  | Done                               |
 | R1-30 | Feat  | Input: the duplicates found bucket by bucket of the hash                                             | #647  | Done                               |
 | R1-31 | Task  | The parity run after the rows of R1                                                                  | #652  | Done                               |
-| R1-32 | Task  | Publish review: the reader docs and the public rustdoc read as a stranger reads them                 | #662  | In progress                        |
+| R1-32 | Task  | Publish review: the reader docs and the public rustdoc read as a stranger reads them                 | #662  | Done                               |
 
 ## Intentionally out of scope
 
