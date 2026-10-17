@@ -7932,3 +7932,28 @@ A prototype of the insertion of D = 2 in spade's order, the insertion by flips k
 | 10^6 | 1.38 | 0.92 |
 
 Left. Consecutive sites of that order are far apart in the input and in the mesh, where BRIO keeps them near; what of the 1.37 is the memory and what the flips was not measured. spade's bulk load keeps its own structure for the hull and is not a walk over a triangulation.
+
+### D = 2 on half-edges
+
+The insertion by flips on a structure of its own: a triangle holds its three vertices and, for each edge, the half-edge across it, so a split or a flip links the triangles it changes without looking for the slot that points back; the order, the walk, the predicates, and the candidates are those of the mesh, and a test holds what the two publish equal. Each change timed as above, against the commit before it and its control.
+
+| Change | Ratio to the commit before | Control | Decision |
+| --- | --- | --- | --- |
+| The triangles on half-edges | 0.96 at 10 points, 0.99 to 1.00 from 1,000; convx / spade 1.21 to 1.21 at 1,000, 1.10 to 1.08 at 10^4, 0.98 to 0.94 at 10^6 | 0.92 to 1.04 | Taken with the next row |
+| The triangles holding their vertices' coordinates, so that a test reads no other site's row | 0.94 to 1.09 | 0.98 to 1.03 | Left: within the control; the triangle grows from 24 to 72 bytes |
+| The conflict and orientation tests inlined into the walk and the flips, where they had been calls returning a `Result` through memory (a profile gave them 49% of the samples) | 0.89 to 0.98; convx / spade 1.22 to 1.13 at 1,000, 1.08 to 1.03 at 10^4, 0.95 to 0.92 at 10^6 | 0.94 to 1.01 | Taken |
+| The walk's signs read again for the edge a site lies on, on half-edges | 1.02 to 1.05 | 0.94 to 1.03 | Left: slower, as in the mesh |
+| One round of Morton order instead of BRIO (a measurement) | 0.91 at 1,000, 1.04 to 1.05 at 10^4 and 10^5 | 0.96 to 1.03 | Left: the rounds cost the walk nothing measurable |
+
+Against the head of #671, with the control of that head built twice:
+
+| Points | Ratio to #671 | Control | convx / spade, #671 → half-edges |
+| ---: | ---: | ---: | --- |
+| 10 | 0.91 | 1.02 | 1.44 → 1.29 |
+| 100 | 1.09 | 1.09 | 1.20 → 1.21 |
+| 1,000 | 0.98 | 1.07 | 1.21 → 1.14 |
+| 10^4 | 0.92 | 1.07 | 1.10 → 1.03 |
+| 10^5 | 0.93 | 1.08 | 1.02 → 0.96 |
+| 10^6 | 0.92 | 1.01 | 0.95 → 0.91 |
+
+The control moved up to 9% in this run, so the ratios to spade, read in one process, are the ones to read. A profile of the build of 1,000 points after the inlining (perf in WSL2, 4,000 samples a second) gives 78% of the samples to the insertion, most of them in the first stage of the predicates, and the rest to the order (5%), the pass after the insertion and publication (7%), and the acceptance and the rows of the sites (4%).
