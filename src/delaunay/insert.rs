@@ -621,9 +621,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
                 self.across[at..at + k].fill(Across::Unknown);
             }
             self.alive[c as usize] = true;
-            if !S::FLIPS {
-                self.mark[c as usize] = 0;
-            }
+            self.mark[c as usize] = 0;
             c
         } else {
             self.vertices.extend_from_slice(vertices);
@@ -632,11 +630,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
                 self.across.extend(core::iter::repeat_n(Across::Unknown, k));
             }
             self.alive.push(true);
-            // The marks are the cavity search's, which the insertion by flips
-            // does not run (#667).
-            if !S::FLIPS {
-                self.mark.push(0);
-            }
+            self.mark.push(0);
             (self.alive.len() - 1) as u32
         }
     }
@@ -713,7 +707,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
             // the work space of one insertion for a few dozen simplices, so
             // a small input reallocates none of them (#667).
             alive: Vec::with_capacity(order.len() * (2 * d)),
-            mark: Vec::with_capacity(if S::FLIPS { 0 } else { order.len() * (2 * d) }),
+            mark: Vec::with_capacity(order.len() * (2 * d)),
             free: Vec::with_capacity(4 * k),
             epoch: 0,
             inside: inside_sign(d)?,
