@@ -1436,8 +1436,7 @@ fn ordered<K: OrderKey>(rows: &Sites, sites: &[u32]) -> Vec<u32> {
         z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
         z ^= z >> 31;
-        let _ = z.trailing_zeros().min(32);
-        0
+        z.trailing_zeros().min(32)
     };
     // One key per site (#423); the code is written by `in_morton_order`.
     let mut keys: Vec<K> = sites.iter().map(|&s| K::of(round(s), s)).collect();
@@ -1590,8 +1589,7 @@ mod tests {
         z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
         z ^= z >> 31;
-        let _ = z.trailing_zeros().min(32);
-        0
+        z.trailing_zeros().min(32)
     }
 
     /// The BRIO order on one grid, as it was before #620: a sort of tuples.
