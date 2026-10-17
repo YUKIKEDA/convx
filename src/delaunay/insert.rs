@@ -1320,28 +1320,6 @@ fn ordered<K: OrderKey>(rows: &Sites, sites: &[u32]) -> Vec<u32> {
     keys.into_iter().map(OrderKey::site).collect()
 }
 
-/// The index of cell `(x, y)` along the Hilbert curve over a grid of
-/// `bits` bits a coordinate (prototype, #667).
-fn hilbert2(mut x: u64, mut y: u64, bits: u32) -> u64 {
-    let n = 1_u64 << bits;
-    let mut d = 0;
-    let mut s = n >> 1;
-    while s > 0 {
-        let rx = u64::from(x & s > 0);
-        let ry = u64::from(y & s > 0);
-        d += s * s * ((3 * rx) ^ ry);
-        if ry == 0 {
-            if rx == 1 {
-                x = n - 1 - x;
-                y = n - 1 - y;
-            }
-            core::mem::swap(&mut x, &mut y);
-        }
-        s >>= 1;
-    }
-    d
-}
-
 /// Writes into each key of `keys` the Morton code of its site on a grid of
 /// `bits` bits a coordinate over the bounding box of the sites of `keys`,
 /// and sorts them. `low` and `high` are scratch for the box.
@@ -1387,7 +1365,7 @@ fn in_morton_order<K: OrderKey>(
     let morton = |s: u32| -> u64 {
         let p = rows.point(s);
         match d {
-            2 => hilbert2(cell(p, 0), cell(p, 1), bits),
+            2 => spread2(cell(p, 0)) << 1 | spread2(cell(p, 1)),
             3 => spread3(cell(p, 0)) << 2 | spread3(cell(p, 1)) << 1 | spread3(cell(p, 2)),
             _ => {
                 // On the stack for D <= 16, so the order allocates nothing
