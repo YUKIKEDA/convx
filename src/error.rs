@@ -31,6 +31,20 @@ use crate::predicates::ExactEvaluationExhausted;
 ///
 /// The enum is `#[non_exhaustive]`: a later version may add a variant, so a
 /// `match` on it needs a wildcard arm.
+///
+/// # Examples
+///
+/// ```
+/// use convx::{ConvexHullBuilder, Error};
+///
+/// // The second point has a coordinate that is not finite.
+/// let points = [0.0, 0.0, f64::NAN, 1.0, 1.0, 0.0];
+/// match ConvexHullBuilder::new(2, &points).build() {
+///     Err(Error::NonFiniteCoordinate { index }) => assert_eq!(index, 1),
+///     Err(other) => panic!("another failure: {other}"),
+///     Ok(_) => panic!("built"),
+/// }
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {

@@ -45,11 +45,14 @@ The current row's ID lives only in [docs/roadmap.md](docs/roadmap.md).
 | `.cursor/rules/dev-docs.mdc`             | Mermaid and LaTeX in the design spec                                                           |
 | `.cursor/rules/review-comments.mdc`     | A review finding is about that pull request's head                                              |
 | `.cursor/rules/publish.mdc`             | The owner runs `cargo publish`. No benchmark before the code it measures is final              |
+| `.cursor/rules/reader-docs.mdc`         | The pages a stranger reads: no internal pointer, every public item with an example             |
 
 Grill, when the design branches: [`.agents/skills/grilling/SKILL.md`](.agents/skills/grilling/SKILL.md).
 
 CPU profile on this machine: [`.agents/skills/cpu-profile/SKILL.md`](.agents/skills/cpu-profile/SKILL.md).
 
 Issue numbers in a PR: [`.agents/skills/github-closing/SKILL.md`](.agents/skills/github-closing/SKILL.md).
+
+Before a release, read the pages as a stranger: [`.agents/skills/publish-review/SKILL.md`](.agents/skills/publish-review/SKILL.md).
 
 External sources: [API Guidelines](https://rust-lang.github.io/api-guidelines/), [rustdoc book](https://doc.rust-lang.org/stable/rustdoc/how-to-write-documentation.html).

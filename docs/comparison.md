@@ -2,7 +2,7 @@ English | [日本語](comparison.ja.md)
 
 # convx compared with Qhull, CGAL, and Rust crates
 
-A report, not a test. Every row that was run is here, the ones where another library is faster or smaller among them. Nothing below is met or not met. The crate's own judgement against CGAL and Qhull is the parity run of [verification.md](verification.md) (ADR 0006): a fixed set of rows with a threshold, taken on every change that could move it. This report is taken once a release, on more data and more libraries, and judges nothing.
+A report, not a test. Every row that was run is here, the ones where another library is faster or smaller among them. Nothing below is met or not met. The crate's own judgement against CGAL and Qhull is the parity run of [verification.md](verification.md): a fixed set of rows with a threshold, taken on every change that could move it. This report is taken once a release, on more data and more libraries, and judges nothing.
 
 Taken on 2026-10-14, convx at `71b3069`. Every number is in [bench/summary.json](bench/summary.json).
 
@@ -355,7 +355,7 @@ A hull's counts are its vertices and its facets (CGAL: triangles in D = 3, simpl
 ## Not compared
 
 - **The `delaunay` crate in D = 5.** One process of three builds of 1,000 points had not finished after 81 minutes, and the row was run without it. In D = 2 to 4 it took 0.46 s, 3.7 s, and 135 s for 1,000 points.
-- **Crates not compared** (the owner's decision on #599): `qhull` (bindings to Qhull, which is here itself), `chull`, `tritet`, `startin`, `voronoice`, `voronator`.
+- **Crates not compared**, chosen as the main ones and not as a survey: `qhull` (bindings to Qhull, which is here itself), `chull`, `tritet`, `startin`, `voronoice`, `voronator`.
 - **Voronoi diagrams.** No other library here builds the same output; convx's diagram is its Delaunay triangulation and a linear solve per vertex.
 - **Threads.** Every library here was run on one core. CGAL has parallel triangulations; convx builds sequentially.
 
