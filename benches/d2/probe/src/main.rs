@@ -51,9 +51,7 @@ fn main() {
         }
         let (mut a, mut b, mut s) = (Vec::new(), Vec::new(), Vec::new());
         #[cfg(feature = "marked")]
-        let mut stages: Vec<Vec<f64>> = vec![Vec::new(); 9];
-        #[cfg(feature = "marked")]
-        convx::stages_take();
+        let mut stages: Vec<Vec<f64>> = vec![Vec::new(); convx::stages_take().len()];
         for _ in 0..rounds {
             let t = Instant::now();
             black_box(convx_build(black_box(&p)));
