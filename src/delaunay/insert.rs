@@ -102,8 +102,8 @@ pub(super) enum Across {
 /// (ADR 0008, #446). [`Any`] reads `k` from a field and uses the predicates
 /// of [`Sites`]. A predicate returns the same exact sign under every shape.
 pub(super) trait Shape: Copy {
-    /// Whether the insertion flips edges (D = 2, ADR 0007) rather than
-    /// digging a cavity.
+    /// Whether the insertion flips edges on half-edges (D = 2, ADR 0007,
+    /// `super::plane`) rather than digging a cavity in the mesh.
     const FLIPS: bool;
 
     /// `k = D + 1`: the vertices, and the neighbors, of a simplex.
@@ -302,7 +302,9 @@ pub(super) trait Built {
 }
 
 impl<S: Shape> Built for Mesh<'_, S> {
-    const FLIPS: bool = S::FLIPS;
+    // The mesh inserts by digging a cavity, in every dimension; D = 2 by
+    // flips is the half-edges' (`super::plane`).
+    const FLIPS: bool = false;
     fn slots(&self) -> usize {
         Mesh::slots(self)
     }
@@ -328,10 +330,10 @@ impl<S: Shape> Built for Mesh<'_, S> {
         Mesh::orient_ids(self, ids)
     }
     fn candidates(&self) -> &[(u32, u32)] {
-        Mesh::candidates(self)
+        &[]
     }
-    fn meet(&self, c: u32, n: u32) -> bool {
-        Mesh::meet(self, c, n)
+    fn meet(&self, _c: u32, _n: u32) -> bool {
+        false
     }
     fn recorded_cospherical(&self) -> bool {
         Mesh::recorded_cospherical(self)
@@ -356,11 +358,6 @@ pub(super) struct Mesh<'a, S: Shape> {
     /// was, no two finite simplices of D = 2 are joined after the insertion
     /// (#667).
     cospherical: bool,
-    /// The insertion by flips (D = 2) keeps no record per face: the two
-    /// triangles of every face its in-circle test found cospherical, which
-    /// the pass after the insertion tests again where they still meet
-    /// (#667).
-    candidates: Vec<(u32, u32)>,
     /// Whether the insertion of D = 3 left a face between two finite
     /// simplices [`Across::Unknown`]: four coplanar sites besides the newest.
     /// When it left none and recorded no face cospherical, no face joins
@@ -585,14 +582,8 @@ impl<'a, S: Shape> Mesh<'a, S> {
 
     /// What the insertion knows of simplex `c` and its neighbor across the
     /// face opposite vertex `slot`.
-    /// What the insertion knows of the face of `c` opposite `slot`. The
-    /// insertion by flips keeps no record per face, and every face is
-    /// [`Across::Unknown`] to it.
     pub(super) fn across(&self, c: u32, slot: usize) -> Across {
-        self.across
-            .get(c as usize * self.shape.k() + slot)
-            .copied()
-            .unwrap_or(Across::Unknown)
+        self.across[c as usize * self.shape.k() + slot]
     }
 
     /// The slot of simplex `c` whose neighbor is `n`.
@@ -617,23 +608,6 @@ impl<'a, S: Shape> Mesh<'a, S> {
     /// ([`Self::undecided`]).
     pub(super) fn left_undecided(&self) -> bool {
         self.undecided
-    }
-
-    /// The pairs of triangles whose shared face the insertion by flips found
-    /// cospherical, in the order found; a pair may no longer meet, or no
-    /// longer exist.
-    pub(super) fn candidates(&self) -> &[(u32, u32)] {
-        &self.candidates
-    }
-
-    /// Whether `c` and `n` are live simplices across one face from each
-    /// other.
-    pub(super) fn meet(&self, c: u32, n: u32) -> bool {
-        (c as usize) < self.alive.len()
-            && (n as usize) < self.alive.len()
-            && self.alive[c as usize]
-            && self.alive[n as usize]
-            && self.back(c, n).is_some()
     }
 
     pub(super) fn is_finite(&self, c: u32) -> bool {
@@ -717,18 +691,14 @@ impl<'a, S: Shape> Mesh<'a, S> {
             let at = c as usize * k;
             self.vertices[at..at + k].copy_from_slice(vertices);
             self.neighbors[at..at + k].fill(NONE);
-            if !S::FLIPS {
-                self.across[at..at + k].fill(Across::Unknown);
-            }
+            self.across[at..at + k].fill(Across::Unknown);
             self.alive[c as usize] = true;
             self.mark[c as usize] = 0;
             c
         } else {
             self.vertices.extend_from_slice(vertices);
             self.neighbors.extend(core::iter::repeat_n(NONE, k));
-            if !S::FLIPS {
-                self.across.extend(core::iter::repeat_n(Across::Unknown, k));
-            }
+            self.across.extend(core::iter::repeat_n(Across::Unknown, k));
             self.alive.push(true);
             self.mark.push(0);
             (self.alive.len() - 1) as u32
@@ -800,13 +770,8 @@ impl<'a, S: Shape> Mesh<'a, S> {
             sites,
             vertices: Vec::with_capacity(order.len() * k * (2 * d)),
             neighbors: Vec::with_capacity(order.len() * k * (2 * d)),
-            across: Vec::with_capacity(if S::FLIPS {
-                0
-            } else {
-                order.len() * k * (2 * d)
-            }),
+            across: Vec::with_capacity(order.len() * k * (2 * d)),
             cospherical: false,
-            candidates: Vec::new(),
             undecided: false,
             // The lists that grow with the simplices are sized with them, and
             // the work space of one insertion for a few dozen simplices, so
@@ -817,11 +782,10 @@ impl<'a, S: Shape> Mesh<'a, S> {
             epoch: 0,
             inside: inside_sign(d)?,
             last: 0,
-            // The insertion by flips uses the stack alone.
             stack: Vec::with_capacity(8 * k),
-            cavity: Vec::with_capacity(if S::FLIPS { 0 } else { 8 * k }),
-            boundary: Vec::with_capacity(if S::FLIPS { 0 } else { 8 * k }),
-            created: Vec::with_capacity(if S::FLIPS { 0 } else { 8 * k }),
+            cavity: Vec::with_capacity(8 * k),
+            boundary: Vec::with_capacity(8 * k),
+            created: Vec::with_capacity(8 * k),
             faces: Vec::new(),
             used: Vec::new(),
         };
@@ -848,164 +812,10 @@ impl<'a, S: Shape> Mesh<'a, S> {
         mesh.link_initial(&cells);
         mesh.last = s;
         for q in order {
-            if S::FLIPS {
-                mesh.insert_by_flips(q)?;
-            } else {
-                mesh.insert(q)?;
-            }
+            mesh.insert(q)?;
         }
         debug_assert!(mesh.linked(), "neighbors are symmetric and share a face");
         Ok(mesh)
-    }
-
-    /// The three vertices of triangle `c`.
-    fn triangle(&self, c: u32) -> [u32; 3] {
-        let v = self.vertices_of(c);
-        [v[0], v[1], v[2]]
-    }
-
-    /// Sets the vertices and the neighbors of triangle `c`.
-    fn set_triangle(&mut self, c: u32, vertices: [u32; 3], neighbors: [u32; 3]) {
-        let at = c as usize * 3;
-        self.vertices[at..at + 3].copy_from_slice(&vertices);
-        self.neighbors[at..at + 3].copy_from_slice(&neighbors);
-    }
-
-    /// Points the slot of `n` that held `old` at `new`.
-    fn repoint(&mut self, n: u32, old: u32, new: u32) {
-        let back = self.back(n, old);
-        debug_assert!(back.is_some(), "neighbors are symmetric");
-        if let Some(back) = back {
-            self.set_neighbor(n, back, new);
-        }
-    }
-
-    /// Keeps `c` and `n` as a candidate pair when their face is cospherical.
-    /// Nothing is recorded per face: a face of D = 2 joins two triangles only
-    /// when cospherical, and the candidates are tested again after the
-    /// insertion (#667).
-    fn record(&mut self, c: u32, n: u32, across: Across) {
-        if across == Across::Cospherical {
-            self.cospherical = true;
-            self.candidates.push((c, n));
-        }
-    }
-
-    /// Inserts site `q` by edge flips (D = 2, ADR 0007, design §7). The
-    /// located triangle contains `q`, or, at infinity, sees it beyond its
-    /// hull edge or inside it. It splits into three triangles through `q`,
-    /// or, with the triangle across, into four when `q` is on an edge. Then
-    /// every edge opposite `q` whose far triangle conflicts with `q` is
-    /// flipped, which leaves the triangles around `q` Delaunay. An edge not
-    /// flipped records what its in-circle test said.
-    fn insert_by_flips(&mut self, q: u32) -> Result<(), Error> {
-        debug_assert_eq!(self.shape.k(), 3, "edge flips are for triangles");
-        let t = self.locate(q)?;
-        debug_assert!(self.conflicts(t, q)?, "the located triangle conflicts");
-        // The edge `q` lies on, by the slot of the vertex opposite it.
-        let on_edge = match self.vertices_of(t).iter().position(|&v| v == INFINITE) {
-            Some(slot) => (self.replaced(t, slot, q)? == Sign::Zero).then_some(slot),
-            None => {
-                let mut edge = None;
-                for slot in 0..3 {
-                    if self.replaced(t, slot, q)? == Sign::Zero {
-                        debug_assert!(edge.is_none(), "a site is no vertex of the triangle");
-                        edge = Some(slot);
-                    }
-                }
-                edge
-            }
-        };
-        let mut stack = core::mem::take(&mut self.stack);
-        stack.clear();
-        match on_edge {
-            Some(slot) => self.split_edge(t, slot, q, &mut stack),
-            None => self.split(t, q, &mut stack),
-        }
-        while let Some(c) = stack.pop() {
-            let slot = self.slot_of(c, q);
-            let n = self.neighbor(c, slot);
-            let (conflict, across) = self.conflict(n, q)?;
-            if conflict {
-                self.flip(c, n, q);
-                stack.push(c);
-                stack.push(n);
-            } else if across != Across::Unknown {
-                // `n` is finite and `q` is on its circumcircle or strictly
-                // outside it.
-                self.record(c, n, across);
-            }
-        }
-        self.stack = stack;
-        self.last = t;
-        Ok(())
-    }
-
-    /// Splits triangle `t` into three through `q`. Each new triangle is `t`
-    /// with one vertex replaced by `q`, so it keeps the orientation of `t`.
-    fn split(&mut self, t: u32, q: u32, stack: &mut Vec<u32>) {
-        let [a, b, c] = self.triangle(t);
-        let [na, nb, nc] = [
-            self.neighbor(t, 0),
-            self.neighbor(t, 1),
-            self.neighbor(t, 2),
-        ];
-        let t2 = self.alloc(&[b, c, q]);
-        let t3 = self.alloc(&[c, a, q]);
-        self.set_triangle(t, [a, b, q], [t2, t3, nc]);
-        self.set_triangle(t2, [b, c, q], [t3, t, na]);
-        self.set_triangle(t3, [c, a, q], [t, t2, nb]);
-        self.repoint(na, t, t2);
-        self.repoint(nb, t, t3);
-        stack.extend([t, t2, t3]);
-    }
-
-    /// Splits triangle `t` and the triangle across its edge opposite `slot`
-    /// into four through `q`, which lies inside that edge.
-    fn split_edge(&mut self, t: u32, slot: usize, q: u32, stack: &mut Vec<u32>) {
-        let v = self.triangle(t);
-        let (x, p, r) = (v[slot], v[(slot + 1) % 3], v[(slot + 2) % 3]);
-        // `t` is (x, p, r); `u` across the edge (p, r) is (y, r, p).
-        let t_np = self.neighbor(t, (slot + 1) % 3);
-        let t_nr = self.neighbor(t, (slot + 2) % 3);
-        let u = self.neighbor(t, slot);
-        let y = self
-            .triangle(u)
-            .into_iter()
-            .find(|&z| z != p && z != r)
-            .unwrap_or(INFINITE);
-        let u_np = self.neighbor(u, self.slot_of(u, p));
-        let u_nr = self.neighbor(u, self.slot_of(u, r));
-        let t2 = self.alloc(&[x, q, r]);
-        let t4 = self.alloc(&[y, q, p]);
-        self.set_triangle(t, [x, p, q], [t4, t2, t_nr]);
-        self.set_triangle(t2, [x, q, r], [u, t_np, t]);
-        self.set_triangle(u, [y, r, q], [t2, t4, u_np]);
-        self.set_triangle(t4, [y, q, p], [t, u_nr, u]);
-        self.repoint(t_np, t, t2);
-        self.repoint(u_nr, u, t4);
-        stack.extend([t, t2, u, t4]);
-    }
-
-    /// Flips the edge opposite `q` in triangle `t`, shared with `n`:
-    /// `(q, a, b)` and `(b, a, d)` become `(q, a, d)` and `(q, d, b)`.
-    fn flip(&mut self, t: u32, n: u32, q: u32) {
-        let at_q = self.slot_of(t, q);
-        let v = self.triangle(t);
-        let (a, b) = (v[(at_q + 1) % 3], v[(at_q + 2) % 3]);
-        let t_na = self.neighbor(t, (at_q + 2) % 3);
-        let t_nb = self.neighbor(t, (at_q + 1) % 3);
-        let d = self
-            .triangle(n)
-            .into_iter()
-            .find(|&z| z != a && z != b)
-            .unwrap_or(INFINITE);
-        let n_ad = self.neighbor(n, self.slot_of(n, b));
-        let n_db = self.neighbor(n, self.slot_of(n, a));
-        self.set_triangle(t, [q, a, d], [n_ad, n, t_na]);
-        self.set_triangle(n, [q, d, b], [n_db, t_nb, t]);
-        self.repoint(n_ad, n, t);
-        self.repoint(t_nb, t, n);
     }
 
     /// Whether every live simplex's neighbor across each face is live,
