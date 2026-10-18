@@ -1416,6 +1416,11 @@ trait OrderKey: Copy + Ord {
     fn cell(self) -> u128;
     /// The site.
     fn site(self) -> u32;
+    /// Whether [`Self::sort`] reads a scratch of the keys' length.
+    const SCRATCH: bool;
+    /// Sorts `keys`, whose sites ascend among keys of equal round and
+    /// code; `scratch` is as long as `keys` when [`Self::SCRATCH`].
+    fn sort(keys: &mut [Self], scratch: &mut [Self]);
 }
 
 impl OrderKey for u128 {
@@ -1431,6 +1436,10 @@ impl OrderKey for u128 {
     }
     fn site(self) -> u32 {
         self as u32
+    }
+    const SCRATCH: bool = false;
+    fn sort(keys: &mut [Self], _: &mut [Self]) {
+        keys.sort_unstable();
     }
 }
 
@@ -1448,6 +1457,65 @@ impl OrderKey for u64 {
     fn site(self) -> u32 {
         self as u32
     }
+    const SCRATCH: bool = true;
+    fn sort(keys: &mut [Self], scratch: &mut [Self]) {
+        if keys.len() < RADIX_FROM {
+            keys.sort_unstable();
+        } else {
+            radix_sort(keys, scratch);
+        }
+    }
+}
+
+/// The fewest keys of D = 2 sorted by [`radix_sort`]: below, clearing its
+/// counts costs more than a comparison sort (#667).
+const RADIX_FROM: usize = 128;
+
+/// Sorts `keys` by their round and code, the top 32 bits, a byte a pass,
+/// stably, with `scratch` as long as `keys`. The sites, in the low 32 bits,
+/// ascend among keys of equal round and code before, and so after: the
+/// keys end in their whole order, as a comparison sort leaves them,
+/// without its mispredicted branches (#667). A byte every key shares is
+/// not passed over.
+fn radix_sort(keys: &mut [u64], scratch: &mut [u64]) {
+    debug_assert_eq!(keys.len(), scratch.len());
+    debug_assert!(
+        keys.windows(2)
+            .all(|w| w[0] >> 32 != w[1] >> 32 || w[0] < w[1]),
+        "the sites ascend among keys of one cell"
+    );
+    let mut in_scratch = false;
+    for shift in [32, 40, 48, 56] {
+        let (from, to): (&[u64], &mut [u64]) = if in_scratch {
+            (scratch, keys)
+        } else {
+            (keys, scratch)
+        };
+        let byte = |k: u64| (k >> shift) as usize & 0xff;
+        let mut counts = [0_usize; 256];
+        for &k in from.iter() {
+            counts[byte(k)] += 1;
+        }
+        if counts[byte(from[0])] == from.len() {
+            continue;
+        }
+        let mut at = 0;
+        for c in counts.iter_mut() {
+            let n = *c;
+            *c = at;
+            at += n;
+        }
+        for &k in from.iter() {
+            let b = byte(k);
+            to[counts[b]] = k;
+            counts[b] += 1;
+        }
+        in_scratch = !in_scratch;
+    }
+    if in_scratch {
+        keys.copy_from_slice(scratch);
+    }
+    debug_assert!(keys.windows(2).all(|w| w[0] < w[1]), "the keys are sorted");
 }
 
 /// [`brio`] on keys `K`.
@@ -1464,23 +1532,36 @@ fn ordered<K: OrderKey>(rows: &impl Points, first: &[u32], sites: &[u32]) -> Vec
         z.trailing_zeros().min(32)
     };
     // One key per site (#423); the code is written by `in_morton_order`.
-    let mut keys: Vec<K> = Vec::with_capacity(sites.len());
+    // The keys that sort with a scratch have it after them, in the same
+    // allocation (#667).
+    let room = if K::SCRATCH { 2 } else { 1 };
+    let mut keys: Vec<K> = Vec::with_capacity(room * sites.len());
     keys.extend(
         sites
             .iter()
             .filter(|s| !first.contains(s))
             .map(|&s| K::of(round(s), s)),
     );
+    let count = keys.len();
+    if K::SCRATCH {
+        keys.resize(2 * count, K::of(0, 0));
+    }
+    let (sorted, scratch) = keys.split_at_mut(count);
     // The box of the range being ordered, allocated once, and the ranges
     // still to order after the whole: none where no cell is crowded, and
     // then nothing is allocated for them.
     let mut low = vec![0.0; d];
     let mut high = vec![0.0; d];
     let mut crowded: Vec<(usize, usize)> = Vec::new();
-    let mut whole = Some((0, keys.len()));
+    let mut whole = Some((0, count));
     while let Some((from, to)) = whole.take().or_else(|| crowded.pop()) {
-        let range = &mut keys[from..to];
-        in_morton_order(rows, bits, range, &mut low, &mut high);
+        let range = &mut sorted[from..to];
+        let room: &mut [K] = if K::SCRATCH {
+            &mut scratch[from..to]
+        } else {
+            &mut []
+        };
+        in_morton_order(rows, bits, range, room, &mut low, &mut high);
         // The cells of one round with more than `CROWDED` sites.
         let mut start = 0;
         for end in 1..=range.len() {
@@ -1493,7 +1574,8 @@ fn ordered<K: OrderKey>(rows: &impl Points, first: &[u32], sites: &[u32]) -> Vec
             start = end;
         }
     }
-    let mut order = Vec::with_capacity(first.len() + keys.len());
+    keys.truncate(count);
+    let mut order = Vec::with_capacity(first.len() + count);
     order.extend_from_slice(first);
     order.extend(keys.into_iter().map(OrderKey::site));
     order
@@ -1501,11 +1583,13 @@ fn ordered<K: OrderKey>(rows: &impl Points, first: &[u32], sites: &[u32]) -> Vec
 
 /// Writes into each key of `keys` the Morton code of its site on a grid of
 /// `bits` bits a coordinate over the bounding box of the sites of `keys`,
-/// and sorts them. `low` and `high` are scratch for the box.
+/// and sorts them. `low` and `high` are scratch for the box, and `scratch`
+/// for the sort ([`OrderKey::sort`]).
 fn in_morton_order<K: OrderKey>(
     rows: &impl Points,
     bits: u32,
     keys: &mut [K],
+    scratch: &mut [K],
     low: &mut [f64],
     high: &mut [f64],
 ) {
@@ -1563,7 +1647,7 @@ fn in_morton_order<K: OrderKey>(
     for key in keys.iter_mut() {
         *key = key.with_code(morton(key.site()));
     }
-    keys.sort_unstable();
+    K::sort(keys, scratch);
 }
 
 #[cfg(test)]
