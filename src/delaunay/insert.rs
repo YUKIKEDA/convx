@@ -407,10 +407,10 @@ impl Sites {
     /// The rows of the input's sites `ids`, in that order: site `i` of the
     /// rows is site `ids[i]` of the input. Made once a build, from the
     /// input, in the order the mesh is built on (#667).
-    pub(super) fn of(input: &Input<'_>, ids: &[u32]) -> Self {
+    pub(super) fn of(input: &Input<'_>, ids: Vec<u32>) -> Self {
         let dim = input.dim();
         let mut rows = Vec::with_capacity(ids.len() * (dim + 2));
-        for &i in ids {
+        for &i in &ids {
             let p = input.point(i);
             let height = LiftedHeight::of(p);
             rows.extend_from_slice(p);
@@ -420,15 +420,19 @@ impl Sites {
         Self {
             dim,
             rows,
-            input: ids.to_vec(),
+            input: ids,
         }
+    }
+
+    /// The input index of every row, in order.
+    pub(super) fn input_indices(&self) -> &[u32] {
+        &self.input
     }
 
     /// The rows of every site of the input, in the input's order.
     #[cfg(test)]
     pub(super) fn all(input: &Input<'_>) -> Self {
-        let ids: Vec<u32> = (0..input.representative.len() as u32).collect();
-        Self::of(input, &ids)
+        Self::of(input, (0..input.representative.len() as u32).collect())
     }
 
     /// The input index of site `index`.
@@ -1357,7 +1361,8 @@ impl<'a, S: Shape> Mesh<'a, S> {
 /// bounding box of its own sites ([`brio`]).
 const CROWDED: usize = 16;
 
-/// The insertion order of `sites` (dimension `d`): biased randomized
+/// The sites `first`, then the insertion order of the other sites of
+/// `sites` (dimension `d`), in one list (#667): biased randomized
 /// insertion order (BRIO) over rounds of geometric sizes, each round in
 /// Morton order of the coordinates quantized over the sites' bounding box.
 /// Deterministic: the round of a site comes from a hash of its index, and
@@ -1377,14 +1382,14 @@ const CROWDED: usize = 16;
 /// it came from. Distinct sites on a box whose widths are finite do part,
 /// since the least and the greatest of a coordinate take the first and the
 /// last cell.
-pub(super) fn brio(rows: &impl Points, sites: &[u32]) -> Vec<u32> {
+pub(super) fn brio(rows: &impl Points, first: &[u32], sites: &[u32]) -> Vec<u32> {
     // D = 2 orders `u64` keys on a grid of 13 bits, which sort in less time
     // than `u128` ones; a crowded cell of that coarser grid is ordered again
     // like any other (#667).
     if rows.dim() == 2 {
-        ordered::<u64>(rows, sites)
+        ordered::<u64>(rows, first, sites)
     } else {
-        ordered::<u128>(rows, sites)
+        ordered::<u128>(rows, first, sites)
     }
 }
 
@@ -1446,7 +1451,7 @@ impl OrderKey for u64 {
 }
 
 /// [`brio`] on keys `K`.
-fn ordered<K: OrderKey>(rows: &impl Points, sites: &[u32]) -> Vec<u32> {
+fn ordered<K: OrderKey>(rows: &impl Points, first: &[u32], sites: &[u32]) -> Vec<u32> {
     let d = rows.dim();
     let bits = grid_bits(d);
     let round = |s: u32| -> u32 {
@@ -1459,7 +1464,13 @@ fn ordered<K: OrderKey>(rows: &impl Points, sites: &[u32]) -> Vec<u32> {
         z.trailing_zeros().min(32)
     };
     // One key per site (#423); the code is written by `in_morton_order`.
-    let mut keys: Vec<K> = sites.iter().map(|&s| K::of(round(s), s)).collect();
+    let mut keys: Vec<K> = Vec::with_capacity(sites.len());
+    keys.extend(
+        sites
+            .iter()
+            .filter(|s| !first.contains(s))
+            .map(|&s| K::of(round(s), s)),
+    );
     // The box of the range being ordered, allocated once, and the ranges
     // still to order after the whole: none where no cell is crowded, and
     // then nothing is allocated for them.
@@ -1482,7 +1493,10 @@ fn ordered<K: OrderKey>(rows: &impl Points, sites: &[u32]) -> Vec<u32> {
             start = end;
         }
     }
-    keys.into_iter().map(OrderKey::site).collect()
+    let mut order = Vec::with_capacity(first.len() + keys.len());
+    order.extend_from_slice(first);
+    order.extend(keys.into_iter().map(OrderKey::site));
+    order
 }
 
 /// Writes into each key of `keys` the Morton code of its site on a grid of
@@ -1703,7 +1717,7 @@ mod tests {
                 let rows = Sites::all(&input);
                 let all: Vec<u32> = input.representatives.clone();
                 assert_eq!(
-                    brio(&rows, &all),
+                    brio(&rows, &[], &all),
                     brio_by_tuples(&rows, &all),
                     "D = {d}, case {case}"
                 );
@@ -1743,7 +1757,7 @@ mod tests {
                 let input = accept_sites(d, &points).unwrap();
                 let rows = Sites::all(&input);
                 let all: Vec<u32> = input.representatives.clone();
-                let order = brio(&rows, &all);
+                let order = brio(&rows, &[], &all);
                 let what = format!("D = {d}, case {case}");
                 assert_eq!(order, brio_by_recursion(&rows, &all), "{what}");
                 assert!(order != brio_by_tuples(&rows, &all), "{what}");
@@ -1767,7 +1781,7 @@ mod tests {
         let input = accept_sites(2, &points).unwrap();
         let rows = Sites::all(&input);
         let all: Vec<u32> = input.representatives.clone();
-        let order = brio(&rows, &all);
+        let order = brio(&rows, &[], &all);
         assert_eq!(order, brio_by_tuples(&rows, &all));
         assert_eq!(order, brio_by_recursion(&rows, &all));
     }

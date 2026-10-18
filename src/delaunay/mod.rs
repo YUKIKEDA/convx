@@ -457,10 +457,14 @@ impl Draft {
         for &(c, slot) in &owners {
             self.links[c as usize * k + slot] = NO_NEIGHBOR;
         }
-        for (a, b) in pair_equal_keys_with_border(&keys, owners.len(), fingerprint) {
-            let ((ca, sa), (cb, sb)) = (owners[a], owners[b]);
-            self.links[ca as usize * k + sa] = cb;
-            self.links[cb as usize * k + sb] = ca;
+        // A complex of single cells has no face to pair, and its pairing,
+        // which allocates, is not made (#667).
+        if !owners.is_empty() {
+            for (a, b) in pair_equal_keys_with_border(&keys, owners.len(), fingerprint) {
+                let ((ca, sa), (cb, sb)) = (owners[a], owners[b]);
+                self.links[ca as usize * k + sa] = cb;
+                self.links[cb as usize * k + sb] = ca;
+            }
         }
         drop((keys, owners));
         Complex {
@@ -718,40 +722,27 @@ fn inserted<S: insert::Shape>(shape: S, input: &Input<'_>) -> Result<Complex, Er
     let d = input.dim();
     let k = d + 1;
     let first = &input.spanning_points;
-    let mut rest: Vec<u32> = Vec::with_capacity(input.representatives.len());
-    rest.extend(
-        input
-            .representatives
-            .iter()
-            .copied()
-            .filter(|p| !first.contains(p)),
-    );
-    let order = insert::brio(input, &rest);
-    let inserted_order: Vec<u32> = first.iter().chain(&order).copied().collect();
+    // The first simplex and the order of the rest in one list (#667).
+    let inserted_order = insert::brio(input, first, &input.representatives);
     if stored_in_input_order() {
         let input_order: Vec<u32> = (0..input.representative.len() as u32).collect();
-        let local = insert::Sites::of(input, &input_order);
-        return built(
-            shape,
-            input,
-            &local,
-            first,
-            order.iter().copied(),
-            &inserted_order,
-        );
+        let local = insert::Sites::of(input, input_order);
+        let order = inserted_order[k..].iter().copied();
+        return built(shape, input, &local, first, order, &inserted_order);
     }
-    // The copy holds the sites in insertion order: the first simplex is
-    // its first `k` sites, and the order the rest, so neither is a list
-    // (#667).
-    let local = insert::Sites::of(input, &inserted_order);
+    // The copy holds the sites in insertion order and owns that order: the
+    // first simplex is its first `k` sites, and the order the rest, so
+    // neither is a list (#667).
+    let local = insert::Sites::of(input, inserted_order);
     let local_first: Small<u32, 12> = (0..k as u32).collect();
+    let sites = local.input_indices().len() as u32;
     built(
         shape,
         input,
         &local,
         &local_first,
-        k as u32..inserted_order.len() as u32,
-        &inserted_order,
+        k as u32..sites,
+        local.input_indices(),
     )
 }
 
