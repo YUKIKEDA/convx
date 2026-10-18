@@ -7944,16 +7944,20 @@ The insertion by flips on a structure of its own: a triangle holds its three ver
 | The conflict and orientation tests inlined into the walk and the flips, where they had been calls returning a `Result` through memory (a profile gave them 49% of the samples) | 0.89 to 0.98; convx / spade 1.22 to 1.13 at 1,000, 1.08 to 1.03 at 10^4, 0.95 to 0.92 at 10^6 | 0.94 to 1.01 | Taken |
 | The walk's signs read again for the edge a site lies on, on half-edges | 1.02 to 1.05 | 0.94 to 1.03 | Left: slower, as in the mesh |
 | One round of Morton order instead of BRIO (a measurement) | 0.91 at 1,000, 1.04 to 1.05 at 10^4 and 10^5 | 0.96 to 1.03 | Left: the rounds cost the walk nothing measurable |
+| A split pushes its new triangles whole, where it pushed blanks built on the stack and read back across two stores (VTune: loads blocked by store forwarding, 7% of the clockticks) | 0.93 to 0.96 from 10 to 10^4; convx / spade 1.14 to 1.11 at 1,000, 0.90 to 0.87 at 10^6 | 0.96 to 1.08 | Taken |
+| The walk tests every edge of a step and chooses the edge without a branch on each sign (VTune: bad speculation, half the slots of the walk) | convx / spade 1.10 to 1.15 at 1,000, 1.16 to 1.25 at 100 | 0.98 to 1.09 | Left: the orientation it adds costs more than the mispredictions it removes |
+| No list for the first simplex and the order of the copy in insertion order; the representatives and the order's keys sized once; the rows of the sites made once, from the input, where they were made in the input's order and copied | 0.97 at 10 points, 0.96 to 1.01 above | 0.97 to 1.04 | Taken: 29 allocations and reallocations of a build of 10 points to 22 |
+| The order with its first simplex in one list, owned by the rows; no pairing of a complex of single cells | 0.94 at 10 points, 0.97 to 0.99 above | 0.97 to 1.00 | Taken: 22 to 18 |
 
-Against the head of #671, with the control of that head built twice:
+Everything taken, against the head of #671, with the control of that head built twice:
 
-| Points | Ratio to #671 | Control | convx / spade, #671 → half-edges |
+| Points | Ratio to #671 | Control | convx / spade, #671 → taken |
 | ---: | ---: | ---: | --- |
-| 10 | 0.91 | 1.02 | 1.44 → 1.29 |
-| 100 | 1.09 | 1.09 | 1.20 → 1.21 |
-| 1,000 | 0.98 | 1.07 | 1.21 → 1.14 |
-| 10^4 | 0.92 | 1.07 | 1.10 → 1.03 |
-| 10^5 | 0.93 | 1.08 | 1.02 → 0.96 |
-| 10^6 | 0.92 | 1.01 | 0.95 → 0.91 |
+| 10 | 0.73 | 0.97 | 1.46 → 1.11 |
+| 100 | 0.93 | 1.00 | 1.21 → 1.13 |
+| 1,000 | 0.89 | 0.99 | 1.21 → 1.09 |
+| 10^4 | 0.87 | 0.98 | 1.10 → 0.98 |
+| 10^5 | 0.86 | 1.00 | 1.01 → 0.93 |
+| 10^6 | 0.89 | 0.97 | 0.99 → 0.87 |
 
-The control moved up to 9% in this run, so the ratios to spade, read in one process, are the ones to read. A profile of the build of 1,000 points after the inlining (perf in WSL2, 4,000 samples a second) gives 78% of the samples to the insertion, most of them in the first stage of the predicates, and the rest to the order (5%), the pass after the insertion and publication (7%), and the acceptance and the rows of the sites (4%).
+Where the build of 1,000 points spends its time, on the head with the tests inlined: by perf in WSL2 (4,000 samples a second), 78% of the samples in the insertion, most of them in the first stage of the predicates, the order 5%, the pass after the insertion and publication 7%, the acceptance and the rows of the sites 4%. By VTune's hardware sampling on Windows (`uarch-exploration`, one core), memory is not what holds it: 2.5% of the slots are memory bound, and the core retires 3.1 instructions a clock. The build retires about 4,600 instructions a site, of which the conflict tests of the flips are 1,580 (about 175 a test, the in-circle filter about 60 of them), and 23% of the slots are lost to mispredicted branches, half of the walk's: the edge a step leaves by and the outcome of a conflict test are not predictable. What is left between 100 and 1,000 points is that count of instructions and those branches.
