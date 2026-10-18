@@ -85,6 +85,11 @@ pub(super) enum Across {
     Distinct,
     /// The two simplices lie on one sphere.
     Cospherical,
+    /// A face between two simplices created together whose sites other than
+    /// the newest are affinely independent: whether or not the two are
+    /// cospherical, the face joins nothing after the insertion, since
+    /// recorded faces join them when they are (design §7, #667).
+    Independent,
 }
 
 /// What the insertion needs to know of the dimension: the number of
@@ -296,6 +301,11 @@ pub(super) struct Mesh<'a, S: Shape> {
     /// the pass after the insertion tests again where they still meet
     /// (#667).
     candidates: Vec<(u32, u32)>,
+    /// Whether the insertion of D = 3 left a face between two finite
+    /// simplices [`Across::Unknown`]: four coplanar sites besides the newest.
+    /// When it left none and recorded no face cospherical, no face joins
+    /// anything after the insertion (#667).
+    undecided: bool,
     alive: Vec<bool>,
     mark: Vec<u32>,
     free: Vec<u32>,
@@ -519,6 +529,12 @@ impl<'a, S: Shape> Mesh<'a, S> {
         self.cospherical
     }
 
+    /// Whether a face between two finite simplices was left undecided
+    /// ([`Self::undecided`]).
+    pub(super) fn left_undecided(&self) -> bool {
+        self.undecided
+    }
+
     /// The pairs of triangles whose shared face the insertion by flips found
     /// cospherical, in the order found; a pair may no longer meet, or no
     /// longer exist.
@@ -707,6 +723,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
             }),
             cospherical: false,
             candidates: Vec::new(),
+            undecided: false,
             // The lists that grow with the simplices are sized with them, and
             // the work space of one insertion for a few dozen simplices, so
             // a small input reallocates none of them (#667).
@@ -1007,7 +1024,21 @@ impl<'a, S: Shape> Mesh<'a, S> {
     /// are freed after it. As in the turn of [`Self::insert`], two new
     /// tetrahedra whose boundary faces lie in one finite cavity simplex are
     /// not cospherical.
-    fn link_by_keys(&mut self, boundary: &[(u32, usize, Across)], created: &[u32]) {
+    ///
+    /// A face between two finite new tetrahedra made from boundary faces of
+    /// different cavity simplices is decided here when it can be: the sites
+    /// of the two without the new one, which is the newest, are four, and
+    /// when they are affinely independent the face joins nothing after the
+    /// insertion (design §7), so it is recorded [`Across::Independent`]. That
+    /// orientation was the pass after the insertion's, where it read the
+    /// two tetrahedra again (#667). Four coplanar sites leave it
+    /// [`Across::Unknown`], for the lifted test.
+    fn link_by_keys(
+        &mut self,
+        q: u32,
+        boundary: &[(u32, usize, Across)],
+        created: &[u32],
+    ) -> Result<(), Error> {
         let size = (2 * created.len() * 3).next_power_of_two().max(4);
         let mask = size - 1;
         let mut faces = core::mem::take(&mut self.faces);
@@ -1043,9 +1074,35 @@ impl<'a, S: Shape> Mesh<'a, S> {
                         debug_assert_eq!(self.neighbor(other_new, other_slot), NONE, "linked once");
                         self.set_neighbor(new, i, other_new);
                         self.set_neighbor(other_new, other_slot, new);
-                        if other_c == c && self.is_finite(c) {
-                            self.across[new as usize * 4 + i] = Across::Distinct;
-                            self.across[other_new as usize * 4 + other_slot] = Across::Distinct;
+                        let distinct = if other_c == c {
+                            self.is_finite(c)
+                        } else if self.is_finite(new) && self.is_finite(other_new) {
+                            let far = self.vertices_of(other_new)[other_slot];
+                            let v = self.vertices_of(new);
+                            let mut sites = [0_u32; 4];
+                            let mut at = 0;
+                            for (m, &s) in v.iter().enumerate() {
+                                if m == i || s != q {
+                                    sites[at] = s;
+                                    at += 1;
+                                }
+                            }
+                            debug_assert_eq!(at, 3, "the new site is a vertex of the face");
+                            sites[3] = far;
+                            let independent = self.orient_ids(&sites)? != Sign::Zero;
+                            self.undecided |= !independent;
+                            independent
+                        } else {
+                            false
+                        };
+                        if distinct {
+                            let across = if other_c == c {
+                                Across::Distinct
+                            } else {
+                                Across::Independent
+                            };
+                            self.across[new as usize * 4 + i] = across;
+                            self.across[other_new as usize * 4 + other_slot] = across;
                         }
                         break;
                     }
@@ -1064,6 +1121,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
         );
         self.faces = faces;
         self.used = used;
+        Ok(())
     }
 
     /// Inserts site `q`.
@@ -1147,7 +1205,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
         }
 
         if k == 4 {
-            self.link_by_keys(&boundary, &created);
+            self.link_by_keys(q, &boundary, &created)?;
         } else {
             // The face of a new simplex opposite vertex `i` holds `q` and the
             // ridge of its boundary face without that vertex. Turning around

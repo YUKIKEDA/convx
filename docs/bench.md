@@ -7898,3 +7898,37 @@ What a site of D = 2 costs the insertion, counted at 10^3 to 10^5 points: 11.9 o
 | 10^6 | 0.93 | 0.98 | 1.11 → 0.98 | 0.86 | 1.18 → 1.00 |
 
 What is left between 100 and 10^4 points is the insertion itself: spade's bulk load inserts each site, by its distance to a centre, onto the hull of the sites before it, and walks nowhere.
+
+## The Delaunay build of D = 3 beside CGAL, #667
+
+The same probe with `PROBE_DIM=3` (`benches/d2/`), points uniform in the unit cube, and CGAL 5.4 (`benches/parity/cgal_time.cpp`, three processes a size) on the same points written by the probe; pinned to core 2 under WSL2, on the head of #669.
+
+| Points | convx | CGAL | convx / CGAL | Insertion alone / CGAL | After the insertion |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 10 | 6.0 us | 4.0 us | 1.51 | 0.96 | 18% |
+| 100 | 228 us | 199 us | 1.15 | 0.93 | 16% |
+| 1,000 | 3.57 ms | 3.16 ms | 1.13 | 0.91 | 17% |
+| 10^4 | 42.9 ms | 36.7 ms | 1.17 | 0.94 | 17% |
+| 10^5 | 484 ms | 402 ms | 1.20 | 1.01 | 20% |
+
+As in D = 2 before #669, the insertion alone is at CGAL's whole build, and the gap is the work after it: of it the walk of the faces is 12 to 14% of the build (70 ms at 10^5 points), the cells written 4%. The faces walked are those between two tetrahedra one insertion made, left undecided until then.
+
+- Deciding those faces in the insertion, where the four sites besides the new one are at hand (affinely independent: the face joins nothing; coplanar: left for the lifted test after it), changes nothing alone: 1.02 to 1.04 of its base from 100 to 10^4 points, within 0.99 to 1.00 of the control at 10^5, since the faces are still walked.
+- With it, the walk is skipped when the insertion left no face undecided and recorded none cospherical: 0.93, 0.95, 0.97, 0.95, and 0.92 of the base at 10 to 10^5 points, against a control of 0.99, 1.00, 0.99, 0.97, and 0.94. Taken.
+
+A face left undecided by four coplanar sites came, in every input the tests and a pyramid of five cospherical sites (a square and an apex, with the apex at every index among sites outside the sphere) built, with a face recorded cospherical as well: four coplanar sites on a sphere are on one circle, and inserting the last of them meets a simplex of the other three. So a mutation that never marks a face undecided fails no test; the mark is kept because nothing proves that a record always comes with it.
+
+### D = 2 inserted radially, as spade's bulk load orders it
+
+A prototype of the insertion of D = 2 in spade's order, the insertion by flips kept: the initial triangle the site nearest the centre of the box, the site nearest it, and the third of the smallest circumradius off their line; the rest by distance from that circumcenter, so that a site lies, nearly always, just outside the hull before it; and each walk started from the triangle the last insertion in the site's sector of the angle about the centre left. Against its base (the head of #671), with the control:
+
+| Points | Radial | Control |
+| ---: | ---: | ---: |
+| 10 | 1.13 | 1.00 |
+| 100 | 1.02 | 0.99 |
+| 1,000 | 1.02 | 1.01 |
+| 10^4 | 1.20 | 1.01 |
+| 10^5 | 1.37 | 1.01 |
+| 10^6 | 1.38 | 0.92 |
+
+Left. Consecutive sites of that order are far apart in the input and in the mesh, where BRIO keeps them near; what of the 1.37 is the memory and what the flips was not measured. spade's bulk load keeps its own structure for the hull and is not a walk over a triangulation.
