@@ -222,9 +222,9 @@ fn accept_by(
     let count = check_count(count)?;
     let point = rows(dim, points);
     let (representative, chain) = representatives_by(dim, count, points);
-    let representatives: Vec<u32> = (0..count as u32)
-        .filter(|&i| representative[i as usize] == i)
-        .collect();
+    // Sized once: a filter's collect grows from a guess (#667).
+    let mut representatives: Vec<u32> = Vec::with_capacity(count);
+    representatives.extend((0..count as u32).filter(|&i| representative[i as usize] == i));
     if representatives.len() < dim + 1 {
         return Err(Error::InsufficientPoints {
             actual: representatives.len(),

@@ -705,33 +705,61 @@ fn inserted<S: insert::Shape>(
     let d = input.dim();
     let k = d + 1;
     let first = &input.spanning_points;
-    let rest: Vec<u32> = input
-        .representatives
-        .iter()
-        .copied()
-        .filter(|p| !first.contains(p))
-        .collect();
+    let mut rest: Vec<u32> = Vec::with_capacity(input.representatives.len());
+    rest.extend(
+        input
+            .representatives
+            .iter()
+            .copied()
+            .filter(|p| !first.contains(p)),
+    );
     let order = insert::brio(sites, &rest);
     let inserted_order: Vec<u32> = first.iter().chain(&order).copied().collect();
-    let (local, local_first, local_order) = if stored_in_input_order() {
+    if stored_in_input_order() {
         let input_order: Vec<u32> = (0..input.representative.len() as u32).collect();
-        (sites.permuted(&input_order), first.clone(), order)
-    } else {
-        let local_order = (k as u32..inserted_order.len() as u32).collect();
-        (
-            sites.permuted(&inserted_order),
-            (0..k as u32).collect(),
-            local_order,
-        )
-    };
+        let local = sites.permuted(&input_order);
+        return built(
+            shape,
+            input,
+            &local,
+            first,
+            order.iter().copied(),
+            &inserted_order,
+        );
+    }
+    // The copy holds the sites in insertion order: the first simplex is
+    // its first `k` sites, and the order the rest, so neither is a list
+    // (#667).
+    let local = sites.permuted(&inserted_order);
+    let local_first: Small<u32, 12> = (0..k as u32).collect();
+    built(
+        shape,
+        input,
+        &local,
+        &local_first,
+        k as u32..inserted_order.len() as u32,
+        &inserted_order,
+    )
+}
+
+/// The triangulation of the sites `local` (`first`, then `order`) and the
+/// pass after it.
+fn built<S: insert::Shape>(
+    shape: S,
+    input: &Input<'_>,
+    local: &insert::Sites,
+    first: &[u32],
+    order: impl ExactSizeIterator<Item = u32>,
+    inserted_order: &[u32],
+) -> Result<Complex, Error> {
     // D = 2 by flips on half-edges, unless a test asks for the mesh of
     // every dimension (#667).
     if S::FLIPS && !half_edges_off() {
-        let mesh = plane::PlaneMesh::build(&local, &local_first, &local_order)?;
-        return after(mesh, input, &local, &inserted_order);
+        let mesh = plane::PlaneMesh::build(local, first, order)?;
+        return after(mesh, input, local, inserted_order);
     }
-    let mesh = insert::Mesh::build(shape, &local, &local_first, &local_order)?;
-    after(mesh, input, &local, &inserted_order)
+    let mesh = insert::Mesh::build(shape, local, first, order)?;
+    after(mesh, input, local, inserted_order)
 }
 
 /// The pass after the insertion: the cospherical groups merged and the

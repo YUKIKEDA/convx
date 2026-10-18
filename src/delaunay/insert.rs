@@ -765,7 +765,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
         shape: S,
         sites: &'a Sites,
         first: &[u32],
-        order: &[u32],
+        order: impl ExactSizeIterator<Item = u32>,
     ) -> Result<Self, Error> {
         let d = sites.dim();
         let k = shape.k();
@@ -823,7 +823,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
         }
         mesh.link_initial(&cells);
         mesh.last = s;
-        for &q in order {
+        for q in order {
             if S::FLIPS {
                 mesh.insert_by_flips(q)?;
             } else {

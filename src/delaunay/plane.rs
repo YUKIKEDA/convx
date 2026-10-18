@@ -46,7 +46,11 @@ impl<'a> PlaneMesh<'a> {
     /// The triangulation of the sites `order` after the initial triangle
     /// `first` (three affinely independent sites), as
     /// [`super::insert::Mesh::build`] makes it by flips.
-    pub(super) fn build(sites: &'a Sites, first: &[u32], order: &[u32]) -> Result<Self, Error> {
+    pub(super) fn build(
+        sites: &'a Sites,
+        first: &[u32],
+        order: impl ExactSizeIterator<Item = u32>,
+    ) -> Result<Self, Error> {
         let mut mesh = Self {
             sites,
             triangles: Vec::with_capacity(2 * (order.len() + first.len()) + 4),
@@ -76,7 +80,7 @@ impl<'a> PlaneMesh<'a> {
         }
         mesh.link_initial(&cells);
         mesh.last = s;
-        for &q in order {
+        for q in order {
             mesh.insert(q)?;
         }
         debug_assert!(mesh.linked(), "half-edges are symmetric and share an edge");
