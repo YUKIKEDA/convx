@@ -193,24 +193,26 @@ impl<'a> PlaneMesh<'a> {
             state ^= state << 13;
             state ^= state >> 7;
             state ^= state << 17;
-            let offset = (state % 3) as u32;
-            // Every edge's orientation first, then the first edge from
-            // `offset` with `q` strictly beyond it, other than the one the
-            // walk came in by: the step the walk takes testing them in turn,
-            // chosen without a branch on each sign.
-            let across = self.triangles[c as usize].across;
-            let mut beyond = 0_u32;
-            for (slot, &f) in across.iter().enumerate() {
-                let negative = self.replaced(c, slot, q)? == Sign::Negative;
-                beyond |= u32::from(negative & (f / 3 != came_from)) << slot;
+            let offset = (state % 3) as usize;
+            let mut next = None;
+            for t in 0..3 {
+                let slot = (t + offset) % 3;
+                let n = self.across_of(3 * c + slot as u32) / 3;
+                if n == came_from {
+                    continue;
+                }
+                if self.replaced(c, slot, q)? == Sign::Negative {
+                    next = Some(n);
+                    break;
+                }
             }
-            let turned = ((beyond >> offset) | (beyond << (3 - offset))) & 0b111;
-            if turned == 0 {
-                return Ok(c);
+            match next {
+                Some(n) => {
+                    came_from = c;
+                    c = n;
+                }
+                None => return Ok(c),
             }
-            let slot = (turned.trailing_zeros() + offset) % 3;
-            came_from = c;
-            c = across[slot as usize] / 3;
         }
     }
 
