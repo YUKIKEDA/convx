@@ -61,12 +61,12 @@ edit('src/delaunay/mod.rs', '''        let scaled = crate::scaling::scaled_copy(
         out
 ''')
 edit('src/delaunay/mod.rs', '''    let input = accept_sites(dim, points)?;
-    let complex = if flat(&input)? {
+    if flat(&input)? {
 ''', '''    let input = accept_sites(dim, points)?;
     crate::stage(1);
     let is_flat = flat(&input)?;
     crate::stage(2);
-    let complex = if is_flat {
+    if is_flat {
 ''')
 edit('src/delaunay/mod.rs', '''    let inserted_order = insert::brio(input, first, &input.representatives);
 ''', '''    let inserted_order = insert::brio(input, first, &input.representatives);
