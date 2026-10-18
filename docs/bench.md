@@ -7965,3 +7965,32 @@ Everything taken, against the head of #671, with the control of that head built 
 | 10^6 | 0.85 | 1.03 | 0.96 → 0.83 |
 
 Where the build of 1,000 points spends its time, on the head with the tests inlined: by perf in WSL2 (4,000 samples a second), 78% of the samples in the insertion, most of them in the first stage of the predicates, the order 5%, the pass after the insertion and publication 7%, the acceptance and the rows of the sites 4%. By VTune's hardware sampling on Windows (`uarch-exploration`, one core), memory is not what holds it: 2.5% of the slots are memory bound, and the core retires 3.1 instructions a clock. The build retires about 4,600 instructions a site, of which the conflict tests of the flips are 1,580 (about 175 a test, the in-circle filter about 60 of them), and 23% of the slots are lost to mispredicted branches, half of the walk's: the edge a step leaves by and the outcome of a conflict test are not predictable. The stages of the head (`benches/d2/marks.py`), at 1,000 points: the insertion 288 us, under spade's whole build of 334 us; the pass after the insertion 28 us, the order 21 us, the acceptance 10 us, publication 5 us, the rows of the sites 4 us. A second VTune profile, on the head with the splits fixed: 8% fewer clockticks, loads blocked by store forwarding 7.1% to 2.6% of them, 22% of the slots lost to mispredicted branches, 1.3% memory bound; the pass after the insertion 5.3% of the clockticks and 450 instructions a site, two thirds of them in drafting the cells. What is left between 100 and 1,000 points is the work around the insertion, and in the insertion that count of instructions and those branches. After the direct publication, at 1,000 points: the groups 3 us and the cells written and published 14 us, where the pass and publication took 33 us; the order 21 us, of which perf gives the comparison sort a third and the keys (the round's hash, the box, the Morton codes) the rest; the acceptance 10 us. What is left at 100 to 1,000 points, 4 to 6%, is spread over those. A third VTune profile on that head: 39.8 billion clockticks where the second had 41.6, loads blocked by store forwarding 1.1% of them; the order 4% of the clockticks, spread over the box (0.7%), the Morton codes (1.1%), the keys (0.3%), and the sort (0.6%), none of which would move the build by more than about 0.5%.
+
+## The Delaunay build of the lattice of D = 3, slower since #671, #678
+
+The comparison of R2-2 (#674) read the Delaunay triangulation of the lattice of D = 3 (`lattice-d3-n27000`, rbox's) 1.10 of 0.1.0's after allowing for CGAL and Qhull of the same run. Timed by the comparison's adapter (`convx_run`), each commit alternated and pinned to core 2 under WSL2, 0.1.0's commit of the comparison (`71b3069`) built twice as the control:
+
+| Commit | Lattice D3, against `71b3069` |
+| --- | ---: |
+| `71b3069`, built again | 1.00 |
+| #663 | 1.02 |
+| #669 | 1.06 |
+| #671 | 1.15 |
+| #672 | 1.14 |
+| `main` after #673 | 1.15 |
+
+Nine rounds; one round's spread was 0.93 to 1.15, so the steps below #671 are within it. The hulls the comparison read slower (`near`, `sphere` D2, `lattice`, `plummer`, `cube` D3 and D4 at 10^5) read 0.98 to 1.03 against a control of 0.97 to 1.01 in the same sitting: the load of that run.
+
+#671 decides each face between two new tetrahedra by an orientation where it links them, so that a build that records no cospherical face skips the walk after the insertion. A lattice records cospherical faces at once and is walked anyway, and most faces decided at its insertions are removed by a later cavity. The fix decides no face at insertion once one was recorded cospherical; the walk decides the faces that remain by the same orientation.
+
+| Row (rbox) | Control | `main` | Fix |
+| --- | ---: | ---: | ---: |
+| Delaunay `lattice` D3 | 1.00 | 1.07 | 1.02 |
+| Delaunay `cube` D3 10^5 | 1.02 | 0.99 | 1.01 |
+| Delaunay `sphere` D3 10^5 | 0.99 | 0.99 | 0.99 |
+| Delaunay `near` D3 10^5 | 1.00 | 0.99 | 1.02 |
+| Delaunay `lattice` D4 | 0.98 | 0.98 | 0.97 |
+
+Against `71b3069`, seven rounds. The parity run's 44 sets, convx alone, the fix against `main` (`a56c055`) and `main` built twice, seven rounds (three for a build over 1.5 s): the fix's median 1.001 (0.931 to 1.085) against the control's 1.003 (0.933 to 1.092), and the parity lattice of D = 3 0.946 against the control's 1.045. The lattice of D = 2, which this fix does not reach, read 1.085 against 1.031.
+
+The parity tools had not run since #663: `benches/parity/marks.py` wrote its function before `#![deny(missing_docs)]`, and #672 had moved the Delaunay lines it finds. Both are fixed here, and a pull request that changes a build for speed now runs the parity run on every set before it is ready (`docs/verification.md`, the owner, 2026-10-19).
