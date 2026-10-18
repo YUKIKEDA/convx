@@ -265,12 +265,22 @@ impl<'a> PlaneMesh<'a> {
             vertices: [a, b, c],
             across: [oa, ob, oc],
         } = self.triangles[t as usize];
-        let t2 = self.push([0; 3]);
-        let t3 = self.push([0; 3]);
         // t = (a, b, q), t2 = (b, c, q), t3 = (c, a, q): q at slot 2 of each.
+        // The new triangles are pushed whole, and `t` and the outer edges
+        // linked to them after.
+        let t2 = self.triangles.len() as u32;
+        let t3 = t2 + 1;
+        self.triangles.push(Triangle {
+            vertices: [b, c, q],
+            across: [3 * t3 + 1, 3 * t, oa],
+        });
+        self.triangles.push(Triangle {
+            vertices: [c, a, q],
+            across: [3 * t + 1, 3 * t2, ob],
+        });
         self.set(t, [a, b, q], [3 * t2 + 1, 3 * t3, oc]);
-        self.set(t2, [b, c, q], [3 * t3 + 1, 3 * t, oa]);
-        self.set(t3, [c, a, q], [3 * t + 1, 3 * t2, ob]);
+        self.link(3 * t2 + 2, oa);
+        self.link(3 * t3 + 2, ob);
         stack.extend([3 * t + 2, 3 * t2 + 2, 3 * t3 + 2]);
     }
 
@@ -290,13 +300,21 @@ impl<'a> PlaneMesh<'a> {
         let y = uv[su];
         let u_np = ua[(su + 2) % 3];
         let u_nr = ua[(su + 1) % 3];
-        let t2 = self.push([0; 3]);
-        let t4 = self.push([0; 3]);
         // t = (x, p, q), t2 = (x, q, r), u = (y, r, q), t4 = (y, q, p).
+        let t2 = self.triangles.len() as u32;
+        let t4 = t2 + 1;
+        self.triangles.push(Triangle {
+            vertices: [x, q, r],
+            across: [3 * u, t_np, 3 * t + 1],
+        });
+        self.triangles.push(Triangle {
+            vertices: [y, q, p],
+            across: [3 * t, u_nr, 3 * u + 1],
+        });
         self.set(t, [x, p, q], [3 * t4, 3 * t2 + 2, t_nr]);
-        self.set(t2, [x, q, r], [3 * u, t_np, 3 * t + 1]);
         self.set(u, [y, r, q], [3 * t2, 3 * t4 + 2, u_np]);
-        self.set(t4, [y, q, p], [3 * t, u_nr, 3 * u + 1]);
+        self.link(3 * t2 + 1, t_np);
+        self.link(3 * t4 + 1, u_nr);
         stack.extend([3 * t + 2, 3 * t2 + 1, 3 * u + 2, 3 * t4 + 1]);
     }
 
