@@ -596,19 +596,6 @@ fn stored_in_input_order() -> bool {
 /// unknown by the lifted orientation, without the orientation that decides
 /// most of them first: a test's override on this thread, to show that the
 /// orientation changes nothing published (#451). Always false otherwise.
-/// Whether a test asked for the mesh of every dimension in D = 2 instead
-/// of half-edges (#667).
-fn half_edges_off() -> bool {
-    #[cfg(test)]
-    {
-        tests::HALF_EDGES_OFF.with(core::cell::Cell::get)
-    }
-    #[cfg(not(test))]
-    {
-        false
-    }
-}
-
 fn every_unknown_face_lifted() -> bool {
     #[cfg(test)]
     {
@@ -814,9 +801,8 @@ fn built<S: insert::Shape, W: Wants>(
     order: impl ExactSizeIterator<Item = u32>,
     inserted_order: &[u32],
 ) -> Result<W::Out, Error> {
-    // D = 2 by flips on half-edges, unless a test asks for the mesh of
-    // every dimension (#667).
-    if S::FLIPS && !half_edges_off() {
+    // D = 2 by flips on half-edges (#667); the mesh digs a cavity.
+    if S::FLIPS {
         let mesh = plane::PlaneMesh::build(local, first, order)?;
         return after::<_, W>(mesh, input, local, inserted_order);
     }

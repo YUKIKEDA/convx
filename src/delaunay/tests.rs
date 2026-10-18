@@ -17,9 +17,6 @@ thread_local! {
     /// orientation that decides most of them (#451).
     pub(super) static EVERY_UNKNOWN_FACE_LIFTED: core::cell::Cell<bool> =
         const { core::cell::Cell::new(false) };
-    /// Builds D = 2 on the mesh of every dimension on this thread instead of
-    /// half-edges, to compare the two (#667).
-    pub(super) static HALF_EDGES_OFF: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
     /// Turns the table of translates off on this thread, to compare a
     /// build with it and without (#637).
     pub(super) static TRANSLATES_OFF: core::cell::Cell<bool> =
@@ -1507,12 +1504,12 @@ fn the_storage_order_of_the_sites_changes_nothing_published() {
     }
 }
 
-/// The insertion of D = 2 on half-edges publishes what the mesh of every
-/// dimension does, in the same order (#667): random sites, an integer grid
-/// with duplicates, a lattice (cocircular everywhere), sites on and near a
-/// circle, and few sites.
+/// The insertion of D = 2 on half-edges publishes the simplices, with their
+/// neighbors, that the insertion of any dimension publishes (#667), as sets:
+/// random sites, few of them among them, an integer grid with duplicates,
+/// a lattice (cocircular everywhere), sites on and near a circle.
 #[test]
-fn half_edges_publish_what_the_mesh_does() {
+fn half_edges_publish_what_the_generic_insertion_does() {
     let mut state = 667_u64;
     let mut next = move || {
         state ^= state << 13;
@@ -1549,11 +1546,8 @@ fn half_edges_publish_what_the_mesh_does() {
     }
     cases.push(("near circle", near));
     for (family, points) in &cases {
-        let halves = DelaunayBuilder::new(2, points).build().unwrap();
-        HALF_EDGES_OFF.with(|c| c.set(true));
-        let mesh = DelaunayBuilder::new(2, points).build();
-        HALF_EDGES_OFF.with(|c| c.set(false));
-        assert_eq!(halves, mesh.unwrap(), "{family}");
+        let [halves, generic] = by_both_shapes(2, points);
+        assert_eq!(rows(&halves), rows(&generic), "{family}");
         check(&halves, points);
     }
 }
