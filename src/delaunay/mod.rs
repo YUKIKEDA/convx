@@ -1030,9 +1030,17 @@ fn after<B: insert::Built, W: Wants>(
     // exchanged when it is negative, which the draft and `publish` make:
     // no sort, no parity, no groups (#667).
     if W::CELLS && B::FLIPS && !merged {
-        let mut vertices = Vec::with_capacity(singles as usize * 3);
-        let mut neighbors = Vec::with_capacity(singles as usize * 3);
-        for c in mesh.finite_cells() {
+        // Written in place, three at a time, into lists of their length: a
+        // push each checked the capacity and wrote the length (#667).
+        const TURN: [[usize; 3]; 3] = [[0, 1, 2], [1, 2, 0], [2, 0, 1]];
+        let mut vertices = vec![0_u32; singles as usize * 3];
+        let mut neighbors = vec![0_u32; singles as usize * 3];
+        let rows = vertices
+            .as_chunks_mut::<3>()
+            .0
+            .iter_mut()
+            .zip(neighbors.as_chunks_mut::<3>().0.iter_mut());
+        for (c, (row, links)) in mesh.finite_cells().zip(rows) {
             let v = mesh.vertices_of(c);
             let s = [site(v[0]), site(v[1]), site(v[2])];
             let first = if s[0] < s[1] {
@@ -1046,11 +1054,9 @@ fn after<B: insert::Built, W: Wants>(
             } else {
                 2
             };
-            for i in 0..3 {
-                let slot = (first + i) % 3;
-                vertices.push(s[slot]);
-                neighbors.push(draft_of[mesh.neighbor(c, slot) as usize]);
-            }
+            let turn = TURN[first];
+            *row = turn.map(|slot| s[slot]);
+            *links = turn.map(|slot| draft_of[mesh.neighbor(c, slot) as usize]);
         }
         debug_assert!(
             every_site_a_vertex(vertices.iter().copied(), &input.representative),
