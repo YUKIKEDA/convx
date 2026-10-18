@@ -4,7 +4,10 @@ usage: marks_d2.py <copy root>
 
 Each mark adds the time since the previous mark to its stage, in a thread-local
 table; `convx::stages_take()` returns and clears the table. The stages:
-0 scale, 1 accept, 2 sites, 3 flat, 4 order, 5 copy, 6 insert, 7 group, 8 publish.
+0 scale, 1 accept, 2 flat, 3 order, 4 sites (the rows in insertion order),
+5 insert (either insertion: the mesh, or the half-edges of D = 2), 6 group (the
+groups merged after the insertion), 7 publish (the cells written, from the
+triangles directly or through the draft, and published).
 """
 import sys
 
@@ -21,8 +24,8 @@ def edit(p, old, new):
 edit('src/lib.rs', '#![deny(missing_docs)]\n', '''#![deny(missing_docs)]
 
 thread_local! {
-    static STAGES: std::cell::RefCell<([f64; 9], Option<std::time::Instant>)> =
-        const { std::cell::RefCell::new(([0.0; 9], None)) };
+    static STAGES: std::cell::RefCell<([f64; 8], Option<std::time::Instant>)> =
+        const { std::cell::RefCell::new(([0.0; 8], None)) };
 }
 
 /// Starts the clock of the stage marks.
@@ -43,48 +46,45 @@ pub(crate) fn stage(i: usize) {
 }
 
 /// The seconds of each stage since the last call, and clears them.
-pub fn stages_take() -> [f64; 9] {
-    STAGES.with(|s| std::mem::replace(&mut s.borrow_mut().0, [0.0; 9]))
+pub fn stages_take() -> [f64; 8] {
+    STAGES.with(|s| std::mem::replace(&mut s.borrow_mut().0, [0.0; 8]))
 }
 ''')
 
 edit('src/delaunay/mod.rs', '''        let scaled = crate::scaling::scaled_copy(self.points, crate::scaling::SITES_FROM);
-        Ok(publish(complex(
-            self.dim,
-            scaled.as_deref().unwrap_or(self.points),
-        )?))
+        triangulation(self.dim, scaled.as_deref().unwrap_or(self.points))
 ''', '''        crate::stage_start();
         let scaled = crate::scaling::scaled_copy(self.points, crate::scaling::SITES_FROM);
         crate::stage(0);
-        let complex = complex(self.dim, scaled.as_deref().unwrap_or(self.points))?;
-        let out = publish(complex);
-        crate::stage(8);
-        Ok(out)
+        let out = triangulation(self.dim, scaled.as_deref().unwrap_or(self.points));
+        crate::stage(7);
+        out
 ''')
 edit('src/delaunay/mod.rs', '''    let input = accept_sites(dim, points)?;
-    let sites = insert::Sites::of(&input);
-    let complex = if flat(&input, &sites)? {
+    if flat(&input)? {
 ''', '''    let input = accept_sites(dim, points)?;
     crate::stage(1);
-    let sites = insert::Sites::of(&input);
+    let is_flat = flat(&input)?;
     crate::stage(2);
-    let is_flat = flat(&input, &sites)?;
-    crate::stage(3);
-    let complex = if is_flat {
+    if is_flat {
 ''')
-edit('src/delaunay/mod.rs', '''    let order = insert::brio(sites, &rest);
-''', '''    let order = insert::brio(sites, &rest);
+edit('src/delaunay/mod.rs', '''    let inserted_order = insert::brio(input, first, &input.representatives);
+''', '''    let inserted_order = insert::brio(input, first, &input.representatives);
+    crate::stage(3);
+''')
+edit('src/delaunay/mod.rs', '''    let local = insert::Sites::of(input, inserted_order);
+''', '''    let local = insert::Sites::of(input, inserted_order);
     crate::stage(4);
 ''')
-edit('src/delaunay/mod.rs', '''    let mesh = insert::Mesh::build(shape, &local, &local_first, &local_order)?;
-''', '''    crate::stage(5);
-    let mesh = insert::Mesh::build(shape, &local, &local_first, &local_order)?;
-    crate::stage(6);
+edit('src/delaunay/mod.rs', '''        let mesh = plane::PlaneMesh::build(local, first, order)?;
+''', '''        let mesh = plane::PlaneMesh::build(local, first, order)?;
+        crate::stage(5);
 ''')
-edit('src/delaunay/mod.rs', '''    drop(mesh);
-    Ok(draft.finish(d, input.representative.clone()))
-''', '''    drop(mesh);
-    let finished = draft.finish(d, input.representative.clone());
-    crate::stage(7);
-    Ok(finished)
+edit('src/delaunay/mod.rs', '''    let mesh = insert::Mesh::build(shape, local, first, order)?;
+''', '''    let mesh = insert::Mesh::build(shape, local, first, order)?;
+    crate::stage(5);
+''')
+edit('src/delaunay/mod.rs', '''    // D = 2 by flips, no group merged, and only the triangulation wanted:
+''', '''    crate::stage(6);
+    // D = 2 by flips, no group merged, and only the triangulation wanted:
 ''')

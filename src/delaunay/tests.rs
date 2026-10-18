@@ -17,6 +17,9 @@ thread_local! {
     /// orientation that decides most of them (#451).
     pub(super) static EVERY_UNKNOWN_FACE_LIFTED: core::cell::Cell<bool> =
         const { core::cell::Cell::new(false) };
+    /// Builds D = 2 on the mesh of every dimension on this thread instead of
+    /// half-edges, to compare the two (#667).
+    pub(super) static HALF_EDGES_OFF: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
     /// Turns the table of translates off on this thread, to compare a
     /// build with it and without (#637).
     pub(super) static TRANSLATES_OFF: core::cell::Cell<bool> =
@@ -665,8 +668,7 @@ fn named(rows: Vec<(Vec<u32>, Vec<u32>)>) -> Named {
 /// Whether the lift of `points` is flat (every site on one sphere).
 fn is_flat(dim: usize, points: &[f64]) -> bool {
     let input = accept_sites(dim, points).unwrap();
-    let sites = insert::Sites::of(&input);
-    flat(&input, &sites).unwrap()
+    flat(&input).unwrap()
 }
 
 /// The triangulation built by insertion; panics on a flat lift.
@@ -1502,5 +1504,56 @@ fn the_storage_order_of_the_sites_changes_nothing_published() {
             assert_eq!(rows(&inserted), rows(&stored), "D = {dim}, {family}");
             assert_eq!(inserted.representative(), stored.representative());
         }
+    }
+}
+
+/// The insertion of D = 2 on half-edges publishes what the mesh of every
+/// dimension does, in the same order (#667): random sites, an integer grid
+/// with duplicates, a lattice (cocircular everywhere), sites on and near a
+/// circle, and few sites.
+#[test]
+fn half_edges_publish_what_the_mesh_does() {
+    let mut state = 667_u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let unit = |s: u64| (s >> 11) as f64 / (1_u64 << 53) as f64;
+    let mut cases: Vec<(&str, Vec<f64>)> = Vec::new();
+    for n in [3_usize, 4, 10, 100, 2000] {
+        cases.push(("random", (0..2 * n).map(|_| unit(next())).collect()));
+    }
+    cases.push(("grid", (0..2 * 600).map(|_| (next() % 9) as f64).collect()));
+    cases.push((
+        "lattice",
+        (0..400_u32)
+            .flat_map(|i| [f64::from(i % 20), f64::from(i / 20)])
+            .collect(),
+    ));
+    // The integer points on the circle of squared radius 25, with its centre.
+    let mut circle = vec![0.0, 0.0];
+    for x in -5_i32..=5 {
+        for y in -5_i32..=5 {
+            if x * x + y * y == 25 {
+                circle.extend([f64::from(x), f64::from(y)]);
+            }
+        }
+    }
+    cases.push(("circle", circle));
+    let mut near = Vec::new();
+    for i in 0..300 {
+        let a = f64::from(i) * 0.021;
+        near.extend([a.cos() * (1.0 + 1e-12 * unit(next())), a.sin()]);
+    }
+    cases.push(("near circle", near));
+    for (family, points) in &cases {
+        let halves = DelaunayBuilder::new(2, points).build().unwrap();
+        HALF_EDGES_OFF.with(|c| c.set(true));
+        let mesh = DelaunayBuilder::new(2, points).build();
+        HALF_EDGES_OFF.with(|c| c.set(false));
+        assert_eq!(halves, mesh.unwrap(), "{family}");
+        check(&halves, points);
     }
 }

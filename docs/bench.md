@@ -7932,3 +7932,36 @@ A prototype of the insertion of D = 2 in spade's order, the insertion by flips k
 | 10^6 | 1.38 | 0.92 |
 
 Left. Consecutive sites of that order are far apart in the input and in the mesh, where BRIO keeps them near; what of the 1.37 is the memory and what the flips was not measured. spade's bulk load keeps its own structure for the hull and is not a walk over a triangulation.
+
+### D = 2 on half-edges
+
+The insertion by flips on a structure of its own: a triangle holds its three vertices and, for each edge, the half-edge across it, so a split or a flip links the triangles it changes without looking for the slot that points back; the order, the walk, the predicates, and the candidates are those of the mesh, and a test holds what the two publish equal. Each change timed as above, against the commit before it and its control.
+
+| Change | Ratio to the commit before | Control | Decision |
+| --- | --- | --- | --- |
+| The triangles on half-edges | 0.96 at 10 points, 0.99 to 1.00 from 1,000; convx / spade 1.21 to 1.21 at 1,000, 1.10 to 1.08 at 10^4, 0.98 to 0.94 at 10^6 | 0.92 to 1.04 | Taken with the next row |
+| The triangles holding their vertices' coordinates, so that a test reads no other site's row | 0.94 to 1.09 | 0.98 to 1.03 | Left: within the control; the triangle grows from 24 to 72 bytes |
+| The conflict and orientation tests inlined into the walk and the flips, where they had been calls returning a `Result` through memory (a profile gave them 49% of the samples) | 0.89 to 0.98; convx / spade 1.22 to 1.13 at 1,000, 1.08 to 1.03 at 10^4, 0.95 to 0.92 at 10^6 | 0.94 to 1.01 | Taken |
+| The walk's signs read again for the edge a site lies on, on half-edges | 1.02 to 1.05 | 0.94 to 1.03 | Left: slower, as in the mesh |
+| One round of Morton order instead of BRIO (a measurement) | 0.91 at 1,000, 1.04 to 1.05 at 10^4 and 10^5 | 0.96 to 1.03 | Left: the rounds cost the walk nothing measurable |
+| A split pushes its new triangles whole, where it pushed blanks built on the stack and read back across two stores (VTune: loads blocked by store forwarding, 7% of the clockticks) | 0.93 to 0.96 from 10 to 10^4; convx / spade 1.14 to 1.11 at 1,000, 0.90 to 0.87 at 10^6 | 0.96 to 1.08 | Taken |
+| The walk tests every edge of a step and chooses the edge without a branch on each sign (VTune: bad speculation, half the slots of the walk) | convx / spade 1.10 to 1.15 at 1,000, 1.16 to 1.25 at 100 | 0.98 to 1.09 | Left: the orientation it adds costs more than the mispredictions it removes |
+| No list for the first simplex and the order of the copy in insertion order; the representatives and the order's keys sized once; the rows of the sites made once, from the input, where they were made in the input's order and copied | 0.97 at 10 points, 0.96 to 1.01 above | 0.97 to 1.04 | Taken: 29 allocations and reallocations of a build of 10 points to 22 |
+| The order with its first simplex in one list, owned by the rows; no pairing of a complex of single cells | 0.94 at 10 points, 0.97 to 0.99 above | 0.97 to 1.00 | Taken: 22 to 18 |
+| The links of a drafted cell appended at once, not pushed one by one (VTune: the drafted cells 330 instructions a site) | 1.05 to 1.08 from 100 to 10^4 points | 0.98 to 1.00 | Left: slower |
+| A triangulation of single cells built for itself published from the half-edges directly, each triangle turned to start at its smallest site: no draft, sort, parity, or group | 0.87 at 10 points, 0.93 to 0.98 above; convx / spade 1.12 to 0.98 at 10, 1.10 to 1.06 at 1,000, 0.88 to 0.82 at 10^6 | 0.98 to 1.01 | Taken |
+| The order of D = 2 sorted by radix on its round and code, a byte a pass, from 128 sites | convx / spade 1.05 to 1.04 at 1,000, 0.97 to 0.97 at 10^4 | 0.97 to 1.03 | Left: within the control; perf gives the sort a third of the order |
+| The triangles published directly written in place, three at a time, into lists zeroed first (VTune: the direct publication 365 instructions a site, most in its pushes) | convx / spade 1.05 to 1.07 at 1,000, 0.89 to 0.93 at 10^5 | 0.96 to 1.02 | Left: slower |
+
+Everything taken, against the head of #671, with the control of that head built twice:
+
+| Points | Ratio to #671 | Control | convx / spade, #671 → taken |
+| ---: | ---: | ---: | --- |
+| 10 | 0.63 | 0.94 | 1.45 → 0.96 |
+| 100 | 0.95 | 1.07 | 1.20 → 1.06 |
+| 1,000 | 0.89 | 1.05 | 1.22 → 1.04 |
+| 10^4 | 0.85 | 1.00 | 1.10 → 0.97 |
+| 10^5 | 0.82 | 1.01 | 1.02 → 0.89 |
+| 10^6 | 0.85 | 1.03 | 0.96 → 0.83 |
+
+Where the build of 1,000 points spends its time, on the head with the tests inlined: by perf in WSL2 (4,000 samples a second), 78% of the samples in the insertion, most of them in the first stage of the predicates, the order 5%, the pass after the insertion and publication 7%, the acceptance and the rows of the sites 4%. By VTune's hardware sampling on Windows (`uarch-exploration`, one core), memory is not what holds it: 2.5% of the slots are memory bound, and the core retires 3.1 instructions a clock. The build retires about 4,600 instructions a site, of which the conflict tests of the flips are 1,580 (about 175 a test, the in-circle filter about 60 of them), and 23% of the slots are lost to mispredicted branches, half of the walk's: the edge a step leaves by and the outcome of a conflict test are not predictable. The stages of the head (`benches/d2/marks.py`), at 1,000 points: the insertion 288 us, under spade's whole build of 334 us; the pass after the insertion 28 us, the order 21 us, the acceptance 10 us, publication 5 us, the rows of the sites 4 us. A second VTune profile, on the head with the splits fixed: 8% fewer clockticks, loads blocked by store forwarding 7.1% to 2.6% of them, 22% of the slots lost to mispredicted branches, 1.3% memory bound; the pass after the insertion 5.3% of the clockticks and 450 instructions a site, two thirds of them in drafting the cells. What is left between 100 and 1,000 points is the work around the insertion, and in the insertion that count of instructions and those branches. After the direct publication, at 1,000 points: the groups 3 us and the cells written and published 14 us, where the pass and publication took 33 us; the order 21 us, of which perf gives the comparison sort a third and the keys (the round's hash, the box, the Morton codes) the rest; the acceptance 10 us. What is left at 100 to 1,000 points, 4 to 6%, is spread over those. A third VTune profile on that head: 39.8 billion clockticks where the second had 41.6, loads blocked by store forwarding 1.1% of them; the order 4% of the clockticks, spread over the box (0.7%), the Morton codes (1.1%), the keys (0.3%), and the sort (0.6%), none of which would move the build by more than about 0.5%.

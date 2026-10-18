@@ -27,6 +27,7 @@
 //! that the hull core finds for the original sites.
 
 mod insert;
+mod plane;
 
 use crate::hull::classify::Placing;
 use crate::hull::input::{accept_sites, minimum_basis_with, Input};
@@ -36,7 +37,7 @@ use crate::hull::ridge::{
 };
 use crate::hull::simplicial::SimplicialHull;
 use crate::lists::Lists;
-use crate::predicates::{orient, Sign, Start};
+use crate::predicates::{orient, orient_lifted_from, LiftedHeight, Sign, Start};
 use crate::small::Small;
 use crate::Error;
 
@@ -111,10 +112,7 @@ impl<'a> DelaunayBuilder<'a> {
         // An input far from 1 is built on a copy scaled exactly (#589);
         // a triangulation publishes indices only.
         let scaled = crate::scaling::scaled_copy(self.points, crate::scaling::SITES_FROM);
-        Ok(publish(complex(
-            self.dim,
-            scaled.as_deref().unwrap_or(self.points),
-        )?))
+        triangulation(self.dim, scaled.as_deref().unwrap_or(self.points))
     }
 }
 
@@ -456,10 +454,14 @@ impl Draft {
         for &(c, slot) in &owners {
             self.links[c as usize * k + slot] = NO_NEIGHBOR;
         }
-        for (a, b) in pair_equal_keys_with_border(&keys, owners.len(), fingerprint) {
-            let ((ca, sa), (cb, sb)) = (owners[a], owners[b]);
-            self.links[ca as usize * k + sa] = cb;
-            self.links[cb as usize * k + sb] = ca;
+        // A complex of single cells has no face to pair, and its pairing,
+        // which allocates, is not made (#667).
+        if !owners.is_empty() {
+            for (a, b) in pair_equal_keys_with_border(&keys, owners.len(), fingerprint) {
+                let ((ca, sa), (cb, sb)) = (owners[a], owners[b]);
+                self.links[ca as usize * k + sa] = cb;
+                self.links[cb as usize * k + sb] = ca;
+            }
         }
         drop((keys, owners));
         Complex {
@@ -594,6 +596,19 @@ fn stored_in_input_order() -> bool {
 /// unknown by the lifted orientation, without the orientation that decides
 /// most of them first: a test's override on this thread, to show that the
 /// orientation changes nothing published (#451). Always false otherwise.
+/// Whether a test asked for the mesh of every dimension in D = 2 instead
+/// of half-edges (#667).
+fn half_edges_off() -> bool {
+    #[cfg(test)]
+    {
+        tests::HALF_EDGES_OFF.with(core::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
+
 fn every_unknown_face_lifted() -> bool {
     #[cfg(test)]
     {
@@ -623,47 +638,125 @@ fn generic_insertion() -> bool {
 /// the lift is flat. Input checks and `DegenerateDimension` concern the
 /// original sites, with their original indices.
 pub(crate) fn complex(dim: usize, points: &[f64]) -> Result<Complex, Error> {
+    delaunay::<Groups>(dim, points)
+}
+
+/// The Delaunay triangulation of `points` (dimension `dim`), as
+/// [`complex`] builds it and [`publish`] publishes it.
+fn triangulation(dim: usize, points: &[f64]) -> Result<DelaunayTriangulation, Error> {
+    delaunay::<Cells>(dim, points)
+}
+
+/// What a build is for: the complex with its cospherical groups, which the
+/// Voronoi diagram reads, or the published triangulation alone, which a
+/// D = 2 build of single cells writes from its triangles directly (#667).
+trait Wants {
+    type Out;
+    /// Whether only the cells are wanted.
+    const CELLS: bool;
+    /// The output of a complex.
+    fn of(complex: Complex) -> Self::Out;
+    /// The output of a triangulation written directly; `None` when the
+    /// groups are wanted, and then no triangulation is written.
+    fn cells(triangulation: DelaunayTriangulation) -> Option<Self::Out>;
+}
+
+/// The complex with its groups.
+struct Groups;
+
+impl Wants for Groups {
+    type Out = Complex;
+    const CELLS: bool = false;
+    fn of(complex: Complex) -> Complex {
+        complex
+    }
+    fn cells(_: DelaunayTriangulation) -> Option<Complex> {
+        None
+    }
+}
+
+/// The published triangulation.
+struct Cells;
+
+impl Wants for Cells {
+    type Out = DelaunayTriangulation;
+    const CELLS: bool = true;
+    fn of(complex: Complex) -> DelaunayTriangulation {
+        publish(complex)
+    }
+    fn cells(triangulation: DelaunayTriangulation) -> Option<DelaunayTriangulation> {
+        Some(triangulation)
+    }
+}
+
+/// [`complex`] or [`triangulation`], as `W` wants.
+fn delaunay<W: Wants>(dim: usize, points: &[f64]) -> Result<W::Out, Error> {
     let input = accept_sites(dim, points)?;
-    let sites = insert::Sites::of(&input);
-    let complex = if flat(&input, &sites)? {
-        pull(input)?
-    } else {
-        // One insertion, compiled per shape (design §7, ADR 0005).
-        match input.dim() {
-            2 if !generic_insertion() => inserted(insert::Plane, &input, &sites)?,
-            3 if !generic_insertion() => inserted(insert::Space, &input, &sites)?,
-            d => inserted(insert::Any::of(d), &input, &sites)?,
-        }
-    };
+    if flat(&input)? {
+        return Ok(W::of(checked(pull(input)?)));
+    }
+    // One insertion, compiled per shape (design §7, ADR 0005).
+    match input.dim() {
+        2 if !generic_insertion() => inserted::<_, W>(insert::Plane, &input),
+        3 if !generic_insertion() => inserted::<_, W>(insert::Space, &input),
+        d => inserted::<_, W>(insert::Any::of(d), &input),
+    }
+}
+
+/// `complex`, after a debug check that every site is a vertex of it.
+fn checked(complex: Complex) -> Complex {
     debug_assert!(
-        {
-            let mut seen: Vec<u32> = complex.sites.iter().flatten().copied().collect();
-            seen.sort_unstable();
-            seen.dedup();
-            let mut reps: Vec<u32> = (0..complex.representative.len() as u32)
-                .filter(|&i| complex.representative[i as usize] == i)
-                .collect();
-            reps.sort_unstable();
-            seen == reps
-        },
+        every_site_a_vertex(
+            complex.sites.iter().flatten().copied(),
+            &complex.representative
+        ),
         "every site is a vertex of the Delaunay complex"
     );
-    Ok(complex)
+    complex
+}
+
+/// Whether `vertices` are every representative of `representative`.
+fn every_site_a_vertex(vertices: impl Iterator<Item = u32>, representative: &[u32]) -> bool {
+    let mut seen: Vec<u32> = vertices.collect();
+    seen.sort_unstable();
+    seen.dedup();
+    let reps: Vec<u32> = (0..representative.len() as u32)
+        .filter(|&i| representative[i as usize] == i)
+        .collect();
+    seen == reps
 }
 
 /// Whether the lift is flat: every representative is cospherical with the
 /// minimum basis, so the lifted sites span only dimension D (design §7).
-fn flat(input: &Input<'_>, sites: &insert::Sites) -> Result<bool, Error> {
+///
+/// It reads the input's points, with their heights made for each test: the
+/// rows of the sites are made once, after it, in insertion order (#667).
+fn flat(input: &Input<'_>) -> Result<bool, Error> {
     let basis = &input.spanning_points;
+    let n = basis.len() + 1;
     // On the stack for D <= 10 (#667).
-    let mut ids: Small<u32, 12> = basis.iter().copied().collect();
-    ids.push(0);
+    let mut points: Vec<&[f64]>;
+    let mut heights: Vec<LiftedHeight>;
+    let mut inline_points: [&[f64]; 12] = [&[]; 12];
+    let mut inline_heights = [LiftedHeight::of(&[]); 12];
+    let (points, heights): (&mut [&[f64]], &mut [LiftedHeight]) = if n <= 12 {
+        (&mut inline_points[..n], &mut inline_heights[..n])
+    } else {
+        points = vec![&[]; n];
+        heights = vec![LiftedHeight::of(&[]); n];
+        (&mut points, &mut heights)
+    };
+    for (i, &b) in basis.iter().enumerate() {
+        points[i] = input.point(b);
+        heights[i] = LiftedHeight::of(points[i]);
+    }
     for &p in &input.representatives {
         if basis.contains(&p) {
             continue;
         }
-        *ids.last_mut().unwrap_or(&mut 0) = p;
-        if sites.lifted(&ids, Start::FirstStage)? != Sign::Zero {
+        points[n - 1] = input.point(p);
+        heights[n - 1] = LiftedHeight::of(points[n - 1]);
+        if orient_lifted_from(points, heights, Start::FirstStage)? != Sign::Zero {
             return Ok(false);
         }
     }
@@ -683,34 +776,64 @@ fn flat(input: &Input<'_>, sites: &insert::Sites) -> Result<bool, Error> {
 /// apart, and their loads were a quarter of D2 at 10^6 sites (#363, #366).
 /// Its vertices are mapped back to the input's indices for the published
 /// rows and groups.
-fn inserted<S: insert::Shape>(
-    shape: S,
-    input: &Input<'_>,
-    sites: &insert::Sites,
-) -> Result<Complex, Error> {
+fn inserted<S: insert::Shape, W: Wants>(shape: S, input: &Input<'_>) -> Result<W::Out, Error> {
     let d = input.dim();
     let k = d + 1;
     let first = &input.spanning_points;
-    let rest: Vec<u32> = input
-        .representatives
-        .iter()
-        .copied()
-        .filter(|p| !first.contains(p))
-        .collect();
-    let order = insert::brio(sites, &rest);
-    let inserted_order: Vec<u32> = first.iter().chain(&order).copied().collect();
-    let (local, local_first, local_order) = if stored_in_input_order() {
+    // The first simplex and the order of the rest in one list (#667).
+    let inserted_order = insert::brio(input, first, &input.representatives);
+    if stored_in_input_order() {
         let input_order: Vec<u32> = (0..input.representative.len() as u32).collect();
-        (sites.permuted(&input_order), first.clone(), order)
-    } else {
-        let local_order = (k as u32..inserted_order.len() as u32).collect();
-        (
-            sites.permuted(&inserted_order),
-            (0..k as u32).collect(),
-            local_order,
-        )
-    };
-    let mesh = insert::Mesh::build(shape, &local, &local_first, &local_order)?;
+        let local = insert::Sites::of(input, input_order);
+        let order = inserted_order[k..].iter().copied();
+        return built::<S, W>(shape, input, &local, first, order, &inserted_order);
+    }
+    // The copy holds the sites in insertion order and owns that order: the
+    // first simplex is its first `k` sites, and the order the rest, so
+    // neither is a list (#667).
+    let local = insert::Sites::of(input, inserted_order);
+    let local_first: Small<u32, 12> = (0..k as u32).collect();
+    let sites = local.input_indices().len() as u32;
+    built::<S, W>(
+        shape,
+        input,
+        &local,
+        &local_first,
+        k as u32..sites,
+        local.input_indices(),
+    )
+}
+
+/// The triangulation of the sites `local` (`first`, then `order`) and the
+/// pass after it.
+fn built<S: insert::Shape, W: Wants>(
+    shape: S,
+    input: &Input<'_>,
+    local: &insert::Sites,
+    first: &[u32],
+    order: impl ExactSizeIterator<Item = u32>,
+    inserted_order: &[u32],
+) -> Result<W::Out, Error> {
+    // D = 2 by flips on half-edges, unless a test asks for the mesh of
+    // every dimension (#667).
+    if S::FLIPS && !half_edges_off() {
+        let mesh = plane::PlaneMesh::build(local, first, order)?;
+        return after::<_, W>(mesh, input, local, inserted_order);
+    }
+    let mesh = insert::Mesh::build(shape, local, first, order)?;
+    after::<_, W>(mesh, input, local, inserted_order)
+}
+
+/// The pass after the insertion: the cospherical groups merged and the
+/// cells drafted, on the triangulation of either insertion.
+fn after<B: insert::Built, W: Wants>(
+    mesh: B,
+    input: &Input<'_>,
+    local: &insert::Sites,
+    inserted_order: &[u32],
+) -> Result<W::Out, Error> {
+    let d = input.dim();
+    let k = d + 1;
     let site = |v: u32| local.input_index(v);
     // The place of each local site in the insertion order: its own index,
     // unless a test stores the sites in the input's order.
@@ -765,7 +888,7 @@ fn inserted<S: insert::Shape>(
     // tetrahedra it could; when it left none undecided and recorded none
     // cospherical, no face joins anything either.
     let walk_faces = every_unknown_face_lifted()
-        || !S::FLIPS
+        || !B::FLIPS
             && match k {
                 3 => mesh.recorded_cospherical(),
                 4 => mesh.recorded_cospherical() || mesh.left_undecided(),
@@ -857,7 +980,7 @@ fn inserted<S: insert::Shape>(
     // meet and are cospherical across their face join (#667). Every face the
     // per-face records joined was such a pair, unchanged since its test,
     // and a pair that is cospherical now joins two triangles of one group.
-    if S::FLIPS && !every_unknown_face_lifted() {
+    if B::FLIPS && !every_unknown_face_lifted() {
         for &(c, n) in mesh.candidates() {
             if !mesh.meet(c, n) || !mesh.is_finite(c) || !mesh.is_finite(n) {
                 continue;
@@ -898,6 +1021,49 @@ fn inserted<S: insert::Shape>(
             } else {
                 UNKNOWN
             };
+        }
+    }
+    // D = 2 by flips, no group merged, and only the triangulation wanted:
+    // each triangle is published as the mesh holds it, positive, turned to
+    // start at its smallest site. A turn of three vertices keeps the
+    // orientation, so that is the ascending order with its last two
+    // exchanged when it is negative, which the draft and `publish` make:
+    // no sort, no parity, no groups (#667).
+    if W::CELLS && B::FLIPS && !merged {
+        let mut vertices = Vec::with_capacity(singles as usize * 3);
+        let mut neighbors = Vec::with_capacity(singles as usize * 3);
+        for c in mesh.finite_cells() {
+            let v = mesh.vertices_of(c);
+            let s = [site(v[0]), site(v[1]), site(v[2])];
+            let first = if s[0] < s[1] {
+                if s[0] < s[2] {
+                    0
+                } else {
+                    2
+                }
+            } else if s[1] < s[2] {
+                1
+            } else {
+                2
+            };
+            for i in 0..3 {
+                let slot = (first + i) % 3;
+                vertices.push(s[slot]);
+                neighbors.push(draft_of[mesh.neighbor(c, slot) as usize]);
+            }
+        }
+        debug_assert!(
+            every_site_a_vertex(vertices.iter().copied(), &input.representative),
+            "every site is a vertex of the Delaunay triangulation"
+        );
+        let triangulation = DelaunayTriangulation {
+            dim: d,
+            representative: input.representative.clone(),
+            vertices,
+            neighbors,
+        };
+        if let Some(out) = W::cells(triangulation) {
+            return Ok(out);
         }
     }
     let mut draft = Draft::new(k, singles as usize);
@@ -1019,7 +1185,9 @@ fn inserted<S: insert::Shape>(
         }
     }
     drop(mesh);
-    Ok(draft.finish(d, input.representative.clone()))
+    Ok(W::of(checked(
+        draft.finish(d, input.representative.clone()),
+    )))
 }
 
 /// The most groups [`Translates`] keeps.

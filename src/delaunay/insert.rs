@@ -281,6 +281,66 @@ fixed_shape!(
     false
 );
 
+/// What the pass after the insertion reads of a triangulation: the
+/// mesh of every dimension and the half-edges of D = 2 (#667).
+pub(super) trait Built {
+    /// Whether the insertion was by flips, keeping candidates for
+    /// cospherical faces instead of a record per face.
+    const FLIPS: bool;
+    fn slots(&self) -> usize;
+    fn finite_cells(&self) -> impl Iterator<Item = u32> + '_;
+    fn neighbor(&self, c: u32, slot: usize) -> u32;
+    fn across(&self, c: u32, slot: usize) -> Across;
+    fn is_finite(&self, c: u32) -> bool;
+    fn vertices_of(&self, c: u32) -> &[u32];
+    fn lifted_ids(&self, ids: &[u32]) -> Result<Sign, Error>;
+    fn orient_ids(&self, ids: &[u32]) -> Result<Sign, Error>;
+    fn candidates(&self) -> &[(u32, u32)];
+    fn meet(&self, c: u32, n: u32) -> bool;
+    fn recorded_cospherical(&self) -> bool;
+    fn left_undecided(&self) -> bool;
+}
+
+impl<S: Shape> Built for Mesh<'_, S> {
+    const FLIPS: bool = S::FLIPS;
+    fn slots(&self) -> usize {
+        Mesh::slots(self)
+    }
+    fn finite_cells(&self) -> impl Iterator<Item = u32> + '_ {
+        Mesh::finite_cells(self)
+    }
+    fn neighbor(&self, c: u32, slot: usize) -> u32 {
+        Mesh::neighbor(self, c, slot)
+    }
+    fn across(&self, c: u32, slot: usize) -> Across {
+        Mesh::across(self, c, slot)
+    }
+    fn is_finite(&self, c: u32) -> bool {
+        Mesh::is_finite(self, c)
+    }
+    fn vertices_of(&self, c: u32) -> &[u32] {
+        Mesh::vertices_of(self, c)
+    }
+    fn lifted_ids(&self, ids: &[u32]) -> Result<Sign, Error> {
+        Mesh::lifted_ids(self, ids)
+    }
+    fn orient_ids(&self, ids: &[u32]) -> Result<Sign, Error> {
+        Mesh::orient_ids(self, ids)
+    }
+    fn candidates(&self) -> &[(u32, u32)] {
+        Mesh::candidates(self)
+    }
+    fn meet(&self, c: u32, n: u32) -> bool {
+        Mesh::meet(self, c, n)
+    }
+    fn recorded_cospherical(&self) -> bool {
+        Mesh::recorded_cospherical(self)
+    }
+    fn left_undecided(&self) -> bool {
+        Mesh::left_undecided(self)
+    }
+}
+
 /// The triangulation being built: `k = D + 1` vertices and neighbors per
 /// simplex, in flat arrays with stride `k`. `neighbors[c * k + i]` is the
 /// simplex across the face opposite vertex `i` of simplex `c`.
@@ -344,11 +404,13 @@ pub(super) struct Sites {
 }
 
 impl Sites {
-    pub(super) fn of(input: &Input<'_>) -> Self {
+    /// The rows of the input's sites `ids`, in that order: site `i` of the
+    /// rows is site `ids[i]` of the input. Made once a build, from the
+    /// input, in the order the mesh is built on (#667).
+    pub(super) fn of(input: &Input<'_>, ids: Vec<u32>) -> Self {
         let dim = input.dim();
-        let n = input.representative.len();
-        let mut rows = Vec::with_capacity(n * (dim + 2));
-        for i in 0..n as u32 {
+        let mut rows = Vec::with_capacity(ids.len() * (dim + 2));
+        for &i in &ids {
             let p = input.point(i);
             let height = LiftedHeight::of(p);
             rows.extend_from_slice(p);
@@ -358,24 +420,19 @@ impl Sites {
         Self {
             dim,
             rows,
-            input: (0..n as u32).collect(),
+            input: ids,
         }
     }
 
-    /// The rows of `ids`, in that order: site `i` of the copy is site
-    /// `ids[i]` of `self`.
-    pub(super) fn permuted(&self, ids: &[u32]) -> Self {
-        let stride = self.dim + 2;
-        let mut rows = Vec::with_capacity(ids.len() * stride);
-        for &i in ids {
-            let at = i as usize * stride;
-            rows.extend_from_slice(&self.rows[at..at + stride]);
-        }
-        Self {
-            dim: self.dim,
-            rows,
-            input: ids.iter().map(|&i| self.input[i as usize]).collect(),
-        }
+    /// The input index of every row, in order.
+    pub(super) fn input_indices(&self) -> &[u32] {
+        &self.input
+    }
+
+    /// The rows of every site of the input, in the input's order.
+    #[cfg(test)]
+    pub(super) fn all(input: &Input<'_>) -> Self {
+        Self::of(input, (0..input.representative.len() as u32).collect())
     }
 
     /// The input index of site `index`.
@@ -448,10 +505,37 @@ impl Sites {
     }
 }
 
+/// What the insertion order reads of the sites: their dimension and
+/// coordinates, from the input or from rows made of it.
+pub(super) trait Points {
+    fn dim(&self) -> usize;
+    fn point(&self, index: u32) -> &[f64];
+}
+
+impl Points for Sites {
+    fn dim(&self) -> usize {
+        self.dim
+    }
+
+    fn point(&self, index: u32) -> &[f64] {
+        Sites::point(self, index)
+    }
+}
+
+impl Points for Input<'_> {
+    fn dim(&self) -> usize {
+        Input::dim(self)
+    }
+
+    fn point(&self, index: u32) -> &[f64] {
+        Input::point(self, index)
+    }
+}
+
 /// The sign of the lifted orientation of a positive simplex followed by a
 /// point strictly inside its circumsphere: the standard simplex and its
 /// centroid, in dimension `d`.
-fn inside_sign(d: usize) -> Result<Sign, Error> {
+pub(super) fn inside_sign(d: usize) -> Result<Sign, Error> {
     // It depends on `d` alone: computed once a dimension in a process, for
     // dimensions below the cache's size (#667).
     static CACHE: [std::sync::OnceLock<Sign>; 17] = [const { std::sync::OnceLock::new() }; 17];
@@ -705,7 +789,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
         shape: S,
         sites: &'a Sites,
         first: &[u32],
-        order: &[u32],
+        order: impl ExactSizeIterator<Item = u32>,
     ) -> Result<Self, Error> {
         let d = sites.dim();
         let k = shape.k();
@@ -763,7 +847,7 @@ impl<'a, S: Shape> Mesh<'a, S> {
         }
         mesh.link_initial(&cells);
         mesh.last = s;
-        for &q in order {
+        for q in order {
             if S::FLIPS {
                 mesh.insert_by_flips(q)?;
             } else {
@@ -1277,7 +1361,8 @@ impl<'a, S: Shape> Mesh<'a, S> {
 /// bounding box of its own sites ([`brio`]).
 const CROWDED: usize = 16;
 
-/// The insertion order of `sites` (dimension `d`): biased randomized
+/// The sites `first`, then the insertion order of the other sites of
+/// `sites` (dimension `d`), in one list (#667): biased randomized
 /// insertion order (BRIO) over rounds of geometric sizes, each round in
 /// Morton order of the coordinates quantized over the sites' bounding box.
 /// Deterministic: the round of a site comes from a hash of its index, and
@@ -1297,14 +1382,14 @@ const CROWDED: usize = 16;
 /// it came from. Distinct sites on a box whose widths are finite do part,
 /// since the least and the greatest of a coordinate take the first and the
 /// last cell.
-pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
+pub(super) fn brio(rows: &impl Points, first: &[u32], sites: &[u32]) -> Vec<u32> {
     // D = 2 orders `u64` keys on a grid of 13 bits, which sort in less time
     // than `u128` ones; a crowded cell of that coarser grid is ordered again
     // like any other (#667).
     if rows.dim() == 2 {
-        ordered::<u64>(rows, sites)
+        ordered::<u64>(rows, first, sites)
     } else {
-        ordered::<u128>(rows, sites)
+        ordered::<u128>(rows, first, sites)
     }
 }
 
@@ -1366,7 +1451,7 @@ impl OrderKey for u64 {
 }
 
 /// [`brio`] on keys `K`.
-fn ordered<K: OrderKey>(rows: &Sites, sites: &[u32]) -> Vec<u32> {
+fn ordered<K: OrderKey>(rows: &impl Points, first: &[u32], sites: &[u32]) -> Vec<u32> {
     let d = rows.dim();
     let bits = grid_bits(d);
     let round = |s: u32| -> u32 {
@@ -1379,7 +1464,13 @@ fn ordered<K: OrderKey>(rows: &Sites, sites: &[u32]) -> Vec<u32> {
         z.trailing_zeros().min(32)
     };
     // One key per site (#423); the code is written by `in_morton_order`.
-    let mut keys: Vec<K> = sites.iter().map(|&s| K::of(round(s), s)).collect();
+    let mut keys: Vec<K> = Vec::with_capacity(sites.len());
+    keys.extend(
+        sites
+            .iter()
+            .filter(|s| !first.contains(s))
+            .map(|&s| K::of(round(s), s)),
+    );
     // The box of the range being ordered, allocated once, and the ranges
     // still to order after the whole: none where no cell is crowded, and
     // then nothing is allocated for them.
@@ -1402,14 +1493,17 @@ fn ordered<K: OrderKey>(rows: &Sites, sites: &[u32]) -> Vec<u32> {
             start = end;
         }
     }
-    keys.into_iter().map(OrderKey::site).collect()
+    let mut order = Vec::with_capacity(first.len() + keys.len());
+    order.extend_from_slice(first);
+    order.extend(keys.into_iter().map(OrderKey::site));
+    order
 }
 
 /// Writes into each key of `keys` the Morton code of its site on a grid of
 /// `bits` bits a coordinate over the bounding box of the sites of `keys`,
 /// and sorts them. `low` and `high` are scratch for the box.
 fn in_morton_order<K: OrderKey>(
-    rows: &Sites,
+    rows: &impl Points,
     bits: u32,
     keys: &mut [K],
     low: &mut [f64],
@@ -1620,10 +1714,10 @@ mod tests {
                     })
                     .collect();
                 let input = accept_sites(d, &points).unwrap();
-                let rows = Sites::of(&input);
+                let rows = Sites::all(&input);
                 let all: Vec<u32> = input.representatives.clone();
                 assert_eq!(
-                    brio(&rows, &all),
+                    brio(&rows, &[], &all),
                     brio_by_tuples(&rows, &all),
                     "D = {d}, case {case}"
                 );
@@ -1661,9 +1755,9 @@ mod tests {
                     points.extend((0..d).map(|_| radius * (2.0 * next() - 1.0)));
                 }
                 let input = accept_sites(d, &points).unwrap();
-                let rows = Sites::of(&input);
+                let rows = Sites::all(&input);
                 let all: Vec<u32> = input.representatives.clone();
-                let order = brio(&rows, &all);
+                let order = brio(&rows, &[], &all);
                 let what = format!("D = {d}, case {case}");
                 assert_eq!(order, brio_by_recursion(&rows, &all), "{what}");
                 assert!(order != brio_by_tuples(&rows, &all), "{what}");
@@ -1685,9 +1779,9 @@ mod tests {
         let mut points = vec![-top, -top, top, top];
         points.extend((0..200).map(|i| f64::from(i) * 1e300));
         let input = accept_sites(2, &points).unwrap();
-        let rows = Sites::of(&input);
+        let rows = Sites::all(&input);
         let all: Vec<u32> = input.representatives.clone();
-        let order = brio(&rows, &all);
+        let order = brio(&rows, &[], &all);
         assert_eq!(order, brio_by_tuples(&rows, &all));
         assert_eq!(order, brio_by_recursion(&rows, &all));
     }
@@ -1756,7 +1850,7 @@ mod tests {
                 .flat_map(|p| p.map(|x| x as f64 * scale + shift))
                 .collect();
             let input = accept_sites(2, &points).unwrap();
-            let rows = Sites::of(&input);
+            let rows = Sites::all(&input);
             let n = sites.len() as u32;
             for a in 0..n {
                 for b in a + 1..n {
