@@ -6,7 +6,8 @@ Each mark adds the time since the previous mark to its stage, in a thread-local
 table; `convx::stages_take()` returns and clears the table. The stages:
 0 scale, 1 accept, 2 flat, 3 order, 4 sites (the rows in insertion order),
 5 insert (either insertion: the mesh, or the half-edges of D = 2), 6 group (the
-pass after the insertion), 7 publish.
+groups merged after the insertion), 7 publish (the cells written, from the
+triangles directly or through the draft, and published).
 """
 import sys
 
@@ -51,17 +52,13 @@ pub fn stages_take() -> [f64; 8] {
 ''')
 
 edit('src/delaunay/mod.rs', '''        let scaled = crate::scaling::scaled_copy(self.points, crate::scaling::SITES_FROM);
-        Ok(publish(complex(
-            self.dim,
-            scaled.as_deref().unwrap_or(self.points),
-        )?))
+        triangulation(self.dim, scaled.as_deref().unwrap_or(self.points))
 ''', '''        crate::stage_start();
         let scaled = crate::scaling::scaled_copy(self.points, crate::scaling::SITES_FROM);
         crate::stage(0);
-        let complex = complex(self.dim, scaled.as_deref().unwrap_or(self.points))?;
-        let out = publish(complex);
+        let out = triangulation(self.dim, scaled.as_deref().unwrap_or(self.points));
         crate::stage(7);
-        Ok(out)
+        out
 ''')
 edit('src/delaunay/mod.rs', '''    let input = accept_sites(dim, points)?;
     let complex = if flat(&input)? {
@@ -87,10 +84,7 @@ edit('src/delaunay/mod.rs', '''    let mesh = insert::Mesh::build(shape, local, 
 ''', '''    let mesh = insert::Mesh::build(shape, local, first, order)?;
     crate::stage(5);
 ''')
-edit('src/delaunay/mod.rs', '''    drop(mesh);
-    Ok(draft.finish(d, input.representative.clone()))
-''', '''    drop(mesh);
-    let finished = draft.finish(d, input.representative.clone());
-    crate::stage(6);
-    Ok(finished)
+edit('src/delaunay/mod.rs', '''    // D = 2 by flips, no group merged, and only the triangulation wanted:
+''', '''    crate::stage(6);
+    // D = 2 by flips, no group merged, and only the triangulation wanted:
 ''')
