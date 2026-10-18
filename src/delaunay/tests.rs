@@ -668,8 +668,7 @@ fn named(rows: Vec<(Vec<u32>, Vec<u32>)>) -> Named {
 /// Whether the lift of `points` is flat (every site on one sphere).
 fn is_flat(dim: usize, points: &[f64]) -> bool {
     let input = accept_sites(dim, points).unwrap();
-    let sites = insert::Sites::of(&input);
-    flat(&input, &sites).unwrap()
+    flat(&input).unwrap()
 }
 
 /// The triangulation built by insertion; panics on a flat lift.

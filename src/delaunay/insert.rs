@@ -404,11 +404,13 @@ pub(super) struct Sites {
 }
 
 impl Sites {
-    pub(super) fn of(input: &Input<'_>) -> Self {
+    /// The rows of the input's sites `ids`, in that order: site `i` of the
+    /// rows is site `ids[i]` of the input. Made once a build, from the
+    /// input, in the order the mesh is built on (#667).
+    pub(super) fn of(input: &Input<'_>, ids: &[u32]) -> Self {
         let dim = input.dim();
-        let n = input.representative.len();
-        let mut rows = Vec::with_capacity(n * (dim + 2));
-        for i in 0..n as u32 {
+        let mut rows = Vec::with_capacity(ids.len() * (dim + 2));
+        for &i in ids {
             let p = input.point(i);
             let height = LiftedHeight::of(p);
             rows.extend_from_slice(p);
@@ -418,24 +420,15 @@ impl Sites {
         Self {
             dim,
             rows,
-            input: (0..n as u32).collect(),
+            input: ids.to_vec(),
         }
     }
 
-    /// The rows of `ids`, in that order: site `i` of the copy is site
-    /// `ids[i]` of `self`.
-    pub(super) fn permuted(&self, ids: &[u32]) -> Self {
-        let stride = self.dim + 2;
-        let mut rows = Vec::with_capacity(ids.len() * stride);
-        for &i in ids {
-            let at = i as usize * stride;
-            rows.extend_from_slice(&self.rows[at..at + stride]);
-        }
-        Self {
-            dim: self.dim,
-            rows,
-            input: ids.iter().map(|&i| self.input[i as usize]).collect(),
-        }
+    /// The rows of every site of the input, in the input's order.
+    #[cfg(test)]
+    pub(super) fn all(input: &Input<'_>) -> Self {
+        let ids: Vec<u32> = (0..input.representative.len() as u32).collect();
+        Self::of(input, &ids)
     }
 
     /// The input index of site `index`.
@@ -505,6 +498,33 @@ impl Sites {
             let heights: Vec<LiftedHeight> = ids.iter().map(|&i| self.height(i)).collect();
             Ok(orient_lifted_from(&points, &heights, start)?)
         }
+    }
+}
+
+/// What the insertion order reads of the sites: their dimension and
+/// coordinates, from the input or from rows made of it.
+pub(super) trait Points {
+    fn dim(&self) -> usize;
+    fn point(&self, index: u32) -> &[f64];
+}
+
+impl Points for Sites {
+    fn dim(&self) -> usize {
+        self.dim
+    }
+
+    fn point(&self, index: u32) -> &[f64] {
+        Sites::point(self, index)
+    }
+}
+
+impl Points for Input<'_> {
+    fn dim(&self) -> usize {
+        Input::dim(self)
+    }
+
+    fn point(&self, index: u32) -> &[f64] {
+        Input::point(self, index)
     }
 }
 
@@ -1357,7 +1377,7 @@ const CROWDED: usize = 16;
 /// it came from. Distinct sites on a box whose widths are finite do part,
 /// since the least and the greatest of a coordinate take the first and the
 /// last cell.
-pub(super) fn brio(rows: &Sites, sites: &[u32]) -> Vec<u32> {
+pub(super) fn brio(rows: &impl Points, sites: &[u32]) -> Vec<u32> {
     // D = 2 orders `u64` keys on a grid of 13 bits, which sort in less time
     // than `u128` ones; a crowded cell of that coarser grid is ordered again
     // like any other (#667).
@@ -1426,7 +1446,7 @@ impl OrderKey for u64 {
 }
 
 /// [`brio`] on keys `K`.
-fn ordered<K: OrderKey>(rows: &Sites, sites: &[u32]) -> Vec<u32> {
+fn ordered<K: OrderKey>(rows: &impl Points, sites: &[u32]) -> Vec<u32> {
     let d = rows.dim();
     let bits = grid_bits(d);
     let round = |s: u32| -> u32 {
@@ -1469,7 +1489,7 @@ fn ordered<K: OrderKey>(rows: &Sites, sites: &[u32]) -> Vec<u32> {
 /// `bits` bits a coordinate over the bounding box of the sites of `keys`,
 /// and sorts them. `low` and `high` are scratch for the box.
 fn in_morton_order<K: OrderKey>(
-    rows: &Sites,
+    rows: &impl Points,
     bits: u32,
     keys: &mut [K],
     low: &mut [f64],
@@ -1680,7 +1700,7 @@ mod tests {
                     })
                     .collect();
                 let input = accept_sites(d, &points).unwrap();
-                let rows = Sites::of(&input);
+                let rows = Sites::all(&input);
                 let all: Vec<u32> = input.representatives.clone();
                 assert_eq!(
                     brio(&rows, &all),
@@ -1721,7 +1741,7 @@ mod tests {
                     points.extend((0..d).map(|_| radius * (2.0 * next() - 1.0)));
                 }
                 let input = accept_sites(d, &points).unwrap();
-                let rows = Sites::of(&input);
+                let rows = Sites::all(&input);
                 let all: Vec<u32> = input.representatives.clone();
                 let order = brio(&rows, &all);
                 let what = format!("D = {d}, case {case}");
@@ -1745,7 +1765,7 @@ mod tests {
         let mut points = vec![-top, -top, top, top];
         points.extend((0..200).map(|i| f64::from(i) * 1e300));
         let input = accept_sites(2, &points).unwrap();
-        let rows = Sites::of(&input);
+        let rows = Sites::all(&input);
         let all: Vec<u32> = input.representatives.clone();
         let order = brio(&rows, &all);
         assert_eq!(order, brio_by_tuples(&rows, &all));
@@ -1816,7 +1836,7 @@ mod tests {
                 .flat_map(|p| p.map(|x| x as f64 * scale + shift))
                 .collect();
             let input = accept_sites(2, &points).unwrap();
-            let rows = Sites::of(&input);
+            let rows = Sites::all(&input);
             let n = sites.len() as u32;
             for a in 0..n {
                 for b in a + 1..n {

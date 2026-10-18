@@ -37,7 +37,7 @@ use crate::hull::ridge::{
 };
 use crate::hull::simplicial::SimplicialHull;
 use crate::lists::Lists;
-use crate::predicates::{orient, Sign, Start};
+use crate::predicates::{orient, orient_lifted_from, LiftedHeight, Sign, Start};
 use crate::small::Small;
 use crate::Error;
 
@@ -638,15 +638,14 @@ fn generic_insertion() -> bool {
 /// original sites, with their original indices.
 pub(crate) fn complex(dim: usize, points: &[f64]) -> Result<Complex, Error> {
     let input = accept_sites(dim, points)?;
-    let sites = insert::Sites::of(&input);
-    let complex = if flat(&input, &sites)? {
+    let complex = if flat(&input)? {
         pull(input)?
     } else {
         // One insertion, compiled per shape (design §7, ADR 0005).
         match input.dim() {
-            2 if !generic_insertion() => inserted(insert::Plane, &input, &sites)?,
-            3 if !generic_insertion() => inserted(insert::Space, &input, &sites)?,
-            d => inserted(insert::Any::of(d), &input, &sites)?,
+            2 if !generic_insertion() => inserted(insert::Plane, &input)?,
+            3 if !generic_insertion() => inserted(insert::Space, &input)?,
+            d => inserted(insert::Any::of(d), &input)?,
         }
     };
     debug_assert!(
@@ -667,17 +666,35 @@ pub(crate) fn complex(dim: usize, points: &[f64]) -> Result<Complex, Error> {
 
 /// Whether the lift is flat: every representative is cospherical with the
 /// minimum basis, so the lifted sites span only dimension D (design §7).
-fn flat(input: &Input<'_>, sites: &insert::Sites) -> Result<bool, Error> {
+///
+/// It reads the input's points, with their heights made for each test: the
+/// rows of the sites are made once, after it, in insertion order (#667).
+fn flat(input: &Input<'_>) -> Result<bool, Error> {
     let basis = &input.spanning_points;
+    let n = basis.len() + 1;
     // On the stack for D <= 10 (#667).
-    let mut ids: Small<u32, 12> = basis.iter().copied().collect();
-    ids.push(0);
+    let mut points: Vec<&[f64]>;
+    let mut heights: Vec<LiftedHeight>;
+    let mut inline_points: [&[f64]; 12] = [&[]; 12];
+    let mut inline_heights = [LiftedHeight::of(&[]); 12];
+    let (points, heights): (&mut [&[f64]], &mut [LiftedHeight]) = if n <= 12 {
+        (&mut inline_points[..n], &mut inline_heights[..n])
+    } else {
+        points = vec![&[]; n];
+        heights = vec![LiftedHeight::of(&[]); n];
+        (&mut points, &mut heights)
+    };
+    for (i, &b) in basis.iter().enumerate() {
+        points[i] = input.point(b);
+        heights[i] = LiftedHeight::of(points[i]);
+    }
     for &p in &input.representatives {
         if basis.contains(&p) {
             continue;
         }
-        *ids.last_mut().unwrap_or(&mut 0) = p;
-        if sites.lifted(&ids, Start::FirstStage)? != Sign::Zero {
+        points[n - 1] = input.point(p);
+        heights[n - 1] = LiftedHeight::of(points[n - 1]);
+        if orient_lifted_from(points, heights, Start::FirstStage)? != Sign::Zero {
             return Ok(false);
         }
     }
@@ -697,11 +714,7 @@ fn flat(input: &Input<'_>, sites: &insert::Sites) -> Result<bool, Error> {
 /// apart, and their loads were a quarter of D2 at 10^6 sites (#363, #366).
 /// Its vertices are mapped back to the input's indices for the published
 /// rows and groups.
-fn inserted<S: insert::Shape>(
-    shape: S,
-    input: &Input<'_>,
-    sites: &insert::Sites,
-) -> Result<Complex, Error> {
+fn inserted<S: insert::Shape>(shape: S, input: &Input<'_>) -> Result<Complex, Error> {
     let d = input.dim();
     let k = d + 1;
     let first = &input.spanning_points;
@@ -713,11 +726,11 @@ fn inserted<S: insert::Shape>(
             .copied()
             .filter(|p| !first.contains(p)),
     );
-    let order = insert::brio(sites, &rest);
+    let order = insert::brio(input, &rest);
     let inserted_order: Vec<u32> = first.iter().chain(&order).copied().collect();
     if stored_in_input_order() {
         let input_order: Vec<u32> = (0..input.representative.len() as u32).collect();
-        let local = sites.permuted(&input_order);
+        let local = insert::Sites::of(input, &input_order);
         return built(
             shape,
             input,
@@ -730,7 +743,7 @@ fn inserted<S: insert::Shape>(
     // The copy holds the sites in insertion order: the first simplex is
     // its first `k` sites, and the order the rest, so neither is a list
     // (#667).
-    let local = sites.permuted(&inserted_order);
+    let local = insert::Sites::of(input, &inserted_order);
     let local_first: Small<u32, 12> = (0..k as u32).collect();
     built(
         shape,
