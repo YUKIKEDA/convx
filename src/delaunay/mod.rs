@@ -575,9 +575,9 @@ fn push_sorted<const K: usize>(
 ) -> bool {
     let (rows, slots, negative) = ascending_fixed::<K>(core::array::from_fn(|i| site(vertices[i])));
     draft.rows.extend_from_slice(&rows);
-    for slot in slots {
-        draft.links.push(link(slot));
-    }
+    // The links in an array, appended at once: a push each checked the
+    // capacity and wrote the length (#667).
+    draft.links.extend_from_slice(&slots.map(link));
     negative
 }
 
