@@ -4,7 +4,7 @@ English | [日本語](comparison.ja.md)
 
 A report, not a test. Every row that was run is here, the ones where another library is faster or smaller among them. Nothing below is met or not met. The crate's own judgement against CGAL and Qhull is the parity run of [verification.md](verification.md): a fixed set of rows with a threshold, taken on every change that could move it. This report is taken once a release, on more data and more libraries, and judges nothing.
 
-Taken on 2026-10-14, convx at `71b3069`. Every number is in [bench/summary.json](bench/summary.json).
+Taken on 2026-10-19, convx at `3782373`, whose library code is the one 0.1.1 publishes. Every number is in [bench/summary.json](bench/summary.json).
 
 ## How it was run
 
@@ -13,13 +13,13 @@ Taken on 2026-10-14, convx at `71b3069`. Every number is in [bench/summary.json]
 | Machine | Intel Core i5-13400F (6 performance and 4 efficient cores, 16 threads), 48 GB |
 | System | Windows 11, WSL2, Ubuntu 22.04.2, kernel 5.15.133.1 |
 | Pinned | Every process to one core (core 2) |
-| Load | The processor's total load, logged each minute through the run: 6% to 12% |
+| Load | The processor's total load, logged each minute through the run: median 10%, at or below 31% in 90% of the minutes, at most 52%. CGAL and Qhull, unchanged since the comparison of 0.1.0 (2026-10-14), read within 1% of it |
 | Rust | 1.99.0, release profile |
 | C++ | g++ 11.4.0, `-O3 -DNDEBUG`; GMP 6.2.1 |
 
 | Library | Version | Arithmetic |
 | --- | --- | --- |
-| convx | `71b3069` | Exact signs of every predicate, from `f64` input |
+| convx | `3782373` | Exact signs of every predicate, from `f64` input |
 | CGAL | 5.4 | Exact predicates on `f64` (`Epick` in D = 2 and 3, `Epick_d` above) |
 | Qhull | 2020.2 | Floating point; facets within a tolerance are merged |
 | `spade` | 2.15.1 | Exact predicates |
@@ -74,15 +74,15 @@ In the memory figure a dot is a sample. A line without dots is a time in which n
 
 ### Where another library is faster
 
-- **Hulls.** Another library is the fastest on 16 of the 42 hull rows. Qhull is faster on `cube` D3 at 10^6 (0.90), `sphere` D3 at 10^4 and 10^5 (0.92 and 0.98), `sphere` D5 (0.98), the lattices of D = 3 and 4 (0.97 and 0.43), Plummer in D3 (0.87 and 0.63), and the Dragon and Buddha scans (0.92 and 0.81). CGAL is faster on the lattice of D = 2 (0.38) and on Kuzmin points at 10^5 and 10^6 (0.50 and 0.38), and slower at 10^7 (7.01). `geo` is faster on `cube` D2 at 10^6 (0.83) and on Kuzmin points (0.59 and 0.55). `parry3d-f64` is faster on `cube` D3 (0.89 and 0.97) and on Plummer (0.50 and 0.82).
-- **Delaunay.** CGAL is faster on 26 of the 38 Delaunay rows: by 0.85 to 0.99 on most rows of D = 2 to 4 below 10^6 points, by 0.67 on the lattice of D = 2, by 0.87 to 0.88 on `cube`, uniform in a ball, and Plummer at 10^6 in D3, and by 0.85 to 0.89 on the four scans. On `cube` D5 at 10^4 the two are level (1.00). Qhull is faster on the files of 10^3 points in D4 and D5 (0.91). `spade` and `delaunator` are faster on every row of D = 2 they are on (0.55 to 0.89), but for `delaunator` on 10^6 Kuzmin sites (1.08).
-- **Memory.** Qhull's hulls take the least memory on 37 of the 42 hull rows. `spade` and `delaunator` take 56% to 59% of convx's memory for a triangulation of D = 2. Qhull's triangulations of 10^6 and 10^7 Kuzmin sites take a third and a fifth of convx's, and leave most sites out.
+- **Hulls.** Another library is the fastest on 16 of the 42 hull rows. Qhull is faster on `cube` D3 at 10^6 (0.89), `sphere` D3 at 10^4 and 10^5 (0.94 and 0.99), `sphere` D5 (0.98), the lattices of D = 3 and 4 (0.98 and 0.41), Plummer in D3 (0.85 and 0.64), and the Dragon and Buddha scans (0.94 and 0.82). CGAL is faster on the lattice of D = 2 (0.40) and on Kuzmin points at 10^5 and 10^6 (0.51 and 0.39), and slower at 10^7 (6.48); uniform in a ball in D2 at 10^5, the two are level (1.00). `geo` is faster on `cube` D2 at 10^6 (0.98) and on Kuzmin points (0.62 and 0.62). `parry3d-f64` is faster on `cube` D3 (0.85 and 0.97) and on Plummer (0.45 and 0.82).
+- **Delaunay.** Another library is the fastest on 21 of the 38 Delaunay rows. CGAL is faster on 18: by 0.72 on the lattice of D = 2, by 0.87 to 0.98 on `cube`, `near`, uniform in a ball, and Plummer in D = 3 to 5, and by 0.81 to 0.88 on the four scans. Qhull is faster on the files of 10^3 points in D4 and D5 (0.91 and 0.90). `spade` is faster on 10^5 Kuzmin sites (0.90), and `delaunator` on `cube` D2 at 10^5 (0.78) and on 10^5 Kuzmin sites (0.99); on the other rows of D = 2 they are on, convx is faster.
+- **Memory.** Qhull's hulls take the least memory on 36 of the 42 hull rows. `spade` and `delaunator` take 94% to 100% of convx's memory for a triangulation of D = 2. Qhull's triangulations of 10^6 and 10^7 Kuzmin sites take 57% and 33% of convx's, and leave most sites out.
 
 ### Where convx is faster
 
-- **Hulls.** convx is the fastest library on 26 of the 42 hull rows. Its largest margins are on CGAL in D ≥ 4 (2.6 to 22 times on `cube`), on Qhull for points on a sphere in D2 (9.6 to 19 times), and on `parry3d-f64` for points on a sphere in D3 (2.9 and 29 times).
-- **Delaunay.** convx is faster than CGAL on 10^6 sites of D = 2 (1.19 to 1.26), on points on a sphere in D3 and D4 (1.10 to 2.84), on lattices of D = 3 and 4 (1.10 and 1.56), and on 10^7 Kuzmin sites (1.44). It is faster than Qhull on every Delaunay row but the two files of 10^3 points in D4 and D5.
-- **Memory.** convx's triangulations take 53% to 75% of CGAL's peak, but on the lattices (88% to 94%), and 29% to 56% of Qhull's in D3 on files of 10^4 points or more.
+- **Hulls.** convx is the fastest library on 26 of the 42 hull rows. Its largest margins are on CGAL in D ≥ 4 (2.7 to 22 times on `cube`), on Qhull for points on a sphere in D2 (9.4 to 19 times), and on `parry3d-f64` for points on a sphere in D3 (3.0 and 29 times).
+- **Delaunay.** convx is faster than CGAL on every row of D = 2 but the lattice (1.15 to 1.81), on points on a sphere in D3 and D4 (1.13 to 2.84), on the lattices of D = 3 and 4 (1.07 and 1.54), and on `cube` D5 at 10^3 (1.05). It is faster than `spade` on three of its four rows (1.06 to 1.20) and than `delaunator` on two (1.15 and 1.47), and faster than Qhull on every Delaunay row but the two files of 10^3 points in D4 and D5.
+- **Memory.** convx's triangulations take 40% to 62% of CGAL's peak, but on the lattices (76% to 87%), and 25% to 52% of Qhull's in D3 on files of 10^4 points or more, but on the lattice (87%).
 
 ### Time and peak memory
 
@@ -90,221 +90,221 @@ In the memory figure a dot is a sample. A line without dots is a time in which n
 
 | Data | D | Points | convx | CGAL | Qhull | geo | parry3d-f64 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `cube` | 2 | 10^4 | 0.21 ms | 0.66 ms (3.08) | 0.54 ms (2.51) |  |  |
-| `cube` | 2 | 10^5 | 2.15 ms | 8.30 ms (3.87) | 5.47 ms (2.55) | 2.14 ms (1.00) |  |
-| `cube` | 2 | 10^6 | 30.1 ms | 55.1 ms (1.83) | 52.5 ms (1.75) | 25.1 ms (0.83) |  |
-| `cube` | 3 | 10^4 | 1.26 ms | 2.68 ms (2.13) | 1.35 ms (1.08) |  |  |
-| `cube` | 3 | 10^5 | 8.22 ms | 28.5 ms (3.47) | 10.8 ms (1.31) |  | 7.32 ms (0.89) |
-| `cube` | 3 | 10^6 | 122 ms | 511 ms (4.19) | 109 ms (0.90) |  | 118 ms (0.97) |
-| `cube` | 4 | 10^4 | 5.04 ms | 43.0 ms (8.53) | 6.45 ms (1.28) |  |  |
-| `cube` | 4 | 10^5 | 24.7 ms | 550 ms (22.26) | 30.7 ms (1.24) |  |  |
-| `cube` | 5 | 10^4 | 49.4 ms | 208 ms (4.21) | 82.5 ms (1.67) |  |  |
-| `cube` | 5 | 10^5 | 199 ms | 1.59 s (8.01) | 364 ms (1.83) |  |  |
-| `cube` | 6 | 10^4 | 563 ms | 2.07 s (3.68) | 1.79 s (3.18) |  |  |
-| `cube` | 7 | 10^3 | 841 ms | 3.05 s (3.63) | 2.45 s (2.91) |  |  |
-| `cube` | 8 | 10^3 | 7.91 s | 20.68 s (2.61) | 31.33 s (3.96) |  |  |
-| `sphere` | 2 | 10^4 | 0.68 ms | 0.75 ms (1.11) | 6.54 ms (9.63) |  |  |
-| `sphere` | 2 | 10^5 | 7.88 ms | 9.67 ms (1.23) | 106 ms (13.48) | 20.7 ms (2.63) |  |
-| `sphere` | 2 | 10^6 | 95.3 ms | 152 ms (1.60) | 1.80 s (18.94) | 255 ms (2.67) |  |
-| `sphere` | 3 | 10^4 | 19.3 ms | 22.3 ms (1.15) | 17.8 ms (0.92) |  |  |
-| `sphere` | 3 | 10^5 | 238 ms | 373 ms (1.57) | 233 ms (0.98) |  | 693 ms (2.92) |
-| `sphere` | 3 | 10^6 | 3.21 s | 7.44 s (2.32) | 3.26 s (1.02) |  | 93.06 s (28.98) |
-| `sphere` | 4 | 10^4 | 88.0 ms | 118 ms (1.34) | 90.4 ms (1.03) |  |  |
-| `sphere` | 4 | 10^5 | 1.12 s | 1.21 s (1.09) | 1.25 s (1.12) |  |  |
-| `sphere` | 5 | 10^4 | 799 ms | 980 ms (1.23) | 787 ms (0.98) |  |  |
-| `sphere` | 6 | 10^4 | 6.60 s | 9.64 s (1.46) | 7.89 s (1.20) |  |  |
-| `lattice` | 2 | 10^4 | 0.26 ms | 0.10 ms (0.38) | 0.44 ms (1.69) |  |  |
-| `lattice` | 3 | 27,000 | 2.05 ms | 4.03 ms (1.97) | 1.99 ms (0.97) |  |  |
-| `lattice` | 4 | 10^4 | 4.11 ms | 49.5 ms (12.02) | 1.76 ms (0.43) |  |  |
-| `near` | 2 | 10^4 | 0.21 ms | 0.63 ms (3.02) | 0.51 ms (2.43) |  |  |
-| `near` | 3 | 10^4 | 1.29 ms | 2.55 ms (1.98) | 1.51 ms (1.17) |  |  |
-| `near` | 3 | 10^5 | 8.10 ms | 25.3 ms (3.12) | 10.4 ms (1.29) |  |  |
+| `cube` | 2 | 10^4 | 0.22 ms | 0.71 ms (3.17) | 0.58 ms (2.60) |  |  |
+| `cube` | 2 | 10^5 | 2.29 ms | 8.59 ms (3.75) | 5.68 ms (2.48) | 2.36 ms (1.03) |  |
+| `cube` | 2 | 10^6 | 25.5 ms | 56.9 ms (2.23) | 53.3 ms (2.09) | 25.1 ms (0.98) |  |
+| `cube` | 3 | 10^4 | 1.30 ms | 2.62 ms (2.01) | 1.37 ms (1.05) |  |  |
+| `cube` | 3 | 10^5 | 8.53 ms | 29.1 ms (3.41) | 10.8 ms (1.26) |  | 7.27 ms (0.85) |
+| `cube` | 3 | 10^6 | 123 ms | 518 ms (4.21) | 110 ms (0.89) |  | 120 ms (0.97) |
+| `cube` | 4 | 10^4 | 4.96 ms | 43.1 ms (8.69) | 6.31 ms (1.27) |  |  |
+| `cube` | 4 | 10^5 | 25.3 ms | 549 ms (21.72) | 31.1 ms (1.23) |  |  |
+| `cube` | 5 | 10^4 | 50.5 ms | 214 ms (4.25) | 84.0 ms (1.66) |  |  |
+| `cube` | 5 | 10^5 | 200 ms | 1.63 s (8.12) | 371 ms (1.85) |  |  |
+| `cube` | 6 | 10^4 | 569 ms | 2.18 s (3.84) | 1.78 s (3.13) |  |  |
+| `cube` | 7 | 10^3 | 839 ms | 3.08 s (3.67) | 2.39 s (2.85) |  |  |
+| `cube` | 8 | 10^3 | 7.94 s | 21.23 s (2.67) | 31.24 s (3.93) |  |  |
+| `sphere` | 2 | 10^4 | 0.70 ms | 0.74 ms (1.06) | 6.59 ms (9.39) |  |  |
+| `sphere` | 2 | 10^5 | 8.42 ms | 9.72 ms (1.15) | 104 ms (12.35) | 21.2 ms (2.51) |  |
+| `sphere` | 2 | 10^6 | 95.6 ms | 152 ms (1.59) | 1.82 s (19.04) | 255 ms (2.66) |  |
+| `sphere` | 3 | 10^4 | 19.5 ms | 23.5 ms (1.21) | 18.3 ms (0.94) |  |  |
+| `sphere` | 3 | 10^5 | 235 ms | 373 ms (1.59) | 233 ms (0.99) |  | 697 ms (2.97) |
+| `sphere` | 3 | 10^6 | 3.21 s | 7.66 s (2.39) | 3.37 s (1.05) |  | 93.87 s (29.24) |
+| `sphere` | 4 | 10^4 | 86.4 ms | 120 ms (1.38) | 90.9 ms (1.05) |  |  |
+| `sphere` | 4 | 10^5 | 1.11 s | 1.23 s (1.11) | 1.29 s (1.16) |  |  |
+| `sphere` | 5 | 10^4 | 812 ms | 992 ms (1.22) | 794 ms (0.98) |  |  |
+| `sphere` | 6 | 10^4 | 6.53 s | 9.78 s (1.50) | 7.84 s (1.20) |  |  |
+| `lattice` | 2 | 10^4 | 0.26 ms | 0.10 ms (0.40) | 0.42 ms (1.65) |  |  |
+| `lattice` | 3 | 27,000 | 2.04 ms | 4.01 ms (1.96) | 2.00 ms (0.98) |  |  |
+| `lattice` | 4 | 10^4 | 4.25 ms | 49.4 ms (11.64) | 1.76 ms (0.41) |  |  |
+| `near` | 2 | 10^4 | 0.23 ms | 0.70 ms (2.99) | 0.58 ms (2.45) |  |  |
+| `near` | 3 | 10^4 | 1.33 ms | 2.74 ms (2.06) | 1.56 ms (1.17) |  |  |
+| `near` | 3 | 10^5 | 8.67 ms | 25.5 ms (2.94) | 10.7 ms (1.23) |  |  |
 
 #### Convex hull, rbox: peak memory (MB)
 
 | Data | D | Points | convx | CGAL | Qhull | geo | parry3d-f64 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `cube` | 2 | 10^4 | 3.1 | 4.9 | 2.8 |  |  |
-| `cube` | 2 | 10^5 | 7.6 | 10 | 5.3 | 7.4 |  |
-| `cube` | 2 | 10^6 | 56 | 56 | 32 | 55 |  |
-| `cube` | 3 | 10^4 | 3.5 | 5.5 | 2.8 |  |  |
-| `cube` | 3 | 10^5 | 10 | 13 | 6.1 |  | 15 |
-| `cube` | 3 | 10^6 | 101 | 96 | 42 |  | 126 |
-| `cube` | 4 | 10^4 | 4.6 | 11 | 3.3 |  |  |
-| `cube` | 4 | 10^5 | 13 | 56 | 7.6 |  |  |
-| `cube` | 5 | 10^4 | 12 | 30 | 10 |  |  |
-| `cube` | 5 | 10^5 | 30 | 132 | 25 |  |  |
-| `cube` | 6 | 10^4 | 75 | 221 | 75 |  |  |
-| `cube` | 7 | 10^3 | 103 | 226 | 104 |  |  |
-| `cube` | 8 | 10^3 | 646 | 1515 | 650 |  |  |
-| `sphere` | 2 | 10^4 | 3.9 | 5.2 | 5.0 |  |  |
-| `sphere` | 2 | 10^5 | 13 | 13 | 29 | 8.0 |  |
-| `sphere` | 2 | 10^6 | 104 | 80 | 298 | 64 |  |
-| `sphere` | 3 | 10^4 | 9.9 | 12 | 7.4 |  |  |
-| `sphere` | 3 | 10^5 | 73 | 79 | 53 |  | 119 |
-| `sphere` | 3 | 10^6 | 713 | 734 | 505 |  | 1219 |
-| `sphere` | 4 | 10^4 | 27 | 30 | 19 |  |  |
-| `sphere` | 4 | 10^5 | 241 | 269 | 172 |  |  |
+| `cube` | 2 | 10^4 | 3.2 | 5.0 | 2.8 |  |  |
+| `cube` | 2 | 10^5 | 7.6 | 11 | 5.3 | 7.5 |  |
+| `cube` | 2 | 10^6 | 56 | 56 | 31 | 56 |  |
+| `cube` | 3 | 10^4 | 3.4 | 5.6 | 2.9 |  |  |
+| `cube` | 3 | 10^5 | 10 | 13 | 6.2 |  | 15 |
+| `cube` | 3 | 10^6 | 101 | 96 | 43 |  | 126 |
+| `cube` | 4 | 10^4 | 4.5 | 11 | 3.4 |  |  |
+| `cube` | 4 | 10^5 | 13 | 55 | 7.5 |  |  |
+| `cube` | 5 | 10^4 | 11 | 30 | 10.0 |  |  |
+| `cube` | 5 | 10^5 | 29 | 132 | 25 |  |  |
+| `cube` | 6 | 10^4 | 74 | 220 | 75 |  |  |
+| `cube` | 7 | 10^3 | 102 | 226 | 104 |  |  |
+| `cube` | 8 | 10^3 | 649 | 1514 | 650 |  |  |
+| `sphere` | 2 | 10^4 | 3.9 | 5.2 | 4.9 |  |  |
+| `sphere` | 2 | 10^5 | 13 | 13 | 29 | 8.1 |  |
+| `sphere` | 2 | 10^6 | 104 | 80 | 298 | 63 |  |
+| `sphere` | 3 | 10^4 | 9.6 | 12 | 7.3 |  |  |
+| `sphere` | 3 | 10^5 | 72 | 79 | 53 |  | 119 |
+| `sphere` | 3 | 10^6 | 712 | 734 | 505 |  | 1219 |
+| `sphere` | 4 | 10^4 | 26 | 31 | 19 |  |  |
+| `sphere` | 4 | 10^5 | 240 | 268 | 172 |  |  |
 | `sphere` | 5 | 10^4 | 111 | 164 | 81 |  |  |
-| `sphere` | 6 | 10^4 | 609 | 1087 | 450 |  |  |
+| `sphere` | 6 | 10^4 | 611 | 1087 | 450 |  |  |
 | `lattice` | 2 | 10^4 | 3.1 | 4.8 | 2.8 |  |  |
 | `lattice` | 3 | 27,000 | 4.6 | 6.5 | 3.5 |  |  |
-| `lattice` | 4 | 10^4 | 4.0 | 13 | 2.8 |  |  |
-| `near` | 2 | 10^4 | 3.2 | 5.0 | 2.8 |  |  |
-| `near` | 3 | 10^4 | 3.9 | 5.6 | 2.9 |  |  |
+| `lattice` | 4 | 10^4 | 4.1 | 13 | 2.9 |  |  |
+| `near` | 2 | 10^4 | 3.1 | 5.0 | 2.8 |  |  |
+| `near` | 3 | 10^4 | 3.7 | 5.5 | 3.0 |  |  |
 | `near` | 3 | 10^5 | 10 | 13 | 6.5 |  |  |
 
 #### Convex hull, PBBS: time
 
 | Data | D | Points | convx | CGAL | Qhull | geo | parry3d-f64 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `insphere` | 2 | 10^5 | 4.39 ms | 4.46 ms (1.02) | 6.09 ms (1.39) |  |  |
-| `insphere` | 2 | 10^6 | 55.0 ms | 59.0 ms (1.07) | 64.5 ms (1.17) |  |  |
-| `insphere` | 3 | 10^5 | 13.6 ms | 36.9 ms (2.73) | 17.0 ms (1.26) |  |  |
-| `insphere` | 3 | 10^6 | 154 ms | 777 ms (5.03) | 186 ms (1.21) |  |  |
-| `kuzmin` | 2 | 10^5 | 1.90 ms | 0.94 ms (0.50) | 3.83 ms (2.02) | 1.12 ms (0.59) |  |
-| `kuzmin` | 2 | 10^6 | 28.6 ms | 10.9 ms (0.38) | 39.1 ms (1.37) | 15.8 ms (0.55) |  |
-| `kuzmin` | 2 | 10^7 | 294 ms | 2.06 s (7.01) | 368 ms (1.25) |  |  |
-| `plummer` | 3 | 10^5 | 5.78 ms | 16.9 ms (2.93) | 5.03 ms (0.87) |  | 2.89 ms (0.50) |
-| `plummer` | 3 | 10^6 | 75.6 ms | 262 ms (3.47) | 47.8 ms (0.63) |  | 61.8 ms (0.82) |
+| `insphere` | 2 | 10^5 | 4.50 ms | 4.50 ms (1.00) | 6.26 ms (1.39) |  |  |
+| `insphere` | 2 | 10^6 | 54.3 ms | 59.5 ms (1.10) | 64.6 ms (1.19) |  |  |
+| `insphere` | 3 | 10^5 | 13.8 ms | 37.4 ms (2.71) | 17.3 ms (1.25) |  |  |
+| `insphere` | 3 | 10^6 | 158 ms | 811 ms (5.14) | 192 ms (1.21) |  |  |
+| `kuzmin` | 2 | 10^5 | 1.87 ms | 0.96 ms (0.51) | 3.85 ms (2.06) | 1.17 ms (0.62) |  |
+| `kuzmin` | 2 | 10^6 | 26.8 ms | 10.4 ms (0.39) | 39.6 ms (1.48) | 16.6 ms (0.62) |  |
+| `kuzmin` | 2 | 10^7 | 323 ms | 2.09 s (6.48) | 387 ms (1.20) |  |  |
+| `plummer` | 3 | 10^5 | 6.52 ms | 17.7 ms (2.72) | 5.53 ms (0.85) |  | 2.95 ms (0.45) |
+| `plummer` | 3 | 10^6 | 75.6 ms | 307 ms (4.06) | 48.3 ms (0.64) |  | 61.7 ms (0.82) |
 
 #### Convex hull, PBBS: peak memory (MB)
 
 | Data | D | Points | convx | CGAL | Qhull | geo | parry3d-f64 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `insphere` | 2 | 10^5 | 7.6 | 9.3 | 5.3 |  |  |
+| `insphere` | 2 | 10^5 | 7.5 | 9.4 | 5.3 |  |  |
 | `insphere` | 2 | 10^6 | 55 | 53 | 32 |  |  |
-| `insphere` | 3 | 10^5 | 10 | 15 | 6.3 |  |  |
-| `insphere` | 3 | 10^6 | 106 | 98 | 43 |  |  |
-| `kuzmin` | 2 | 10^5 | 7.5 | 8.1 | 4.8 | 7.4 |  |
-| `kuzmin` | 2 | 10^6 | 55 | 42 | 25 | 54 |  |
-| `kuzmin` | 2 | 10^7 | 527 | 644 | 308 |  |  |
-| `plummer` | 3 | 10^5 | 10 | 13 | 6.2 |  | 14 |
-| `plummer` | 3 | 10^6 | 96 | 96 | 41 |  | 129 |
+| `insphere` | 3 | 10^5 | 10 | 14 | 6.4 |  |  |
+| `insphere` | 3 | 10^6 | 105 | 98 | 43 |  |  |
+| `kuzmin` | 2 | 10^5 | 7.5 | 8.1 | 4.8 | 7.3 |  |
+| `kuzmin` | 2 | 10^6 | 55 | 43 | 25 | 54 |  |
+| `kuzmin` | 2 | 10^7 | 526 | 644 | 308 |  |  |
+| `plummer` | 3 | 10^5 | 10 | 13 | 6.0 |  | 14 |
+| `plummer` | 3 | 10^6 | 96 | 96 | 42 |  | 130 |
 
 #### Convex hull, scans: time
 
 | Data | D | Points | convx | CGAL | Qhull | parry3d-f64 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bunny` | 3 | 35,947 | 6.71 ms | 11.4 ms (1.69) | 7.91 ms (1.18) | 8.43 ms (1.26) |
-| `dragon` | 3 | 437,645 | 50.6 ms | 119 ms (2.35) | 46.6 ms (0.92) | 126 ms (2.50) |
-| `buddha` | 3 | 543,652 | 83.7 ms | 170 ms (2.03) | 68.1 ms (0.81) |  |
-| `armadillo` | 3 | 172,974 | 20.6 ms | 52.4 ms (2.54) | 21.9 ms (1.06) |  |
+| `bunny` | 3 | 35,947 | 6.78 ms | 11.5 ms (1.69) | 8.44 ms (1.25) | 8.33 ms (1.23) |
+| `dragon` | 3 | 437,645 | 50.4 ms | 123 ms (2.44) | 47.5 ms (0.94) | 127 ms (2.51) |
+| `buddha` | 3 | 543,652 | 84.6 ms | 180 ms (2.13) | 69.0 ms (0.82) |  |
+| `armadillo` | 3 | 172,974 | 20.9 ms | 54.3 ms (2.60) | 22.4 ms (1.07) |  |
 
 #### Convex hull, scans: peak memory (MB)
 
 | Data | D | Points | convx | CGAL | Qhull | parry3d-f64 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `bunny` | 3 | 35,947 | 6.1 | 8.2 | 4.4 | 9.7 |
-| `dragon` | 3 | 437,645 | 50 | 45 | 20 | 61 |
-| `buddha` | 3 | 543,652 | 67 | 54 | 24 |  |
-| `armadillo` | 3 | 172,974 | 21 | 20 | 8.8 |  |
+| `bunny` | 3 | 35,947 | 6.0 | 8.2 | 4.5 | 9.7 |
+| `dragon` | 3 | 437,645 | 49 | 45 | 20 | 62 |
+| `buddha` | 3 | 543,652 | 68 | 55 | 25 |  |
+| `armadillo` | 3 | 172,974 | 20 | 21 | 8.9 |  |
 
 #### Delaunay, rbox: time
 
 | Data | D | Points | convx | CGAL | Qhull | spade | delaunator | delaunay |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `cube` | 2 | 10^3 | 0.47 ms | 0.40 ms (0.85) | 1.64 ms (3.46) |  |  | 461 ms (971.79) |
-| `cube` | 3 | 10^3 | 3.14 ms | 2.81 ms (0.90) | 7.00 ms (2.23) |  |  | 3.72 s (1186.47) |
-| `cube` | 4 | 10^3 | 52.3 ms | 49.8 ms (0.95) | 47.5 ms (0.91) |  |  | 134.71 s (2574.59) |
-| `cube` | 5 | 10^3 | 422 ms | 452 ms (1.07) | 386 ms (0.91) |  |  |  |
-| `cube` | 2 | 10^4 | 4.87 ms | 4.51 ms (0.93) | 17.9 ms (3.69) |  |  |  |
-| `cube` | 2 | 10^5 | 51.1 ms | 50.5 ms (0.99) | 365 ms (7.14) | 40.4 ms (0.79) | 28.0 ms (0.55) |  |
-| `cube` | 2 | 10^6 | 532 ms | 656 ms (1.23) | 5.01 s (9.43) | 471 ms (0.89) | 446 ms (0.84) |  |
-| `cube` | 3 | 10^4 | 34.3 ms | 30.9 ms (0.90) | 87.5 ms (2.55) |  |  |  |
-| `cube` | 3 | 10^5 | 369 ms | 338 ms (0.91) | 1.98 s (5.35) |  |  |  |
-| `cube` | 3 | 10^6 | 4.22 s | 3.68 s (0.87) | 24.56 s (5.81) |  |  |  |
-| `cube` | 4 | 10^4 | 672 ms | 646 ms (0.96) | 757 ms (1.13) |  |  |  |
-| `cube` | 5 | 10^4 | 7.04 s | 7.04 s (1.00) | 7.50 s (1.07) |  |  |  |
-| `sphere` | 2 | 10^4 | 4.72 ms | 4.37 ms (0.92) | 22.9 ms (4.84) |  |  |  |
-| `sphere` | 2 | 10^5 | 41.1 ms | 39.3 ms (0.95) | 314 ms (7.63) |  |  |  |
-| `sphere` | 2 | 10^6 | 395 ms | 477 ms (1.21) | 4.59 s (11.64) |  |  |  |
-| `sphere` | 3 | 10^4 | 66.5 ms | 117 ms (1.76) | 107 ms (1.61) |  |  |  |
-| `sphere` | 3 | 10^5 | 615 ms | 828 ms (1.35) | 1.54 s (2.51) |  |  |  |
-| `sphere` | 3 | 10^6 | 5.31 s | 5.86 s (1.10) | 18.21 s (3.43) |  |  |  |
-| `sphere` | 4 | 10^4 | 850 ms | 2.42 s (2.84) | 1.20 s (1.41) |  |  |  |
-| `lattice` | 2 | 10^4 | 7.76 ms | 5.21 ms (0.67) | 34.8 ms (4.49) |  |  |  |
-| `lattice` | 3 | 27,000 | 119 ms | 130 ms (1.10) | 840 ms (7.09) |  |  |  |
-| `lattice` | 4 | 10^4 | 444 ms | 693 ms (1.56) | 1.59 s (3.58) |  |  |  |
-| `near` | 2 | 10^4 | 5.06 ms | 4.66 ms (0.92) | 24.6 ms (4.86) |  |  |  |
-| `near` | 3 | 10^4 | 35.0 ms | 34.6 ms (0.99) | 128 ms (3.66) |  |  |  |
-| `near` | 3 | 10^5 | 375 ms | 366 ms (0.98) | 1.93 s (5.15) |  |  |  |
+| `cube` | 2 | 10^3 | 0.32 ms | 0.42 ms (1.32) | 1.66 ms (5.19) |  |  | 459 ms (1433.54) |
+| `cube` | 3 | 10^3 | 3.19 ms | 2.78 ms (0.87) | 7.20 ms (2.26) |  |  | 3.74 s (1171.58) |
+| `cube` | 4 | 10^3 | 53.4 ms | 49.8 ms (0.93) | 48.6 ms (0.91) |  |  | 136.29 s (2550.78) |
+| `cube` | 5 | 10^3 | 433 ms | 455 ms (1.05) | 389 ms (0.90) |  |  |  |
+| `cube` | 2 | 10^4 | 3.67 ms | 4.60 ms (1.25) | 18.8 ms (5.11) |  |  |  |
+| `cube` | 2 | 10^5 | 36.9 ms | 50.9 ms (1.38) | 368 ms (9.99) | 40.5 ms (1.10) | 28.8 ms (0.78) |  |
+| `cube` | 2 | 10^6 | 397 ms | 698 ms (1.76) | 5.21 s (13.10) | 476 ms (1.20) | 456 ms (1.15) |  |
+| `cube` | 3 | 10^4 | 36.4 ms | 31.5 ms (0.87) | 90.2 ms (2.48) |  |  |  |
+| `cube` | 3 | 10^5 | 375 ms | 342 ms (0.91) | 2.00 s (5.35) |  |  |  |
+| `cube` | 3 | 10^6 | 4.21 s | 3.77 s (0.90) | 25.01 s (5.94) |  |  |  |
+| `cube` | 4 | 10^4 | 680 ms | 650 ms (0.95) | 765 ms (1.12) |  |  |  |
+| `cube` | 5 | 10^4 | 7.22 s | 7.10 s (0.98) | 7.69 s (1.07) |  |  |  |
+| `sphere` | 2 | 10^4 | 3.80 ms | 4.37 ms (1.15) | 22.8 ms (6.00) |  |  |  |
+| `sphere` | 2 | 10^5 | 34.6 ms | 39.6 ms (1.15) | 318 ms (9.20) |  |  |  |
+| `sphere` | 2 | 10^6 | 367 ms | 482 ms (1.31) | 4.64 s (12.64) |  |  |  |
+| `sphere` | 3 | 10^4 | 67.9 ms | 117 ms (1.72) | 106 ms (1.56) |  |  |  |
+| `sphere` | 3 | 10^5 | 624 ms | 833 ms (1.33) | 1.56 s (2.50) |  |  |  |
+| `sphere` | 3 | 10^6 | 5.31 s | 5.99 s (1.13) | 18.76 s (3.53) |  |  |  |
+| `sphere` | 4 | 10^4 | 863 ms | 2.46 s (2.84) | 1.23 s (1.42) |  |  |  |
+| `lattice` | 2 | 10^4 | 7.33 ms | 5.31 ms (0.72) | 35.6 ms (4.86) |  |  |  |
+| `lattice` | 3 | 27,000 | 122 ms | 131 ms (1.07) | 865 ms (7.06) |  |  |  |
+| `lattice` | 4 | 10^4 | 453 ms | 698 ms (1.54) | 1.63 s (3.59) |  |  |  |
+| `near` | 2 | 10^4 | 3.83 ms | 4.84 ms (1.26) | 25.6 ms (6.69) |  |  |  |
+| `near` | 3 | 10^4 | 37.0 ms | 34.5 ms (0.93) | 129 ms (3.48) |  |  |  |
+| `near` | 3 | 10^5 | 382 ms | 375 ms (0.98) | 1.93 s (5.06) |  |  |  |
 
 #### Delaunay, rbox: peak memory (MB)
 
 | Data | D | Points | convx | CGAL | Qhull | spade | delaunator | delaunay |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `cube` | 2 | 10^3 | 3.1 | 5.1 | 2.9 |  |  | 9.8 |
-| `cube` | 3 | 10^3 | 3.5 | 6.0 | 4.1 |  |  | 25 |
-| `cube` | 4 | 10^3 | 6.0 | 11 | 9.4 |  |  | 144 |
+| `cube` | 2 | 10^3 | 2.9 | 5.1 | 2.9 |  |  | 9.7 |
+| `cube` | 3 | 10^3 | 3.5 | 6.1 | 4.1 |  |  | 26 |
+| `cube` | 4 | 10^3 | 6.0 | 11 | 9.6 |  |  | 143 |
 | `cube` | 5 | 10^3 | 21 | 37 | 39 |  |  |  |
-| `cube` | 2 | 10^4 | 5.3 | 8.0 | 7.6 |  |  |  |
-| `cube` | 2 | 10^5 | 32 | 43 | 62 | 18 | 18 |  |
-| `cube` | 2 | 10^6 | 277 | 384 | 599 | 163 | 162 |  |
-| `cube` | 3 | 10^4 | 11 | 17 | 19 |  |  |  |
-| `cube` | 3 | 10^5 | 87 | 136 | 209 |  |  |  |
-| `cube` | 3 | 10^6 | 823 | 1312 | 2078 |  |  |  |
-| `cube` | 4 | 10^4 | 41 | 68 | 80 |  |  |  |
-| `cube` | 5 | 10^4 | 228 | 391 | 449 |  |  |  |
-| `sphere` | 2 | 10^4 | 5.0 | 8.1 | 8.4 |  |  |  |
-| `sphere` | 2 | 10^5 | 27 | 40 | 61 |  |  |  |
-| `sphere` | 2 | 10^6 | 233 | 354 | 591 |  |  |  |
-| `sphere` | 3 | 10^4 | 7.9 | 14 | 21 |  |  |  |
-| `sphere` | 3 | 10^5 | 57 | 101 | 185 |  |  |  |
-| `sphere` | 3 | 10^6 | 539 | 961 | 1827 |  |  |  |
-| `sphere` | 4 | 10^4 | 23 | 45 | 97 |  |  |  |
-| `lattice` | 2 | 10^4 | 7.8 | 8.3 | 9.5 |  |  |  |
-| `lattice` | 3 | 27,000 | 33 | 36 | 36 |  |  |  |
-| `lattice` | 4 | 10^4 | 39 | 45 | 44 |  |  |  |
-| `near` | 2 | 10^4 | 5.3 | 8.2 | 8.4 |  |  |  |
-| `near` | 3 | 10^4 | 11 | 18 | 22 |  |  |  |
-| `near` | 3 | 10^5 | 87 | 133 | 206 |  |  |  |
+| `cube` | 2 | 10^4 | 4.3 | 8.2 | 7.6 |  |  |  |
+| `cube` | 2 | 10^5 | 19 | 43 | 62 | 18 | 18 |  |
+| `cube` | 2 | 10^6 | 167 | 384 | 599 | 162 | 162 |  |
+| `cube` | 3 | 10^4 | 10 | 18 | 19 |  |  |  |
+| `cube` | 3 | 10^5 | 80 | 136 | 209 |  |  |  |
+| `cube` | 3 | 10^6 | 769 | 1313 | 2078 |  |  |  |
+| `cube` | 4 | 10^4 | 39 | 68 | 80 |  |  |  |
+| `cube` | 5 | 10^4 | 225 | 391 | 449 |  |  |  |
+| `sphere` | 2 | 10^4 | 4.0 | 8.0 | 8.4 |  |  |  |
+| `sphere` | 2 | 10^5 | 17 | 40 | 61 |  |  |  |
+| `sphere` | 2 | 10^6 | 140 | 353 | 591 |  |  |  |
+| `sphere` | 3 | 10^4 | 7.3 | 14 | 21 |  |  |  |
+| `sphere` | 3 | 10^5 | 49 | 101 | 185 |  |  |  |
+| `sphere` | 3 | 10^6 | 459 | 960 | 1827 |  |  |  |
+| `sphere` | 4 | 10^4 | 23 | 45 | 96 |  |  |  |
+| `lattice` | 2 | 10^4 | 7.0 | 8.3 | 9.5 |  |  |  |
+| `lattice` | 3 | 27,000 | 31 | 36 | 36 |  |  |  |
+| `lattice` | 4 | 10^4 | 34 | 45 | 44 |  |  |  |
+| `near` | 2 | 10^4 | 4.3 | 8.3 | 8.4 |  |  |  |
+| `near` | 3 | 10^4 | 9.8 | 18 | 22 |  |  |  |
+| `near` | 3 | 10^5 | 77 | 133 | 206 |  |  |  |
 
 #### Delaunay, PBBS: time
 
 | Data | D | Points | convx | CGAL | Qhull | spade | delaunator |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `insphere` | 2 | 10^5 | 52.0 ms | 51.5 ms (0.99) | 224 ms (4.31) |  |  |
-| `insphere` | 2 | 10^6 | 527 ms | 663 ms (1.26) | 3.20 s (6.07) |  |  |
-| `insphere` | 3 | 10^5 | 369 ms | 341 ms (0.92) | 1.20 s (3.24) |  |  |
-| `insphere` | 3 | 10^6 | 4.25 s | 3.71 s (0.87) | 15.04 s (3.54) |  |  |
-| `kuzmin` | 2 | 10^5 | 57.6 ms | 53.2 ms (0.92) | 588 ms (10.22) | 39.2 ms (0.68) | 43.9 ms (0.76) |
-| `kuzmin` | 2 | 10^6 | 577 ms | 686 ms (1.19) | 4.13 s (7.15) | 456 ms (0.79) | 626 ms (1.08) |
-| `kuzmin` | 2 | 10^7 | 6.34 s | 9.10 s (1.44) | 21.04 s (3.32) |  |  |
-| `plummer` | 3 | 10^5 | 383 ms | 350 ms (0.91) | 1.94 s (5.07) |  |  |
-| `plummer` | 3 | 10^6 | 4.37 s | 3.84 s (0.88) | 26.59 s (6.09) |  |  |
+| `insphere` | 2 | 10^5 | 37.1 ms | 52.6 ms (1.42) | 224 ms (6.04) |  |  |
+| `insphere` | 2 | 10^6 | 396 ms | 682 ms (1.72) | 3.26 s (8.23) |  |  |
+| `insphere` | 3 | 10^5 | 389 ms | 352 ms (0.91) | 1.23 s (3.18) |  |  |
+| `insphere` | 3 | 10^6 | 4.02 s | 3.79 s (0.94) | 14.97 s (3.72) |  |  |
+| `kuzmin` | 2 | 10^5 | 44.8 ms | 53.9 ms (1.21) | 599 ms (13.39) | 40.3 ms (0.90) | 44.2 ms (0.99) |
+| `kuzmin` | 2 | 10^6 | 438 ms | 709 ms (1.62) | 4.30 s (9.83) | 464 ms (1.06) | 644 ms (1.47) |
+| `kuzmin` | 2 | 10^7 | 5.03 s | 9.12 s (1.81) | 20.80 s (4.14) |  |  |
+| `plummer` | 3 | 10^5 | 385 ms | 350 ms (0.91) | 1.96 s (5.08) |  |  |
+| `plummer` | 3 | 10^6 | 4.12 s | 3.83 s (0.93) | 26.69 s (6.48) |  |  |
 
 #### Delaunay, PBBS: peak memory (MB)
 
 | Data | D | Points | convx | CGAL | Qhull | spade | delaunator |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `insphere` | 2 | 10^5 | 31 | 43 | 53 |  |  |
-| `insphere` | 2 | 10^6 | 276 | 384 | 505 |  |  |
-| `insphere` | 3 | 10^5 | 92 | 136 | 172 |  |  |
-| `insphere` | 3 | 10^6 | 823 | 1314 | 1696 |  |  |
-| `kuzmin` | 2 | 10^5 | 32 | 43 | 41 | 18 | 18 |
-| `kuzmin` | 2 | 10^6 | 275 | 384 | 93 | 162 | 162 |
-| `kuzmin` | 2 | 10^7 | 2699 | 3669 | 528 |  |  |
-| `plummer` | 3 | 10^5 | 90 | 137 | 206 |  |  |
-| `plummer` | 3 | 10^6 | 824 | 1315 | 2082 |  |  |
+| `insphere` | 2 | 10^5 | 19 | 43 | 53 |  |  |
+| `insphere` | 2 | 10^6 | 167 | 384 | 505 |  |  |
+| `insphere` | 3 | 10^5 | 81 | 136 | 172 |  |  |
+| `insphere` | 3 | 10^6 | 743 | 1312 | 1696 |  |  |
+| `kuzmin` | 2 | 10^5 | 19 | 43 | 41 | 18 | 18 |
+| `kuzmin` | 2 | 10^6 | 164 | 383 | 93 | 163 | 162 |
+| `kuzmin` | 2 | 10^7 | 1606 | 3669 | 528 |  |  |
+| `plummer` | 3 | 10^5 | 81 | 137 | 207 |  |  |
+| `plummer` | 3 | 10^6 | 745 | 1315 | 2082 |  |  |
 
 #### Delaunay, scans: time
 
 | Data | D | Points | convx | CGAL | Qhull |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `bunny` | 3 | 35,947 | 137 ms | 121 ms (0.89) | 400 ms (2.93) |
-| `dragon` | 3 | 437,645 | 1.88 s | 1.65 s (0.88) | 7.92 s (4.22) |
-| `buddha` | 3 | 543,652 | 2.42 s | 2.05 s (0.85) | 12.13 s (5.01) |
-| `armadillo` | 3 | 172,974 | 692 ms | 613 ms (0.89) | 2.27 s (3.28) |
+| `bunny` | 3 | 35,947 | 138 ms | 121 ms (0.88) | 409 ms (2.96) |
+| `dragon` | 3 | 437,645 | 1.97 s | 1.70 s (0.86) | 8.18 s (4.14) |
+| `buddha` | 3 | 543,652 | 2.58 s | 2.09 s (0.81) | 12.32 s (4.77) |
+| `armadillo` | 3 | 172,974 | 722 ms | 630 ms (0.87) | 2.26 s (3.14) |
 
 #### Delaunay, scans: peak memory (MB)
 
 | Data | D | Points | convx | CGAL | Qhull |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `bunny` | 3 | 35,947 | 33 | 53 | 65 |
-| `dragon` | 3 | 437,645 | 395 | 613 | 792 |
-| `buddha` | 3 | 543,652 | 501 | 758 | 1189 |
-| `armadillo` | 3 | 172,974 | 156 | 239 | 303 |
+| `bunny` | 3 | 35,947 | 31 | 53 | 65 |
+| `dragon` | 3 | 437,645 | 363 | 612 | 792 |
+| `buddha` | 3 | 543,652 | 474 | 759 | 1189 |
+| `armadillo` | 3 | 172,974 | 143 | 239 | 303 |
 
 
 ### Where the outputs' counts differ
@@ -354,7 +354,7 @@ A hull's counts are its vertices and its facets (CGAL: triangles in D = 3, simpl
 
 ## Not compared
 
-- **The `delaunay` crate in D = 5.** One process of three builds of 1,000 points had not finished after 81 minutes, and the row was run without it. In D = 2 to 4 it took 0.46 s, 3.7 s, and 135 s for 1,000 points.
+- **The `delaunay` crate in D = 5.** One process of three builds of 1,000 points had not finished after 81 minutes in the comparison of 0.1.0, and the row is run without it. In D = 2 to 4 it took 0.46 s, 3.7 s, and 136 s for 1,000 points.
 - **Crates not compared**, chosen as the main ones and not as a survey: `qhull` (bindings to Qhull, which is here itself), `chull`, `tritet`, `startin`, `voronoice`, `voronator`.
 - **Voronoi diagrams.** No other library here builds the same output; convx's diagram is its Delaunay triangulation and a linear solve per vertex.
 - **Threads.** Every library here was run on one core. CGAL has parallel triangulations; convx builds sequentially.
