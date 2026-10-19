@@ -628,6 +628,10 @@ fn expansion<const K: usize, T: Int>(a: &[[T; K]; K]) -> Result<T, Overflow> {
             // minor[c][d], c < d: the 2 x 2 minor of rows r, s and columns
             // c, d.
             let mut minor = [[T::default(); 4]; 4];
+            // The clippy of the MSRV (1.89) reads this loop as `needless_range_loop`,
+            // stable's does not; it is left as it is so that the compiled predicate
+            // is the one 0.1.1's comparison measured (#683).
+            #[allow(clippy::needless_range_loop)]
             for c in 0..K {
                 for d in c + 1..K {
                     minor[c][d] = det2(&a[r][c], &a[s][d], &a[r][d], &a[s][c])?;
