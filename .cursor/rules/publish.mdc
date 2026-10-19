@@ -29,7 +29,7 @@ All of these hold for the `main` commit it will run on:
 
 - `Cargo.toml` `version` is the version to publish, and `publish = false` is absent.
 - `CHANGELOG.md` has the section of that version under an undated `## [{version}]`: what breaks the previous version, each with how to move, then what is added and changed.
-- The publish review (`.agents/skills/publish-review/SKILL.md`) has been run on the release's pages, with the Japanese pages inspected by Gemini, and no failure remains against `.cursor/rules/reader-docs.mdc` and `.cursor/rules/rust-docs.mdc`. Its commit is recorded in the review's Issue. A failure blocks `cargo package` and the dry-run. `missing_docs` and a clean `cargo doc` are not this review: #661 had both, and its public rustdoc still pointed at design sections and Issue numbers.
+- The publish review (`.agents/skills/publish-review/SKILL.md`) has been run on the release's pages, with the Japanese pages inspected through the Antigravity CLI as `.cursor/rules/reader-docs.mdc` says, and no failure remains against `.cursor/rules/reader-docs.mdc` and `.cursor/rules/rust-docs.mdc`. Its commit is recorded in the review's Issue. A failure blocks `cargo package` and the dry-run. `missing_docs` and a clean `cargo doc` are not this review: #661 had both, and its public rustdoc still pointed at design sections and Issue numbers.
 - `cargo doc --no-deps` has no warning and no broken link.
 - `cargo package --list` is the whitelist below.
 - `just lint` and `just test` pass on that commit, and the suite passes on Linux.
