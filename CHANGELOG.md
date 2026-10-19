@@ -2,7 +2,7 @@
 
 Every version of convx on crates.io, newest first, in the form of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). A 0.x minor version may break the public API; an entry says so when it does. The MSRV is raised only by a version that names it here.
 
-## [0.1.1]
+## [0.1.1] - 2026-10-19
 
 A faster Delaunay triangulation of D = 2. Nothing breaks 0.1.0: no public item changes, and every triangulation, hull, and diagram has the simplices, facets, neighbors, and counts that 0.1.0 returns for the same input.
 
