@@ -29,5 +29,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.89
+        with:
+          components: clippy
+      # The Release workflow lints on the MSRV too, and its clippy reports
+      # lints stable's does not (#683).
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo clippy --release --all-targets -- -D warnings
       - run: cargo test --locked
       - run: cargo publish --dry-run --locked
