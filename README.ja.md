@@ -198,18 +198,16 @@ fn main() -> Result<(), convx::Error> {
 ```rust
 use convx::{ConvexHullBuilder, Error};
 
-fn main() {
-    // 一直線上の 3 点は平面を張らない。
-    let points = [0.0, 0.0, 1.0, 1.0, 2.0, 2.0];
-    match ConvexHullBuilder::new(2, &points).build() {
-        Err(Error::DegenerateDimension { actual_dim, spanning_points }) => {
-            // 点が張る空間は直線（1 次元）で、点 0 と点 1 がそれを張る。
-            assert_eq!(actual_dim, 1);
-            assert_eq!(spanning_points, [0, 1]);
-        }
-        Err(other) => panic!("another failure: {other}"),
-        Ok(_) => panic!("built"),
+// 一直線上の 3 点は平面を張らない。
+let points = [0.0, 0.0, 1.0, 1.0, 2.0, 2.0];
+match ConvexHullBuilder::new(2, &points).build() {
+    Err(Error::DegenerateDimension { actual_dim, spanning_points }) => {
+        // 点が張る空間は直線（1 次元）で、点 0 と点 1 がそれを張る。
+        assert_eq!(actual_dim, 1);
+        assert_eq!(spanning_points, [0, 1]);
     }
+    Err(other) => panic!("another failure: {other}"),
+    Ok(_) => panic!("built"),
 }
 ```
 

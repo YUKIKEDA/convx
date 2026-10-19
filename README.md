@@ -198,18 +198,16 @@ Every build returns `convx::Error` on failure, and so does `planes()`. The enum 
 ```rust
 use convx::{ConvexHullBuilder, Error};
 
-fn main() {
-    // Three points on one line do not span the plane.
-    let points = [0.0, 0.0, 1.0, 1.0, 2.0, 2.0];
-    match ConvexHullBuilder::new(2, &points).build() {
-        Err(Error::DegenerateDimension { actual_dim, spanning_points }) => {
-            // The points span a line, and points 0 and 1 span it.
-            assert_eq!(actual_dim, 1);
-            assert_eq!(spanning_points, [0, 1]);
-        }
-        Err(other) => panic!("another failure: {other}"),
-        Ok(_) => panic!("built"),
+// Three points on one line do not span the plane.
+let points = [0.0, 0.0, 1.0, 1.0, 2.0, 2.0];
+match ConvexHullBuilder::new(2, &points).build() {
+    Err(Error::DegenerateDimension { actual_dim, spanning_points }) => {
+        // The points span a line, and points 0 and 1 span it.
+        assert_eq!(actual_dim, 1);
+        assert_eq!(spanning_points, [0, 1]);
     }
+    Err(other) => panic!("another failure: {other}"),
+    Ok(_) => panic!("built"),
 }
 ```
 
