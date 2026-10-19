@@ -302,7 +302,7 @@ The owner opened this phase on 2026-10-17, after 0.1.0 was published. Its first 
 | ID   | Kind  | Title                                                                          | Issue | Status      |
 | ---- | ----- | ------------------------------------------------------------------------------ | ----- | ----------- |
 | R2-1 | Spike | Where the time of the Delaunay build of D = 2 goes, beside `spade`'s bulk load | #667  | Done        |
-| R2-2 | Docs  | The comparison taken again for 0.1.1, on the code it publishes                 | #674  | In progress |
+| R2-2 | Docs  | The comparison taken again for 0.1.1, on the code it publishes                 | #674  | Done        |
 | R2-3 | Task  | Publish review of 0.1.1                                                        | #675  | Not started |
 | R2-4 | Task  | 0.1.1, the version and the changelog                                           | #676  | Not started |
 
