@@ -609,6 +609,10 @@ mod lanes {
         let mut out = [ops.exact(zero); C];
         for i in (0..R).rev() {
             let mut sum = m[i][R];
+            // The clippy of the MSRV (1.89) reads this loop as `needless_range_loop`,
+            // stable's does not; it is left as it is so that the compiled predicate
+            // is the one 0.1.1's comparison measured (#683).
+            #[allow(clippy::needless_range_loop)]
             for j in i + 1..R {
                 sum = ops.sub(sum, ops.mul(m[i][j], out[j]));
             }
