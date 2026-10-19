@@ -38,6 +38,6 @@ The results go into `docs/bench.md`. `PARITY_HOME` is removed: it holds two buil
 
 ## When the code moves
 
-`marks.py` finds its places by the text of six lines in `src` and stops when one is gone. Move the mark to where that step is now, and say so in the run's section.
+`marks.py` finds its places by the text of seven lines in `src` and stops when one is gone. Move the mark to where that step is now, and say so in the run's section. Since #672 the Delaunay build writes its cells in the pass after the insertion, from the half-edges of D = 2 directly or through the draft, so its publication phase starts where the cells are written and holds the drafting that the pass after the insertion held before (#678).
 
 `setup.sh` stops on that failure (`set -e`). A script that starts it keeps that: piped into `tail` without `pipefail`, the failure is hidden and the runner starts on programs that do not exist (#609). Check that `plain/target/release/examples/parity_time` and its `marked` twin exist before the runner starts, and that the results file read afterwards is this run's.

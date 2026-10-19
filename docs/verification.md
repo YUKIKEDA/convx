@@ -168,6 +168,8 @@ What a speed row of P7 times against `main` (ADR 0006, #340), alternated on one 
 
 The parity run below runs on every set after every third merged speed row of P7 and at the end of P7. Between those runs, a row runs it only on a set its ratio could move across 1.05.
 
+From R2 on, a pull request that changes a build for speed runs the parity run on every set, against the commit it is based on, before it is ready to merge (the owner, 2026-10-19). The path sets above have no lattice and no other set of many cospherical sites: #671 was timed on them, and the Delaunay build of the lattice of D = 3 read 9% slower, found only by the comparison of the next release (#678).
+
 ### Parity run of P7
 
 The run that judges a set against ADR 0006. It times convx, CGAL, and Qhull on every set of the ADR on one machine, and splits convx's `build()` into its phases. Its tools are in `benches/parity/`, with a README of the steps (#581).
