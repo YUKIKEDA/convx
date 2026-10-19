@@ -124,7 +124,7 @@ After each merge, read `main`'s CI run. A red `main` gets its own Issue and pull
 
 ## Language
 
-Identifiers, rustdoc, Issue bodies, and commit subjects are English. Japanese in the repository is `docs/design.ja.md`, `README.ja.md`, and `docs/comparison.ja.md`. Their Japanese is inspected by Gemini with `.agents/skills/natural-japanese/SKILL.md` in score mode, not by the agent that edited them (`.cursor/rules/reader-docs.mdc`). `docs/design.md` is the full English specification, not a pointer. When the two design files differ, follow `docs/design.ja.md`.
+Identifiers, rustdoc, Issue bodies, and commit subjects are English. Japanese in the repository is `docs/design.ja.md`, `README.ja.md`, and `docs/comparison.ja.md`. Their Japanese is inspected through the Antigravity CLI with `.agents/skills/natural-japanese/SKILL.md` in score mode, not by the agent that edited them (`.cursor/rules/reader-docs.mdc`). `docs/design.md` is the full English specification, not a pointer. When the two design files differ, follow `docs/design.ja.md`.
 
 Before calling a PR ready, and whenever the owner asks for the next step, read the reviews and inline comments of every open PR (`gh pr view <n> --json reviews`, `gh api repos/<owner>/<repo>/pulls/<n>/comments`). The review of #337 named two open findings and was not read before #337 merged.
 
