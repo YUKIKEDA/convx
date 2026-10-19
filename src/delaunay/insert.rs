@@ -927,6 +927,13 @@ impl<'a, S: Shape> Mesh<'a, S> {
     /// orientation was the pass after the insertion's, where it read the
     /// two tetrahedra again (#667). Four coplanar sites leave it
     /// [`Across::Unknown`], for the lifted test.
+    ///
+    /// Once a face was recorded cospherical, the faces are walked after the
+    /// insertion whatever this decides, and most faces decided here are
+    /// gone by then: a later cavity removes them. From then on a face is
+    /// left [`Across::Unknown`], and the walk decides the faces that remain
+    /// by the same orientation. On a lattice of D = 3 the orientations here
+    /// had made the build 9% slower (#678).
     fn link_by_keys(
         &mut self,
         q: u32,
@@ -970,7 +977,10 @@ impl<'a, S: Shape> Mesh<'a, S> {
                         self.set_neighbor(other_new, other_slot, new);
                         let distinct = if other_c == c {
                             self.is_finite(c)
-                        } else if self.is_finite(new) && self.is_finite(other_new) {
+                        } else if !self.cospherical
+                            && self.is_finite(new)
+                            && self.is_finite(other_new)
+                        {
                             let far = self.vertices_of(other_new)[other_slot];
                             let v = self.vertices_of(new);
                             let mut sites = [0_u32; 4];
