@@ -56,7 +56,7 @@ Read as someone who has the crate page and has not opened this repository. Fail 
 
 ## The Japanese inspection
 
-Through the Antigravity CLI with a Gemini model (`agy -p <prompt> --model gemini-3.8-flash-high`; the Gemini CLI is retired), on each Japanese page of reader-docs, with `.agents/skills/natural-japanese/SKILL.md` in score mode (`references/diagnose.md`). Gemini returns the score, the findings, and whether the page is a gloss of the English; it does not rewrite. When the quota of every Gemini model of that CLI is out, another of its models that did not edit the page inspects it in the same way (`--model claude-sonnet-4-6`), and the review's Issue names the model (the owner, 2026-10-19: before 0.1.1 Gemini's quota was out for five days). The agent that edited the page does not judge the result: a finding is fixed by an edit, and the page is inspected again.
+Through the Antigravity CLI with a Gemini model (`agy -p <prompt> --model gemini-3.8-flash-high`; the Gemini CLI is retired), on each Japanese page of reader-docs, with `.agents/skills/natural-japanese/SKILL.md` in score mode (`references/diagnose.md`). Gemini returns the score, the findings, and whether the page is a gloss of the English; it does not rewrite. When the quota of every Gemini model of that CLI is out, another model that did not edit the page inspects it in the same way, through that CLI (`--model claude-sonnet-4-6`) or as a Claude Code subagent of another model than the editing agent's, and the review's Issue names the model (the owner, 2026-10-19: before 0.1.1 Gemini's quota was out for five days). The agent that edited the page does not judge the result: a finding is fixed by an edit, and the page is inspected again.
 
 ## Report
 
