@@ -35,6 +35,7 @@ All of these hold for the `main` commit it will run on:
 - `just lint` and `just test` pass on that commit, and the suite passes on Linux.
 - `cargo publish --dry-run` exits 0 on a clean tree of that commit (the workflow runs it again).
 - crates.io has this repository's `release.yml`, environment `release`, as a Trusted Publisher of `convx`.
+- The repository lets GitHub Actions create pull requests (Settings, Actions, General, Workflow permissions), so that the workflow opens the pull request of the dated changelog. 0.1.1 was published and released without it, and that pull request was opened by hand (#685).
 
 ## No benchmark before the code it measures is final
 
